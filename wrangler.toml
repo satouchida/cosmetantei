@@ -1,0 +1,20 @@
+name = "cosmetantei"
+main = ".open-next/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Static Assets
+assets = { directory = ".open-next/assets", binding = "ASSETS" }
+
+# Custom Domain Configuration (cosmetantei)
+# routes = [
+#   { pattern = "cosmetantei.com/*", custom_domain = true },
+#   { pattern = "app.cosmetantei.com/*", custom_domain = true }
+# ]
+
+[vars]
+GEMINI_MODEL = "gemini-3.7-flash"
+NEXT_PUBLIC_AMAZON_AFFILIATE_TAG = "cosmetantei-22"
+
+# Cloudflare本番環境でのAPIキー設定:
+# ターミナルで `npx wrangler secret put GEMINI_API_KEY` を実行して設定します
