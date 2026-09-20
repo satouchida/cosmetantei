@@ -1,6 +1,7 @@
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import { COSMETICS_DATABASE } from '../data/cosmetics-db';
 import { MARKETPLACE_DISCLAIMER_JA } from '../services/gemini';
+import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import {
   AnalyzedIngredient,
   CulpritIngredient,
@@ -149,43 +150,32 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     );
 
   for (const raw of product.ingredients) {
-    const matched = findMatchingKnownIngredient(raw);
+    // 既知DBまたは動的推論・キャッシュから成分解説を取得（100%保証）
+    const matched = findMatchingKnownIngredient(raw) || getOrGenerateIngredientExplanation(raw);
 
-    if (matched) {
-      riskCounts[matched.riskLevel]++;
+    riskCounts[matched.riskLevel]++;
 
-      const isSuspect =
-        matched.riskLevel === 'high_irritant' ||
-        matched.riskLevel === 'moderate_irritant' ||
-        matched.riskLevel === 'active_caution';
+    const isSuspect =
+      matched.riskLevel === 'high_irritant' ||
+      matched.riskLevel === 'moderate_irritant' ||
+      matched.riskLevel === 'active_caution';
 
-      analyzedIngredients.push({
-        rawName: raw,
-        normalizedJa: matched.nameJa,
-        matchedKnown: matched,
-        riskLevel: matched.riskLevel,
-        isSuspect,
-        category: matched.category,
-        reasonJa: matched.reasonJa,
-      });
+    analyzedIngredients.push({
+      rawName: raw,
+      normalizedJa: matched.nameJa,
+      matchedKnown: matched,
+      riskLevel: matched.riskLevel,
+      isSuspect,
+      category: matched.category,
+      reasonJa: matched.reasonJa,
+    });
 
-      if (matched.riskLevel === 'high_irritant' || matched.riskLevel === 'moderate_irritant') {
-        warningsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
-      } else if (matched.riskLevel === 'active_caution') {
-        warningsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
-      } else if (matched.category === 'soothing' || matched.category === 'barrier_support') {
-        soothingHighlightsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
-      }
-    } else {
-      // 未知の安全と推定される基剤
-      riskCounts.safe++;
-      analyzedIngredients.push({
-        rawName: raw,
-        normalizedJa: raw,
-        riskLevel: 'safe',
-        isSuspect: false,
-        category: 'other',
-      });
+    if (matched.riskLevel === 'high_irritant' || matched.riskLevel === 'moderate_irritant') {
+      warningsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
+    } else if (matched.riskLevel === 'active_caution') {
+      warningsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
+    } else if (matched.category === 'soothing' || matched.category === 'barrier_support') {
+      soothingHighlightsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
     }
   }
 

@@ -355,5 +355,74 @@ test('12. Dynamic API & cache-only architecture (Zero internal static brand cata
   }
 });
 
+test('13. Dynamic ingredient explanation generation & caching on uncataloged raw ingredients', () => {
+  const { getOrGenerateIngredientExplanation, DYNAMIC_INGREDIENT_CACHE } = require('./lib/services/dynamic-ingredient-service');
+
+  const testRawIngredients = [
+    '水',
+    'ミリスチン酸',
+    '炭',
+    '結晶セルロース',
+    '水酸化K',
+    'コカミドプロピルベタイン',
+    'ベントナイト',
+    'パパイン',
+    'EDTA-2Na',
+    'ツボクサエキス',
+    '未知の新規天然ポリマー',
+  ];
+
+  for (const raw of testRawIngredients) {
+    const explained = getOrGenerateIngredientExplanation(raw);
+
+    assert.ok(explained, `Ingredient ${raw} must have an explanation`);
+    assert.ok(explained.nameJa, `Ingredient ${raw} must have a Japanese name`);
+    assert.ok(explained.nameEn, `Ingredient ${raw} must have an English/INCI name`);
+    assert.ok(explained.reasonJa && explained.reasonJa.length > 5, `Ingredient ${raw} must have a reason/action`);
+    assert.ok(explained.sensitiveSkinAdviceJa && explained.sensitiveSkinAdviceJa.length > 5, `Ingredient ${raw} must have sensitive skin advice`);
+    assert.ok(
+      ['safe', 'low_caution', 'moderate_irritant', 'high_irritant', 'active_caution'].includes(explained.riskLevel),
+      `Ingredient ${raw} must have a valid riskLevel`
+    );
+
+    // キャッシュに格納されていることを検証
+    const norm = raw.trim().toLowerCase().replace(/[\s　\-_()（）]/g, '');
+    assert.ok(DYNAMIC_INGREDIENT_CACHE.has(norm), `Ingredient ${raw} must be cached`);
+  }
+
+  // analyzeProduct を通して全成分に matchedKnown が付与されることを検証
+  const testProduct: Product = {
+    id: 'test_charcoal_wash',
+    name: '炭スクラブ泡洗顔',
+    brand: 'テストブランド',
+    country: 'JP',
+    category: 'cleanser',
+    ingredients: ['水', 'ミリスチン酸', '水酸化K', '炭', '結晶セルロース', 'コカミドプロピルベタイン'],
+  };
+
+  const analysis = analyzeProduct(testProduct);
+  assert.strictEqual(analysis.ingredients.length, 6);
+
+  for (const ing of analysis.ingredients) {
+    assert.ok(ing.matchedKnown, `Ingredient ${ing.rawName} must have matchedKnown`);
+    assert.ok(ing.matchedKnown.reasonJa, `Ingredient ${ing.rawName} must have reasonJa`);
+    assert.ok(ing.matchedKnown.sensitiveSkinAdviceJa, `Ingredient ${ing.rawName} must have sensitiveSkinAdviceJa`);
+  }
+});
+
+test('14. Strict formatting validation (Zero markdown bold/italic asterisks in ingredient explanations)', () => {
+  const { getOrGenerateIngredientExplanation } = require('./lib/services/dynamic-ingredient-service');
+
+  const rawList = ['水', '炭', 'パパイン', 'ラウレス硫酸Na', 'シトラス果実エキス'];
+
+  for (const raw of rawList) {
+    const ing = getOrGenerateIngredientExplanation(raw);
+    assert.ok(!ing.reasonJa.includes('**'), `reasonJa for ${raw} must not contain **`);
+    assert.ok(!ing.reasonJa.includes('*'), `reasonJa for ${raw} must not contain *`);
+    assert.ok(!ing.sensitiveSkinAdviceJa.includes('**'), `sensitiveSkinAdviceJa for ${raw} must not contain **`);
+    assert.ok(!ing.sensitiveSkinAdviceJa.includes('*'), `sensitiveSkinAdviceJa for ${raw} must not contain *`);
+  }
+});
+
 
 

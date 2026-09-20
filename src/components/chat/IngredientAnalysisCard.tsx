@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, Check, X, Globe } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, Check, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 
 interface IngredientAnalysisCardProps {
@@ -17,6 +17,35 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   onAddToSafeRoutine,
 }) => {
   const [selectedIngredient, setSelectedIngredient] = useState<AnalyzedIngredient | null>(null);
+  const [isExplainingWithAI, setIsExplainingWithAI] = useState<boolean>(false);
+
+  const handleExplainWithAI = async (ingredientName: string) => {
+    if (!ingredientName || isExplainingWithAI) return;
+    setIsExplainingWithAI(true);
+    try {
+      const res = await fetch('/api/ingredients/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ingredientName }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ingredient && selectedIngredient) {
+          setSelectedIngredient({
+            ...selectedIngredient,
+            matchedKnown: data.ingredient,
+            riskLevel: data.ingredient.riskLevel,
+            category: data.ingredient.category,
+            reasonJa: data.ingredient.reasonJa,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to explain ingredient with AI:', err);
+    } finally {
+      setIsExplainingWithAI(false);
+    }
+  };
   const {
     product,
     overallRiskLevel,
@@ -182,26 +211,77 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       </div>
 
       {/* Ingredient Detail Modal / Popup */}
-      {selectedIngredient && selectedIngredient.matchedKnown && (
-        <div className="p-3.5 bg-sand-100/90 rounded-xl border border-sand-300 relative animate-fade-in text-xs space-y-1.5">
+      {selectedIngredient && (
+        <div className="p-3.5 bg-sand-100/90 rounded-xl border border-sand-300 relative animate-fade-in text-xs space-y-2">
           <button
             onClick={() => setSelectedIngredient(null)}
             className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 p-1"
           >
             <X className="w-4 h-4" />
           </button>
-          <div className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
-            <span>{selectedIngredient.matchedKnown.nameJa}</span>
-            <span className="text-[11px] text-gray-500 font-normal">
-              ({selectedIngredient.matchedKnown.nameEn})
+          <div className="flex items-center gap-2 flex-wrap pr-6">
+            <span className="font-bold text-gray-900 text-sm">
+              {selectedIngredient.matchedKnown?.nameJa || selectedIngredient.rawName}
             </span>
+            <span className="text-[11px] text-gray-500 font-normal">
+              ({selectedIngredient.matchedKnown?.nameEn || selectedIngredient.rawName})
+            </span>
+            {selectedIngredient.riskLevel === 'safe' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                🟢 低刺激・安心
+              </span>
+            )}
+            {selectedIngredient.riskLevel === 'low_caution' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                🟡 軽度の注意
+              </span>
+            )}
+            {selectedIngredient.riskLevel === 'moderate_irritant' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">
+                🟠 中刺激注意
+              </span>
+            )}
+            {selectedIngredient.riskLevel === 'high_irritant' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                🔴 高リスク・刺激
+              </span>
+            )}
+            {selectedIngredient.riskLevel === 'active_caution' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                🟣 高濃度アクティブ
+              </span>
+            )}
           </div>
           <p className="text-gray-700 leading-relaxed">
-            {selectedIngredient.matchedKnown.reasonJa}
+            {selectedIngredient.matchedKnown?.reasonJa ||
+              selectedIngredient.reasonJa ||
+              '化粧品の品質保持、テクスチャー調整、または保湿・保護の目的で配合される化粧品成分です。'}
           </p>
-          <p className="text-sage-800 font-medium pt-1">
-            💡 アドバイス: {selectedIngredient.matchedKnown.sensitiveSkinAdviceJa}
+          <p className="text-sage-800 font-medium">
+            💡 アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
+              '化粧品基準に適合した一般的な配合成分であり、通常の敏感肌において強い刺激となる報告は少ない安全性の高い成分です。'}
           </p>
+          <div className="pt-1.5 flex items-center justify-between border-t border-sand-200/60">
+            <button
+              type="button"
+              disabled={isExplainingWithAI}
+              onClick={() => handleExplainWithAI(selectedIngredient.rawName)}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sage-800 hover:text-sage-950 bg-white/90 hover:bg-white border border-sand-200 rounded-lg px-2.5 py-1 transition-all shadow-xs disabled:opacity-50"
+            >
+              {isExplainingWithAI ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-sage-600" />
+                  <span>Gemini 3.8 Flash で解析中...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                  <span>AIでさらに詳しく調べる</span>
+                </>
+              )}
+            </button>
+            <span className="text-[10px] text-gray-400 font-medium">動的キャッシュ対応</span>
+          </div>
         </div>
       )}
 
