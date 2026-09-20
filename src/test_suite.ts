@@ -337,6 +337,11 @@ test('12. Dynamic API & cache-only architecture (Zero internal static brand cata
     undefined,
     'INGREDIENT_PRODUCTS must not exist as internal static database'
   );
+  assert.strictEqual(
+    (liveModule as any).AUTHENTIC_POPULAR_COSMETICS,
+    undefined,
+    'AUTHENTIC_POPULAR_COSMETICS must not exist as internal static database'
+  );
 
   // 検索を実行すると、API/探索結果が動的ランタイムキャッシュに登録されること
   const initialCacheSize = COSMETICS_DATABASE.length;

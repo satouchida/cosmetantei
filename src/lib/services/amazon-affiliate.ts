@@ -13,7 +13,7 @@ export function buildAmazonAffiliateUrl(
   productName: string,
   tag: string = AMAZON_AFFILIATE_TAG
 ): string {
-  const query = `${brand} ${productName}`.trim();
+  const query = productName.startsWith(brand) ? productName : `${brand} ${productName}`.trim();
   const encodedQuery = encodeURIComponent(query);
   return `https://www.amazon.co.jp/s?k=${encodedQuery}&tag=${encodeURIComponent(tag)}`;
 }

@@ -155,11 +155,15 @@ export function searchCosmetics(query: string, limit = 6): Product[] {
     }
   }
 
-  // もし1件もヒットしない場合で、キーワードが実在コスメに合致する場合は実在コスメから抽出
-  if (enriched.length === 0 && cleanInput.length >= 1) {
-    const matched = synthesizeDynamicCandidate(cleanInput);
-    if (isActualCosmeticProduct(matched) && !enriched.some((p) => p.name === matched.name)) {
-      enriched.push(matched);
+  // もし件数が不足している場合、動的コスメ合成から補完
+  if (enriched.length < limit && cleanInput.length >= 1) {
+    let varIdx = 0;
+    while (enriched.length < limit && varIdx < limit * 3) {
+      const matched = synthesizeDynamicCandidate(cleanInput, varIdx);
+      if (isActualCosmeticProduct(matched) && !enriched.some((p) => p.name === matched.name)) {
+        enriched.push(matched);
+      }
+      varIdx++;
     }
   }
 
