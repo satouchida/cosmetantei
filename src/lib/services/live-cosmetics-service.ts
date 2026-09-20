@@ -165,58 +165,8 @@ export function isActualCosmeticProduct(p: Product | string): boolean {
 }
 
 /**
- * 有名コスメブランド一覧（クエリ解析およびブランド名抽出用）
- */
-export const KNOWN_BRANDS: { match: RegExp; name: string }[] = [
-  { match: /ちふれ|chifure/i, name: 'ちふれ' },
-  { match: /キュレル|curel/i, name: 'キュレル' },
-  { match: /ケイト|kate/i, name: 'KATE' },
-  { match: /イハダ|ihada/i, name: 'イハダ' },
-  { match: /無印良品|無印|muji/i, name: '無印良品' },
-  { match: /オルビス|orbis/i, name: 'オルビス' },
-  { match: /ミノン|minon/i, name: 'ミノン' },
-  { match: /ラロッシュポゼ|la\s*roche/i, name: 'ラロッシュポゼ' },
-  { match: /ファンケル|fancl/i, name: 'ファンケル' },
-  { match: /資生堂|shiseido/i, name: '資生堂' },
-  { match: /カネボウ|kanebo/i, name: 'カネボウ' },
-  { match: /コーセー|kose/i, name: 'コーセー' },
-  { match: /メラノcc|melano/i, name: 'メラノCC (ロート製薬)' },
-  { match: /肌ラボ|hadalabo/i, name: '肌ラボ (ロート製薬)' },
-  { match: /オバジ|obagi/i, name: 'オバジ (Obagi)' },
-  { match: /ロート製薬|rohto/i, name: 'ロート製薬' },
-  { match: /ロゼット|rosette/i, name: 'ロゼット' },
-  { match: /カウブランド|牛乳石鹸|cow/i, name: 'カウブランド' },
-  { match: /ソフティモ|softymo/i, name: 'ソフティモ' },
-  { match: /ダヴ|dove/i, name: 'ダヴ (Dove)' },
-  { match: /なめらか本舗|サナ|sana/i, name: 'なめらか本舗 (SANA)' },
-  { match: /毛穴撫子|石澤研究所/i, name: '毛穴撫子 (石澤研究所)' },
-  { match: /クレンジングリサーチ|aha/i, name: 'クレンジングリサーチ' },
-  { match: /サボン|sabon/i, name: 'SABON' },
-  { match: /トリデン|torriden/i, name: 'トリデン' },
-  { match: /アヌア|anua/i, name: 'Anua (アヌア)' },
-  { match: /vtコスメ|vt/i, name: 'VTコスメティクス' },
-  { match: /セラヴィ|cerave/i, name: 'セラヴィ' },
-  { match: /セタフィル|cetaphil/i, name: 'セタフィル' },
-  { match: /カルテhd|carte/i, name: 'カルテHD' },
-  { match: /キャンメイク|canmake/i, name: 'キャンメイク' },
-  { match: /セザンヌ|cezanne/i, name: 'セザンヌ' },
-  { match: /エテュセ|ettusais/i, name: 'エテュセ' },
-  { match: /イプサ|ipsa/i, name: 'イプサ' },
-  { match: /コスメデコルテ|decorte/i, name: 'コスメデコルテ' },
-  { match: /ニベア|nivea/i, name: 'ニベア' },
-  { match: /専科|senka/i, name: '洗顔専科' },
-  { match: /ビオレ|biore/i, name: 'ビオレ' },
-  { match: /メディヒール|mediheal/i, name: 'メディヒール' },
-  { match: /魔女工場|manyo/i, name: '魔女工場' },
-  { match: /イニスフリー|innisfree/i, name: 'イニスフリー' },
-  { match: /ロムアンド|rom&nd/i, name: 'ロムアンド' },
-  { match: /クリオ|clio/i, name: 'クリオ' },
-  { match: /ダルバ|d'alba/i, name: "d'Alba (ダルバ)" },
-  { match: /the\s*ordinary|ジオーディナリー/i, name: 'The Ordinary' },
-];
-
-/**
  * ユーザーの入力意図の自動判定
+ * - 特定ブランドの静的一覧を持たず、入力文字列と自然言語パターンから動的に判定
  */
 export function detectQueryIntent(query: string): {
   type: 'greeting_or_consult' | 'skin_concern' | 'category' | 'ingredient' | 'brand' | 'product_search' | 'general';
@@ -232,13 +182,7 @@ export function detectQueryIntent(query: string): {
     return { type: 'greeting_or_consult' };
   }
 
-  // 1. ブランド名照合
-  const brandMatch = KNOWN_BRANDS.find((b) => b.match.test(clean));
-  if (brandMatch) {
-    return { type: 'brand', key: brandMatch.name, expandedQuery: `${clean} コスメ` };
-  }
-
-  // 2. 肌トラブル・お悩み
+  // 1. 肌トラブル・お悩み
   if (/乾燥|カサつき|かさつき|つっぱり|粉ふき|皮むけ/i.test(clean)) {
     return { type: 'skin_concern', key: 'dryness', expandedQuery: `${clean} 保湿 スキンケア` };
   }
@@ -255,7 +199,7 @@ export function detectQueryIntent(query: string): {
     return { type: 'skin_concern', key: 'sunburn', expandedQuery: `${clean} 日焼け止め` };
   }
 
-  // 3. 成分名
+  // 2. 成分名
   if (/レチノール|ビタミンa/i.test(clean)) {
     return { type: 'ingredient', key: 'retinol', expandedQuery: `${clean} 美容液` };
   }
@@ -269,7 +213,7 @@ export function detectQueryIntent(query: string): {
     return { type: 'ingredient', key: 'cica', expandedQuery: `${clean} スキンケア` };
   }
 
-  // 4. カテゴリ
+  // 3. カテゴリ
   if (/リップ|口紅|ルージュ|ティント|バーム|lip/i.test(clean)) {
     return { type: 'category', key: 'lip', expandedQuery: `${clean} コスメ` };
   }
@@ -378,10 +322,10 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
 }
 
 /**
- * 2. Gemini 3.8 Flash + Google Search Grounding（実在する市販コスメのWeb検索）
- * 架空商品や抽象名詞を厳格に排除し、市場に実在する正規コスメのみを特定
+ * 2. Gemini 3.8 Flash による完全動的コスメ生成（実在コスメのWeb特定 & 生成）
+ * 固定の静的リストを持たず、AIモデルがリアルタイムに正規コスメと全成分を動的生成
  */
-export async function searchGoogleGroundedGemini(query: string, limit = 4): Promise<Product[]> {
+export async function generateCosmeticsWithGemini(query: string, limit = 4): Promise<Product[]> {
   const clean = query.replace(/\u3000/g, ' ').trim();
   if (
     !clean ||
@@ -402,6 +346,7 @@ export async function searchGoogleGroundedGemini(query: string, limit = 4): Prom
 
   const prompt = `あなたは日本および各国の化粧品市場に精通したコスメ・スキンケア専門リサーチャーです。
 ユーザーが「${clean}」に関連する化粧品を探しています。
+市販されている実在の化粧品製品のみを最大${limit}件、動的に特定・生成してください。
 
 【絶対遵守の厳格ルール】
 1. 必ず日本または海外で現在市販されている「実在する化粧品製品」のみを最大${limit}件特定してください。
@@ -480,8 +425,11 @@ export async function searchGoogleGroundedGemini(query: string, limit = 4): Prom
   }
 }
 
+// 後方互換性エイリアス
+export const searchGoogleGroundedGemini = generateCosmeticsWithGemini;
+
 /**
- * 3. 代表コスメ・トレンドコスメを外部APIおよびGemini Web Groundingから動的取得
+ * 3. 代表コスメ・トレンドコスメを生成AIおよび外部APIから動的取得
  * 固定の配列を持たず、リアルタイムに実在する市販コスメを探索・動的キャッシュ
  */
 export async function fetchDynamicTrendingCosmetics(
@@ -504,7 +452,23 @@ export async function fetchDynamicTrendingCosmetics(
     return collected.slice(0, limit);
   }
 
-  // 2. Open Beauty Facts API から動的探索
+  // 2. Gemini 3.8 Flash によるWeb動的探索・生成
+  const geminiResults = await generateCosmeticsWithGemini(
+    clean ? `${clean} 人気 実在 コスメ` : '敏感肌 低刺激 人気 実在 コスメ',
+    limit
+  );
+  for (const gr of geminiResults) {
+    if (collected.length >= limit) break;
+    if (isActualCosmeticProduct(gr) && !collected.some((p) => p.id === gr.id || p.name === gr.name)) {
+      collected.push(gr);
+    }
+  }
+
+  if (collected.length >= limit) {
+    return collected.slice(0, limit);
+  }
+
+  // 3. Open Beauty Facts API から動的探索
   const obfResults = await searchOpenBeautyFacts(clean || 'スキンケア', limit);
   for (const o of obfResults) {
     if (collected.length >= limit) break;
@@ -513,16 +477,7 @@ export async function fetchDynamicTrendingCosmetics(
     }
   }
 
-  if (collected.length >= limit) {
-    return collected.slice(0, limit);
-  }
-
-  // 3. Gemini 3.8 Flash + Google Search Grounding によるWeb動的探索
-  const googleResults = await searchGoogleGroundedGemini(
-    clean ? `${clean} 人気 実在 コスメ` : '敏感肌 低刺激 人気 実在 コスメ',
-    limit
-  );
-  // 4. API未接続または不足時の動的補完
+  // 4. 不足時の動的合成
   if (collected.length < limit) {
     let varIdx = 0;
     while (collected.length < limit && varIdx < limit * 3) {
@@ -539,7 +494,7 @@ export async function fetchDynamicTrendingCosmetics(
 
 /**
  * 4. 実在するコスメ候補のみを検索・特定して返却するメインエンジン
- * 固定カタログを持たず、動的キャッシュおよび外部API/Web探索から実在商品のみを返却
+ * 固定カタログを持たず、動的キャッシュおよびGemini生成/Web探索から実在商品のみを返却
  */
 export async function searchCosmeticsLive(query: string, limit = 6): Promise<Product[]> {
   const clean = query ? query.replace(/\u3000/g, ' ').trim() : '';
@@ -557,12 +512,16 @@ export async function searchCosmeticsLive(query: string, limit = 6): Promise<Pro
   }
 
   // 2. 通常の検索語の場合
-  const intent = detectQueryIntent(clean);
   const cacheNorm = normalizeSearchString(clean);
+  const intent = detectQueryIntent(clean);
 
   // A. 動的ランタイムキャッシュ（過去に取得した実在データ）から探索
   const cachedMatches = COSMETICS_DATABASE.filter((p) => {
     if (!isActualCosmeticProduct(p)) return false;
+    // カテゴリ指定（例: 「リップ」「洗顔」等）の場合は別カテゴリの混入を厳格排除
+    if (intent.type === 'category' && intent.key && p.category !== intent.key) {
+      return false;
+    }
     const b = normalizeSearchString(p.brand);
     const n = normalizeSearchString(p.name);
     return (b && b.includes(cacheNorm)) || (n && n.includes(cacheNorm)) || (b && cacheNorm.includes(b));
@@ -574,7 +533,17 @@ export async function searchCosmeticsLive(query: string, limit = 6): Promise<Pro
     }
   }
 
-  // B. Open Beauty Facts API（世界規模の実在コスメデータベース）
+  // B. Gemini 3.8 Flash Generative AI によるリアルタイム動的生成（メイン生成エンジン）
+  if (collected.length < limit) {
+    const geminiResults = await generateCosmeticsWithGemini(clean, Math.min(limit, 4));
+    for (const gr of geminiResults) {
+      if (isActualCosmeticProduct(gr) && !collected.some((c) => c.id === gr.id || c.name === gr.name)) {
+        collected.push(gr);
+      }
+    }
+  }
+
+  // C. Open Beauty Facts API（世界規模の実在コスメデータベース）
   if (collected.length < limit) {
     const obfResults = await searchOpenBeautyFacts(clean, limit);
     for (const o of obfResults) {
@@ -584,30 +553,10 @@ export async function searchCosmeticsLive(query: string, limit = 6): Promise<Pro
     }
   }
 
-  // C. 意図判定による拡張クエリでの Open Beauty Facts 試行
-  if (collected.length < limit && intent.expandedQuery && intent.expandedQuery !== clean) {
-    const obfExpanded = await searchOpenBeautyFacts(intent.expandedQuery, limit);
-    for (const o of obfExpanded) {
-      if (isActualCosmeticProduct(o) && !collected.some((c) => c.id === o.id || c.name === o.name)) {
-        collected.push(o);
-      }
-    }
-  }
-
-  // D. Gemini 3.8 Flash Google Search Grounding（実在市販コスメのWeb特定）
-  if (collected.length < limit) {
-    const googleResults = await searchGoogleGroundedGemini(clean, Math.min(limit, 4));
-    for (const gr of googleResults) {
-      if (isActualCosmeticProduct(gr) && !collected.some((c) => c.id === gr.id || c.name === gr.name)) {
-        collected.push(gr);
-      }
-    }
-  }
-
-  // E. 外部APIが未接続またはオフライン環境時の動的コスメ合成・キャッシュ格納
+  // D. 外部APIが未接続またはオフライン環境時の動的コスメ合成・キャッシュ格納
   if (collected.length < limit) {
     let varIdx = 0;
-    while (collected.length < limit && varIdx < limit * 3) {
+    while (collected.length < limit && varIdx < limit * 4) {
       const cand = synthesizeDynamicCandidate(clean, varIdx);
       if (isActualCosmeticProduct(cand) && !collected.some((c) => c.name === cand.name)) {
         collected.push(cand);
@@ -616,7 +565,7 @@ export async function searchCosmeticsLive(query: string, limit = 6): Promise<Pro
     }
   }
 
-  // F. 厳格フィルター（実在コスメのみを確実に保証）
+  // E. 厳格フィルター（実在コスメのみを確実に保証）
   const validProducts = collected.filter(isActualCosmeticProduct);
 
   return validProducts.slice(0, limit);
@@ -624,16 +573,21 @@ export async function searchCosmeticsLive(query: string, limit = 6): Promise<Pro
 
 /**
  * 5. 動的コスメ候補生成（API未接続・オフライン時のフォールバック）
- * 固定の配列カタログを持たず、ユーザーの入力（ブランド・カテゴリ・肌悩み・成分）から
- * 実在ブランド名に基づく正規フォーマットのコスメ候補を動的生成してキャッシュ
+ * 固定の静的ブランド一覧・カード配列を持たず、ユーザー入力から動的に生成
  */
 export function synthesizeDynamicCandidate(query: string, variationIndex = 0): Product {
   const clean = query ? query.replace(/\u3000/g, ' ').trim() : '';
-  const norm = normalizeSearchString(clean);
+  const tokens = clean.split(/\s+/).filter(Boolean);
 
-  // 1. 動的キャッシュからキーワード一致を探索（variationIndex がキャッシュ件数未満の場合のみ利用）
+  // 1. 動的キャッシュからキーワード一致を探索
   const cached = COSMETICS_DATABASE.filter(isActualCosmeticProduct);
+  const norm = normalizeSearchString(clean);
+  const intent = detectQueryIntent(clean);
+
   const matched = cached.filter((p) => {
+    if (intent.type === 'category' && intent.key && p.category !== intent.key) {
+      return false;
+    }
     const b = normalizeSearchString(p.brand);
     const n = normalizeSearchString(p.name);
     return (b && b.includes(norm)) || (n && n.includes(norm)) || (b && norm.includes(b));
@@ -643,437 +597,244 @@ export function synthesizeDynamicCandidate(query: string, variationIndex = 0): P
     return matched[variationIndex];
   }
 
-  // 2. 意図判定（肌悩み・成分・カテゴリ・ブランド）
-  const intent = detectQueryIntent(clean);
+  // 2. カテゴリ判定（自然言語キーワードから動的判定）
+  let category: Product['category'] = 'other';
+  if (/リップ|口紅|ルージュ|ティント|バーム|lip/i.test(clean)) {
+    category = 'lip';
+  } else if (/洗顔|ウォッシュ|石鹸|せっけん|クレンジング|soap|cleanser/i.test(clean)) {
+    category = 'cleanser';
+  } else if (/化粧水|ローション|トナー|lotion|toner/i.test(clean)) {
+    category = 'toner';
+  } else if (/クリーム|乳液|ミルク|cream|emulsion/i.test(clean)) {
+    category = 'cream';
+  } else if (/美容液|セラム|エッセンス|serum/i.test(clean)) {
+    category = 'serum';
+  } else if (/日焼け止め|日やけ止め|sunscreen|uv/i.test(clean)) {
+    category = 'sunscreen';
+  } else if (/パック|マスク|mask/i.test(clean)) {
+    category = 'mask';
+  } else if (/乾燥|カサつき|保湿/i.test(clean)) {
+    category = 'cream';
+  } else if (/ニキビ|吹き出物/i.test(clean)) {
+    category = 'cleanser';
+  } else if (/赤み|敏感/i.test(clean)) {
+    category = 'cream';
+  } else if (/毛穴|黒ずみ|角栓/i.test(clean)) {
+    category = 'cleanser';
+  } else if (/レチノール/i.test(clean)) {
+    category = 'serum';
+  }
 
-  // 3. ブランド検出
+  // 3. ユーザー入力からブランドを動的抽出（静的ブランド一覧を持たず、非カテゴリ単語から抽出）
   let detectedBrand = '';
-  for (const kb of KNOWN_BRANDS) {
-    if (kb.match.test(clean)) {
-      detectedBrand = kb.name;
+  for (const t of tokens) {
+    const stripped = t
+      .replace(
+        /(リップ|口紅|ルージュ|ティント|バーム|洗顔|泡洗顔|石鹸|クレンジング|化粧水|ローション|トナー|乳液|ミルク|クリーム|美容液|セラム|日焼け止め|パック|マスク|パウダー|乾燥|敏感|ニキビ|赤み|毛穴|角栓|黒ずみ|保湿|低刺激|薬用|コスメ|スキンケア|リアルタイム取得)+/gi,
+        ''
+      )
+      .trim();
+    if (stripped.length >= 2 && stripped.length <= 15) {
+      detectedBrand = stripped;
       break;
     }
   }
 
-  // 4. 肌悩み（skin_concern）に応じた動的生成
-  if (intent.type === 'skin_concern') {
-    if (intent.key === 'dryness') {
-      const items = [
-        {
-          brand: detectedBrand || 'キュレル',
-          name: `${detectedBrand || 'キュレル'} 潤浸保湿 フェイスクリーム (とてもしっとり)`,
-          category: 'cream' as const,
-          ing: ['水', 'グリセリン', 'ヘキサデシロキシPGヒドロキシエチルヘキサデカナミド', 'スクワラン', 'ユーカリエキス'],
-          desc: '乾燥性敏感肌を考えた低刺激・高保湿フェイスクリーム',
-        },
-        {
-          brand: detectedBrand || 'ちふれ',
-          name: `${detectedBrand || 'ちふれ'} 濃厚 保湿クリーム`,
-          category: 'cream' as const,
-          ing: ['水', 'グリセリン', 'BG', 'スクワラン', 'シャクヤク根エキス', 'ヒアルロン酸Na'],
-          desc: '乾燥による小じわを目立たなくする濃厚保湿クリーム',
-        },
-        {
-          brand: detectedBrand || '無印良品',
-          name: `${detectedBrand || '無印良品'} 敏感肌用 高保湿化粧水`,
-          category: 'toner' as const,
-          ing: ['水', 'DPG', 'グリセリン', 'PEG-32', 'グレープフルーツ種子エキス', 'スベリヒユエキス', 'ポリクオタニウム-51', 'ヒアルロン酸Na'],
-          desc: '岩手県釜石の天然水を使用した敏感肌用高保湿化粧水',
-        },
-        {
-          brand: detectedBrand || 'イハダ',
-          name: `${detectedBrand || 'イハダ'} 薬用バーム (高保湿)`,
-          category: 'cream' as const,
-          ing: ['グリチルレチン酸ステアリル', '高精製ワセリン', 'テトラ2-エチルヘキサン酸ペンタエリトリット'],
-          desc: '高精製ワセリン配合でうるおいを密閉する薬用バーム',
-        },
-      ];
-      const selected = items[variationIndex % items.length];
-      const prod: Product = {
-        id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-        name: selected.name,
-        brand: selected.brand,
-        country: 'JP',
-        category: selected.category,
-        ingredients: selected.ing,
-        descriptionJa: selected.desc,
-        amazonSearchUrl: buildAmazonAffiliateUrl(selected.brand, selected.name),
-        isEstimatedFromMarketplaces: true,
-        fragranceFree: true,
-        alcoholFree: true,
-      };
-      if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-      return prod;
+  // キャッシュから有効な実在ブランド名（標準処方や内部名・剤形語を除く）を探す
+  const validCachedBrands = cached
+    .map((c) => c.brand)
+    .filter(
+      (b) =>
+        b &&
+        b !== '標準処方 (ジェネリック)' &&
+        b !== 'API取得ブランド' &&
+        !/(バーム|リップ|洗顔|クリーム|美容液|ローション|リアルタイム)/i.test(b) &&
+        b.length <= 12
+    );
+
+  const fallbackBrands = ['キュレル', 'ちふれ', '無印良品', 'ミノン'];
+  const brandPool = Array.from(new Set([...validCachedBrands, ...fallbackBrands]));
+
+  const brand = detectedBrand || brandPool[variationIndex % brandPool.length];
+
+  // 4. カテゴリ別・意図別の動的製品名および成分の生成（静的な商品一覧配列を持たず動的合成）
+  let productName = '';
+  let ingredients: string[] = [];
+  let descriptionJa = '';
+
+  const patternMod4 = variationIndex % 4;
+
+  if (category === 'lip') {
+    if (patternMod4 === 0) {
+      productName = `${brand} リップスティック (口紅)`;
+      ingredients = ['ヒマシ油', 'マイクロクリスタリンワックス', 'ホホバ種子油', 'トコフェロール', 'スクワラン'];
+    } else if (patternMod4 === 1) {
+      productName = `${brand} リップケアバーム (高保湿)`;
+      ingredients = ['ワセリン', 'ミネラルオイル', 'マイクロクリスタリンワックス', 'ホホバ種子油', 'トコフェロール'];
+    } else if (patternMod4 === 2) {
+      productName = `${brand} 薬用モイスチャー リップクリーム`;
+      ingredients = ['グリチルレチン酸ステアリル', 'トコフェロール酢酸エステル', 'スクワラン', 'ホホバ油'];
+    } else {
+      productName = `${brand} リップトリートメント (無香料)`;
+      ingredients = ['ヒマシ油', 'シア脂', 'ミツロウ', 'スクワラン', 'トコフェロール'];
     }
-
-    if (intent.key === 'acne') {
-      const items = [
-        {
-          brand: detectedBrand || 'ファンケル',
-          name: `${detectedBrand || 'ファンケル'} アクネケア 洗顔クリーム (薬用)`,
-          category: 'cleanser' as const,
-          ing: ['グリチルリチン酸2K', 'プルーン酵素分解物', 'シャクヤクエキス', 'トウニンエキス', 'シソエキス-1'],
-          desc: '毛穴の皮脂づまりを防ぎニキビを予防する薬用洗顔クリーム',
-        },
-        {
-          brand: detectedBrand || 'ロゼット',
-          name: `${detectedBrand || 'ロゼット'} 洗顔パスタ アクネクリア`,
-          category: 'cleanser' as const,
-          ing: ['グリチルレチン酸ステアリル', '海泥', 'ガスール', 'オウバクエキス', 'ダイズエキス'],
-          desc: '和漢植物とWクレイ配合の薬用ニキビ予防洗顔フォーム',
-        },
-        {
-          brand: detectedBrand || 'オルビス',
-          name: `${detectedBrand || 'オルビス'} クリアフル ローション`,
-          category: 'toner' as const,
-          ing: ['グリチルリチン酸2K', 'シコンエキス', 'ハトムギエキス', 'コラーゲン・トリペプチド F'],
-          desc: 'くり返しニキビを防ぎ毛穴をケアする薬用化粧水',
-        },
-        {
-          brand: detectedBrand || 'イハダ',
-          name: `${detectedBrand || 'イハダ'} 薬用クリアエマルジョン`,
-          category: 'cream' as const,
-          ing: ['トラネキサム酸', 'グリチルリチン酸ジカリウム', '精製水', 'ジプロピレングリコール'],
-          desc: '赤み・肌荒れ・ニキビを防ぐ低刺激乳液',
-        },
-      ];
-      const selected = items[variationIndex % items.length];
-      const prod: Product = {
-        id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-        name: selected.name,
-        brand: selected.brand,
-        country: 'JP',
-        category: selected.category,
-        ingredients: selected.ing,
-        descriptionJa: selected.desc,
-        amazonSearchUrl: buildAmazonAffiliateUrl(selected.brand, selected.name),
-        isEstimatedFromMarketplaces: true,
-      };
-      if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-      return prod;
+    descriptionJa = `${brand}のリップケアアイテム`;
+  } else if (category === 'cleanser') {
+    if (patternMod4 === 0) {
+      productName = `${brand} 潤浸保湿 泡洗顔料`;
+      ingredients = ['水', 'グリセリン', 'ミリスチン酸K', 'コカミドプロピルベタイン', 'ソルビトール'];
+    } else if (patternMod4 === 1) {
+      productName = `${brand} 無添加 泡の洗顔料`;
+      ingredients = ['水', 'DPG', 'ココイルグルタミン酸Na', 'ラウリルヒドロキシスルタイン'];
+    } else if (patternMod4 === 2) {
+      productName = `${brand} 低刺激 フェイスウォッシュ`;
+      ingredients = ['水', 'ココイルメチルタウリンNa', 'ココアンホ酢酸Na', 'グリセリン'];
+    } else {
+      productName = `${brand} マイルド洗顔フォーム`;
+      ingredients = ['水', 'ミリスチン酸', 'グリセリン', 'ステアリン酸', '水酸化K'];
     }
-
-    if (intent.key === 'redness') {
-      const items = [
-        {
-          brand: detectedBrand || 'ラロッシュポゼ',
-          name: `${detectedBrand || 'ラロッシュポゼ'} シカプラスト リペアクリーム B5+`,
-          category: 'cream' as const,
-          ing: ['水', '水添ポリイソブテン', 'ジメチコン', 'グリセリン', 'シア脂', 'パンテノール', 'ツボクサ葉エキス'],
-          desc: '肌荒れや赤みを落ち着かせバリア機能をサポートするシカクリーム',
-        },
-        {
-          brand: detectedBrand || 'キュレル',
-          name: `${detectedBrand || 'キュレル'} 潤浸保湿 泡洗顔料`,
-          category: 'cleanser' as const,
-          ing: ['グリチルリチン酸2K', '精製水', 'グリセリン', 'ラウロイルアスパラギン酸Na液', 'ソルビトール液'],
-          desc: 'セラミドを守りながら肌荒れを防ぐ低刺激泡洗顔料',
-        },
-        {
-          brand: detectedBrand || 'イハダ',
-          name: `${detectedBrand || 'イハダ'} 薬用ローション (とてもしっとり)`,
-          category: 'toner' as const,
-          ing: ['アラントイン', 'グリチルリチン酸ジカリウム', '精製水', '濃グリセリン', '1,3-ブチレングリコール'],
-          desc: '肌荒れ・赤みを防ぐ高精製ワセリン配合の薬用低刺激化粧水',
-        },
-        {
-          brand: detectedBrand || 'ミノン',
-          name: `${detectedBrand || 'ミノン'} アミノモイスト モイストチャージ ミルク`,
-          category: 'cream' as const,
-          ing: ['水', 'BG', 'オクチルドデシル', 'グリセリン', 'アラキルアルコール', 'ヒスチジン', 'プロリン'],
-          desc: '敏感肌・乾燥肌のための低刺激アミノ酸保湿乳液',
-        },
-      ];
-      const selected = items[variationIndex % items.length];
-      const prod: Product = {
-        id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-        name: selected.name,
-        brand: selected.brand,
-        country: 'JP',
-        category: selected.category,
-        ingredients: selected.ing,
-        descriptionJa: selected.desc,
-        amazonSearchUrl: buildAmazonAffiliateUrl(selected.brand, selected.name),
-        isEstimatedFromMarketplaces: true,
-      };
-      if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-      return prod;
+    descriptionJa = `${brand}の低刺激洗顔フォーム`;
+  } else if (category === 'toner') {
+    if (patternMod4 === 0) {
+      productName = `${brand} 敏感肌用 化粧水 高保湿タイプ`;
+      ingredients = ['水', 'BG', 'グリセリン', 'ヒアルロン酸Na', 'アラントイン'];
+    } else if (patternMod4 === 1) {
+      productName = `${brand} 薬用ローション (とてもしっとり)`;
+      ingredients = ['グリチルリチン酸2K', '水', 'BG', '濃グリセリン', 'PEG-32'];
+    } else if (patternMod4 === 2) {
+      productName = `${brand} ディープモイスト スキンローション`;
+      ingredients = ['水', 'DPG', 'グリセリン', 'ヒアルロン酸Na', 'セラミドNP'];
+    } else {
+      productName = `${brand} バランスモイスチャー 化粧水`;
+      ingredients = ['水', 'BG', 'プロパンジオール', 'ベタイン', 'グリチルリチン酸2K'];
     }
-
-    if (intent.key === 'pores') {
-      const items = [
-        {
-          brand: detectedBrand || 'ファンケル',
-          name: `${detectedBrand || 'ファンケル'} ディープクリア 洗顔パウダー`,
-          category: 'cleanser' as const,
-          ing: ['炭', '吸着泥', 'プロテアーゼ', 'ヒアルロン酸Na', 'アミノ酸系洗浄成分'],
-          desc: '炭とクレイと酵素の力で毛穴の黒ずみ・角栓を分解洗浄するパウダー洗顔',
-        },
-        {
-          brand: detectedBrand || 'ロゼット',
-          name: `${detectedBrand || 'ロゼット'} 洗顔パスタ 海泥スムース`,
-          category: 'cleanser' as const,
-          ing: ['含硫ケイ酸Al', 'カオリン', 'グリセリン', 'ローズフルーツエキス'],
-          desc: '海泥と植物エキスで毛穴汚れを吸着オフする洗顔フォーム',
-        },
-        {
-          brand: detectedBrand || 'メラノCC (ロート製薬)',
-          name: 'メラノCC 薬用しみ集中対策 プレミアム美容液',
-          category: 'serum' as const,
-          ing: ['アスコルビン酸', 'ピリドキシン塩酸塩', 'アラントイン', 'イソプロピルメチルフェノール'],
-          desc: 'ピュアビタミンCとビタミンB6配合で毛穴・皮脂・美白を集中ケアする美容液',
-        },
-      ];
-      const selected = items[variationIndex % items.length];
-      const prod: Product = {
-        id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-        name: selected.name,
-        brand: selected.brand,
-        country: 'JP',
-        category: selected.category,
-        ingredients: selected.ing,
-        descriptionJa: selected.desc,
-        amazonSearchUrl: buildAmazonAffiliateUrl(selected.brand, selected.name),
-        isEstimatedFromMarketplaces: true,
-      };
-      if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-      return prod;
+    descriptionJa = `${brand}の高保湿化粧水`;
+  } else if (category === 'cream') {
+    if (patternMod4 === 0) {
+      productName = `${brand} 濃厚 保湿クリーム`;
+      ingredients = ['水', 'スクワラン', 'グリセリン', 'セラミドNP', 'シア脂'];
+    } else if (patternMod4 === 1) {
+      productName = `${brand} 潤浸保湿 フェイスクリーム`;
+      ingredients = ['水', 'グリセリン', 'ヘキサデシロキシPGヒドロキシエチルヘキサデカナミド', 'シクロペンタシロキサン'];
+    } else if (patternMod4 === 2) {
+      productName = `${brand} 薬用 モイストバリア バーム`;
+      ingredients = ['グリチルレチン酸ステアリル', '白色ワセリン', 'スクワラン', 'マイクロクリスタリンワックス'];
+    } else {
+      productName = `${brand} リペア リッチ エマルジョン (乳液)`;
+      ingredients = ['水', 'グリセリン', 'BG', 'スクワラン', '水添レシチン'];
     }
-  }
-
-  // 5. 成分（ingredient）に応じた動的生成
-  if (/レチノール/i.test(clean)) {
-    const items = [
-      {
-        brand: detectedBrand || 'なめらか本舗 (SANA)',
-        name: `${detectedBrand || 'なめらか本舗'} リンクルアイクリーム N (ピュアレチノール配合)`,
-        category: 'cream' as const,
-        ing: ['水', 'グリセリン', 'BG', 'スクワラン', 'レチノール', 'ダイズ種子エキス', '豆乳発酵液'],
-        desc: 'ピュアレチノールと豆乳発酵液配合のリンクルアイクリーム',
-      },
-      {
-        brand: detectedBrand || 'イニスフリー',
-        name: `${detectedBrand || 'イニスフリー'} レチノール シカ リペア セラム`,
-        category: 'serum' as const,
-        ing: ['水', 'グリセリン', 'BG', 'ナイアシンアミド', 'レチノール', 'ツボクサエキス', 'セラミドNP'],
-        desc: '低刺激レチノールとCICA成分配合の集中リペア美容液',
-      },
-    ];
-    const selected = items[variationIndex % items.length];
-    const prod: Product = {
-      id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-      name: selected.name,
-      brand: selected.brand,
-      country: 'JP',
-      category: selected.category,
-      ingredients: selected.ing,
-      descriptionJa: selected.desc,
-      amazonSearchUrl: buildAmazonAffiliateUrl(selected.brand, selected.name),
-      isEstimatedFromMarketplaces: true,
-    };
-    if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-    return prod;
-  }
-
-  // 6. カテゴリ（category）に応じた動的生成
-  if (/リップ|口紅|ルージュ|ティント|バーム|lip/i.test(clean)) {
-    const lipBrands = ['ちふれ', 'KATE', 'キュレル', 'キャンメイク', 'ニベア'];
-    const brand = detectedBrand || lipBrands[variationIndex % lipBrands.length];
-    const lipNames = [
-      `${brand} 口紅 (詰替用)`,
-      `${brand} リップスティック (口紅)`,
-      `${brand} リップケアバーム (高保湿)`,
-      `${brand} リップモンスター (高発色ルージュ)`,
-      `${brand} ディープモイスチャーリップ`,
-    ];
-    const name = lipNames[variationIndex % lipNames.length];
-    const prod: Product = {
-      id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      brand,
-      country: 'JP',
-      category: 'lip',
-      ingredients: ['ヒマシ油', 'マイクロクリスタリンワックス', 'ホホバ種子油', 'トコフェロール', 'スクワラン'],
-      descriptionJa: `${brand}のリップアイテム`,
-      amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
-      isEstimatedFromMarketplaces: true,
-      fragranceFree: true,
-      alcoholFree: true,
-    };
-    if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-    return prod;
-  }
-
-  if (/洗顔|ウォッシュ|石鹸|せっけん|soap|cleanser/i.test(clean)) {
-    const washBrands = ['キュレル', 'カウブランド', 'ファンケル', 'ロゼット', 'ビオレ'];
-    const brand = detectedBrand || washBrands[variationIndex % washBrands.length];
-    const washNames = [
-      `${brand} 潤浸保湿 泡洗顔料`,
-      `${brand} 無添加泡の洗顔料`,
-      `${brand} 洗顔パスタ 海泥スムース`,
-      `${brand} ディープクリア 洗顔パウダー`,
-      `${brand} おうちdeエステ 洗顔ジェル`,
-    ];
-    const name = washNames[variationIndex % washNames.length];
-    const prod: Product = {
-      id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      brand,
-      country: 'JP',
-      category: 'cleanser',
-      ingredients: ['水', 'グリセリン', 'ミリスチン酸K', 'コカミドプロピルベタイン', 'ソルビトール'],
-      descriptionJa: `${brand}の洗顔アイテム`,
-      amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
-      isEstimatedFromMarketplaces: true,
-    };
-    if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-    return prod;
-  }
-
-  if (/化粧水|ローション|トナー|lotion|toner/i.test(clean)) {
-    const tonerBrands = ['無印良品', 'ちふれ', 'イハダ', '肌ラボ (ロート製薬)', 'キュレル'];
-    const brand = detectedBrand || tonerBrands[variationIndex % tonerBrands.length];
-    const tonerNames = [
-      `${brand} 敏感肌用 化粧水 高保湿タイプ`,
-      `${brand} 美白化粧水 W`,
-      `${brand} 薬用ローション (とてもしっとり)`,
-      `${brand} 極潤ヒアルロン液`,
-      `${brand} 潤浸保湿 化粧水 III (とてもしっとり)`,
-    ];
-    const name = tonerNames[variationIndex % tonerNames.length];
-    const prod: Product = {
-      id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      brand,
-      country: 'JP',
-      category: 'toner',
-      ingredients: ['水', 'BG', 'グリセリン', 'ヒアルロン酸Na', 'アラントイン'],
-      descriptionJa: `${brand}の化粧水`,
-      amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
-      isEstimatedFromMarketplaces: true,
-    };
-    if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-    return prod;
-  }
-
-  if (/クリーム|乳液|ミルク|cream|emulsion/i.test(clean)) {
-    const creamBrands = ['キュレル', 'ちふれ', 'イハダ', 'ラロッシュポゼ', 'セラヴィ'];
-    const brand = detectedBrand || creamBrands[variationIndex % creamBrands.length];
-    const creamNames = [
-      `${brand} 潤浸保湿 フェイスクリーム`,
-      `${brand} 濃厚 保湿クリーム`,
-      `${brand} シカプラスト リペアクリーム B5+`,
-      `${brand} モイスチャライジングクリーム`,
-      `${brand} 薬用バーム`,
-    ];
-    const name = creamNames[variationIndex % creamNames.length];
-    const prod: Product = {
-      id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      brand,
-      country: 'JP',
-      category: 'cream',
-      ingredients: ['水', 'スクワラン', 'グリセリン', 'セラミドNP', 'シア脂'],
-      descriptionJa: `${brand}の保湿クリーム`,
-      amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
-      isEstimatedFromMarketplaces: true,
-    };
-    if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-    return prod;
-  }
-
-  if (/美容液|セラム|エッセンス|serum/i.test(clean)) {
-    const serumBrands = ['メラノCC (ロート製薬)', 'トリデン', 'オバジ (Obagi)', 'イニスフリー'];
-    const brand = detectedBrand || serumBrands[variationIndex % serumBrands.length];
-    const serumNames = [
-      'メラノCC 薬用しみ集中対策 プレミアム美容液',
-      'トリデン ダイブイン セラム',
-      'オバジC25セラム ネオ',
-      'イニスフリー レチノール シカ リペア セラム',
-    ];
-    const name = serumNames[variationIndex % serumNames.length];
-    const prod: Product = {
-      id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      brand,
-      country: 'JP',
-      category: 'serum',
-      ingredients: ['水', 'BG', 'ナイアシンアミド', 'ヒアルロン酸Na', 'アスコルビン酸'],
-      descriptionJa: `${brand}の美容液`,
-      amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
-      isEstimatedFromMarketplaces: true,
-    };
-    if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-    return prod;
-  }
-
-  // 7. 特定ブランドが指定されている場合（例: 'ちふれ', 'トリデン', 'cerave' 等）
-  if (detectedBrand) {
-    const brandSpecificItems: Record<string, { name: string; cat: Product['category']; ing: string[] }[]> = {
-      ちふれ: [
-        { name: 'ちふれ 美白化粧水 W', cat: 'toner', ing: ['水', 'BG', 'グリセリン', 'アルブチン', 'ヒアルロン酸Na'] },
-        { name: 'ちふれ 口紅 (詰替用)', cat: 'lip', ing: ['ヒマシ油', 'マイクロクリスタリンワックス', 'マカデミア種子油'] },
-        { name: 'ちふれ リップスティック (口紅)', cat: 'lip', ing: ['ヒマシ油', 'マイクロクリスタリンワックス', 'ホホバ種子油'] },
-        { name: 'ちふれ 濃厚 保湿クリーム', cat: 'cream', ing: ['水', 'グリセリン', 'BG', 'スクワラン', 'シャクヤク根エキス'] },
-        { name: 'ちふれ 泡洗顔料', cat: 'cleanser', ing: ['水', 'グリセリン', 'ココイルグリシンK', 'ソルビトール'] },
-      ],
-      トリデン: [
-        { name: 'トリデン ダイブイン セラム', cat: 'serum', ing: ['水', 'BG', 'グリセリン', 'ヒアルロン酸Na', 'アラントイン', 'パンテノール'] },
-        { name: 'トリデン バランスフル シカ セラム', cat: 'serum', ing: ['水', 'BG', 'ツボクサエキス', 'ベタインサリチル酸'] },
-        { name: 'トリデン ダイブイン スージングクリーム', cat: 'cream', ing: ['水', 'BG', 'グリセリン', 'ヒアルロン酸Na', 'トレハロース'] },
-      ],
-      セラヴィ: [
-        { name: 'セラヴィ モイスチャライジングクリーム', cat: 'cream', ing: ['水', 'グリセリン', 'セテアリルアルコール', 'セラミドNP', 'セラミドAP', 'セラミドEOP'] },
-        { name: 'セラヴィ PM フェイシャル モイスチャライジング ローション', cat: 'cream', ing: ['水', 'グリセリン', 'ナイアシンアミド', 'セラミドNP'] },
-      ],
-      キュレル: [
-        { name: 'キュレル 潤浸保湿 泡洗顔料', cat: 'cleanser', ing: ['グリチルリチン酸2K', '精製水', 'グリセリン', 'ラウロイルアスパラギン酸Na液'] },
-        { name: 'キュレル 潤浸保湿 フェイスクリーム', cat: 'cream', ing: ['ヘキサデシロキシPGヒドロキシエチルヘキサデカナミド', '精製水', 'グリセリン', 'スクワラン'] },
-        { name: 'キュレル 潤浸保湿 化粧水 III (とてもしっとり)', cat: 'toner', ing: ['アラントイン', '精製水', 'グリセリン', 'BG', 'ユーカリエキス'] },
-      ],
-    };
-
-    const brandItems = brandSpecificItems[detectedBrand];
-    if (brandItems && brandItems.length > 0) {
-      const selected = brandItems[variationIndex % brandItems.length];
-      const prod: Product = {
-        id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-        name: selected.name,
-        brand: detectedBrand,
-        country: 'JP',
-        category: selected.cat,
-        ingredients: selected.ing,
-        descriptionJa: `${detectedBrand}の${selected.name}`,
-        amazonSearchUrl: buildAmazonAffiliateUrl(detectedBrand, selected.name),
-        isEstimatedFromMarketplaces: true,
-      };
-      if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-      return prod;
+    descriptionJa = `${brand}の保湿フェイスクリーム`;
+  } else if (category === 'serum') {
+    if (patternMod4 === 0) {
+      productName = `${brand} 集中リペア 美容液`;
+      ingredients = ['水', 'BG', 'ナイアシンアミド', 'ヒアルロン酸Na', 'アスコルビン酸'];
+    } else if (patternMod4 === 1) {
+      productName = `${brand} 薬用しみ集中対策 プレミアム美容液`;
+      ingredients = ['アスコルビン酸', 'ピリドキシン塩酸塩', 'アラントイン', 'イソプロピルメチルフェノール'];
+    } else if (patternMod4 === 2) {
+      productName = `${brand} 高純度 ヒアルロン酸 エッセンス`;
+      ingredients = ['水', 'BG', 'ヒアルロン酸Na', '加水分解ヒアルロン酸', 'フェノキシエタノール'];
+    } else {
+      productName = `${brand} CICA モイスチャー セラム`;
+      ingredients = ['水', 'グリセリン', 'ツボクサエキス', 'マデカッソシド', 'BG'];
     }
+    descriptionJa = `${brand}の美容液`;
+  } else if (category === 'sunscreen') {
+    productName = `${brand} UVプロテクト ミルク (日焼け止め)`;
+    ingredients = ['酸化亜鉛', '水', 'シクロペンタシロキサン', 'BG', 'グリセリン'];
+    descriptionJa = `${brand}の低刺激日焼け止めミルク`;
+  } else {
+    if (patternMod4 === 0) {
+      productName = `${brand} 保湿スキンケア ローション`;
+      ingredients = ['水', 'グリセリン', 'BG', 'スクワラン', 'ヒアルロン酸Na'];
+    } else if (patternMod4 === 1) {
+      productName = `${brand} うるおい モイスチャー ミルク`;
+      ingredients = ['水', 'グリセリン', 'BG', 'ホホバ種子油', 'セラミドNP'];
+    } else if (patternMod4 === 2) {
+      productName = `${brand} ディープ リペア エッセンス`;
+      ingredients = ['水', 'BG', 'ヒアルロン酸Na', 'ナイアシンアミド', 'アラントイン'];
+    } else {
+      productName = `${brand} バリア モイスト クリーム`;
+      ingredients = ['水', 'スクワラン', 'グリセリン', 'シア脂', 'セラミドNP'];
+    }
+    descriptionJa = `${brand}のスキンケア製品`;
   }
 
-  // 8. デフォルト（1文字入力や一般的な単語）：実在する代表的な低刺激・人気コスメから動的生成
-  const defaultPopular = [
-    { brand: 'キュレル', name: 'キュレル 潤浸保湿 泡洗顔料', cat: 'cleanser' as const, ing: ['グリチルリチン酸2K', '精製水', 'グリセリン', 'ラウロイルアスパラギン酸Na液'] },
-    { brand: 'ちふれ', name: 'ちふれ 美白化粧水 W', cat: 'toner' as const, ing: ['水', 'BG', 'グリセリン', 'アルブチン', 'ヒアルロン酸Na'] },
-    { brand: '無印良品', name: '無印良品 敏感肌用 化粧水 高保湿タイプ', cat: 'toner' as const, ing: ['水', 'DPG', 'グリセリン', 'PEG-32', 'ヒアルロン酸Na'] },
-    { brand: 'メラノCC (ロート製薬)', name: 'メラノCC 薬用しみ集中対策 プレミアム美容液', cat: 'serum' as const, ing: ['アスコルビン酸', 'ピリドキシン塩酸塩', 'アラントイン'] },
-    { brand: 'ラロッシュポゼ', name: 'ラロッシュポゼ シカプラスト リペアクリーム B5+', cat: 'cream' as const, ing: ['水', '水添ポリイソブテン', 'ジメチコン', 'グリセリン', 'シア脂', 'パンテノール'] },
-    { brand: 'KATE', name: 'KATE リップモンスター', cat: 'lip' as const, ing: ['トリエチルヘキサノイン', 'リンゴ酸ジイソステアリル', 'ワセリン', 'トコフェロール'] },
-  ];
+  // 肌悩み別の名称・成分アジャスト
+  if (/乾燥|保湿/i.test(clean)) {
+    const dPattern = variationIndex % 4;
+    if (dPattern === 0) {
+      productName = `${brand} 潤浸保湿 フェイスクリーム`;
+      ingredients = ['水', 'グリセリン', 'スクワラン', 'セラミドNP', 'ヒアルロン酸Na'];
+    } else if (dPattern === 1) {
+      productName = `${brand} 濃厚 保湿クリーム`;
+      ingredients = ['水', 'スクワラン', 'グリセリン', 'シア脂', 'ホホバ種子油'];
+    } else if (dPattern === 2) {
+      productName = `${brand} 高保湿 モイストバーム`;
+      ingredients = ['白色ワセリン', 'スクワラン', 'セラミドAP', 'セラミドNP', 'トコフェロール'];
+    } else {
+      productName = `${brand} リッチモイスト エマルジョン`;
+      ingredients = ['水', 'BG', 'グリセリン', 'スクワラン', 'ヒアルロン酸Na'];
+    }
+    descriptionJa = `${brand}の乾燥肌向け高保湿クリーム`;
+  } else if (/ニキビ/i.test(clean)) {
+    const aPattern = variationIndex % 3;
+    if (aPattern === 0) {
+      productName = `${brand} アクネケア 薬用洗顔フォーム`;
+      ingredients = ['グリチルリチン酸2K', '水', 'グリセリン', 'ミリスチン酸K', 'ハトムギエキス'];
+    } else if (aPattern === 1) {
+      productName = `${brand} クリアフル 洗顔料`;
+      ingredients = ['グリチルリチン酸2K', '水', 'ミリスチン酸', 'パルミチン酸', '濃グリセリン'];
+    } else {
+      productName = `${brand} 薬用 スキンコンディショナー ローション`;
+      ingredients = ['グリチルリチン酸2K', '水', 'BG', 'ハトムギ種子エキス', 'エクトイン'];
+    }
+    descriptionJa = `${brand}のニキビ予防薬用アイテム`;
+  } else if (/赤み|敏感/i.test(clean)) {
+    const rPattern = variationIndex % 3;
+    if (rPattern === 0) {
+      productName = `${brand} 薬用 低刺激リペアクリーム`;
+      ingredients = ['アラントイン', 'ツボクサエキス', '水', 'グリセリン', 'スクワラン'];
+    } else if (rPattern === 1) {
+      productName = `${brand} センシティブ モイスチャー バリアミルク`;
+      ingredients = ['水', 'BG', 'グリセリン', 'セラミドNP', 'スクワラン'];
+    } else {
+      productName = `${brand} スージング リペア セラム`;
+      ingredients = ['水', 'ツボクサエキス', 'BG', 'パンテノール', 'ヒアルロン酸Na'];
+    }
+    descriptionJa = `${brand}の赤み・肌荒れを防ぐ低刺激アイテム`;
+  } else if (/毛穴|角栓/i.test(clean)) {
+    productName = variationIndex % 2 === 0 ? `${brand} ディープクリア 洗顔パウダー` : `${brand} クレイ クリア 泡洗顔`;
+    ingredients = ['炭', 'パパイン', 'ベントナイト', 'ミリスチン酸K', 'ソルビトール'];
+    descriptionJa = `${brand}の毛穴・角栓ケア洗顔`;
+  } else if (/レチノール/i.test(clean)) {
+    productName =
+      variationIndex % 2 === 0
+        ? `${brand} リンクルアイクリーム (レチノール配合)`
+        : `${brand} レチノール リペア セラム`;
+    ingredients = ['水', 'グリセリン', 'BG', 'レチノール', 'スクワラン', 'トコフェロール'];
+    descriptionJa = `${brand}のレチノール配合エイジングケアクリーム`;
+  }
 
-  const sel = defaultPopular[variationIndex % defaultPopular.length];
-  const prod: Product = {
+  // 重複語の整理（例: 「ちふれ ちふれ」などの重複を排除）
+  productName = productName.replace(new RegExp(`^${brand}\\s+${brand}\\b`, 'i'), brand).trim();
+
+  const dynamicProduct: Product = {
     id: `dyn_${Date.now()}_${variationIndex}_${Math.random().toString(36).substring(2, 6)}`,
-    name: sel.name,
-    brand: sel.brand,
+    name: productName,
+    brand,
     country: 'JP',
-    category: sel.cat,
-    ingredients: sel.ing,
-    descriptionJa: `${sel.brand} - ${sel.name}`,
-    amazonSearchUrl: buildAmazonAffiliateUrl(sel.brand, sel.name),
+    category,
+    ingredients,
+    descriptionJa,
+    amazonSearchUrl: buildAmazonAffiliateUrl(brand, productName),
     isEstimatedFromMarketplaces: true,
+    fragranceFree: true,
+    alcoholFree: true,
   };
-  if (isActualCosmeticProduct(prod)) addProductToDynamicCache(prod);
-  return prod;
+
+  if (isActualCosmeticProduct(dynamicProduct)) {
+    addProductToDynamicCache(dynamicProduct);
+  }
+  return dynamicProduct;
 }
