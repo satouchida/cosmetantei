@@ -216,11 +216,7 @@ export async function POST(request: NextRequest) {
 
     // D. 肌トラブルの相談・コスメの選び方・製品名入力など
     const geminiReply = await generateGeminiChatResponse({
-      userMessage: `ユーザー入力: 「${userText}」
-関連するコスメ候補が見つかりました（${matchedProducts.map((p) => `${p.brand} ${p.name}`).join(', ')}）。
-回答の注意点:
-1. 肌荒れや相談内容に寄り添い、当サービス「コスメ探偵」の目的（肌荒れコスメと安全コスメの成分差分分析による原因あぶり出し）に簡潔に触れつつ、肌荒れを起こした具体的な化粧品名や普段使えているコスメ名を入力・選択するよう促してください。
-2. 太字(**)やイタリック(*)などのMarkdown強調記法は絶対に含めないでください（「...」や【...】を使用してください）。`,
+      userMessage: userText,
       contextData: { matchedProducts },
     });
 

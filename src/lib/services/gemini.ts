@@ -1,7 +1,7 @@
 import { Product, ProductAnalysisResult, DifferentialAnalysisResult } from '../types';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 
-export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 
 export const MARKETPLACE_DISCLAIMER_JA =
@@ -167,6 +167,7 @@ export async function generateGeminiChatResponse(options: GeminiChatOptions): Pr
   if (contextData?.matchedProducts && contextData.matchedProducts.length > 0) {
     contextPrompt += `\n【検出された関連コスメ候補】:\n` +
       contextData.matchedProducts.map(p => `- ${p.brand} ${p.name} (主成分: ${p.ingredients.slice(0, 4).join(', ')})`).join('\n');
+    contextPrompt += `\n【指示】ユーザーの相談や入力に寄り添い、当サービス「コスメ探偵」の目的（肌荒れコスメと安全コスメの成分差分分析による原因あぶり出し）に簡潔に触れつつ、肌荒れを起こした具体的な化粧品名や普段使えているコスメ名を入力・選択するよう促してください。太字(**)やイタリック(*)などのMarkdown強調記法は絶対に含めず、「...」や【...】を使用してください。`;
   }
 
   if (contextData?.singleAnalysis) {
@@ -275,7 +276,8 @@ function generateFallbackResponse(
   }
 
   if (contextData?.matchedProducts && contextData.matchedProducts.length > 0) {
-    return `「${userText}」に一致するコスメ候補が見つかりました。\n該当するアイテムのカードをタップすると、全成分の敏感肌チェックや肌荒れ原因のあぶり出しが行えます。`;
+    const cleanUserText = userText.match(/ユーザー入力[:：]\s*[「『](.*?)[」』]/)?.[1] || userText;
+    return `「${cleanUserText}」に関連するコスメ候補が見つかりました。\n\n該当するアイテムのカードをタップすると、全成分の敏感肌チェックや肌荒れ原因のあぶり出しが行えます。お探しのアイテムが見当たらない場合は、より具体的なブランド名や商品名を入力するか、パッケージのバーコードを読み取ってください。`;
   }
 
   return `こんにちは。敏感肌向けコスメ成分チェッカー「コスメ探偵 (CosmeTantei)」です。\n\nお使いのコスメ名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコードを読み取ってください。肌荒れ原因成分のあぶり出しと、安心な代替アイテムをご提案します。`;

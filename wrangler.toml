@@ -13,7 +13,7 @@ assets = { directory = ".open-next/assets", binding = "ASSETS" }
 # ]
 
 [vars]
-GEMINI_MODEL = "gemini-3.7-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 NEXT_PUBLIC_AMAZON_AFFILIATE_TAG = "cosmetantei-22"
 
 # Cloudflare本番環境でのAPIキー設定:
