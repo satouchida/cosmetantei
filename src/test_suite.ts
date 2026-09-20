@@ -424,5 +424,50 @@ test('14. Strict formatting validation (Zero markdown bold/italic asterisks in i
   }
 });
 
+test('15. Strict authentic cosmetics guarantee (Zero fictional products or disguised search queries)', async () => {
+  const { searchCosmeticsLive, isActualCosmeticProduct } = await import('./lib/services/live-cosmetics-service');
+  const { searchCosmetics } = await import('./lib/services/search-barcode-service');
+
+  const testQueries = ['泡洗顔 炭 スクラブ', '炭 洗顔 敏感 肌', '泡洗顔 角栓', '泡洗顔 炭酸泡'];
+
+  for (const q of testQueries) {
+    const liveResults = await searchCosmeticsLive(q, 4);
+    const syncResults = searchCosmetics(q, 4);
+
+    for (const p of [...liveResults, ...syncResults]) {
+      assert.strictEqual(
+        isActualCosmeticProduct(p),
+        true,
+        `Product "${p.brand} - ${p.name}" must be an actual authentic cosmetic`
+      );
+
+      // 架空ブランド名の完全排除検証
+      assert.ok(
+        !/^(注目コスメ|注目スキンケア|薬用スキンケア|低刺激ラボ|酵素洗顔|ディープクリア|バーコード照合|ブランド未記載|未記載)$/.test(
+          p.brand
+        ),
+        `Brand "${p.brand}" must not be a fake placeholder brand`
+      );
+
+      // 架空テンプレート名・連番名の完全排除検証
+      assert.ok(
+        !/(炭＆植物スクラブ|薬用 炭クレイ スクラブ|ディープクリア 炭スクラブ|低刺激 炭スクラブ|酵素＆炭スクラブ|アイテム\d+)/.test(
+          p.name
+        ),
+        `Product name "${p.name}" must not be a fake synthesized template name`
+      );
+
+      // 検索クエリ文字列がそのまま製品名に偽装されていないことの検証
+      assert.ok(
+        !/(少ない|多い|すみしょう|かずのすけ|角栓|黒ずみ|いちご鼻|テカリ|皮脂|敏感\s*肌|炭酸\s*泡|炭酸\s*洗顔)$/.test(
+          p.name
+        ),
+        `Product name "${p.name}" must not end with search query suffix`
+      );
+    }
+  }
+});
+
+
 
 

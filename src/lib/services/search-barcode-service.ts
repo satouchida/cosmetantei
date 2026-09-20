@@ -129,44 +129,41 @@ export function searchCosmetics(query: string, limit = 6): Product[] {
     return results.slice(0, limit);
   }
 
-  // キャッシュ未ヒットや件数不足の場合：意図判定またはスターターコスメから即時補完
+  // キャッシュ未ヒットや件数不足の場合：実在するコスメのみを返却（架空商品は捏造しない）
   const enriched = [...results];
 
   if (isGreetingOrConsultation(cleanInput)) {
     const cached = COSMETICS_DATABASE.filter(isActualCosmeticProduct);
     if (cached.length > 0) return cached.slice(0, limit);
     return [
-      synthesizeDynamicCandidate('低刺激 敏感肌用 保湿ローション'),
-      synthesizeDynamicCandidate('敏感肌用 泡洗顔料'),
-      synthesizeDynamicCandidate('高保湿 フェイスクリーム'),
+      synthesizeDynamicCandidate('キュレル 泡洗顔料'),
+      synthesizeDynamicCandidate('ちふれ 口紅'),
+      synthesizeDynamicCandidate('無印良品 化粧水'),
     ].slice(0, limit);
   }
 
-  if (cleanInput.length >= 1) {
-    const dynamicCand = synthesizeDynamicCandidate(cleanInput);
-    if (!enriched.some((p) => p.name === dynamicCand.name)) {
-      enriched.push(dynamicCand);
-    }
-  }
-
+  // 実在コスメキャッシュから追加で探索
   const cached = COSMETICS_DATABASE.filter(isActualCosmeticProduct);
   for (const c of cached) {
     if (enriched.length >= limit) break;
     if (!enriched.some((p) => p.id === c.id || p.name === c.name)) {
-      enriched.push(c);
+      const b = normalizeSearchString(c.brand);
+      const n = normalizeSearchString(c.name);
+      if (b.includes(fullNormalizedQuery) || n.includes(fullNormalizedQuery) || fullNormalizedQuery.includes(b)) {
+        enriched.push(c);
+      }
     }
   }
 
-  while (enriched.length < limit) {
-    const dynamicCand = synthesizeDynamicCandidate(`${cleanInput} アイテム${enriched.length + 1}`);
-    if (!enriched.some((p) => p.name === dynamicCand.name)) {
-      enriched.push(dynamicCand);
-    } else {
-      break;
+  // もし1件もヒットしない場合で、キーワードが実在コスメに合致する場合は実在コスメから抽出
+  if (enriched.length === 0 && cleanInput.length >= 1) {
+    const matched = synthesizeDynamicCandidate(cleanInput);
+    if (isActualCosmeticProduct(matched) && !enriched.some((p) => p.name === matched.name)) {
+      enriched.push(matched);
     }
   }
 
-  return enriched.slice(0, limit);
+  return enriched.filter(isActualCosmeticProduct).slice(0, limit);
 }
 
 /**

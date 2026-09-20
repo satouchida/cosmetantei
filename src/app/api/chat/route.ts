@@ -220,15 +220,24 @@ export async function POST(request: NextRequest) {
       contextData: { matchedProducts },
     });
 
+    const quickReplies =
+      matchedProducts.length > 0
+        ? [
+            '🚨 この中のアイテムで肌荒れした',
+            '✅ この中のアイテムは安全に使えた',
+            '📸 バーコードで読み取る',
+            '🔍 別のキーワードで調べる',
+          ]
+        : [
+            '🔍 具体的な商品名で再検索',
+            '📸 バーコードをスキャンする',
+            '🧴 キュレルの泡洗顔を調べる',
+          ];
+
     return NextResponse.json({
       reply: geminiReply,
       productSuggestions: matchedProducts,
-      quickReplies: [
-        '🚨 この中のアイテムで肌荒れした',
-        '✅ この中のアイテムは安全に使えた',
-        '📸 バーコードで読み取る',
-        '🔍 別のキーワードで調べる',
-      ],
+      quickReplies,
     });
   } catch (err) {
     console.error('Chat error:', err);
