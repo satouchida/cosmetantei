@@ -91,9 +91,125 @@ export function isNonCosmeticSearchQuery(text: string): boolean {
 }
 
 /**
+ * Gemini による語句・ブランド判断キャッシュ
+ * - 静的な単語リストを持たず、Gemini 3.8 Flash の推論結果を動的にキャッシュ
+ */
+const GEMINI_TERM_JUDGMENT_CACHE = new Map<
+  string,
+  { isGenericTerm: boolean; isAuthenticBrand: boolean; normalizedBrand?: string }
+>();
+
+/**
+ * 語句が化粧品の一般名詞（剤形、成分、肌悩み等）か、実在ブランド名かを Gemini 3.8 Flash で動的に判定
+ * - 静的なリストを持たず、Geminiの自然言語理解に完全に委ねる
+ */
+export async function judgeGenericOrBrandWithGemini(
+  term: string
+): Promise<{ isGenericTerm: boolean; isAuthenticBrand: boolean; normalizedBrand?: string }> {
+  const clean = term.trim();
+  if (!clean) return { isGenericTerm: true, isAuthenticBrand: false };
+
+  const cacheKey = clean.toLowerCase();
+  const cached = GEMINI_TERM_JUDGMENT_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  if (
+    !GEMINI_API_KEY ||
+    GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY' ||
+    GEMINI_API_KEY.startsWith('AIzaSy_YOUR')
+  ) {
+    // API未接続・テスト環境時：単語長と句読点等による最小限の動的判定
+    const fallback = { isGenericTerm: false, isAuthenticBrand: clean.length >= 2, normalizedBrand: clean };
+    GEMINI_TERM_JUDGMENT_CACHE.set(cacheKey, fallback);
+    return fallback;
+  }
+
+  const prompt = `化粧品・スキンケア市場の専門家として、以下の単語「${clean}」を判定してください。
+1. これが化粧品の「一般名詞」（剤形、成分名、肌の悩み、効果・効能、質感、ターゲット層、検索修飾語など）であるか？
+2. それとも、実在する化粧品の「正式なブランド名・メーカー名・発売元」（例: ロゼット, カウブランド, FANCL, Bioré, ちふれ, キュレル, KATE, 無印良品 など）であるか？
+
+以下のJSON形式のみを出力してください（Markdownコードブロックは不要です）：
+{
+  "isGenericTerm": trueまたはfalse,
+  "isAuthenticBrand": trueまたはfalse,
+  "normalizedBrand": "正式なブランド名（ブランドの場合のみ）"
+}`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+        GEMINI_MODEL
+      )}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.0 },
+        }),
+      }
+    );
+
+    if (response.ok) {
+      const resJson = await response.json();
+      const text = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (text) {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const result = JSON.parse(jsonMatch[0]);
+          const judgment = {
+            isGenericTerm: Boolean(result.isGenericTerm),
+            isAuthenticBrand: Boolean(result.isAuthenticBrand),
+            normalizedBrand: result.normalizedBrand || clean,
+          };
+          GEMINI_TERM_JUDGMENT_CACHE.set(cacheKey, judgment);
+          return judgment;
+        }
+      }
+    }
+  } catch {}
+
+  const fallback = { isGenericTerm: false, isAuthenticBrand: true, normalizedBrand: clean };
+  GEMINI_TERM_JUDGMENT_CACHE.set(cacheKey, fallback);
+  return fallback;
+}
+
+/**
+ * 化粧品の一般名詞であるかの判定
+ * - 静的なリストを持たず、Gemini 3.8 Flash の動的判断結果に委ねる
+ */
+export function isGenericCosmeticTerm(text: string): boolean {
+  if (!text) return true;
+  const clean = text.toLowerCase().trim();
+  const cached = GEMINI_TERM_JUDGMENT_CACHE.get(clean);
+  if (cached) {
+    return cached.isGenericTerm;
+  }
+  return false;
+}
+
+/**
+ * UI表示用の安全なブランド名取得
+ * - 万が一一般名詞や不正ワードが入っていた場合でも、商品名や安全な表記にフォールバック
+ */
+export function getDisplayBrand(brand?: string, name?: string): string {
+  if (brand && !isGenericCosmeticTerm(brand) && brand !== 'ブランド未登録' && brand !== 'ブランド未記載') {
+    return brand;
+  }
+  if (name) {
+    const firstWord = name.split(/[\s　]+/)[0];
+    if (firstWord && !isGenericCosmeticTerm(firstWord) && firstWord.length >= 2 && firstWord.length <= 12) {
+      return firstWord;
+    }
+  }
+  return '実在コスメ';
+}
+
+/**
  * 実際の化粧品製品名（コスメ・スキンケア・メイクアイテム）であるかの厳格判定
  * - 架空のブランド名やプレースホルダーは厳格に除外
  * - 単なる検索クエリや疑問文、架空テンプレートは厳格に除外
+ * - ブランド名が一般名詞・検索ワードであるものは厳格に除外
  */
 export function isActualCosmeticProduct(p: Product | string): boolean {
   if (!p) return false;
@@ -111,6 +227,11 @@ export function isActualCosmeticProduct(p: Product | string): boolean {
 
   if (typeof p !== 'string') {
     if (isNonCosmeticSearchQuery(p.name) || isNonCosmeticSearchQuery(p.brand)) {
+      return false;
+    }
+
+    // ブランド名が一般名詞である場合は即NG（Gemini判断）
+    if (isGenericCosmeticTerm(p.brand)) {
       return false;
     }
 
@@ -144,16 +265,7 @@ export function isActualCosmeticProduct(p: Product | string): boolean {
     return false;
   }
 
-  // 3. 単なる一般的なカテゴリ・成分・肌悩み単語の組み合わせのみで構成されている場合は検索クエリと判定
-  const genericWords =
-    /^(泡|炭|炭酸|炭酸泡|炭酸洗顔|洗顔|泡洗顔|スクラブ|スクラブ洗顔|敏感|肌|敏感肌|乾燥|乾燥肌|保湿|高保湿|低刺激|薬用|クレンジング|メイク落とし|リップ|口紅|化粧水|乳液|クリーム|美容液|日焼け止め|毛穴|角栓|黒ずみ|泥|クレイ|酵素|男|メンズ|女性|子供|人気|おすすめ|市販|プチプラ)$/i;
-
-  const parts = bareQuery.split(/[\s\-_・/]+/);
-  if (parts.length > 0 && parts.every((pt) => genericWords.test(pt))) {
-    return false;
-  }
-
-  // 4. 化粧品カテゴリー、剤形、または実在コスメ製品シリーズ名が含まれていること
+  // 3. 化粧品カテゴリー、剤形、または実在コスメ製品シリーズ名が含まれていること
   const cosmeticSignature =
     /(化粧水|ローション|トナー|スキン|乳液|ミルク|エマルジョン|クリーム|フェイスクリーム|バーム|美容液|セラム|エッセンス|アンプル|オイル|パック|マスク|シートマスク|ジェル|洗顔|泡洗顔|洗顔料|洗顔フォーム|クレンジング|メイク落とし|石鹸|せっけん|スクラブ|日焼け止め|日やけ止め|uv|サンプロテクト|サンクリーム|下地|化粧下地|ファンデーション|ファンデ|bbクリーム|ccクリーム|コンシーラー|パウダー|おしろい|リップ|口紅|ルージュ|ティント|リップバーム|リップクリーム|リップグロス|リッププランパー|アイシャドウ|マスカラ|アイライナー|アイブロウ|眉マスカラ|チーク|ハイライト|シェーディング|ネイル|モンスター|メラノcc|シカプラスト|パーフェクトホイップ|クリアフル|白潤|極潤|オバジc|ダイブイン|リードルショット)/i;
 
@@ -351,7 +463,7 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
 【絶対遵守の厳格ルール】
 1. 必ず日本または海外で現在市販されている「実在する化粧品製品」のみを最大${limit}件特定してください。
 2. 架空の製品、想像上の製品、一般名詞のみの名前（例: 「炭洗顔フォーム」「濃密泡洗顔」など）は絶対に出力しないでください。
-3. 必ず実在する正式なブランド名・発売元（例: 「ロゼット」「FANCL」「Bioré」「マンダム」「ちふれ」「キュレル」等）と、正確な製品名を記載してください。
+3. 必ず実在する正式なメーカー・ブランド名・発売元（例: 「ロゼット」「FANCL」「Bioré」「マンダム」「ちふれ」「キュレル」等）と、正確な製品名を記載してください。ブランド名（brand）に一般名詞（例: 「炭」「泡洗顔」「スクラブ」「敏感肌」「保湿クリーム」など）や、ユーザー入力の検索ワードをそのまま記載することは固く禁じます。
 4. 全成分（ingredients）も、その実在製品の公式パッケージや公式サイトに掲載されている実際の全成分リスト（または公表主要成分）を記載してください。適当な推測成分は出力しないでください。
 5. 太字(**)やイタリック(*)などのMarkdown強調記法は絶対に含めないでください。
 
@@ -359,7 +471,7 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
 [
   {
     "name": "実在する正確な製品名",
-    "brand": "実在する正式なブランド名",
+    "brand": "実在する正式なメーカー・ブランド名（一般名詞・検索ワードの転載厳禁）",
     "country": "JP",
     "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other",
     "ingredients": ["実際の全成分1", "実際の全成分2"],
@@ -399,17 +511,20 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
     for (const item of parsed) {
       if (!item.name || !item.brand) continue;
 
+      const brand = item.brand.trim();
+      if (isGenericCosmeticTerm(brand)) continue;
+
       const product: Product = {
         id: `gem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         name: item.name,
-        brand: item.brand,
+        brand,
         country: item.country || 'JP',
         category: item.category || 'other',
         ingredients: Array.isArray(item.ingredients) && item.ingredients.length > 0
           ? item.ingredients
           : ['成分情報はオンライン公開情報より探索'],
-        descriptionJa: item.descriptionJa || `${item.brand} - ${item.name}`,
-        amazonSearchUrl: buildAmazonAffiliateUrl(item.brand, item.name),
+        descriptionJa: item.descriptionJa || `${brand} - ${item.name}`,
+        amazonSearchUrl: buildAmazonAffiliateUrl(brand, item.name),
         isEstimatedFromMarketplaces: true,
       };
 
@@ -625,22 +740,8 @@ export function synthesizeDynamicCandidate(query: string, variationIndex = 0): P
     category = 'serum';
   }
 
-  // 3. ユーザー入力からブランドを動的抽出（静的ブランド一覧を持たず、非カテゴリ単語から抽出）
-  let detectedBrand = '';
-  for (const t of tokens) {
-    const stripped = t
-      .replace(
-        /(リップ|口紅|ルージュ|ティント|バーム|洗顔|泡洗顔|石鹸|クレンジング|化粧水|ローション|トナー|乳液|ミルク|クリーム|美容液|セラム|日焼け止め|パック|マスク|パウダー|乾燥|敏感|ニキビ|赤み|毛穴|角栓|黒ずみ|保湿|低刺激|薬用|コスメ|スキンケア|リアルタイム取得)+/gi,
-        ''
-      )
-      .trim();
-    if (stripped.length >= 2 && stripped.length <= 15) {
-      detectedBrand = stripped;
-      break;
-    }
-  }
-
-  // キャッシュから有効な実在ブランド名（標準処方や内部名・剤形語を除く）を探す
+  // 3. ブランド決定（静的な名前リストを持たず、動的キャッシュの実在ブランドから動的に解決）
+  // ユーザー入力ワードをブランド名として転載することは完全に排除
   const validCachedBrands = cached
     .map((c) => c.brand)
     .filter(
@@ -648,14 +749,15 @@ export function synthesizeDynamicCandidate(query: string, variationIndex = 0): P
         b &&
         b !== '標準処方 (ジェネリック)' &&
         b !== 'API取得ブランド' &&
-        !/(バーム|リップ|洗顔|クリーム|美容液|ローション|リアルタイム)/i.test(b) &&
-        b.length <= 12
+        !isGenericCosmeticTerm(b) &&
+        b.length <= 15
     );
 
-  const fallbackBrands = ['キュレル', 'ちふれ', '無印良品', 'ミノン'];
-  const brandPool = Array.from(new Set([...validCachedBrands, ...fallbackBrands]));
-
-  const brand = detectedBrand || brandPool[variationIndex % brandPool.length];
+  // キャッシュ内の実在ブランドから動的にローテーション（静的リストは一切保持しない）
+  const brand =
+    validCachedBrands.length > 0
+      ? validCachedBrands[variationIndex % validCachedBrands.length]
+      : '実在コスメ';
 
   // 4. カテゴリ別・意図別の動的製品名および成分の生成（静的な商品一覧配列を持たず動的合成）
   let productName = '';

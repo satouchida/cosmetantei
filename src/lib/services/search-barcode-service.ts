@@ -11,6 +11,9 @@ import {
   getServicePurposeExplanation,
   isActualCosmeticProduct,
   isNonCosmeticSearchQuery,
+  isGenericCosmeticTerm,
+  judgeGenericOrBrandWithGemini,
+  getDisplayBrand,
 } from './live-cosmetics-service';
 
 export {
@@ -22,6 +25,9 @@ export {
   getServicePurposeExplanation,
   isActualCosmeticProduct,
   isNonCosmeticSearchQuery,
+  isGenericCosmeticTerm,
+  judgeGenericOrBrandWithGemini,
+  getDisplayBrand,
 };
 
 const CATEGORY_SYNONYMS: Record<string, string[]> = {

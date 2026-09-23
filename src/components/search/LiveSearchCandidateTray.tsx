@@ -3,6 +3,7 @@
 import React from 'react';
 import { Product } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, ChevronRight } from 'lucide-react';
+import { getDisplayBrand } from '@/lib/services/search-barcode-service';
 
 interface LiveSearchCandidateTrayProps {
   query: string;
@@ -97,7 +98,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                   </div>
 
                   <div className="text-[11px] font-bold text-sage-700 truncate">
-                    {product.brand}
+                    {getDisplayBrand(product.brand, product.name)}
                   </div>
                   <h4 className="text-xs font-bold text-gray-900 line-clamp-2 leading-snug mt-0.5 group-hover:text-sage-800">
                     {product.name}

@@ -3,6 +3,7 @@
 import React from 'react';
 import { Product } from '@/lib/types';
 import { Sparkles, AlertTriangle, ShieldCheck, Search, Tag } from 'lucide-react';
+import { getDisplayBrand } from '@/lib/services/search-barcode-service';
 
 interface ProductSuggestionCardProps {
   products: Product[];
@@ -59,7 +60,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   )}
                 </div>
 
-                <div className="text-xs font-bold text-sage-800">{p.brand}</div>
+                <div className="text-xs font-bold text-sage-800">{getDisplayBrand(p.brand, p.name)}</div>
                 <h4 className="text-sm font-bold text-gray-900 line-clamp-2 mt-0.5 leading-snug">
                   {p.name}
                 </h4>

@@ -280,7 +280,6 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
                 </>
               )}
             </button>
-            <span className="text-[10px] text-gray-400 font-medium">動的キャッシュ対応</span>
           </div>
         </div>
       )}

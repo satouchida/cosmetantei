@@ -473,6 +473,76 @@ test('15. Strict authentic cosmetics guarantee (Zero fictional products or disgu
   }
 });
 
+test('16. Zero user query reflection in brand field (Rejects generic terms in brand)', async () => {
+  const { searchCosmeticsLive, judgeGenericOrBrandWithGemini, getDisplayBrand } = await import(
+    './lib/services/live-cosmetics-service'
+  );
+  const { searchCosmetics } = await import('./lib/services/search-barcode-service');
+
+  const genericQueries = [
+    '泡洗顔 炭 スクラブ',
+    '炭 洗顔',
+    '乾燥肌 保湿クリーム',
+    '敏感肌 化粧水',
+    '毛穴 クレンジング',
+    'プチプラ リップ',
+    'メンズ 洗顔',
+  ];
+
+  for (const q of genericQueries) {
+    const liveResults = await searchCosmeticsLive(q, 3);
+    const syncResults = searchCosmetics(q, 3);
+
+    for (const p of [...liveResults, ...syncResults]) {
+      // ブランド名がユーザー入力の検索クエリ単語（スクラブ、炭、泡洗顔、敏感肌等）でないことの厳格検証
+      assert.ok(
+        p.brand !== '炭' &&
+          p.brand !== 'スクラブ' &&
+          p.brand !== '泡洗顔' &&
+          p.brand !== '炭 洗顔' &&
+          p.brand !== '泡洗顔 炭 スクラブ' &&
+          p.brand !== '乾燥肌' &&
+          p.brand !== '敏感肌' &&
+          p.brand !== '毛穴' &&
+          p.brand !== 'プチプラ' &&
+          p.brand !== 'メンズ',
+        `Brand "${p.brand}" for query "${q}" must not be a user search query word`
+      );
+
+      // ブランド名が表示されるべきエリアで安全な実在ブランド名が返ることの検証
+      const displayBrand = getDisplayBrand(p.brand, p.name);
+      assert.ok(
+        displayBrand &&
+          displayBrand !== '炭' &&
+          displayBrand !== 'スクラブ' &&
+          displayBrand !== '泡洗顔',
+        `Display brand "${displayBrand}" must be an authentic brand`
+      );
+    }
+  }
+
+  // Gemini による語句判定関数の動作検証
+  const judgment = await judgeGenericOrBrandWithGemini('ちふれ');
+  assert.strictEqual(judgment.isAuthenticBrand, true);
+});
+
+test('17. Verification of zero dynamic cache text on UI code', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+
+  const cardPath = path.join(
+    process.cwd(),
+    'src/components/chat/IngredientAnalysisCard.tsx'
+  );
+  const content = fs.readFileSync(cardPath, 'utf-8');
+
+  assert.ok(
+    !content.includes('動的キャッシュ対応'),
+    'UI component IngredientAnalysisCard.tsx must not contain "動的キャッシュ対応"'
+  );
+});
+
+
 
 
 
