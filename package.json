@@ -2,8 +2,11 @@
   "name": "cosmetantei",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.9"
+  },
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "node --env-file-if-exists=.dev.vars node_modules/next/dist/bin/next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint",

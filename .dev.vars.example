@@ -1,0 +1,3 @@
+# npm run dev / wrangler dev / opennextjs-cloudflare preview 用のローカル環境変数（このファイルを .dev.vars にコピーして値を設定）
+# Google AI Studio (https://aistudio.google.com/) で取得したAPIキー
+GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"

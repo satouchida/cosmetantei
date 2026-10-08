@@ -30,6 +30,12 @@ yarn-error.log*
 # local env files (do not commit secrets)
 .env*.local
 .env
+.env.*
+.dev.vars
+.dev.vars.*
+# 例・テンプレートは追跡する
+!.env.local.example
+!.dev.vars.example
 
 # typescript
 *.tsbuildinfo
