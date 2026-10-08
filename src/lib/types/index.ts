@@ -5,7 +5,17 @@ export type IngredientRiskLevel =
   | 'low_caution'     // 🟡 軽度の注意（個人差あり）
   | 'moderate_irritant'// 🟠 敏感肌には刺激になりやすい
   | 'high_irritant'   // 🔴 高リスクアレルゲン・旧表示指定成分等
-  | 'active_caution'; // 🟣 高濃度アクティブ成分（併用・バリア機能低下時に注意）
+  | 'active_caution'  // 🟣 高濃度アクティブ成分（併用・バリア機能低下時に注意）
+  | 'unknown';        // ⚪ 未評価（既知DB・推論ルールに該当せず、安全性を判断できない）
+
+export const INGREDIENT_RISK_LEVELS: IngredientRiskLevel[] = [
+  'safe',
+  'low_caution',
+  'moderate_irritant',
+  'high_irritant',
+  'active_caution',
+  'unknown',
+];
 
 export type IngredientCategory = 
   | 'fragrance'          // 合成香料
@@ -32,6 +42,14 @@ export interface KnownIngredient {
   comedogenicRating?: number; // 0 - 5
 }
 
+/**
+ * 全成分データの出所
+ * - open_beauty_facts: Open Beauty Facts に登録された成分表示
+ * - user_label: ユーザーがパッケージから入力した成分表示
+ * - ai_estimate: Gemini による推定（Web検索グラウンディング含む）。おすすめ代替品には使わない
+ */
+export type IngredientSource = 'open_beauty_facts' | 'user_label' | 'ai_estimate';
+
 export interface Product {
   id: string;
   name: string;
@@ -50,6 +68,7 @@ export interface Product {
   alcoholFree?: boolean; // エタノールフリー
   amazonSearchUrl?: string; // Amazonアフィリエイトリンク
   isEstimatedFromMarketplaces?: boolean; // Amazon/Sephora/Olive Young/Rakuten等のオンライン情報から補完
+  ingredientSource?: IngredientSource;
 }
 
 export interface AnalyzedIngredient {
@@ -71,8 +90,9 @@ export interface ProductAnalysisResult {
     moderate_irritant: number;
     high_irritant: number;
     active_caution: number;
+    unknown: number;
   };
-  overallRiskLevel: 'safe' | 'caution' | 'warning';
+  overallRiskLevel: 'safe' | 'caution' | 'warning' | 'insufficient_data'; // insufficient_data: 評価できる成分データが不足
   summaryJa: string;
   warningsJa: string[];
   soothingHighlightsJa: string[];

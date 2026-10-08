@@ -12,6 +12,25 @@ assets = { directory = ".open-next/assets", binding = "ASSETS" }
 #   { pattern = "app.cosmetantei.com/*", custom_domain = true }
 # ]
 
+# レート制限（src/lib/server/cloudflare.ts で使用）
+# namespace_id はアカウント内で一意な任意の数値。事前のリソース作成は不要です
+[[ratelimits]]
+name = "AI_RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "SEARCH_RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+# KV キャッシュ（Gemini応答・成分AI解説・語句判定・バーコード照合結果）
+# 未設定の場合はアイソレート単位のインメモリキャッシュで動作します
+# 有効化手順: `npx wrangler kv namespace create APP_CACHE` を実行し、表示された id を貼り付けてコメントを外す
+# [[kv_namespaces]]
+# binding = "APP_CACHE"
+# id = "<namespace id>"
+
 [vars]
 GEMINI_MODEL = "gemini-3.8-flash"
 NEXT_PUBLIC_AMAZON_AFFILIATE_TAG = "cosmetantei-22"

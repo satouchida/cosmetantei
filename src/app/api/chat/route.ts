@@ -5,50 +5,23 @@ import {
   lookupByBarcode,
   isGreetingOrConsultation,
   getServicePurposeExplanation,
+  BARCODE_PATTERN,
 } from '@/lib/services/search-barcode-service';
 import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
 import { Product, UserRoutineState } from '@/lib/types';
 import { KNOWN_INGREDIENTS } from '@/lib/data/ingredients-db';
 import { generateGeminiChatResponse } from '@/lib/services/gemini';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
+import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 
-// IPごとのレート制限（1分間に最大20リクエスト）
-const ipRequestHistory = new Map<string, number[]>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1分
-const MAX_REQUESTS_PER_WINDOW = 20;
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = ipRequestHistory.get(ip) || [];
-  
-  // 1分以上前の古いリクエストを除去
-  const recent = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
-  
-  if (recent.length >= MAX_REQUESTS_PER_WINDOW) {
-    return true;
-  }
-  
-  recent.push(now);
-  ipRequestHistory.set(ip, recent);
-  return false;
-}
+const INVALID_REQUEST_REPLY = 'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。';
 
 export async function POST(request: NextRequest) {
   try {
-    // クライアントIPの取得（Cloudflare / Vercel / プロキシ対応）
-    const clientIp =
-      request.headers.get('cf-connecting-ip') ||
-      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-      'anonymous';
-
-    // レート制限チェック
-    if (isRateLimited(clientIp)) {
-      return NextResponse.json(
-        {
-          reply:
-            '⚠️ 短時間の連続アクセスを検知しました。AIリクエストの過剰消費を防ぐため、1分ほど時間をおいてから再度お試しください。',
-        },
-        { status: 429 }
-      );
+    // レート制限チェック（Cloudflare Rate Limiting バインディング、無ければインメモリ）
+    if (await isRateLimited('ai', getClientIp(request.headers))) {
+      return NextResponse.json({ reply: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
     }
 
     const body = await request.json();
@@ -66,10 +39,28 @@ export async function POST(request: NextRequest) {
       barcode?: string;
     };
 
+    // 入力の形式・サイズを検証（分析処理と Gemini プロンプトに渡す前に）
+    if (
+      (message !== undefined && (typeof message !== 'string' || message.length > MAX_MESSAGE_LENGTH)) ||
+      (routine !== undefined && !isValidRoutine(routine)) ||
+      (selectedProduct !== undefined && !isValidProduct(selectedProduct)) ||
+      (barcode !== undefined && typeof barcode !== 'string')
+    ) {
+      return NextResponse.json({ reply: INVALID_REQUEST_REPLY }, { status: 400 });
+    }
+
+    // KV に保存された成分確認済みの製品を読み込み、おすすめ代替品の候補にする
+    await hydrateVerifiedProducts();
+
     const userText = (message || '').trim();
     const cleanNumeric = userText.replace(/[\s\-_]/g, '');
-    const isPureBarcode = /^[0-9]{8,14}$/.test(cleanNumeric);
-    const targetBarcode = (action === 'barcode_lookup' && barcode) ? barcode : (isPureBarcode ? cleanNumeric : null);
+    const cleanBarcode = (barcode || '').replace(/[\s\-_]/g, '');
+    const targetBarcode =
+      action === 'barcode_lookup' && BARCODE_PATTERN.test(cleanBarcode)
+        ? cleanBarcode
+        : BARCODE_PATTERN.test(cleanNumeric)
+        ? cleanNumeric
+        : null;
 
     // 1. バーコード指定または数字直接入力の場合
     if (targetBarcode) {
@@ -161,7 +152,7 @@ export async function POST(request: NextRequest) {
 
       const diffResult = performDifferentialAnalysis(routine.badProducts, routine.safeProducts || []);
       const geminiReply = await generateGeminiChatResponse({
-        userMessage: `肌荒れしたコスメ（${routine.badProducts.map(p => p.name).join(', ')}）と安全なコスメ（${routine.safeProducts.map(p => p.name).join(', ') || 'なし'}）を比較し、あぶり出された疑わしい成分（${diffResult.culprits.map(c => c.nameJa).join(', ')}）について、今後のコスメ選びのアドバイスをしてください。`,
+        userMessage: `肌荒れしたコスメ（${routine.badProducts.map(p => p.name).join(', ')}）と安全なコスメ（${(routine.safeProducts || []).map(p => p.name).join(', ') || 'なし'}）を比較し、あぶり出された疑わしい成分（${diffResult.culprits.map(c => c.nameJa).join(', ')}）について、今後のコスメ選びのアドバイスをしてください。`,
         contextData: { differentialAnalysis: diffResult },
       });
 

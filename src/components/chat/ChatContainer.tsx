@@ -26,7 +26,6 @@ import {
   CheckCircle2,
   Search,
 } from 'lucide-react';
-import { searchCosmetics } from '@/lib/services/search-barcode-service';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 
 export const ChatContainer: React.FC = () => {
@@ -62,17 +61,14 @@ export const ChatContainer: React.FC = () => {
       return;
     }
 
-    // 1. 動的キャッシュから即時表示（0ms応答）
-    const instantResults = searchCosmetics(trimmed, 6);
-    if (instantResults.length > 0) {
-      setLiveCandidates(instantResults);
-      setIsTrayOpen(true);
-    }
-
-    // 2. 高頻度API & Google検索への非同期問い合わせ（300msデバウンス）
+    // 高頻度API & Google検索への非同期問い合わせ（300msデバウンス）
+    // 入力が変わったら前のリクエストを中断し、古い結果で新しい結果を上書きしないようにする
+    const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/products/search?q=${encodeURIComponent(trimmed)}&limit=6`);
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(trimmed)}&limit=6`, {
+          signal: controller.signal,
+        });
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.results) && data.results.length > 0) {
@@ -81,11 +77,14 @@ export const ChatContainer: React.FC = () => {
           }
         }
       } catch (e) {
-        // オフライン時はキャッシュ結果を維持
+        // 中断・オフライン時は表示中の候補を維持
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [input]);
 
   const [routine, setRoutine] = useState<UserRoutineState>({

@@ -86,6 +86,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
               const isHigh = c.riskLevel === 'high_irritant';
               const isMod = c.riskLevel === 'moderate_irritant';
               const isActive = c.riskLevel === 'active_caution';
+              const isUnknown = c.riskLevel === 'unknown';
 
               const badgeColor = isHigh
                 ? 'bg-rose-100 text-rose-800 border-rose-300'
@@ -93,6 +94,8 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
                 ? 'bg-orange-100 text-orange-800 border-orange-300'
                 : isActive
                 ? 'bg-purple-100 text-purple-800 border-purple-300'
+                : isUnknown
+                ? 'bg-white text-gray-600 border-gray-300 border-dashed'
                 : 'bg-amber-100 text-amber-800 border-amber-300';
 
               const riskLabel = isHigh
@@ -101,6 +104,8 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
                 ? '乾燥・刺激リスク'
                 : isActive
                 ? '高濃度アクティブ'
+                : isUnknown
+                ? '未評価成分'
                 : '注意成分';
 
               return (

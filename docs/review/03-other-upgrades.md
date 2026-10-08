@@ -13,20 +13,18 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
 - [ ] **Don't trust product objects from the browser.**
   `src/app/api/chat/route.ts:65` (`selectedProduct`, `routine`) and `src/app/api/analyze/route.ts`
   accept full `Product` objects, including ingredient lists, and put their text straight into
-  Gemini prompts. Accept product IDs or barcodes and look products up on the server. Validate
-  request bodies (e.g. with zod) and cap string lengths.
+  Gemini prompts. Accept product IDs or barcodes and look products up on the server.
+  *Partly done:* shape and size limits are enforced by `src/lib/server/validation.ts`; the routes
+  still trust client-supplied ingredient lists.
 - [ ] **Restrict remote images.** `next.config.mjs:8` sets `hostname: '**'`, which lets anyone run
   any image through your image optimizer. Limit it to `images.openbeautyfacts.org` and any other
   hosts you actually use.
 
 ## Tests
 
-- [ ] **Mock the network.** Several tests call Open Beauty Facts for real (about 6 seconds each:
-  tests 9 and 16 in `tests/test_suite.ts`), so they are slow and will fail intermittently in CI.
-  Stub `fetch` instead.
+- [x] **Mock the network.** Tests now stub `fetch` and run offline (about 0.25 seconds in total).
 - [ ] **Replace test 17.** It only checks that a UI file doesn't contain a string.
-- [ ] **Rewrite tests that assert synthesis.** Tests 2, 9, 15, 16 assert that synthesized products
-  fill search results; they must change when fix 01 #1 lands.
+- [x] **Rewrite tests that assert synthesis.** Done together with fix 01 #1.
 - [ ] Add tests for the analyzer edge cases: `findMatchingKnownIngredient` substring matches
   (`ingredient-analyzer.ts:59-90`) and differential analysis with zero safe products.
 

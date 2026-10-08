@@ -18,10 +18,17 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 }) => {
   const [selectedIngredient, setSelectedIngredient] = useState<AnalyzedIngredient | null>(null);
   const [isExplainingWithAI, setIsExplainingWithAI] = useState<boolean>(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
+
+  const selectIngredient = (ing: AnalyzedIngredient | null) => {
+    setSelectedIngredient(ing);
+    setExplainError(null);
+  };
 
   const handleExplainWithAI = async (ingredientName: string) => {
     if (!ingredientName || isExplainingWithAI) return;
     setIsExplainingWithAI(true);
+    setExplainError(null);
     try {
       const res = await fetch('/api/ingredients/explain', {
         method: 'POST',
@@ -39,9 +46,13 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             reasonJa: data.ingredient.reasonJa,
           });
         }
+      } else {
+        const data = await res.json().catch(() => null);
+        setExplainError(data?.error || 'AI解説を取得できませんでした。しばらくしてからお試しください。');
       }
     } catch (err) {
       console.error('Failed to explain ingredient with AI:', err);
+      setExplainError('AI解説を取得できませんでした。通信環境をご確認ください。');
     } finally {
       setIsExplainingWithAI(false);
     }
@@ -81,6 +92,13 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           icon: AlertCircle,
           iconColor: 'text-rose-600',
         };
+      case 'insufficient_data':
+        return {
+          title: '成分データ不足で判定できません',
+          bg: 'bg-gray-50 text-gray-700 border-gray-300',
+          icon: HelpCircle,
+          iconColor: 'text-gray-500',
+        };
     }
   };
 
@@ -97,6 +115,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         return 'bg-purple-100/90 text-purple-800 border-purple-300 hover:bg-purple-200';
       case 'low_caution':
         return 'bg-amber-100/90 text-amber-800 border-amber-300 hover:bg-amber-200';
+      case 'unknown':
+        return 'bg-white text-gray-500 border-gray-300 border-dashed hover:bg-gray-50';
       case 'safe':
         if (ing.category === 'soothing' || ing.category === 'barrier_support') {
           return 'bg-emerald-100/90 text-emerald-800 border-emerald-300 hover:bg-emerald-200 font-semibold';
@@ -199,7 +219,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             <button
               key={idx}
               type="button"
-              onClick={() => setSelectedIngredient(ing)}
+              onClick={() => selectIngredient(ing)}
               className={`text-xs px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${getPillStyle(
                 ing
               )}`}
@@ -214,7 +234,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       {selectedIngredient && (
         <div className="p-3.5 bg-sand-100/90 rounded-xl border border-sand-300 relative animate-fade-in text-xs space-y-2">
           <button
-            onClick={() => setSelectedIngredient(null)}
+            onClick={() => selectIngredient(null)}
             className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 p-1"
           >
             <X className="w-4 h-4" />
@@ -251,15 +271,20 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
                 🟣 高濃度アクティブ
               </span>
             )}
+            {selectedIngredient.riskLevel === 'unknown' && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-gray-600 border border-dashed border-gray-300">
+                ⚪ 未評価
+              </span>
+            )}
           </div>
           <p className="text-gray-700 leading-relaxed">
             {selectedIngredient.matchedKnown?.reasonJa ||
               selectedIngredient.reasonJa ||
-              '化粧品の品質保持、テクスチャー調整、または保湿・保護の目的で配合される化粧品成分です。'}
+              'この成分の解説データはまだありません。'}
           </p>
           <p className="text-sage-800 font-medium">
             💡 アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
-              '化粧品基準に適合した一般的な配合成分であり、通常の敏感肌において強い刺激となる報告は少ない安全性の高い成分です。'}
+              '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。'}
           </p>
           <div className="pt-1.5 flex items-center justify-between border-t border-sand-200/60">
             <button
@@ -271,7 +296,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               {isExplainingWithAI ? (
                 <>
                   <Loader2 className="w-3 h-3 animate-spin text-sage-600" />
-                  <span>Gemini 3.8 Flash で解析中...</span>
+                  <span>AIで解析中...</span>
                 </>
               ) : (
                 <>
@@ -281,6 +306,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               )}
             </button>
           </div>
+          {explainError && <p className="text-[11px] text-rose-700">{explainError}</p>}
         </div>
       )}
 

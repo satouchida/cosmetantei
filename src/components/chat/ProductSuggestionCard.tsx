@@ -3,7 +3,7 @@
 import React from 'react';
 import { Product } from '@/lib/types';
 import { Sparkles, AlertTriangle, ShieldCheck, Search, Tag } from 'lucide-react';
-import { getDisplayBrand } from '@/lib/services/search-barcode-service';
+import { getDisplayBrand } from '@/lib/display-brand';
 
 interface ProductSuggestionCardProps {
   products: Product[];

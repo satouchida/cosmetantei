@@ -1,8 +1,6 @@
-import { Product, ProductAnalysisResult, DifferentialAnalysisResult } from '../types';
-import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
-
-export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-export const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+import { ProductAnalysisResult, DifferentialAnalysisResult, Product } from '../types';
+import { callGemini, hasGeminiKey } from './gemini-client';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
 
 export const MARKETPLACE_DISCLAIMER_JA =
   '※本製品の全成分情報は、Amazon / 楽天市場 / Olive Young / Sephora などのオンラインマーケットプレイスおよび公開情報をもとに探索・収集したものです。商品のリニューアルや販売地域（国内処方・並行輸入・海外処方）により実際のパッケージ表記と一部異なる（誤差を含む）場合がありますので、ご使用前にお手元の製品パッケージ表記もご確認ください。';
@@ -52,60 +50,34 @@ const SYSTEM_PROMPT = `
 2. 医療確定診断ではなく、化粧品成分のスクリーニング・スキンケア改善の助言であることを前提とする。
 `;
 
-// キャッシュ（同一クエリの二重課金を防ぐインメモリLRU風キャッシュ）
-const responseCache = new Map<string, { reply: string; expiresAt: number }>();
-const CACHE_TTL_MS = 1000 * 60 * 30; // 30分間キャッシュ
+// 同一クエリの二重課金を防ぐ応答キャッシュ（KV、無ければ上限つきインメモリ）
+const RESPONSE_CACHE_TTL_SECONDS = 60 * 30; // 30分間キャッシュ
 
-// コスメ・スキンケア関連キーワード（プリフィルター用）
-const COSMETIC_KEYWORDS = [
-  'コスメ', '化粧', 'スキンケア', '肌', '洗顔', 'クレンジング', '化粧水', '乳液', '美容液',
-  'クリーム', '日焼け止め', 'パック', 'マスク', 'ニキビ', '赤み', 'ヒリヒリ', 'ピリピリ',
-  'かぶれ', '敏感肌', '乾燥', '毛穴', '成分', 'エタノール', '香料', 'セラミド', 'レチノール',
-  'ビタミン', 'cica', 'シカ', 'aha', 'bha', 'パラベン', 'キュレル', 'アヌア', 'トリデン',
-  'セラヴィ', 'メラノ', 'イハダ', 'ミノン', '無印', 'ファンケル', '資生堂', 'ロッシュポゼ',
-  'toner', 'serum', 'cream', 'cleanser', 'lotion', 'sunscreen', 'acid', 'skin', 'acne',
-  'バーコード', 'スキャン', 'あぶり出し', '比較', 'おすすめ', '荒れ', 'アレルギー', 'sephora',
-  'amazon', 'olive young', 'オリーブヤング', '楽天', '成分表', '全成分', 'ちふれ', 'リップ'
-];
-
-// 明らかな無関係キーワード（即時拒絶用）
+// 明らかな無関係トピック（Gemini呼び出し前に無料で拒否する）
+// 英単語は単語境界つきで判定し、「Dandelion」「redundant」などの成分名・一般語を誤って弾かないようにする
 const OFF_TOPIC_PATTERNS = [
-  /python|javascript|typescript|c\+\+|java|html|css|sql|docker|kubernetes/i,
-  /コードを書いて|プログラム|関数|アルゴリズム|バグを修正/i,
-  /小説を書いて|エッセイ|詩を作って|歌詞|物語/i,
-  /翻訳して|英語に訳して|中国語に|translate/i,
-  /政治|大統領|総理大臣|株価|暗号資産|仮想通貨|ビットコイン/i,
-  /数学|方程式|積分|微分|計算して/i,
-  /ignore previous instructions|system prompt|jailbreak|DAN/i
+  /\b(python|javascript|typescript|java|html|css|sql|docker|kubernetes)\b|c\+\+/i,
+  /コードを書いて|プログラムを書いて|関数を書いて|アルゴリズム|バグを修正/,
+  /小説を書いて|エッセイを書いて|詩を作って|歌詞を書いて|物語を書いて/,
+  /翻訳して|英語に訳して|中国語に訳して|\btranslate\b/i,
+  /政治|大統領|総理大臣|株価|暗号資産|仮想通貨|ビットコイン/,
+  /数学|方程式|積分|微分|計算して/,
+  /ignore (all )?(the )?previous instructions|\bsystem prompt\b|\bjailbreak\b/i,
 ];
+// 「DAN」ジェイルブレイクは大文字の単語のみを対象にする（大文字小文字を区別）
+const DAN_JAILBREAK_PATTERN = /\bDAN\b/;
 
 /**
- * ユーザー入力がコスメ・スキンケアに関連しているかを判定（Gemini呼び出し前の無料フィルター）
+ * 明らかに化粧品・スキンケアと無関係な入力を判定（Gemini呼び出し前の無料フィルター）
+ * ここで弾くのは明白な無関係トピックのみ。境界的な話題はシステムプロンプトのガードレールに任せる
  */
 export function isCosmeticTopicRelevant(userText: string, hasContextData: boolean): boolean {
   if (hasContextData) return true;
-  const text = userText.trim().toLowerCase();
+  const text = userText.trim();
   if (text.length <= 1) return false;
 
-  for (const pattern of OFF_TOPIC_PATTERNS) {
-    if (pattern.test(text)) {
-      return false;
-    }
-  }
-
-  const hasKeyword = COSMETIC_KEYWORDS.some(kw => text.includes(kw));
-  if (hasKeyword) return true;
-
-  const isKnownIng = KNOWN_INGREDIENTS.some(
-    ing => text.includes(ing.nameJa.toLowerCase()) || ing.aliases.some(a => text.includes(a.toLowerCase()))
-  );
-  if (isKnownIng) return true;
-
-  if (/^(こんにちは|はじめまして|使い方|教えて|何ができる|hello|hi)/i.test(text)) {
-    return true;
-  }
-
-  return true;
+  if (DAN_JAILBREAK_PATTERN.test(text)) return false;
+  return !OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export interface GeminiChatOptions {
@@ -137,18 +109,14 @@ export async function generateGeminiChatResponse(options: GeminiChatOptions): Pr
   }
 
   // 2. キャッシュチェック
-  const cacheKey = `${userMessage}_${contextData?.singleAnalysis?.product.id || contextData?.missingIngredientsProduct?.id || ''}_${contextData?.differentialAnalysis ? 'diff' : ''}`;
-  const cached = responseCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return stripMarkdownEmphasis(cached.reply);
+  const cacheKey = await hashedCacheKey('chat:v1', `${userMessage}_${contextData?.singleAnalysis?.product.id || contextData?.missingIngredientsProduct?.id || ''}_${contextData?.differentialAnalysis ? 'diff' : ''}`);
+  const cached = await cacheGetJSON<string>(cacheKey);
+  if (cached) {
+    return stripMarkdownEmphasis(cached);
   }
 
   // 3. APIキー未設定またはプレースホルダー時のフォールバック
-  if (
-    !GEMINI_API_KEY ||
-    GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE' ||
-    GEMINI_API_KEY.startsWith('AIzaSy_YOUR')
-  ) {
+  if (!hasGeminiKey()) {
     return stripMarkdownEmphasis(generateFallbackResponse(userMessage, contextData));
   }
 
@@ -195,56 +163,29 @@ export async function generateGeminiChatResponse(options: GeminiChatOptions): Pr
     ? `${userMessage}\n\n[システム提供コンテキスト情報]:${contextPrompt}\n※注意: 太字(**)やイタリック(*)などのMarkdown強調装飾は一切使用しないでください。`
     : `${userMessage}\n※注意: 太字(**)やイタリック(*)などのMarkdown強調装飾は一切使用しないでください。`;
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    GEMINI_MODEL
-  )}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+  const result = await callGemini({
+    systemInstruction: SYSTEM_PROMPT,
+    history: history.slice(-4),
+    prompt: promptWithContext,
+    grounding: true,
+    generationConfig: {
+      temperature: 0.5,
+      topP: 0.95,
+      // 思考トークンも同じ上限に含まれるため、250〜500文字の回答に対して余裕を持たせる
+      maxOutputTokens: 1024,
+    },
+  });
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
-        },
-        contents: [
-          ...history.slice(-4),
-          {
-            role: 'user',
-            parts: [{ text: promptWithContext }],
-          },
-        ],
-        tools: [{ googleSearch: {} }],
-        generationConfig: {
-          temperature: 0.5,
-          topP: 0.95,
-          maxOutputTokens: 600,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Gemini API Error:', response.status, errText);
-      return stripMarkdownEmphasis(generateFallbackResponse(userMessage, contextData));
-    }
-
-    const data = await response.json();
-    const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (candidateText) {
-      const cleanReply = stripMarkdownEmphasis(candidateText.trim());
-      responseCache.set(cacheKey, { reply: cleanReply, expiresAt: Date.now() + CACHE_TTL_MS });
-      return cleanReply;
-    }
-
-    return stripMarkdownEmphasis(generateFallbackResponse(userMessage, contextData));
-  } catch (error) {
-    console.error('Gemini API fetch exception:', error);
+  if (!result) {
     return stripMarkdownEmphasis(generateFallbackResponse(userMessage, contextData));
   }
+
+  const cleanReply = stripMarkdownEmphasis(result.text);
+  // 途中で切れた応答は他のユーザーに使い回さない
+  if (!result.truncated) {
+    await cachePutJSON(cacheKey, cleanReply, RESPONSE_CACHE_TTL_SECONDS);
+  }
+  return cleanReply;
 }
 
 /**

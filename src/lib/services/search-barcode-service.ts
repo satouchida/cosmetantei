@@ -1,11 +1,11 @@
-import { COSMETICS_DATABASE, addProductToDynamicCache } from '../data/cosmetics-db';
+import { COSMETICS_DATABASE, addProductToDynamicCache, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
+import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import {
   searchCosmeticsLive,
   searchOpenBeautyFacts,
   searchGoogleGroundedGemini,
-  synthesizeDynamicCandidate,
   normalizeSearchString,
   isGreetingOrConsultation,
   getServicePurposeExplanation,
@@ -43,7 +43,7 @@ const CATEGORY_SYNONYMS: Record<string, string[]> = {
 /**
  * コスメの高速キャッシュ検索（即時応答用）
  * - 特定ブランド固定DBに依存せず、動的キャッシュ内を走査
- * - 0件の場合は動的推測候補を生成
+ * - 該当が無い場合も架空の候補は生成しない
  */
 export function searchCosmetics(query: string, limit = 6): Product[] {
   if (!query || query.trim().length === 0) {
@@ -126,65 +126,31 @@ export function searchCosmetics(query: string, limit = 6): Product[] {
     return { item, score };
   });
 
-  const results = scored
+  return scored
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
-    .map((s) => s.item);
-
-  if (results.length >= limit) {
-    return results.slice(0, limit);
-  }
-
-  // キャッシュ未ヒットや件数不足の場合：実在するコスメのみを返却（架空商品は捏造しない）
-  const enriched = [...results];
-
-  if (isGreetingOrConsultation(cleanInput)) {
-    const cached = COSMETICS_DATABASE.filter(isActualCosmeticProduct);
-    if (cached.length > 0) return cached.slice(0, limit);
-    return [
-      synthesizeDynamicCandidate('キュレル 泡洗顔料'),
-      synthesizeDynamicCandidate('ちふれ 口紅'),
-      synthesizeDynamicCandidate('無印良品 化粧水'),
-    ].slice(0, limit);
-  }
-
-  // 実在コスメキャッシュから追加で探索
-  const cached = COSMETICS_DATABASE.filter(isActualCosmeticProduct);
-  for (const c of cached) {
-    if (enriched.length >= limit) break;
-    if (!enriched.some((p) => p.id === c.id || p.name === c.name)) {
-      const b = normalizeSearchString(c.brand);
-      const n = normalizeSearchString(c.name);
-      if (b.includes(fullNormalizedQuery) || n.includes(fullNormalizedQuery) || fullNormalizedQuery.includes(b)) {
-        enriched.push(c);
-      }
-    }
-  }
-
-  // もし件数が不足している場合、動的コスメ合成から補完
-  if (enriched.length < limit && cleanInput.length >= 1) {
-    let varIdx = 0;
-    while (enriched.length < limit && varIdx < limit * 3) {
-      const matched = synthesizeDynamicCandidate(cleanInput, varIdx);
-      if (isActualCosmeticProduct(matched) && !enriched.some((p) => p.name === matched.name)) {
-        enriched.push(matched);
-      }
-      varIdx++;
-    }
-  }
-
-  return enriched.filter(isActualCosmeticProduct).slice(0, limit);
+    .map((s) => s.item)
+    .filter(isActualCosmeticProduct)
+    .slice(0, limit);
 }
 
 /**
  * バーコード（JANコード・EAN・UPC）から製品情報を検索する
  * 1. 動的キャッシュを検索
- * 2. Open Beauty Facts API へ問い合わせ
- * 3. Google Search Grounding で最新の成分・商品情報をWeb検索
+ * 2. KV に保存済みの照合結果を検索
+ * 3. Open Beauty Facts API へ問い合わせ
+ * 4. Google Search Grounding で最新の成分・商品情報をWeb検索
  */
+/** JAN / EAN / UPC は 8〜14 桁 */
+export const BARCODE_PATTERN = /^[0-9]{8,14}$/;
+const BARCODE_TTL_SECONDS = 60 * 60 * 24 * 7;
+const BARCODE_MISS_TTL_SECONDS = 60 * 60;
+// AI推定の照合結果は誤りの可能性があるため短めに保持する
+const AI_BARCODE_TTL_SECONDS = 60 * 60 * 24;
+
 export async function lookupByBarcode(barcode: string): Promise<Product | null> {
   const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
-  if (!cleanCode) return null;
+  if (!BARCODE_PATTERN.test(cleanCode)) return null;
 
   // 1. 動的キャッシュ内を検索
   const cleanNoZero = cleanCode.replace(/^0+/, '');
@@ -199,7 +165,17 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
     return localMatch;
   }
 
-  // 2. Open Beauty Facts API 問い合わせ (4秒タイムアウト付き)
+  // 2. KV に保存済みのバーコード照合結果
+  const kvKey = `barcode:v1:${cleanCode}`;
+  const stored = await cacheGetJSON<Product>(kvKey);
+  if (stored) {
+    addProductToDynamicCache(stored);
+    return stored;
+  }
+  // 直近で見つからなかったバーコードは、外部API・Gemini への再問い合わせを避ける
+  if (await cacheGetJSON<boolean>(`${kvKey}:miss`)) return null;
+
+  // 3. Open Beauty Facts API 問い合わせ (4秒タイムアウト付き)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -274,9 +250,12 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
           ),
           amazonSearchUrl: buildAmazonAffiliateUrl(brand, productName),
           isEstimatedFromMarketplaces: isEstimated,
+          ingredientSource: isEstimated ? undefined : 'open_beauty_facts',
         };
 
         addProductToDynamicCache(product);
+        await cachePutJSON(kvKey, product, BARCODE_TTL_SECONDS);
+        await rememberVerifiedProducts([product]);
         return product;
       }
     }
@@ -284,18 +263,22 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
     // ignore
   }
 
-  // 3. Google Search Grounding でバーコード番号から商品を探索
+  // 4. Google Search Grounding でバーコード番号から商品を探索
   try {
     const googleResults = await searchGoogleGroundedGemini(`JANコード ${cleanCode}`);
     if (googleResults.length > 0) {
-      const p = googleResults[0];
-      p.barcode = cleanCode;
-      addProductToDynamicCache(p);
+      // AI の推定結果なので、バーコードとの対応は確定扱いにしない（p.barcode は設定しない）
+      const p: Product = {
+        ...googleResults[0],
+        descriptionJa: `バーコード（JAN: ${cleanCode}）からAIが推定した製品です。実物のパッケージと照合してください。`,
+      };
+      await cachePutJSON(kvKey, p, AI_BARCODE_TTL_SECONDS);
       return p;
     }
   } catch (err) {
     // ignore
   }
 
+  await cachePutJSON(`${kvKey}:miss`, true, BARCODE_MISS_TTL_SECONDS);
   return null;
 }

@@ -130,3 +130,38 @@ so a transient outage doesn't permanently whitelist a term.
 `'YOUR_GEMINI_API_KEY_HERE'`.
 
 **Fix**: `export function hasGeminiKey(): boolean` in the shared client, used everywhere.
+
+## Follow-up from the code-improver review (2026-10-08)
+
+A review of the fixes above found gaps; all fixed in the same commit:
+
+- [x] Safe alternatives matched culprits by Japanese name only, so an English-INCI product with
+  "Parfum" could be recommended against a 香料 culprit. Now matched via the known-ingredient DB
+  (ID, Japanese and English names); products with any moderate/high irritant are never recommended;
+  low-irritant culprits such as 水 no longer exclude every product.
+- [x] Products with no or mostly unknown ingredient data got the green "safe" badge. New overall
+  level `insufficient_data` with a grey badge and its own summary.
+- [x] Differential culprits not in the known DB were always "注意成分"; they now use the same
+  rule-based level as single-product analysis, including `unknown`.
+- [x] An AI estimate could overwrite a verified (Open Beauty Facts) product in the cache. Verified
+  products are now kept, and stored in KV (`verified-products:v1`) so new isolates can still
+  recommend them.
+- [x] The KV memory layer kept values for their full TTL, hiding other isolates' writes; now capped
+  at 60 seconds when KV is bound.
+- [x] Truncated Gemini replies (`finishReason: MAX_TOKENS`) were cached for 30 minutes; now shown
+  but not cached, and truncated JSON is discarded. Chat `maxOutputTokens` raised to 1024.
+- [x] Rate limiting degraded silently when bindings were missing; now logged once in production.
+  IPv6 clients are keyed by /64 prefix.
+- [x] Search results are cached in KV (1 hour, 5 minutes when empty); stale type-ahead requests are
+  aborted in the browser.
+- [x] `/api/analyze`, `/api/chat` and `/api/products/barcode` validate input shape and size
+  (`src/lib/server/validation.ts`); barcodes must be 8–14 digits.
+- [x] Barcodes matched only by an AI guess are no longer stored as confirmed matches; misses are
+  cached for 1 hour.
+- [x] AI explain button shows an error on 429/failure; `routine.safeProducts` null crash fixed.
+- [x] Ingredient rules: "tea tree" no longer matches TEA; 炭酸 salts no longer match charcoal.
+- [x] `server-only` guard on server modules; a client import now fails the build (verified).
+
+Not done: `judgeGenericOrBrandWithGemini` is still not called by the app (wiring it in would add a
+Gemini call per product brand; see `02-cost-and-model.md`).
+

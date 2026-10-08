@@ -1,15 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
-import { Product } from '@/lib/types';
+import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
+import { isValidProduct, isValidProductList } from '@/lib/server/validation';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { product, badProducts, safeProducts } = body as {
-      product?: Product;
-      badProducts?: Product[];
-      safeProducts?: Product[];
+      product?: unknown;
+      badProducts?: unknown;
+      safeProducts?: unknown;
     };
+
+    // 入力の形式・サイズを検証（成分数×既知DBの計算量になるため上限を設ける）
+    if (
+      (product !== undefined && !isValidProduct(product)) ||
+      (badProducts !== undefined && !isValidProductList(badProducts)) ||
+      (safeProducts !== undefined && !isValidProductList(safeProducts))
+    ) {
+      return NextResponse.json({ error: '製品データの形式が正しくありません' }, { status: 400 });
+    }
+
+    // KV に保存された成分確認済みの製品を読み込み、おすすめ代替品の候補にする
+    await hydrateVerifiedProducts();
 
     if (product) {
       const result = analyzeProduct(product);

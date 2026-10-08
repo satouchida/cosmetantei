@@ -3,7 +3,7 @@
 import React from 'react';
 import { Product } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, ChevronRight } from 'lucide-react';
-import { getDisplayBrand } from '@/lib/services/search-barcode-service';
+import { getDisplayBrand } from '@/lib/display-brand';
 
 interface LiveSearchCandidateTrayProps {
   query: string;

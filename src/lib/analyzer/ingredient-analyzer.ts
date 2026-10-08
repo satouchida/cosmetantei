@@ -91,26 +91,66 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
 }
 
 /**
+ * 成分リストの代わりに入っているプレースホルダー文言（「成分情報は〜より補完」等）か
+ */
+export function isPlaceholderIngredient(raw: string): boolean {
+  return /成分情報は|取得できませんでした/.test(raw);
+}
+
+/**
+ * おすすめ代替品として提示してよい製品か
+ * - 実在データ源（Open Beauty Facts・ユーザー入力の成分表示）の全成分がある製品のみ
+ * - AI推定の製品や成分不明の製品は、成分を照合できないため推奨しない
+ */
+export function hasVerifiedIngredients(product: Product): boolean {
+  return (
+    (product.ingredientSource === 'open_beauty_facts' || product.ingredientSource === 'user_label') &&
+    !product.isEstimatedFromMarketplaces &&
+    product.ingredients.length > 0 &&
+    !product.ingredients.some(isPlaceholderIngredient)
+  );
+}
+
+/**
  * 疑わしい成分を含まない安心なコスメ（Amazonおすすめ候補）を抽出する
  */
 export function findSafeAlternatives(
-  avoidCulprits: (CulpritIngredient | { nameJa: string })[],
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
   excludedProductIds: string[] = [],
   limit = 3
 ): Product[] {
-  const avoidKeywords = avoidCulprits.map((c) => normalizeIngredientName(c.nameJa));
+  // 避けるべき成分を「既知DBのID」と「日本語名・英語名」の両方で表す（英語INCI表記の製品にも対応）
+  const avoidIds = new Set<string>();
+  const avoidNames = new Set<string>();
+  for (const c of avoidCulprits) {
+    // 低刺激と判定済みの成分（水・グリセリン等）まで避けると候補がほぼ無くなるため除外する
+    if ('riskLevel' in c && c.riskLevel === 'safe') continue;
+    for (const name of [c.nameJa, c.nameEn]) {
+      if (!name) continue;
+      const norm = normalizeIngredientName(name);
+      if (norm) avoidNames.add(norm);
+      const known = findMatchingKnownIngredient(name);
+      if (known) avoidIds.add(known.id);
+    }
+  }
 
-  // COSMETICS_DATABASEの中から、除外キーワードを含まない製品を探索
+  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
   const safeItems = COSMETICS_DATABASE.filter((product) => {
     if (excludedProductIds.includes(product.id)) return false;
+    if (!hasVerifiedIngredients(product)) return false;
 
-    // 製品の全成分をチェック
     for (const raw of product.ingredients) {
-      const normRaw = normalizeIngredientName(raw);
-      for (const avoid of avoidKeywords) {
-        if (normRaw === avoid || normRaw.includes(avoid)) {
-          return false;
-        }
+      const known = findMatchingKnownIngredient(raw);
+      if (known) {
+        if (avoidIds.has(known.id)) return false;
+        // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない
+        if (known.riskLevel === 'high_irritant' || known.riskLevel === 'moderate_irritant') return false;
+      }
+
+      const names = [normalizeIngredientName(raw)];
+      if (known) names.push(normalizeIngredientName(known.nameJa), normalizeIngredientName(known.nameEn));
+      for (const avoid of avoidNames) {
+        if (names.some((n) => n === avoid || n.includes(avoid))) return false;
       }
     }
 
@@ -138,6 +178,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     moderate_irritant: 0,
     high_irritant: 0,
     active_caution: 0,
+    unknown: 0,
   };
 
   const warningsJa: string[] = [];
@@ -150,7 +191,10 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     );
 
   for (const raw of product.ingredients) {
-    // 既知DBまたは動的推論・キャッシュから成分解説を取得（100%保証）
+    // 「成分情報は〜より補完」などのプレースホルダーは成分として解析しない
+    if (isPlaceholderIngredient(raw)) continue;
+
+    // 既知DBまたは動的推論・キャッシュから成分解説を取得（該当しない成分は「未評価」）
     const matched = findMatchingKnownIngredient(raw) || getOrGenerateIngredientExplanation(raw);
 
     riskCounts[matched.riskLevel]++;
@@ -179,16 +223,24 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     }
   }
 
-  // 総合リスク判定
-  let overallRiskLevel: 'safe' | 'caution' | 'warning' = 'safe';
+  // 総合リスク判定（刺激成分の検出が優先。検出が無くても、評価できた成分が少なければ「安全」とは判定しない）
+  const evaluatedCount = analyzedIngredients.length;
+  let overallRiskLevel: ProductAnalysisResult['overallRiskLevel'] = 'safe';
   if (riskCounts.high_irritant > 0 || riskCounts.moderate_irritant >= 2) {
     overallRiskLevel = 'warning';
   } else if (riskCounts.moderate_irritant > 0 || riskCounts.active_caution > 0 || riskCounts.low_caution >= 3) {
     overallRiskLevel = 'caution';
+  } else if (evaluatedCount === 0 || riskCounts.unknown / evaluatedCount >= 0.5) {
+    overallRiskLevel = 'insufficient_data';
   }
 
   let summaryJa = '';
-  if (isEstimatedFromMarketplaces) {
+  if (overallRiskLevel === 'insufficient_data') {
+    summaryJa =
+      evaluatedCount === 0
+        ? '全成分データが取得できていないため、刺激リスクを判定できません。パッケージの全成分表示をご確認ください。'
+        : '評価できた成分が少ないため、刺激リスクを判定できません。安全と確認されたわけではありません。';
+  } else if (isEstimatedFromMarketplaces) {
     summaryJa = 'Amazon / 楽天市場 / Olive Young / Sephora 等の公開情報から成分を探索・補完して解析しています。';
   } else if (overallRiskLevel === 'safe') {
     summaryJa = '刺激になりやすい成分は見当たらず、敏感肌にも配慮されたマイルドな処方です。';
@@ -198,10 +250,19 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     summaryJa = '香料、精油、旧表示指定成分、または高刺激物質が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
   }
 
+  // 未評価成分がある場合は「安全」と言い切らない
+  if (riskCounts.unknown > 0 && overallRiskLevel !== 'insufficient_data') {
+    const unknownNote = `${riskCounts.unknown}成分は評価データがなく「未評価」です。安全と確認されたわけではありません。`;
+    summaryJa =
+      overallRiskLevel === 'safe' && !isEstimatedFromMarketplaces
+        ? `既知の刺激成分は見当たりませんでした。ただし、${unknownNote}`
+        : `${summaryJa} なお、${unknownNote}`;
+  }
+
   // 高リスク時は代替品を提示
-  const suspectItems = analyzedIngredients.filter((i) => i.isSuspect).map((i) => ({ nameJa: i.normalizedJa }));
+  const suspectItems = analyzedIngredients.filter((i) => i.isSuspect).map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
   const safeAlternatives =
-    overallRiskLevel !== 'safe'
+    overallRiskLevel === 'caution' || overallRiskLevel === 'warning'
       ? findSafeAlternatives(suspectItems, [product.id], 3)
       : undefined;
 
@@ -297,11 +358,13 @@ export function performDifferentialAnalysis(
   // 容疑成分（Culprits）をリスク度と出現回数でランキング
   const culprits: CulpritIngredient[] = Array.from(candidateMap.values()).map((c) => {
     const matched = c.matchedKnown;
+    // 既知DBに無い成分もルール推論で評価し、単品分析と同じリスク度（未評価を含む）を使う
+    const resolved = matched ?? getOrGenerateIngredientExplanation(c.nameJa);
     return {
       nameJa: c.nameJa,
       nameEn: c.nameEn,
-      riskLevel: matched ? matched.riskLevel : 'low_caution',
-      category: matched ? matched.category : 'other',
+      riskLevel: resolved.riskLevel,
+      category: resolved.category,
       reasonJa: matched
         ? matched.reasonJa
         : '普段使えている安全なアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。',
@@ -316,6 +379,7 @@ export function performDifferentialAnalysis(
     moderate_irritant: 4,
     active_caution: 3,
     low_caution: 2,
+    unknown: 2,
     safe: 1,
   };
 

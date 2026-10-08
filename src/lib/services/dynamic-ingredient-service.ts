@@ -1,12 +1,32 @@
-import { KnownIngredient, IngredientCategory, IngredientRiskLevel } from '../types';
+import { KnownIngredient, IngredientCategory, IngredientRiskLevel, INGREDIENT_RISK_LEVELS } from '../types';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
-import { GEMINI_MODEL, GEMINI_API_KEY, stripMarkdownEmphasis } from './gemini';
+import { stripMarkdownEmphasis } from './gemini';
+import { callGeminiJSON, hasGeminiKey } from './gemini-client';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
+import { BoundedCache } from '../utils/bounded-cache';
 
 /**
- * Layer 1: 動的ランタイムキャッシュ
- * 生成または取得された成分解説をメモリ上に保持し、次回以降は0msで即時返却
+ * Layer 1: 動的ランタイムキャッシュ（上限つき）
+ * 既知DB照合・ルール推論の結果をメモリ上に保持する。AI解説は KV にも保存する
  */
-export const DYNAMIC_INGREDIENT_CACHE = new Map<string, KnownIngredient>();
+export const DYNAMIC_INGREDIENT_CACHE = new BoundedCache<KnownIngredient>(2000);
+
+/** AI解説の KV 保存期間（成分の性質は変わらないため長め） */
+const AI_EXPLANATION_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+const INGREDIENT_CATEGORIES: IngredientCategory[] = [
+  'fragrance',
+  'essential_oil',
+  'drying_alcohol',
+  'sulfate',
+  'preservative',
+  'uv_filter',
+  'potent_active',
+  'soothing',
+  'barrier_support',
+  'moisturizer',
+  'other',
+];
 
 /**
  * 成分名の正規化（小文字化、全角半角スペース・ハイフン除去等）
@@ -43,7 +63,8 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
 
   // 2. 炭・泥・クレイ・吸着剤
   if (
-    norm.includes('炭') ||
+    // 「炭酸〜」（炭酸水素Na など）は炭ではないため除外
+    (norm.includes('炭') && !norm.includes('炭酸')) ||
     norm.includes('クレイ') ||
     norm.includes('カオリン') ||
     norm.includes('ベントナイト') ||
@@ -118,7 +139,10 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
     norm.includes('水酸化カリウム') ||
     norm.includes('水酸化na') ||
     norm.includes('水酸化ナトリウム') ||
-    norm.includes('tea') ||
+    // TEA（トリエタノールアミン）。「tea tree」などを誤って含めないよう完全一致で判定
+    norm === 'tea' ||
+    norm.includes('triethanolamine') ||
+    norm.includes('トリエタノールアミン') ||
     norm.includes('アルギニン') ||
     norm.includes('potassiumhydroxide') ||
     norm.includes('sodiumhydroxide')
@@ -321,17 +345,16 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
     };
   }
 
-  // 14. 一般フォールバック（低刺激の化粧品配合基剤・補助剤として推定）
+  // 14. 一般フォールバック：どのルールにも該当しない成分は「未評価」とし、安全とは断定しない
   return {
     id,
     nameJa: rawName,
     nameEn: rawName,
     aliases: [rawName],
     category: 'other',
-    riskLevel: 'safe',
-    reasonJa: '化粧品の品質保持、テクスチャー調整、または保湿・保護の目的で配合される化粧品成分です。',
-    sensitiveSkinAdviceJa: '化粧品基準に適合した一般的な配合成分であり、通常の敏感肌において強い刺激となる報告は少ない安全性の高い成分です。',
-    comedogenicRating: 0,
+    riskLevel: 'unknown',
+    reasonJa: 'この成分はコスメ探偵の成分データに登録がなく、刺激性を評価できていません。',
+    sensitiveSkinAdviceJa: '安全とも危険とも判断できないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。',
   };
 }
 
@@ -401,74 +424,79 @@ export async function explainIngredientWithAI(rawName: string): Promise<KnownIng
   }
 
   // APIキーが無い、またはモックキーの場合はルール生成を返す
-  if (
-    !GEMINI_API_KEY ||
-    GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE' ||
-    GEMINI_API_KEY.startsWith('AIzaSy_YOUR')
-  ) {
+  if (!hasGeminiKey()) {
     return getOrGenerateIngredientExplanation(rawName);
   }
 
-  const prompt = `化粧品成分「${rawName}」について、皮膚科学・化粧品成分学の観点から詳細な解説をJSON形式で生成してください。
+  const kvKey = await hashedCacheKey('ingredient:v1', norm);
+  const stored = await cacheGetJSON<KnownIngredient>(kvKey);
+  if (stored) {
+    DYNAMIC_INGREDIENT_CACHE.set(norm, stored);
+    return stored;
+  }
+
+  const prompt = `化粧品成分「${rawName}」について、皮膚科学・化粧品成分学の観点から解説してください。
 【厳格な禁止ルール】
 回答内のテキストに太字(**)やイタリック(*)などのMarkdown強調記法は絶対に含めないでください。必要な強調には「」や【】を使用してください。
+- nameJa: 日本語の成分名（入力が日本語ならそのまま）
+- nameEn: 英語INCI名
+- category / riskLevel: 指定の選択肢から選ぶ。根拠が乏しく判断できない場合は riskLevel を "unknown" にする
+- reasonJa: 配合目的・肌への作用についての明快な解説（1〜2文）
+- sensitiveSkinAdviceJa: 敏感肌・肌荒れ時の使用に関する具体的なアドバイス（1〜2文）`;
 
-以下のJSONフォーマットのみを返してください（コードブロックなどの余計な装飾は不要です）：
-{
-  "nameJa": "${rawName}",
-  "nameEn": "英語INCI名",
-  "category": "fragrance | essential_oil | drying_alcohol | sulfate | preservative | uv_filter | potent_active | soothing | barrier_support | moisturizer | other のいずれか",
-  "riskLevel": "safe | low_caution | moderate_irritant | high_irritant | active_caution のいずれか",
-  "reasonJa": "配合目的・肌への作用についての明快な解説（1〜2文）",
-  "sensitiveSkinAdviceJa": "敏感肌・肌荒れ時の使用に関する具体的で安心できるアドバイス（1〜2文）"
-}`;
+  const parsed = await callGeminiJSON<Record<string, unknown>>({
+    prompt,
+    responseSchema: {
+      type: 'OBJECT',
+      properties: {
+        nameJa: { type: 'STRING' },
+        nameEn: { type: 'STRING' },
+        category: { type: 'STRING', enum: INGREDIENT_CATEGORIES },
+        riskLevel: { type: 'STRING', enum: INGREDIENT_RISK_LEVELS },
+        reasonJa: { type: 'STRING' },
+        sensitiveSkinAdviceJa: { type: 'STRING' },
+      },
+      required: ['nameJa', 'nameEn', 'category', 'riskLevel', 'reasonJa', 'sensitiveSkinAdviceJa'],
+    },
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 500,
+    },
+  });
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    GEMINI_MODEL
-  )}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 500,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      console.error('Gemini ingredient explain error:', response.status);
-      return getOrGenerateIngredientExplanation(rawName);
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      return getOrGenerateIngredientExplanation(rawName);
-    }
-
-    const parsed = JSON.parse(text);
-    const result: KnownIngredient = {
-      id: `ai_${norm}`,
-      nameJa: stripMarkdownEmphasis(parsed.nameJa || rawName),
-      nameEn: stripMarkdownEmphasis(parsed.nameEn || rawName),
-      aliases: [rawName],
-      category: (parsed.category as IngredientCategory) || 'other',
-      riskLevel: (parsed.riskLevel as IngredientRiskLevel) || 'safe',
-      reasonJa: stripMarkdownEmphasis(parsed.reasonJa || ''),
-      sensitiveSkinAdviceJa: stripMarkdownEmphasis(parsed.sensitiveSkinAdviceJa || ''),
-      comedogenicRating: 0,
-    };
-
-    DYNAMIC_INGREDIENT_CACHE.set(norm, result);
-    return result;
-  } catch (err) {
-    console.error('Failed to explain ingredient with AI:', err);
+  if (!parsed) {
     return getOrGenerateIngredientExplanation(rawName);
   }
+
+  const asText = (v: unknown, fallback: string) =>
+    typeof v === 'string' && v.trim() ? stripMarkdownEmphasis(v.trim()) : fallback;
+
+  // モデル出力は列挙値を検証してから採用する（不正値は「未評価」「その他」に倒す）
+  const riskLevel = INGREDIENT_RISK_LEVELS.includes(parsed.riskLevel as IngredientRiskLevel)
+    ? (parsed.riskLevel as IngredientRiskLevel)
+    : 'unknown';
+  const category = INGREDIENT_CATEGORIES.includes(parsed.category as IngredientCategory)
+    ? (parsed.category as IngredientCategory)
+    : 'other';
+
+  const reasonJa = asText(parsed.reasonJa, '');
+  const sensitiveSkinAdviceJa = asText(parsed.sensitiveSkinAdviceJa, '');
+  if (!reasonJa || !sensitiveSkinAdviceJa) {
+    return getOrGenerateIngredientExplanation(rawName);
+  }
+
+  const result: KnownIngredient = {
+    id: `ai_${norm}`,
+    nameJa: asText(parsed.nameJa, rawName),
+    nameEn: asText(parsed.nameEn, rawName),
+    aliases: [rawName],
+    category,
+    riskLevel,
+    reasonJa,
+    sensitiveSkinAdviceJa,
+  };
+
+  DYNAMIC_INGREDIENT_CACHE.set(norm, result);
+  await cachePutJSON(kvKey, result, AI_EXPLANATION_TTL_SECONDS);
+  return result;
 }
