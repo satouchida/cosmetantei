@@ -1,9 +1,8 @@
 import { Product } from '../types';
 import { addProductToDynamicCache, COSMETICS_DATABASE, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
-import { callGemini, callGeminiJSON, hasGeminiKey, parseJsonLoose } from './gemini-client';
-import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
-import { BoundedCache } from '../utils/bounded-cache';
+import { callGemini, hasGeminiKey, parseJsonLoose } from './gemini-client';
+import { isAcceptedBrand, isKnownGenericTerm, judgeBrands } from './brand-check';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 
 /**
@@ -94,86 +93,11 @@ export function isNonCosmeticSearchQuery(text: string): boolean {
 }
 
 /**
- * Gemini による語句・ブランド判断キャッシュ
- * - 静的な単語リストを持たず、Gemini 3.8 Flash の推論結果を動的にキャッシュ
- */
-type TermJudgment = { isGenericTerm: boolean; isAuthenticBrand: boolean; normalizedBrand?: string };
-
-const GEMINI_TERM_JUDGMENT_CACHE = new BoundedCache<TermJudgment>(2000);
-const TERM_JUDGMENT_TTL_SECONDS = 60 * 60 * 24 * 7;
-
-/** 判定できなかった場合の結果：ブランドとは認めない（キャッシュしない） */
-const UNJUDGED_TERM: TermJudgment = { isGenericTerm: false, isAuthenticBrand: false };
-
-/**
- * 語句が化粧品の一般名詞（剤形、成分、肌悩み等）か、実在ブランド名かを Gemini で動的に判定
- * - APIキー未設定・通信失敗・不正な応答の場合はブランドと認めず、結果もキャッシュしない
- */
-export async function judgeGenericOrBrandWithGemini(term: string): Promise<TermJudgment> {
-  const clean = term.trim();
-  if (!clean) return { isGenericTerm: true, isAuthenticBrand: false };
-
-  const cacheKey = clean.toLowerCase();
-  const cached = GEMINI_TERM_JUDGMENT_CACHE.get(cacheKey);
-  if (cached) return cached;
-
-  if (!hasGeminiKey()) return UNJUDGED_TERM;
-
-  const kvKey = await hashedCacheKey('term:v1', cacheKey);
-  const stored = await cacheGetJSON<TermJudgment>(kvKey);
-  if (stored) {
-    GEMINI_TERM_JUDGMENT_CACHE.set(cacheKey, stored);
-    return stored;
-  }
-
-  const prompt = `化粧品・スキンケア市場の専門家として、以下の単語「${clean}」を判定してください。
-1. isGenericTerm: これが化粧品の「一般名詞」（剤形、成分名、肌の悩み、効果・効能、質感、ターゲット層、検索修飾語など）であるか
-2. isAuthenticBrand: 実在する化粧品の「正式なブランド名・メーカー名・発売元」（例: ロゼット, カウブランド, FANCL, Bioré, ちふれ, キュレル, KATE, 無印良品 など）であるか
-3. normalizedBrand: ブランドの場合のみ、正式なブランド名`;
-
-  const result = await callGeminiJSON<Record<string, unknown>>({
-    prompt,
-    responseSchema: {
-      type: 'OBJECT',
-      properties: {
-        isGenericTerm: { type: 'BOOLEAN' },
-        isAuthenticBrand: { type: 'BOOLEAN' },
-        normalizedBrand: { type: 'STRING' },
-      },
-      required: ['isGenericTerm', 'isAuthenticBrand'],
-    },
-    generationConfig: { temperature: 0.0 },
-  });
-
-  if (!result || typeof result.isGenericTerm !== 'boolean' || typeof result.isAuthenticBrand !== 'boolean') {
-    return UNJUDGED_TERM;
-  }
-
-  const judgment: TermJudgment = {
-    isGenericTerm: result.isGenericTerm,
-    isAuthenticBrand: result.isAuthenticBrand,
-    normalizedBrand:
-      typeof result.normalizedBrand === 'string' && result.normalizedBrand.trim()
-        ? result.normalizedBrand.trim()
-        : clean,
-  };
-  GEMINI_TERM_JUDGMENT_CACHE.set(cacheKey, judgment);
-  await cachePutJSON(kvKey, judgment, TERM_JUDGMENT_TTL_SECONDS);
-  return judgment;
-}
-
-/**
- * 化粧品の一般名詞であるかの判定
- * - 静的なリストを持たず、Gemini 3.8 Flash の動的判断結果に委ねる
+ * 化粧品の一般名詞であるかの同期判定（語彙チェック＋判定済みブランドのキャッシュ）
+ * ブランド判定の本体は brand-check.ts の judgeBrands（非同期）
  */
 export function isGenericCosmeticTerm(text: string): boolean {
-  if (!text) return true;
-  const clean = text.toLowerCase().trim();
-  const cached = GEMINI_TERM_JUDGMENT_CACHE.get(clean);
-  if (cached) {
-    return cached.isGenericTerm;
-  }
-  return false;
+  return isKnownGenericTerm(text);
 }
 
 /**
@@ -448,7 +372,8 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
     "country": "JP",
     "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other",
     "ingredients": ["実際の全成分1", "実際の全成分2"],
-    "descriptionJa": "製品の簡単な特徴（太字なし）"
+    "descriptionJa": "製品の簡単な特徴（太字なし）",
+    "isOfficialBrand": "brand が実在する正式なブランド名・メーカー名なら true、一般名詞や検索語が入ってしまった場合は false"
   }
 ]`;
 
@@ -463,7 +388,7 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
   const parsed = parseJsonLoose<unknown>(result.text);
   if (!Array.isArray(parsed) || parsed.length === 0) return [];
 
-  const groundedProducts: Product[] = [];
+  const candidates: { product: Product; selfReportedOfficial?: boolean }[] = [];
   for (const raw of parsed) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
@@ -471,7 +396,7 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
 
     const name = item.name.trim();
     const brand = item.brand.trim();
-    if (!name || !brand || isGenericCosmeticTerm(brand)) continue;
+    if (!name || !brand) continue;
 
     const ingredients = Array.isArray(item.ingredients)
       ? item.ingredients.filter((i): i is string => typeof i === 'string' && i.trim().length > 0).map((i) => i.trim())
@@ -497,10 +422,29 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
     };
 
     if (isActualCosmeticProduct(product)) {
-      addProductToDynamicCache(product);
-      groundedProducts.push(product);
+      candidates.push({
+        product,
+        selfReportedOfficial: typeof item.isOfficialBrand === 'boolean' ? item.isOfficialBrand : undefined,
+      });
     }
   }
+
+  // brand 欄が実在ブランドかを判定（語彙チェック → キャッシュ → 自己申告 → Clef の順。Gemini の追加呼び出しなし）
+  const decisions = await judgeBrands(
+    candidates.map(({ product, selfReportedOfficial }) => ({
+      brand: product.brand,
+      productName: product.name,
+      selfReportedOfficial,
+    })),
+    clean
+  );
+
+  const groundedProducts: Product[] = [];
+  candidates.forEach(({ product }, i) => {
+    if (!isAcceptedBrand(decisions[i])) return;
+    addProductToDynamicCache(product);
+    groundedProducts.push(product);
+  });
 
   return groundedProducts;
 }

@@ -12,7 +12,6 @@ import {
   isActualCosmeticProduct,
   isNonCosmeticSearchQuery,
   isGenericCosmeticTerm,
-  judgeGenericOrBrandWithGemini,
   getDisplayBrand,
 } from './live-cosmetics-service';
 
@@ -26,7 +25,6 @@ export {
   isActualCosmeticProduct,
   isNonCosmeticSearchQuery,
   isGenericCosmeticTerm,
-  judgeGenericOrBrandWithGemini,
   getDisplayBrand,
 };
 

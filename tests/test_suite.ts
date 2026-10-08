@@ -476,7 +476,7 @@ test('15. Strict authentic cosmetics guarantee (Zero fictional products or disgu
 });
 
 test('16. Zero user query reflection in brand field (Rejects generic terms in brand)', async () => {
-  const { searchCosmeticsLive, judgeGenericOrBrandWithGemini, getDisplayBrand } = await import(
+  const { searchCosmeticsLive, getDisplayBrand } = await import(
     '../src/lib/services/live-cosmetics-service'
   );
   const { searchCosmetics } = await import('../src/lib/services/search-barcode-service');
@@ -523,9 +523,8 @@ test('16. Zero user query reflection in brand field (Rejects generic terms in br
     }
   }
 
-  // APIキーが無く判定できない場合は、ブランドと認めない（フェイルクローズ）
-  const judgment = await judgeGenericOrBrandWithGemini('ちふれ');
-  assert.strictEqual(judgment.isAuthenticBrand, false);
+  // 一般名詞だけのブランドは表示用ブランドとして使われない
+  assert.strictEqual(getDisplayBrand('敏感肌', 'キュレル 潤浸保湿 フェイスクリーム'), 'キュレル');
 });
 
 test('17. Verification of zero dynamic cache text on UI code', async () => {
@@ -775,5 +774,145 @@ test('29. Ingredient rules: "tea tree" is not TEA and 炭酸 salts are not charc
   const bicarbonate = generateIngredientExplanation('炭酸水素Na');
   const charcoal = generateIngredientExplanation('炭');
   assert.notStrictEqual(bicarbonate.nameEn, charcoal.nameEn, '炭酸水素Na must not be classified as charcoal');
+});
+
+/** OpenNext が Cloudflare のバインディングを渡すのと同じ仕組みで、テスト用の env を差し込む */
+async function withCloudflareEnv<T>(env: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
+  const key = Symbol.for('__cloudflare-context__');
+  const g = globalThis as Record<symbol, unknown>;
+  const previous = g[key];
+  g[key] = { env, cf: undefined, ctx: { waitUntil() {}, passThroughOnException() {} } };
+  try {
+    return await fn();
+  } finally {
+    g[key] = previous;
+  }
+}
+
+/** Clef の choice 回答を返すテスト用 Workers AI バインディング */
+function fakeClef(answerFor: (brand: string) => { choice: string; p: number }) {
+  const calls: { model: string; input: any }[] = [];
+  const AI = {
+    async run(model: string, input: any) {
+      calls.push({ model, input });
+      const answers: Record<string, unknown> = {};
+      for (const [id, q] of Object.entries<any>(input.questions)) {
+        const { choice, p } = answerFor(q.instructions.brand);
+        answers[id] = { type: 'choice', choice, probabilities: { [choice]: p }, confidence: p };
+      }
+      return { model: 'clef', answers, usage: { input_tokens: 100, output_tokens: 3 } };
+    },
+  };
+  return { AI, calls };
+}
+
+test('30. Brand precheck rejects brands made only of generic cosmetic words, for free', async () => {
+  const { precheckBrand, isKnownGenericTerm } = await import('../src/lib/services/brand-check');
+  for (const generic of ['敏感肌', '泡洗顔', '乾燥肌 保湿クリーム', 'ＵＶ　ミルク', '']) {
+    assert.strictEqual(precheckBrand(generic), 'generic_term', `"${generic}" must be generic`);
+    assert.strictEqual(isKnownGenericTerm(generic), true);
+  }
+  for (const brand of ['ちふれ', 'キュレル', 'La Roche-Posay', 'シカプラスト']) {
+    assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
+  }
+});
+
+test('31. Brand check: one batched Clef call, cached per brand, self-report rejects for free', async () => {
+  const { judgeBrands } = await import('../src/lib/services/brand-check');
+  const verdicts: Record<string, { choice: string; p: number }> = {
+    ブランドテストA: { choice: 'brand', p: 0.95 },
+    ブランドテストB: { choice: 'generic_term', p: 0.9 },
+    ブランドテストC: { choice: 'brand', p: 0.55 },
+  };
+  const { AI, calls } = fakeClef((brand) => verdicts[brand]);
+
+  await withCloudflareEnv({ AI }, async () => {
+    const first = await judgeBrands(
+      [
+        { brand: 'ブランドテストA', productName: 'A 化粧水', selfReportedOfficial: true },
+        { brand: 'ブランドテストA', productName: 'A 乳液', selfReportedOfficial: true },
+        { brand: 'ブランドテストB', productName: 'B クリーム', selfReportedOfficial: true },
+        { brand: 'ブランドテストC', productName: 'C 美容液', selfReportedOfficial: true },
+        { brand: 'ブランドテストD', productName: 'D 洗顔', selfReportedOfficial: false },
+        { brand: '敏感肌', productName: '敏感肌 化粧水', selfReportedOfficial: true },
+      ],
+      'テスト'
+    );
+    assert.deepStrictEqual(first, ['brand', 'brand', 'generic_term', 'unverified', 'not_brand', 'generic_term']);
+    assert.strictEqual(calls.length, 1, 'All undecided brands must be judged in a single Clef call');
+    assert.strictEqual(calls[0].model, '@cf/cloudflare/clef');
+    assert.strictEqual(calls[0].input.model, 'clef');
+    assert.deepStrictEqual(
+      Object.values<any>(calls[0].input.questions).map((q) => q.instructions.brand).sort(),
+      ['ブランドテストA', 'ブランドテストB', 'ブランドテストC'],
+      'Duplicates, self-reported non-brands and generic words must not be sent to Clef'
+    );
+
+    const second = await judgeBrands(
+      [
+        { brand: 'ブランドテストA', productName: 'A 化粧水', selfReportedOfficial: true },
+        { brand: 'ﾌﾞﾗﾝﾄﾞテストB', productName: 'B クリーム', selfReportedOfficial: true },
+      ],
+      'テスト'
+    );
+    assert.deepStrictEqual(second, ['brand', 'generic_term']);
+    assert.strictEqual(calls.length, 1, 'Cached brands (including width variants) must not call Clef again');
+
+    await judgeBrands([{ brand: 'ブランドテストC', productName: 'C 美容液', selfReportedOfficial: true }], 'テスト');
+    assert.strictEqual(calls.length, 2, 'Low-confidence verdicts must not be cached');
+  });
+});
+
+test('32. Brand check without Clef falls back to the self-report and caches nothing', async () => {
+  const { judgeBrands } = await import('../src/lib/services/brand-check');
+  const result = await judgeBrands(
+    [
+      { brand: 'ブランドテストE', productName: 'E 化粧水', selfReportedOfficial: true },
+      { brand: 'ブランドテストF', productName: 'F 化粧水' },
+    ],
+    'テスト'
+  );
+  assert.deepStrictEqual(result, ['unverified', 'not_brand']);
+
+  const { AI, calls } = fakeClef(() => ({ choice: 'brand', p: 0.9 }));
+  await withCloudflareEnv({ AI }, async () => {
+    await judgeBrands([{ brand: 'ブランドテストE', productName: 'E 化粧水', selfReportedOfficial: true }], 'テスト');
+  });
+  assert.strictEqual(calls.length, 1, 'A self-report-only decision must not have been cached');
+});
+
+test('33. Product discovery makes one Gemini call; brand checks use precheck, cache and Clef', async () => {
+  const { generateCosmeticsWithGemini } = await import('../src/lib/services/live-cosmetics-service');
+  const originalFetch = globalThis.fetch;
+  let geminiCalls = 0;
+  process.env.GEMINI_API_KEY = 'AIzaSyRealLookingKey123';
+  globalThis.fetch = (async () => {
+    geminiCalls++;
+    const products = [
+      { name: 'ディスカバリー 化粧水', brand: 'ディスカバリーブランド', category: 'toner', ingredients: ['水'], isOfficialBrand: true },
+      { name: '炭 洗顔フォーム', brand: '泡洗顔', category: 'cleanser', ingredients: ['水'], isOfficialBrand: true },
+      { name: 'ナゾ 美容液', brand: 'ナゾノメーカー', category: 'serum', ingredients: ['水'], isOfficialBrand: false },
+    ];
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(products) }] } }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  const { AI, calls } = fakeClef(() => ({ choice: 'brand', p: 0.92 }));
+
+  try {
+    const results = await withCloudflareEnv({ AI }, () => generateCosmeticsWithGemini('ディスカバリー 化粧水', 4));
+    assert.deepStrictEqual(results.map((p) => p.brand), ['ディスカバリーブランド']);
+    assert.strictEqual(geminiCalls, 1, 'Brand checks must not add Gemini calls');
+    assert.strictEqual(calls.length, 1);
+    assert.deepStrictEqual(
+      Object.values<any>(calls[0].input.questions).map((q) => q.instructions.brand),
+      ['ディスカバリーブランド'],
+      'Only the brand that passed precheck and self-report goes to Clef'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GEMINI_API_KEY;
+  }
 });
 

@@ -24,6 +24,11 @@ name = "SEARCH_RATE_LIMITER"
 namespace_id = "1002"
 simple = { limit = 60, period = 60 }
 
+# Workers AI（ブランド名チェックで Clef モデル @cf/cloudflare/clef を使用。src/lib/services/brand-check.ts）
+# 注意: wrangler dev でも AI バインディングは Cloudflare 上のモデルを呼び出すため、利用料金が発生します
+[ai]
+binding = "AI"
+
 # KV キャッシュ（Gemini応答・成分AI解説・語句判定・バーコード照合結果）
 # 未設定の場合はアイソレート単位のインメモリキャッシュで動作します
 # 有効化手順: `npx wrangler kv namespace create APP_CACHE` を実行し、表示された id を貼り付けてコメントを外す

@@ -162,6 +162,9 @@ A review of the fixes above found gaps; all fixed in the same commit:
 - [x] Ingredient rules: "tea tree" no longer matches TEA; 炭酸 salts no longer match charcoal.
 - [x] `server-only` guard on server modules; a client import now fails the build (verified).
 
-Not done: `judgeGenericOrBrandWithGemini` is still not called by the app (wiring it in would add a
-Gemini call per product brand; see `02-cost-and-model.md`).
+- [x] Brand check is now wired in without extra Gemini calls (`src/lib/services/brand-check.ts`):
+  free vocabulary precheck → per-brand cache (memory + KV, 90 days) → Gemini's own
+  `isOfficialBrand` flag from the product-discovery call → one batched Cloudflare Workers AI Clef
+  call (`@cf/cloudflare/clef`) for brands never seen before. Without the `AI` binding, the
+  self-report is used and nothing is cached. `judgeGenericOrBrandWithGemini` was removed.
 

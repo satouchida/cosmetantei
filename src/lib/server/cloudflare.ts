@@ -16,7 +16,12 @@ interface RateLimiterLike {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 }
 
+interface WorkersAiLike {
+  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+}
+
 interface AppBindings {
+  AI?: WorkersAiLike;
   APP_CACHE?: KVNamespaceLike;
   AI_RATE_LIMITER?: RateLimiterLike;
   SEARCH_RATE_LIMITER?: RateLimiterLike;
@@ -45,6 +50,25 @@ async function getBindings(): Promise<AppBindings> {
       err
     );
     return {};
+  }
+}
+
+// ---------- Workers AI ----------
+
+/**
+ * Workers AI のモデルを実行する。バインディングが無い環境（next dev・テスト）やエラー時は null
+ */
+export async function runWorkersAI(model: string, input: Record<string, unknown>): Promise<unknown | null> {
+  const { AI } = await getBindings();
+  if (!AI) {
+    warnOnceInProduction('ai-binding', 'Workers AI binding "AI" is missing; Workers AI checks are skipped.');
+    return null;
+  }
+  try {
+    return await AI.run(model, input);
+  } catch (err) {
+    console.error(`Workers AI ${model} failed:`, err);
+    return null;
   }
 }
 

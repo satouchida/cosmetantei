@@ -19,7 +19,7 @@ and smaller calls, and from using a cheaper tier for simple classification.
 | Greeting / empty input | trending products (`fetchDynamicTrendingCosmetics`) | yes |
 | Unknown barcode | barcode lookup + chat reply | both |
 | Ingredient "explain" click | one JSON call per ingredient | no |
-| Brand/generic term check | one call per new term | no |
+| Brand/generic term check | none (Clef on Workers AI, first sighting only) | no |
 
 Search grounding is billed separately from tokens, so the first two rows are the main cost drivers.
 
@@ -61,7 +61,7 @@ little.
 
 | Task | Suggested |
 |---|---|
-| Brand vs generic term (`judgeGenericOrBrandWithGemini`) | Flash-Lite, or a lookup table seeded from Open Beauty Facts brand data |
+| Brand vs generic term | Done: no Gemini call. Precheck + 90-day cache + self-report + one batched Clef call per search for new brands (`brand-check.ts`) |
 | Per-ingredient explanation JSON | Flash-Lite with `responseSchema`; cache permanently in KV (ingredients don't change) |
 | Product discovery with grounding | Flash |
 | Chat replies | Flash |
