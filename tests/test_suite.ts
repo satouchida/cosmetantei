@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { searchCosmetics } from './lib/services/search-barcode-service';
+import { searchCosmetics } from '../src/lib/services/search-barcode-service';
 import {
   analyzeProduct,
   performDifferentialAnalysis,
   findSafeAlternatives,
-} from './lib/analyzer/ingredient-analyzer';
-import { COSMETICS_DATABASE, addProductToDynamicCache } from './lib/data/cosmetics-db';
-import { buildAmazonAffiliateUrl } from './lib/services/amazon-affiliate';
-import { MARKETPLACE_DISCLAIMER_JA } from './lib/services/gemini';
-import { Product } from './lib/types';
-import { synthesizeDynamicCandidate } from './lib/services/live-cosmetics-service';
+} from '../src/lib/analyzer/ingredient-analyzer';
+import { COSMETICS_DATABASE, addProductToDynamicCache } from '../src/lib/data/cosmetics-db';
+import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
+import { MARKETPLACE_DISCLAIMER_JA } from '../src/lib/services/gemini';
+import { Product } from '../src/lib/types';
+import { synthesizeDynamicCandidate } from '../src/lib/services/live-cosmetics-service';
 
 test('1. Dynamic cosmetics cache and baseline generic standards', () => {
   assert.ok(COSMETICS_DATABASE.length >= 3, 'Baseline generic standards must be loaded in cache');
@@ -158,7 +158,7 @@ test('8. Dynamic cache registration of live API & Google search products', () =>
 });
 
 test('9. All-inputs cosmetic suggestions guarantee (Concerns, Categories, Ingredients, 1-char)', async () => {
-  const { searchCosmeticsLive } = await import('./lib/services/live-cosmetics-service');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
 
   // A. 肌トラブル・お悩み入力
   const dryHits = await searchCosmeticsLive('乾燥肌', 3);
@@ -189,7 +189,7 @@ test('9. All-inputs cosmetic suggestions guarantee (Concerns, Categories, Ingred
 });
 
 test('10. Greeting and consultation detection & service purpose explanation', async () => {
-  const { isGreetingOrConsultation, getServicePurposeExplanation } = await import('./lib/services/live-cosmetics-service');
+  const { isGreetingOrConsultation, getServicePurposeExplanation } = await import('../src/lib/services/live-cosmetics-service');
 
   assert.strictEqual(isGreetingOrConsultation('こんにちは'), true);
   assert.strictEqual(isGreetingOrConsultation('はじめまして！'), true);
@@ -212,7 +212,7 @@ test('10. Greeting and consultation detection & service purpose explanation', as
 });
 
 test('11. Cosmetic-only suggestion filter (Rejects Google search query noise, returns real cosmetics only)', async () => {
-  const { isNonCosmeticSearchQuery, isActualCosmeticProduct, searchCosmeticsLive } = await import('./lib/services/live-cosmetics-service');
+  const { isNonCosmeticSearchQuery, isActualCosmeticProduct, searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
 
   // 1. 一般的なGoogle検索ノイズ・クエリの完全排除テスト
   const searchNoiseQueries = [
@@ -312,11 +312,11 @@ test('11. Cosmetic-only suggestion filter (Rejects Google search query noise, re
 });
 
 test('12. Dynamic API & cache-only architecture (Zero internal static brand catalogs)', async () => {
-  const { searchCosmeticsLive } = await import('./lib/services/live-cosmetics-service');
-  const { COSMETICS_DATABASE } = await import('./lib/data/cosmetics-db');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
 
   // 内部データベースに固定のブランド商品カタログが存在しないこと（外部API/推測から動的供給）
-  const liveModule = await import('./lib/services/live-cosmetics-service');
+  const liveModule = await import('../src/lib/services/live-cosmetics-service');
   assert.strictEqual(
     (liveModule as any).BRAND_COSMETICS_CATALOG,
     undefined,
@@ -361,7 +361,7 @@ test('12. Dynamic API & cache-only architecture (Zero internal static brand cata
 });
 
 test('13. Dynamic ingredient explanation generation & caching on uncataloged raw ingredients', () => {
-  const { getOrGenerateIngredientExplanation, DYNAMIC_INGREDIENT_CACHE } = require('./lib/services/dynamic-ingredient-service');
+  const { getOrGenerateIngredientExplanation, DYNAMIC_INGREDIENT_CACHE } = require('../src/lib/services/dynamic-ingredient-service');
 
   const testRawIngredients = [
     '水',
@@ -416,7 +416,7 @@ test('13. Dynamic ingredient explanation generation & caching on uncataloged raw
 });
 
 test('14. Strict formatting validation (Zero markdown bold/italic asterisks in ingredient explanations)', () => {
-  const { getOrGenerateIngredientExplanation } = require('./lib/services/dynamic-ingredient-service');
+  const { getOrGenerateIngredientExplanation } = require('../src/lib/services/dynamic-ingredient-service');
 
   const rawList = ['水', '炭', 'パパイン', 'ラウレス硫酸Na', 'シトラス果実エキス'];
 
@@ -430,8 +430,8 @@ test('14. Strict formatting validation (Zero markdown bold/italic asterisks in i
 });
 
 test('15. Strict authentic cosmetics guarantee (Zero fictional products or disguised search queries)', async () => {
-  const { searchCosmeticsLive, isActualCosmeticProduct } = await import('./lib/services/live-cosmetics-service');
-  const { searchCosmetics } = await import('./lib/services/search-barcode-service');
+  const { searchCosmeticsLive, isActualCosmeticProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { searchCosmetics } = await import('../src/lib/services/search-barcode-service');
 
   const testQueries = ['泡洗顔 炭 スクラブ', '炭 洗顔 敏感 肌', '泡洗顔 角栓', '泡洗顔 炭酸泡'];
 
@@ -475,9 +475,9 @@ test('15. Strict authentic cosmetics guarantee (Zero fictional products or disgu
 
 test('16. Zero user query reflection in brand field (Rejects generic terms in brand)', async () => {
   const { searchCosmeticsLive, judgeGenericOrBrandWithGemini, getDisplayBrand } = await import(
-    './lib/services/live-cosmetics-service'
+    '../src/lib/services/live-cosmetics-service'
   );
-  const { searchCosmetics } = await import('./lib/services/search-barcode-service');
+  const { searchCosmetics } = await import('../src/lib/services/search-barcode-service');
 
   const genericQueries = [
     '泡洗顔 炭 スクラブ',
