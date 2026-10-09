@@ -45,7 +45,19 @@ e.g. a Cron Trigger once a day), or no product cards at all for a greeting.
 
 ## 3. Set a thinking limit
 
-- [ ] Set thinking explicitly on every call
+- [x] Set thinking explicitly on every call
+
+**Done (2026-10-09):** every call now sends `thinkingConfig.thinkingLevel`, default `low`
+(`GEMINI_THINKING_LEVEL` overrides it; Gemini 3 uses levels, not the 2.5-era `thinkingBudget`).
+`gemini-3.8-flash` defaults to `medium` and has no `minimal`. Live A/B through the dev gateway:
+
+| Task | medium: thinking + answer tokens, time | low: thinking + answer tokens, time |
+|---|---|---|
+| Chat reply | 261 + 306, 8.0 s | 0 + 296, 4.9 s |
+| Product discovery (grounding tool on) | 1,107 + 751, 16.2 s | 0 + 796, 8.4 s |
+| Ingredient JSON | 292 + 137, 6.0 s | 0 + 177, 3.9 s |
+
+Answer quality was comparable on all three, and billed output tokens dropped by about 55%.
 
 **Where**: every `generationConfig` (`gemini.ts:220`, `dynamic-ingredient-service.ts:436`,
 `live-cosmetics-service.ts:150`, `:493`)

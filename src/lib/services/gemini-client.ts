@@ -17,6 +17,19 @@ export function getGeminiModel(): string {
   return process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 }
 
+/** Gemini 3.x の思考レベル（gemini-3.8-flash は low / medium / high に対応。既定は medium） */
+export type ThinkingLevel = 'low' | 'medium' | 'high';
+const THINKING_LEVELS: ThinkingLevel[] = ['low', 'medium', 'high'];
+
+/**
+ * 既定の思考レベル。思考トークンは出力トークンとして課金されるため、既定は low
+ * （GEMINI_THINKING_LEVEL で変更可能。旧来の thinkingBudget は Gemini 3 では使わない）
+ */
+export function getDefaultThinkingLevel(): ThinkingLevel {
+  const level = (process.env.GEMINI_THINKING_LEVEL || '').trim().toLowerCase();
+  return THINKING_LEVELS.includes(level as ThinkingLevel) ? (level as ThinkingLevel) : 'low';
+}
+
 interface GatewayConfig {
   accountId: string;
   gatewayId: string;
@@ -72,6 +85,8 @@ export interface GeminiRequest {
   /** 指定すると JSON モード（responseMimeType: application/json）で responseSchema を適用 */
   responseSchema?: Record<string, unknown>;
   generationConfig?: Record<string, unknown>;
+  /** 思考レベル。未指定なら getDefaultThinkingLevel() */
+  thinkingLevel?: ThinkingLevel;
   timeoutMs?: number;
 }
 
@@ -107,7 +122,12 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     return null;
   }
 
+  const model = getGeminiModel();
   const generationConfig: Record<string, unknown> = { ...req.generationConfig };
+  // thinkingLevel は Gemini 3 系のみ対応（2.5 系は thinkingBudget を使い、thinkingLevel を拒否する）
+  if (/^gemini-3/.test(model)) {
+    generationConfig.thinkingConfig = { thinkingLevel: req.thinkingLevel ?? getDefaultThinkingLevel() };
+  }
   if (req.responseSchema) {
     generationConfig.responseMimeType = 'application/json';
     generationConfig.responseSchema = req.responseSchema;
@@ -125,7 +145,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   }
 
   try {
-    const response = await fetch(geminiEndpoint(gateway, getGeminiModel()), {
+    const response = await fetch(geminiEndpoint(gateway, model), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

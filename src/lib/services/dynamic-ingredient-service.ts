@@ -460,7 +460,8 @@ export async function explainIngredientWithAI(rawName: string): Promise<KnownIng
     },
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 500,
+      // 思考トークンも上限に含まれるため、思考レベルを上げた場合に備えて余裕を持たせる
+      maxOutputTokens: 1024,
     },
   });
 

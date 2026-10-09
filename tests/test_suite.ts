@@ -982,3 +982,43 @@ test('35. Gateway errors are logged by kind without the response body in product
   assert.ok(logged[1].includes('ユーザーの相談内容'), 'Dev gateway logs include the body');
 });
 
+test('36. Gemini thinking level: low by default, overridable, Gemini 3 only, never a thinking budget', async () => {
+  const { callGemini, getDefaultThinkingLevel } = await import('../src/lib/services/gemini-client');
+  const originalFetch = globalThis.fetch;
+  const sentConfigs: any[] = [];
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sentConfigs.push(JSON.parse(String(init.body)).generationConfig);
+    return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'ok' }] } }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as typeof fetch;
+  setGatewayEnv();
+  try {
+    delete process.env.GEMINI_THINKING_LEVEL;
+    assert.strictEqual(getDefaultThinkingLevel(), 'low');
+    await callGemini({ prompt: 'a', generationConfig: { temperature: 0.2 } });
+
+    process.env.GEMINI_THINKING_LEVEL = 'MEDIUM';
+    assert.strictEqual(getDefaultThinkingLevel(), 'medium', 'Env override is case-insensitive');
+    process.env.GEMINI_THINKING_LEVEL = 'budget-1024';
+    assert.strictEqual(getDefaultThinkingLevel(), 'low', 'Invalid values fall back to low');
+
+    await callGemini({ prompt: 'b', thinkingLevel: 'high' });
+
+    process.env.GEMINI_MODEL = 'gemini-2.5-flash';
+    await callGemini({ prompt: 'c' });
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.GEMINI_THINKING_LEVEL;
+    delete process.env.GEMINI_MODEL;
+    clearGatewayEnv();
+  }
+  assert.deepStrictEqual(sentConfigs[0], { temperature: 0.2, thinkingConfig: { thinkingLevel: 'low' } });
+  assert.deepStrictEqual(sentConfigs[1].thinkingConfig, { thinkingLevel: 'high' }, 'Per-call level wins');
+  for (const config of sentConfigs.slice(0, 2)) {
+    assert.strictEqual(config.thinkingConfig.thinkingBudget, undefined, 'Gemini 3 must not receive thinkingBudget');
+  }
+  assert.strictEqual(sentConfigs[2].thinkingConfig, undefined, 'Non-Gemini-3 models get no thinkingLevel');
+});
+
