@@ -1,7 +1,7 @@
 import { Product } from '../types';
 import { addProductToDynamicCache, COSMETICS_DATABASE, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
-import { callGemini, hasGeminiKey, parseJsonLoose } from './gemini-client';
+import { callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 import { isAcceptedBrand, isKnownGenericTerm, judgeBrands } from './brand-check';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 
@@ -349,7 +349,7 @@ export async function generateCosmeticsWithGemini(query: string, limit = 4): Pro
   }
 
   // APIキー未設定またはモックキーの場合：Open Beauty Facts API から動的探索
-  if (!hasGeminiKey()) {
+  if (!isGeminiConfigured()) {
     return searchOpenBeautyFacts(clean, limit);
   }
 

@@ -1,5 +1,5 @@
 import { ProductAnalysisResult, DifferentialAnalysisResult, Product } from '../types';
-import { callGemini, hasGeminiKey } from './gemini-client';
+import { callGemini, isGeminiConfigured } from './gemini-client';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
 
 export const MARKETPLACE_DISCLAIMER_JA =
@@ -116,7 +116,7 @@ export async function generateGeminiChatResponse(options: GeminiChatOptions): Pr
   }
 
   // 3. APIキー未設定またはプレースホルダー時のフォールバック
-  if (!hasGeminiKey()) {
+  if (!isGeminiConfigured()) {
     return stripMarkdownEmphasis(generateFallbackResponse(userMessage, contextData));
   }
 

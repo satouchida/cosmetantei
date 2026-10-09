@@ -17,7 +17,7 @@ interface RateLimiterLike {
 }
 
 interface WorkersAiLike {
-  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+  run(model: string, input: Record<string, unknown>, options?: { gateway?: { id: string } }): Promise<unknown>;
 }
 
 interface AppBindings {
@@ -64,8 +64,10 @@ export async function runWorkersAI(model: string, input: Record<string, unknown>
     warnOnceInProduction('ai-binding', 'Workers AI binding "AI" is missing; Workers AI checks are skipped.');
     return null;
   }
+  // AI_GATEWAY_ID があれば AI Gateway を経由し、Gemini と同じダッシュボードで利用量・コストを確認できるようにする
+  const gatewayId = (process.env.AI_GATEWAY_ID || '').trim();
   try {
-    return await AI.run(model, input);
+    return await AI.run(model, input, gatewayId ? { gateway: { id: gatewayId } } : undefined);
   } catch (err) {
     console.error(`Workers AI ${model} failed:`, err);
     return null;

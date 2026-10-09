@@ -6,9 +6,11 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
 
 - [x] **Keep the Gemini key out of the Cloudflare build.** `npm run build:cloudflare` copies the
   values of every `.env*` file, for all three modes (production, development, test), into
-  `.open-next/cloudflare/next-env.mjs`, which ships inside the Worker script. The key now lives only
-  in `.dev.vars` (loaded by `npm run dev` via `node --env-file-if-exists`, and by `wrangler dev`) and
-  in the production secret. Rotate the key if a build made while it was in `.env.local` was deployed.
+  `.open-next/cloudflare/next-env.mjs`, which ships inside the Worker script. Resolved by moving
+  Gemini behind Cloudflare AI Gateway: the Gemini key is stored in the gateways' Provider Keys
+  (`cosmetantei-dev`, `cosmetantei-prod`), and the app only holds the gateway token `CF_AIG_TOKEN`
+  (`.dev.vars` locally, `wrangler secret put` in production). Rotate the old Gemini key if a build
+  made while it was in `.env.local` was deployed, and delete the unused `GEMINI_API_KEY` Worker secret.
 - [ ] **Don't trust product objects from the browser.**
   `src/app/api/chat/route.ts:65` (`selectedProduct`, `routine`) and `src/app/api/analyze/route.ts`
   accept full `Product` objects, including ingredient lists, and put their text straight into
@@ -37,8 +39,9 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
 - [ ] **CI.** Add a workflow running `npm ci`, `tsc --noEmit`, lint and tests on push.
 - [ ] **Unused dependency.** `fuse.js` is in `dependencies` but nothing in `src/` imports it.
   Remove it.
-- [ ] **README.** Setup (key in `.dev.vars` for `npm run dev` and `wrangler dev`; never in any `.env*` file, which the Cloudflare build embeds for all modes, `wrangler secret put GEMINI_API_KEY` for production), dev, test and deploy
-  commands.
+- [ ] **README.** Setup (gateway token `CF_AIG_TOKEN` in `.dev.vars` for `npm run dev` and
+  `wrangler dev`, `wrangler secret put CF_AIG_TOKEN` in production; never in any `.env*` file),
+  dev, test and deploy commands.
 
 ## Product
 

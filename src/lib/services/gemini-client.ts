@@ -1,29 +1,61 @@
 import 'server-only';
 
 /**
- * Gemini API 共通クライアント
- * - APIキーはURLではなく x-goog-api-key ヘッダーで送信
+ * Gemini API 共通クライアント（Cloudflare AI Gateway 経由）
+ * - Gemini の APIキーはアプリに持たず、AI Gateway の Provider Keys（Secrets Store）に保存する
+ * - アプリは AI Gateway の認証トークン（cf-aig-authorization）だけを送る
  * - 応答の全テキストパートを結合（思考パートは除外）
  * - JSON 出力は responseSchema で構造化
  */
 
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const AI_GATEWAY_BASE = 'https://gateway.ai.cloudflare.com/v1';
 const DEFAULT_TIMEOUT_MS = 20_000;
 
-const PLACEHOLDER_KEY_PATTERNS = [/^YOUR_GEMINI_API_KEY/, /^AIzaSy_YOUR/];
+const PLACEHOLDER_PATTERN = /^YOUR_/;
 
 export function getGeminiModel(): string {
   return process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 }
 
-function getGeminiApiKey(): string {
-  return (process.env.GEMINI_API_KEY || '').trim();
+interface GatewayConfig {
+  accountId: string;
+  gatewayId: string;
+  token: string;
 }
 
-/** 本物のAPIキーが設定されているか（未設定・プレースホルダーは false） */
-export function hasGeminiKey(): boolean {
-  const key = getGeminiApiKey();
-  return key.length > 0 && !PLACEHOLDER_KEY_PATTERNS.some((p) => p.test(key));
+function readEnv(name: string): string {
+  const value = (process.env[name] || '').trim();
+  return PLACEHOLDER_PATTERN.test(value) ? '' : value;
+}
+
+/** AI Gateway の接続設定。いずれかが未設定・プレースホルダーなら null */
+function getGatewayConfig(): GatewayConfig | null {
+  const accountId = readEnv('CF_ACCOUNT_ID');
+  const gatewayId = readEnv('AI_GATEWAY_ID');
+  const token = readEnv('CF_AIG_TOKEN');
+  return accountId && gatewayId && token ? { accountId, gatewayId, token } : null;
+}
+
+let warnedMissingConfig = false;
+
+/** 設定不足で Gemini が無効になっていることを、変数名だけ（値は出さない）一度だけログに出す */
+function warnMissingGatewayConfigOnce(): void {
+  if (warnedMissingConfig) return;
+  warnedMissingConfig = true;
+  const missing = ['CF_ACCOUNT_ID', 'AI_GATEWAY_ID', 'CF_AIG_TOKEN'].filter((name) => !readEnv(name));
+  console.warn('Gemini disabled: AI Gateway config missing or placeholder:', missing.join(', '));
+}
+
+/** Gemini を呼び出せる設定が揃っているか（AI Gateway のアカウントID・ゲートウェイID・トークン） */
+export function isGeminiConfigured(): boolean {
+  return getGatewayConfig() !== null;
+}
+
+/** AI Gateway 経由の Gemini generateContent エンドポイント */
+export function geminiEndpoint(config: { accountId: string; gatewayId: string }, model: string): string {
+  return `${AI_GATEWAY_BASE}/${encodeURIComponent(config.accountId)}/${encodeURIComponent(
+    config.gatewayId
+  )}/google-ai-studio/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 }
 
 export interface GeminiContent {
@@ -69,7 +101,11 @@ export function extractResponseText(data: unknown): string {
  * Gemini を呼び出して応答テキストを返す。キー未設定・エラー・空応答時は null
  */
 export async function callGemini(req: GeminiRequest): Promise<GeminiResult | null> {
-  if (!hasGeminiKey()) return null;
+  const gateway = getGatewayConfig();
+  if (!gateway) {
+    warnMissingGatewayConfigOnce();
+    return null;
+  }
 
   const generationConfig: Record<string, unknown> = { ...req.generationConfig };
   if (req.responseSchema) {
@@ -89,21 +125,21 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   }
 
   try {
-    const response = await fetch(
-      `${GEMINI_API_BASE}/${encodeURIComponent(getGeminiModel())}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': getGeminiApiKey(),
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-      }
-    );
+    const response = await fetch(geminiEndpoint(gateway, getGeminiModel()), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Gemini の APIキーは送らない（AI Gateway に保存されたキーが使われる）
+        'cf-aig-authorization': `Bearer ${gateway.token}`,
+        // 本番はプロンプト・応答本文をログに残さない（肌トラブルの相談内容を含むため）
+        'cf-aig-collect-log-payload': process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+    });
 
     if (!response.ok) {
-      console.error('Gemini API error:', response.status, (await response.text()).slice(0, 500));
+      console.error(await describeGatewayError(response));
       return null;
     }
 
@@ -119,6 +155,31 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     console.error('Gemini API request failed:', err);
     return null;
   }
+}
+
+/**
+ * エラー応答のログ文言。原因の切り分けができるよう種類と Google のエラーコードは常に出し、
+ * 本文（プロンプトの一部を含み得る）は開発用ゲートウェイ（AI_GATEWAY_LOG_PAYLOAD=true）のときだけ出す
+ */
+async function describeGatewayError(response: Response): Promise<string> {
+  const body = await response.text().catch(() => '');
+  const kind =
+    response.status === 401
+      ? 'AI Gateway auth failed (check CF_AIG_TOKEN)'
+      : response.status === 429
+      ? 'AI Gateway or Gemini rate limited'
+      : 'Gemini API error';
+
+  let errorCode = '';
+  try {
+    const parsed = JSON.parse(body) as { error?: { status?: unknown } };
+    if (typeof parsed?.error?.status === 'string') errorCode = parsed.error.status;
+  } catch {
+    // Gemini 以外（ゲートウェイ等）のエラー本文
+  }
+
+  const detail = process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? ` ${body.slice(0, 500)}` : '';
+  return `${kind}: ${response.status}${errorCode ? ` ${errorCode}` : ''}${detail}`;
 }
 
 /**

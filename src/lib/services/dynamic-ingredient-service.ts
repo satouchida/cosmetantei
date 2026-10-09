@@ -1,7 +1,7 @@
 import { KnownIngredient, IngredientCategory, IngredientRiskLevel, INGREDIENT_RISK_LEVELS } from '../types';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import { stripMarkdownEmphasis } from './gemini';
-import { callGeminiJSON, hasGeminiKey } from './gemini-client';
+import { callGeminiJSON, isGeminiConfigured } from './gemini-client';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
 import { BoundedCache } from '../utils/bounded-cache';
 
@@ -424,7 +424,7 @@ export async function explainIngredientWithAI(rawName: string): Promise<KnownIng
   }
 
   // APIキーが無い、またはモックキーの場合はルール生成を返す
-  if (!hasGeminiKey()) {
+  if (!isGeminiConfigured()) {
     return getOrGenerateIngredientExplanation(rawName);
   }
 

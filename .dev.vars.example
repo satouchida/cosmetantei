@@ -1,3 +1,12 @@
 # npm run dev / wrangler dev / opennextjs-cloudflare preview 用のローカル環境変数（このファイルを .dev.vars にコピーして値を設定）
-# Google AI Studio (https://aistudio.google.com/) で取得したAPIキー
-GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
+# Gemini と Clef は Cloudflare AI Gateway 経由で呼び出します。Gemini の APIキーは AI Gateway の Provider Keys に保存済みです
+
+# AI Gateway の認証トークン（ダッシュボードの「Create authentication token」で発行。秘密情報）
+CF_AIG_TOKEN="YOUR_CF_AIG_TOKEN"
+
+# ローカルでは開発用ゲートウェイを使う（wrangler.toml の cosmetantei-prod を上書き）
+CF_ACCOUNT_ID="abd3843a83776fc9f73f65bb4bc2265e"
+AI_GATEWAY_ID="cosmetantei-dev"
+
+# 開発用ゲートウェイではプロンプト・応答本文もログに残す（本番は残さない）
+AI_GATEWAY_LOG_PAYLOAD="true"

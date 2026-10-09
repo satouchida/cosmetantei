@@ -12,7 +12,19 @@ import { MARKETPLACE_DISCLAIMER_JA } from '../src/lib/services/gemini';
 import { Product, INGREDIENT_RISK_LEVELS } from '../src/lib/types';
 
 // 外部API（Open Beauty Facts・Gemini）には接続しない：テストを高速・安定にするためネットワークを遮断する
-delete process.env.GEMINI_API_KEY;
+const GATEWAY_ENV_KEYS = ['CF_ACCOUNT_ID', 'AI_GATEWAY_ID', 'CF_AIG_TOKEN', 'AI_GATEWAY_LOG_PAYLOAD'] as const;
+for (const key of GATEWAY_ENV_KEYS) delete process.env[key];
+
+/** テスト用の AI Gateway 設定（実在しないトークン） */
+function setGatewayEnv(): void {
+  process.env.CF_ACCOUNT_ID = 'test-account';
+  process.env.AI_GATEWAY_ID = 'test-gateway';
+  process.env.CF_AIG_TOKEN = 'test-token-123';
+}
+function clearGatewayEnv(): void {
+  for (const key of GATEWAY_ENV_KEYS) delete process.env[key];
+}
+
 globalThis.fetch = (async () => new Response('offline in tests', { status: 503 })) as typeof fetch;
 
 /** Open Beauty Facts から取得した体裁の、成分が確認済みの製品 */
@@ -586,18 +598,26 @@ test('20. Off-topic filter: no false positives on substrings, still blocks obvio
   }
 });
 
-test('21. Gemini client: key detection, multi-part responses, loose JSON parsing', async () => {
-  const { hasGeminiKey, extractResponseText, parseJsonLoose } = await import('../src/lib/services/gemini-client');
+test('21. Gemini client: gateway config detection, multi-part responses, loose JSON parsing', async () => {
+  const { isGeminiConfigured, extractResponseText, parseJsonLoose, geminiEndpoint } = await import(
+    '../src/lib/services/gemini-client'
+  );
 
-  const saved = process.env.GEMINI_API_KEY;
-  for (const placeholder of ['', 'YOUR_GEMINI_API_KEY', 'YOUR_GEMINI_API_KEY_HERE', 'AIzaSy_YOUR_KEY']) {
-    process.env.GEMINI_API_KEY = placeholder;
-    assert.strictEqual(hasGeminiKey(), false, `"${placeholder}" must not count as a key`);
-  }
-  process.env.GEMINI_API_KEY = 'AIzaSyRealLookingKey123';
-  assert.strictEqual(hasGeminiKey(), true);
-  if (saved === undefined) delete process.env.GEMINI_API_KEY;
-  else process.env.GEMINI_API_KEY = saved;
+  clearGatewayEnv();
+  assert.strictEqual(isGeminiConfigured(), false, 'Nothing set → not configured');
+  setGatewayEnv();
+  assert.strictEqual(isGeminiConfigured(), true);
+  process.env.CF_AIG_TOKEN = 'YOUR_CF_AIG_TOKEN';
+  assert.strictEqual(isGeminiConfigured(), false, 'Placeholder token must not count');
+  setGatewayEnv();
+  delete process.env.AI_GATEWAY_ID;
+  assert.strictEqual(isGeminiConfigured(), false, 'Missing gateway id → not configured');
+  clearGatewayEnv();
+
+  assert.strictEqual(
+    geminiEndpoint({ accountId: 'acc', gatewayId: 'cosmetantei-dev' }, 'gemini-3.8-flash'),
+    'https://gateway.ai.cloudflare.com/v1/acc/cosmetantei-dev/google-ai-studio/v1beta/models/gemini-3.8-flash:generateContent'
+  );
 
   const text = extractResponseText({
     candidates: [{ content: { parts: [{ text: 'thinking...', thought: true }, { text: '前半' }, { text: '後半' }] } }],
@@ -746,9 +766,13 @@ test('28. Truncated Gemini replies are shown but not cached', async () => {
   const { generateGeminiChatResponse } = await import('../src/lib/services/gemini');
   const originalFetch = globalThis.fetch;
   let calls = 0;
-  process.env.GEMINI_API_KEY = 'AIzaSyRealLookingKey123';
-  globalThis.fetch = (async () => {
+  let lastUrl = '';
+  let lastHeaders: Record<string, string> = {};
+  setGatewayEnv();
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
     calls++;
+    lastUrl = String(url);
+    lastHeaders = init.headers as Record<string, string>;
     return new Response(
       JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '途中で切れた回答' }] } }] }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -761,9 +785,15 @@ test('28. Truncated Gemini replies are shown but not cached', async () => {
     assert.strictEqual(first, '途中で切れた回答');
     assert.strictEqual(second, '途中で切れた回答');
     assert.strictEqual(calls, 2, 'Truncated reply must not be served from cache');
+
+    // AI Gateway 経由で、Gemini の APIキーは送らない
+    assert.ok(lastUrl.startsWith('https://gateway.ai.cloudflare.com/v1/test-account/test-gateway/google-ai-studio/v1beta/'));
+    assert.strictEqual(lastHeaders['cf-aig-authorization'], 'Bearer test-token-123');
+    assert.strictEqual(lastHeaders['x-goog-api-key'], undefined, 'Gemini key must not be sent by the app');
+    assert.strictEqual(lastHeaders['cf-aig-collect-log-payload'], 'false', 'Payloads are not logged by default');
   } finally {
     globalThis.fetch = originalFetch;
-    delete process.env.GEMINI_API_KEY;
+    clearGatewayEnv();
   }
 });
 
@@ -885,7 +915,7 @@ test('33. Product discovery makes one Gemini call; brand checks use precheck, ca
   const { generateCosmeticsWithGemini } = await import('../src/lib/services/live-cosmetics-service');
   const originalFetch = globalThis.fetch;
   let geminiCalls = 0;
-  process.env.GEMINI_API_KEY = 'AIzaSyRealLookingKey123';
+  setGatewayEnv();
   globalThis.fetch = (async () => {
     geminiCalls++;
     const products = [
@@ -912,7 +942,43 @@ test('33. Product discovery makes one Gemini call; brand checks use precheck, ca
     );
   } finally {
     globalThis.fetch = originalFetch;
-    delete process.env.GEMINI_API_KEY;
+    clearGatewayEnv();
   }
+});
+
+test('34. Clef calls go through the AI Gateway when AI_GATEWAY_ID is set', async () => {
+  const { runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const seen: unknown[] = [];
+  const AI = { async run(_model: string, _input: unknown, options?: unknown) { seen.push(options); return { ok: true }; } };
+
+  await withCloudflareEnv({ AI }, async () => {
+    process.env.AI_GATEWAY_ID = 'cosmetantei-dev';
+    await runWorkersAI('@cf/cloudflare/clef', { model: 'clef' });
+    delete process.env.AI_GATEWAY_ID;
+    await runWorkersAI('@cf/cloudflare/clef', { model: 'clef' });
+  });
+  assert.deepStrictEqual(seen, [{ gateway: { id: 'cosmetantei-dev' } }, undefined]);
+});
+
+test('35. Gateway errors are logged by kind without the response body in production', async () => {
+  const { callGemini } = await import('../src/lib/services/gemini-client');
+  const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const logged: string[] = [];
+  console.error = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+  const body = JSON.stringify({ error: { code: 402, status: 'RESOURCE_EXHAUSTED', message: 'ユーザーの相談内容を含むかもしれない本文' } });
+  globalThis.fetch = (async () => new Response(body, { status: 402 })) as typeof fetch;
+  setGatewayEnv();
+  try {
+    assert.strictEqual(await callGemini({ prompt: 'テスト' }), null);
+    process.env.AI_GATEWAY_LOG_PAYLOAD = 'true';
+    await callGemini({ prompt: 'テスト' });
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalError;
+    clearGatewayEnv();
+  }
+  assert.strictEqual(logged[0], 'Gemini API error: 402 RESOURCE_EXHAUSTED', 'Production log keeps the code, not the body');
+  assert.ok(logged[1].includes('ユーザーの相談内容'), 'Dev gateway logs include the body');
 });
 
