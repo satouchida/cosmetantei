@@ -1,8 +1,13 @@
 import { Product } from '../types';
-import { addProductToDynamicCache, COSMETICS_DATABASE, rememberVerifiedProducts } from '../data/cosmetics-db';
+import {
+  addProductToDynamicCache,
+  COSMETICS_DATABASE,
+  isVerifiedSource,
+  rememberVerifiedProducts,
+} from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
-import { callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
-import { isAcceptedBrand, isKnownGenericTerm, judgeBrands } from './brand-check';
+import { isKnownGenericTerm } from './brand-check';
+import { researchProducts, toProductSearchQuery } from './web-research';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 
 /**
@@ -334,135 +339,16 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
   }
 }
 
-/**
- * 2. Gemini 3.8 Flash による完全動的コスメ生成（実在コスメのWeb特定 & 生成）
- * 固定の静的リストを持たず、AIモデルがリアルタイムに正規コスメと全成分を動的生成
- */
-export async function generateCosmeticsWithGemini(query: string, limit = 4): Promise<Product[]> {
-  const clean = query.replace(/\u3000/g, ' ').trim();
-  if (
-    !clean ||
-    isGreetingOrConsultation(clean) ||
-    isNonCosmeticSearchQuery(clean)
-  ) {
-    return [];
-  }
-
-  // APIキー未設定またはモックキーの場合：Open Beauty Facts API から動的探索
-  if (!isGeminiConfigured()) {
-    return searchOpenBeautyFacts(clean, limit);
-  }
-
-  const prompt = `あなたは日本および各国の化粧品市場に精通したコスメ・スキンケア専門リサーチャーです。
-ユーザーが「${clean}」に関連する化粧品を探しています。
-市販されている実在の化粧品製品のみを最大${limit}件、動的に特定・生成してください。
-
-【絶対遵守の厳格ルール】
-1. 必ず日本または海外で現在市販されている「実在する化粧品製品」のみを最大${limit}件特定してください。
-2. 架空の製品、想像上の製品、一般名詞のみの名前（例: 「炭洗顔フォーム」「濃密泡洗顔」など）は絶対に出力しないでください。
-3. 必ず実在する正式なメーカー・ブランド名・発売元（例: 「ロゼット」「FANCL」「Bioré」「マンダム」「ちふれ」「キュレル」等）と、正確な製品名を記載してください。ブランド名（brand）に一般名詞（例: 「炭」「泡洗顔」「スクラブ」「敏感肌」「保湿クリーム」など）や、ユーザー入力の検索ワードをそのまま記載することは固く禁じます。
-4. 全成分（ingredients）も、その実在製品の公式パッケージや公式サイトに掲載されている実際の全成分リスト（または公表主要成分）を記載してください。適当な推測成分は出力しないでください。
-5. 太字(**)やイタリック(*)などのMarkdown強調記法は絶対に含めないでください。
-
-以下のJSON配列形式のみを出力してください（Markdownコードブロックは不要です）：
-[
-  {
-    "name": "実在する正確な製品名",
-    "brand": "実在する正式なメーカー・ブランド名（一般名詞・検索ワードの転載厳禁）",
-    "country": "JP",
-    "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other",
-    "ingredients": ["実際の全成分1", "実際の全成分2"],
-    "descriptionJa": "製品の簡単な特徴（太字なし）",
-    "isOfficialBrand": "brand が実在する正式なブランド名・メーカー名なら true、一般名詞や検索語が入ってしまった場合は false"
-  }
-]`;
-
-  // Google検索グラウンディングと構造化出力の併用はモデルによって未対応のため、テキストからJSONを取り出す
-  const result = await callGemini({
-    prompt,
-    grounding: true,
-    generationConfig: { temperature: 0.1 },
-  });
-  if (!result || result.truncated) return [];
-
-  const parsed = parseJsonLoose<unknown>(result.text);
-  if (!Array.isArray(parsed) || parsed.length === 0) return [];
-
-  const candidates: { product: Product; selfReportedOfficial?: boolean }[] = [];
-  for (const raw of parsed) {
-    if (!raw || typeof raw !== 'object') continue;
-    const item = raw as Record<string, unknown>;
-    if (typeof item.name !== 'string' || typeof item.brand !== 'string') continue;
-
-    const name = item.name.trim();
-    const brand = item.brand.trim();
-    if (!name || !brand) continue;
-
-    const ingredients = Array.isArray(item.ingredients)
-      ? item.ingredients.filter((i): i is string => typeof i === 'string' && i.trim().length > 0).map((i) => i.trim())
-      : [];
-
-    const product: Product = {
-      id: `gem_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      brand,
-      country: PRODUCT_COUNTRIES.includes(item.country as Product['country'])
-        ? (item.country as Product['country'])
-        : 'JP',
-      category: PRODUCT_CATEGORIES.includes(item.category as Product['category'])
-        ? (item.category as Product['category'])
-        : 'other',
-      ingredients: ingredients.length > 0 ? ingredients : ['成分情報はオンライン公開情報より探索'],
-      descriptionJa: typeof item.descriptionJa === 'string' && item.descriptionJa.trim()
-        ? item.descriptionJa.trim()
-        : `${brand} - ${name}`,
-      amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
-      isEstimatedFromMarketplaces: true,
-      ingredientSource: 'ai_estimate',
-    };
-
-    if (isActualCosmeticProduct(product)) {
-      candidates.push({
-        product,
-        selfReportedOfficial: typeof item.isOfficialBrand === 'boolean' ? item.isOfficialBrand : undefined,
-      });
-    }
-  }
-
-  // brand 欄が実在ブランドかを判定（語彙チェック → キャッシュ → 自己申告 → Clef の順。Gemini の追加呼び出しなし）
-  const decisions = await judgeBrands(
-    candidates.map(({ product, selfReportedOfficial }) => ({
-      brand: product.brand,
-      productName: product.name,
-      selfReportedOfficial,
-    })),
-    clean
-  );
-
-  const groundedProducts: Product[] = [];
-  candidates.forEach(({ product }, i) => {
-    if (!isAcceptedBrand(decisions[i])) return;
-    addProductToDynamicCache(product);
-    groundedProducts.push(product);
-  });
-
-  return groundedProducts;
+/** 全成分が確認済みのデータ源（Open Beauty Facts・出典ページ等）から来た候補か */
+function hasVerifiedIngredientList(p: Product): boolean {
+  return isVerifiedSource(p) && p.ingredients.length > 0;
 }
 
-const PRODUCT_COUNTRIES: Product['country'][] = ['JP', 'KR', 'US', 'EU'];
-const PRODUCT_CATEGORIES: Product['category'][] = [
-  'cleanser',
-  'toner',
-  'serum',
-  'cream',
-  'sunscreen',
-  'mask',
-  'lip',
-  'other',
-];
-
-// 後方互換性エイリアス
-export const searchGoogleGroundedGemini = generateCosmeticsWithGemini;
+/** 製品名（ブランド名つきも含む）が検索語を含むか。ブランド名だけの一致は数えない */
+function namesProduct(p: Product, query: string): boolean {
+  const q = normalizeSearchString(query);
+  return !!q && (normalizeSearchString(p.name).includes(q) || normalizeSearchString(`${p.brand}${p.name}`).includes(q));
+}
 
 /**
  * 3. 代表コスメ・トレンドコスメを生成AIおよび外部APIから動的取得
@@ -488,23 +374,7 @@ export async function fetchDynamicTrendingCosmetics(
     return collected.slice(0, limit);
   }
 
-  // 2. Gemini 3.8 Flash によるWeb動的探索・生成
-  const geminiResults = await generateCosmeticsWithGemini(
-    clean ? `${clean} 人気 実在 コスメ` : '敏感肌 低刺激 人気 実在 コスメ',
-    limit
-  );
-  for (const gr of geminiResults) {
-    if (collected.length >= limit) break;
-    if (isActualCosmeticProduct(gr) && !collected.some((p) => p.id === gr.id || p.name === gr.name)) {
-      collected.push(gr);
-    }
-  }
-
-  if (collected.length >= limit) {
-    return collected.slice(0, limit);
-  }
-
-  // 3. Open Beauty Facts API から動的探索
+  // 2. Open Beauty Facts API から動的探索（有料の Web 検索・Gemini は使わない）
   const obfResults = await searchOpenBeautyFacts(clean || 'スキンケア', limit);
   for (const o of obfResults) {
     if (collected.length >= limit) break;
@@ -519,9 +389,16 @@ export async function fetchDynamicTrendingCosmetics(
 
 /**
  * 4. 実在するコスメ候補のみを検索・特定して返却するメインエンジン
- * 固定カタログを持たず、動的キャッシュおよびGemini生成/Web探索から実在商品のみを返却
+ * 固定カタログを持たず、動的キャッシュ・Open Beauty Facts・Web リサーチから実在商品のみを返却
+ *
+ * webResearch: 見つからない場合に Web 検索と出典ページの読み取り（有料）まで行うか。
+ * 入力途中の候補表示（/api/products/search）では使わず、チャットで商品名が送られたときだけ使う
  */
-export async function searchCosmeticsLive(query: string, limit = 6): Promise<Product[]> {
+export async function searchCosmeticsLive(
+  query: string,
+  limit = 6,
+  options: { webResearch?: boolean } = {}
+): Promise<Product[]> {
   const clean = query ? query.replace(/\u3000/g, ' ').trim() : '';
 
   const collected: Product[] = [];
@@ -558,22 +435,28 @@ export async function searchCosmeticsLive(query: string, limit = 6): Promise<Pro
     }
   }
 
-  // B. Gemini 3.8 Flash Generative AI によるリアルタイム動的生成（メイン生成エンジン）
-  if (collected.length < limit) {
-    const geminiResults = await generateCosmeticsWithGemini(clean, Math.min(limit, 4));
-    for (const gr of geminiResults) {
-      if (isActualCosmeticProduct(gr) && !collected.some((c) => c.id === gr.id || c.name === gr.name)) {
-        collected.push(gr);
-      }
-    }
-  }
-
-  // C. Open Beauty Facts API（世界規模の実在コスメデータベース）
+  // B. Open Beauty Facts API（世界規模の実在コスメデータベース。無料）
   if (collected.length < limit) {
     const obfResults = await searchOpenBeautyFacts(clean, limit);
     for (const o of obfResults) {
       if (isActualCosmeticProduct(o) && !collected.some((c) => c.id === o.id || c.name === o.name)) {
         collected.push(o);
+      }
+    }
+  }
+
+  // C. Web リサーチ（Web 検索 → 出典ページの読み取り）。
+  //    検索語を製品名に含む、全成分付きの候補が既にあれば行わない（同じブランドの別製品だけでは行う）
+  const productQuery = options.webResearch ? toProductSearchQuery(clean) : null;
+  if (
+    productQuery &&
+    !collected.some((p) => hasVerifiedIngredientList(p) && namesProduct(p, productQuery)) &&
+    !isNonCosmeticSearchQuery(clean)
+  ) {
+    const webResults = await researchProducts(productQuery, Math.min(limit, 4));
+    for (const w of webResults) {
+      if (isActualCosmeticProduct(w) && !collected.some((c) => c.id === w.id || c.name === w.name)) {
+        collected.push(w);
       }
     }
   }

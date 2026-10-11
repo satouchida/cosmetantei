@@ -542,6 +542,7 @@ test('16. Zero user query reflection in brand field (Rejects generic terms in br
 test('17. Only real label data counts as verified ingredients', () => {
   assert.ok(hasVerifiedIngredients(verifiedProduct({})), 'Open Beauty Facts product is verified');
   assert.ok(hasVerifiedIngredients(verifiedProduct({ ingredientSource: 'user_label' })), 'User label is verified');
+  assert.ok(hasVerifiedIngredients(verifiedProduct({ ingredientSource: 'web_page' })), 'A source page read by Gemini is verified');
   assert.ok(!hasVerifiedIngredients(verifiedProduct({ ingredientSource: 'ai_estimate' })), 'AI estimate is not verified');
   assert.ok(
     !hasVerifiedIngredients(verifiedProduct({ isEstimatedFromMarketplaces: true })),
@@ -910,35 +911,105 @@ test('32. Brand check without Clef falls back to the self-report and caches noth
   assert.strictEqual(calls.length, 1, 'A self-report-only decision must not have been cached');
 });
 
-test('33. Product discovery makes one Gemini call; brand checks use precheck, cache and Clef', async () => {
-  const { generateCosmeticsWithGemini } = await import('../src/lib/services/live-cosmetics-service');
-  const originalFetch = globalThis.fetch;
-  let geminiCalls = 0;
-  setGatewayEnv();
-  globalThis.fetch = (async () => {
-    geminiCalls++;
-    const products = [
-      { name: 'ディスカバリー 化粧水', brand: 'ディスカバリーブランド', category: 'toner', ingredients: ['水'], isOfficialBrand: true },
-      { name: '炭 洗顔フォーム', brand: '泡洗顔', category: 'cleanser', ingredients: ['水'], isOfficialBrand: true },
-      { name: 'ナゾ 美容液', brand: 'ナゾノメーカー', category: 'serum', ingredients: ['水'], isOfficialBrand: false },
-    ];
-    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(products) }] } }] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }) as typeof fetch;
-  const { AI, calls } = fakeClef(() => ({ choice: 'brand', p: 0.92 }));
+/** Web 検索（websearch）と Clef（run）を持つテスト用 Workers AI バインディング */
+function fakeWebSearchAI(
+  resultsFor: (provider: string, query: string) => { url: string; title?: string }[] | Error,
+  clefChoice = { choice: 'brand', p: 0.95 }
+) {
+  const searches: { provider: string; query: string; gatewayId?: string }[] = [];
+  const clef = fakeClef(() => clefChoice);
+  const AI = {
+    run: clef.AI.run,
+    async websearch(input: { query: string; provider: string; limit: number; gatewayId?: string }) {
+      searches.push({ provider: input.provider, query: input.query, gatewayId: input.gatewayId });
+      const r = resultsFor(input.provider, input.query);
+      if (r instanceof Error) return new Response(JSON.stringify({ error: r.message }), { status: 502 });
+      return new Response(JSON.stringify({ items: r.map((i) => ({ title: '', description: '', ...i })), metadata: {} }), {
+        status: 200,
+      });
+    },
+  };
+  return { AI, searches, clefCalls: clef.calls };
+}
 
-  try {
-    const results = await withCloudflareEnv({ AI }, () => generateCosmeticsWithGemini('ディスカバリー 化粧水', 4));
-    assert.deepStrictEqual(results.map((p) => p.brand), ['ディスカバリーブランド']);
-    assert.strictEqual(geminiCalls, 1, 'Brand checks must not add Gemini calls');
-    assert.strictEqual(calls.length, 1);
-    assert.deepStrictEqual(
-      Object.values<any>(calls[0].input.questions).map((q) => q.instructions.brand),
-      ['ディスカバリーブランド'],
-      'Only the brand that passed precheck and self-report goes to Clef'
+/** URL context で読んだ体裁の Gemini 応答を返す fetch。retrieved は読み込みに成功した URL */
+function fakeGeminiPageReader(items: unknown[], retrieved: string[]) {
+  const prompts: { body: any }[] = [];
+  const fetchFn = (async (url: string, init?: RequestInit) => {
+    if (!String(url).includes('generateContent')) return new Response('offline in tests', { status: 503 });
+    const body = JSON.parse(String(init?.body));
+    prompts.push({ body });
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: { parts: [{ text: JSON.stringify(items) }] },
+            finishReason: 'STOP',
+            urlContextMetadata: {
+              urlMetadata: retrieved.map((u) => ({ retrievedUrl: u, urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_SUCCESS' })),
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
+  }) as typeof fetch;
+  return { fetchFn, prompts };
+}
+
+test('33. Web research: Exa results are read with URL context; only confirmed sources are kept', async () => {
+  const { researchProducts } = await import('../src/lib/services/web-research');
+  const official = 'https://brand.example.jp/products/lotion-a/';
+  const retailer = 'https://shop.example.com/item/123';
+  const notRead = 'https://blog.example.net/review';
+  const { AI, searches, clefCalls } = fakeWebSearchAI(() => [
+    { url: official },
+    { url: 'https://search.kakaku.com/lotion' }, // 検索結果一覧は読まない
+    { url: retailer },
+    { url: notRead },
+  ]);
+  const { fetchFn, prompts } = fakeGeminiPageReader(
+    [
+      // 出典確認済み・全成分あり
+      { sourceUrl: 'https://brand.example.jp/products/lotion-a', brand: 'リサーチブランド', name: 'リサーチ 化粧水 A', category: 'toner', ingredients: ['水', 'ＢＧ', '香料'], ingredientsFoundOnPage: true },
+      // 出典確認済み・全成分なし → 製品名のみ（成分未確認）
+      { sourceUrl: retailer, brand: 'リサーチブランド', name: 'リサーチ 乳液 B', category: 'cream', ingredients: ['水'], ingredientsFoundOnPage: false },
+      // 読み込みに失敗したページ → 捨てる
+      { sourceUrl: notRead, brand: 'リサーチブランド', name: 'リサーチ 美容液 C', ingredients: ['水'], ingredientsFoundOnPage: true },
+      // 指示していない URL → 捨てる
+      { sourceUrl: 'https://invented.example.org/x', brand: 'リサーチブランド', name: 'リサーチ 美容液 D', ingredients: ['水'], ingredientsFoundOnPage: true },
+    ],
+    [official, retailer]
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetchFn;
+  setGatewayEnv();
+  try {
+    const results = await withCloudflareEnv({ AI }, () => researchProducts('リサーチ 化粧水', 4));
+    assert.deepStrictEqual(results.map((p) => p.name), ['リサーチ 化粧水 A', 'リサーチ 乳液 B']);
+
+    const [withLabel, nameOnly] = results;
+    assert.strictEqual(withLabel.ingredientSource, 'web_page');
+    assert.strictEqual(withLabel.sourceUrl, official);
+    assert.strictEqual(withLabel.isEstimatedFromMarketplaces, false);
+    assert.strictEqual(analyzeProduct(withLabel).overallRiskLevel, 'warning', 'Page ingredients are analyzed');
+    assert.strictEqual(nameOnly.ingredientSource, undefined, 'No label on the page means no verified ingredients');
+    assert.strictEqual(analyzeProduct(nameOnly).overallRiskLevel, 'insufficient_data');
+
+    assert.deepStrictEqual(searches, [{ provider: 'exa', query: 'リサーチ 化粧水 全成分', gatewayId: 'test-gateway' }]);
+    assert.strictEqual(prompts.length, 1, 'One Gemini call reads all pages');
+    const req = prompts[0].body;
+    assert.deepStrictEqual(req.tools, [{ urlContext: {} }], 'URL context only, never Google Search');
+    const prompt: string = req.contents[0].parts[0].text;
+    assert.ok(prompt.includes(official) && prompt.includes(retailer) && prompt.includes(notRead));
+    assert.ok(!prompt.includes('kakaku'), 'Search-result listing pages are not read');
+    assert.strictEqual(clefCalls.length, 1, 'New brand checked once with Clef');
+
+    // 2回目はページ由来の事実を KV から返し、検索も Gemini も呼ばない
+    const again = await withCloudflareEnv({ AI }, () => researchProducts('リサーチ 化粧水', 4));
+    assert.deepStrictEqual(again.map((p) => p.name), ['リサーチ 化粧水 A', 'リサーチ 乳液 B']);
+    assert.strictEqual(searches.length, 1);
+    assert.strictEqual(prompts.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
     clearGatewayEnv();
@@ -1424,8 +1495,8 @@ test('46. Chat route: a product lookup with no matching products gets a fixed re
     );
     const body = await res.json();
     assert.ok(body.reply.includes('該当する化粧品が見つかりませんでした'), body.reply);
-    // 商品検索（現状の Gemini 検索）は失敗しても、チャットの返答には Gemini を使わない
-    assert.ok(geminiCalls.length <= 1, 'At most the product search call; no chat reply call');
+    // 文になっている入力は商品名ではないので Web リサーチもせず、返答にも Gemini を使わない
+    assert.strictEqual(geminiCalls.length, 0, 'No web research and no chat reply call');
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.CHAT_GATE_MODE;
@@ -1514,4 +1585,163 @@ test('49. Differential analysis without safe products says nothing was compared'
   assert.ok(diff.summaryJa.includes('未登録'), 'Summary must say no safe products were given');
   const unknown = diff.culprits.find((c) => c.nameJa === 'ズィクロモランD');
   assert.ok(unknown && !unknown.reasonJa.includes('入っていない'), 'Reason must not claim absence from safe products');
+});
+
+test('50. Web search falls back to Linkup when Exa fails or finds nothing', async () => {
+  const { webSearch } = await import('../src/lib/services/web-research');
+  setGatewayEnv();
+  try {
+    const failing = fakeWebSearchAI((provider) => (provider === 'exa' ? new Error('exa down') : [{ url: 'https://a.example/1' }]));
+    const r1 = await withCloudflareEnv({ AI: failing.AI }, () => webSearch('テスト 全成分'));
+    assert.strictEqual(r1?.provider, 'linkup');
+    assert.deepStrictEqual(failing.searches.map((s) => s.provider), ['exa', 'linkup']);
+
+    const empty = fakeWebSearchAI((provider) => (provider === 'exa' ? [] : [{ url: 'https://a.example/2' }]));
+    const r2 = await withCloudflareEnv({ AI: empty.AI }, () => webSearch('テスト 全成分'));
+    assert.strictEqual(r2?.provider, 'linkup');
+
+    const none = fakeWebSearchAI(() => new Error('down'));
+    assert.strictEqual(await withCloudflareEnv({ AI: none.AI }, () => webSearch('テスト 全成分')), null);
+
+    // ゲートウェイ未設定なら検索しない（Web 検索は常に AI Gateway 経由）
+    delete process.env.AI_GATEWAY_ID;
+    const noGateway = fakeWebSearchAI(() => [{ url: 'https://a.example/3' }]);
+    assert.strictEqual(await withCloudflareEnv({ AI: noGateway.AI }, () => webSearch('テスト 全成分')), null);
+    assert.strictEqual(noGateway.searches.length, 0);
+  } finally {
+    clearGatewayEnv();
+  }
+});
+
+test('51. Only a product name is ever used as a web search query', async () => {
+  const { toProductSearchQuery } = await import('../src/lib/services/web-research');
+  const cases: [string, string | null][] = [
+    ['キュレル 潤浸保湿 化粧水', 'キュレル 潤浸保湿 化粧水'],
+    ['メラノCCの成分を教えて', 'メラノCC'],
+    ['ちふれ 美白化粧水 W について教えてください', 'ちふれ 美白化粧水 W'],
+    ['ＤＨＣ　薬用ディープクレンジングオイル', 'DHC 薬用ディープクレンジングオイル'],
+    // 文・本人の症状・連絡先は送らない
+    ['昨日このクリームを使ったら私の頬が赤くなりました。何が原因ですか？', null],
+    ['肌荒れしたキュレルの化粧水', null],
+    ['連絡は taro@example.com まで', null],
+    ['090-1234-5678', null],
+    ['あ', null],
+    ['キュレルの泡洗顔を使ってます', null],
+    ['田中です キュレル', null],
+    ['妊娠中 キュレル', null],
+    ['アトピーの娘に ちふれ化粧水', null],
+    ['30代 東京都 キュレル', null],
+    ['090 1234 5678 キュレル', null],
+    ['090ー1234ー5678', null],
+    ['Dr.Ci:Labo アクアコラーゲンゲル', 'Dr.Ci:Labo アクアコラーゲンゲル'],
+    ['ロゼット 洗顔パスタ 海泥スムース', 'ロゼット 洗顔パスタ 海泥スムース'],
+    ['エリクシール シュペリエル リフトモイスト ローション T II', 'エリクシール シュペリエル リフトモイスト ローション T II'],
+    ['ピジョン 赤ちゃん ミルクローション', 'ピジョン 赤ちゃん ミルクローション'],
+    ['アトピー肌用 クリーム', 'アトピー肌用 クリーム'],
+    ['赤ちゃんが使える 日焼け止め', null],
+  ];
+  for (const [input, expected] of cases) {
+    assert.strictEqual(toProductSearchQuery(input), expected, input);
+  }
+
+  // 入力途中の候補表示は Web リサーチをしない。チャットでは商品名だけで検索する
+  const { searchCosmeticsLive } = await import('../src/lib/services/search-barcode-service');
+  const { AI, searches } = fakeWebSearchAI(() => []);
+  setGatewayEnv();
+  try {
+    await withCloudflareEnv({ AI }, () => searchCosmeticsLive('ナゾノ化粧水テスト', 6));
+    assert.strictEqual(searches.length, 0, 'Type-ahead search never calls web search');
+
+    await withCloudflareEnv({ AI }, () =>
+      searchCosmeticsLive('ナゾノ化粧水テストの全成分を教えて', 6, { webResearch: true })
+    );
+    assert.deepStrictEqual(searches.map((s) => s.query), ['ナゾノ化粧水テスト 全成分', 'ナゾノ化粧水テスト 全成分']);
+
+    await withCloudflareEnv({ AI }, () =>
+      searchCosmeticsLive('この化粧水で私の肌が荒れました。成分は？', 6, { webResearch: true })
+    );
+    assert.strictEqual(searches.length, 2, 'A sentence about the user is never sent');
+  } finally {
+    clearGatewayEnv();
+  }
+});
+
+test('52. Barcode web research only accepts a page that shows the same barcode', async () => {
+  const { researchBarcode } = await import('../src/lib/services/web-research');
+  const page1 = 'https://shop.example.com/jan/4900000000017';
+  const page2 = 'https://shop.example.com/jan/other';
+  const { AI, searches } = fakeWebSearchAI((provider) =>
+    provider === 'linkup'
+      ? [{ url: page1, title: 'JAN 4900000000017 化粧水' }, { url: page2, title: '4900000000017' }, { url: 'https://unrelated.example/jan' }]
+      : []
+  );
+  const originalFetch = globalThis.fetch;
+  setGatewayEnv();
+  try {
+    // ページにバーコードが無い（AI の推測）→ 採用しない
+    globalThis.fetch = fakeGeminiPageReader(
+      [{ sourceUrl: page2, brand: 'バーコードブランド', name: '推測 化粧水', ingredients: ['水'], ingredientsFoundOnPage: true, barcode: '' }],
+      [page1, page2]
+    ).fetchFn;
+    assert.strictEqual(await withCloudflareEnv({ AI }, () => researchBarcode('4900000000017')), null);
+
+    globalThis.fetch = fakeGeminiPageReader(
+      [{ sourceUrl: page1, brand: 'バーコードブランド', name: 'JAN 化粧水', ingredients: ['水', 'グリセリン', 'BG'], ingredientsFoundOnPage: true, barcode: '4900000000017' }],
+      [page1, page2]
+    ).fetchFn;
+    const found = await withCloudflareEnv({ AI }, () => researchBarcode('4900000000017'));
+    assert.strictEqual(found?.name, 'JAN 化粧水');
+    assert.strictEqual(found?.barcode, '4900000000017');
+    assert.strictEqual(found?.sourceUrl, page1);
+    assert.strictEqual(found?.ingredientSource, 'web_page');
+    assert.deepStrictEqual([...new Set(searches.map((x) => `${x.provider}:${x.query}`))], ['linkup:JAN 4900000000017']);
+
+    // バーコードのページに全成分が無ければ、商品名で調べた同じ製品の成分表示を使う
+    const labelPage = 'https://brand.example.jp/lotion-z';
+    const multi = fakeWebSearchAI((provider, query) =>
+      query.startsWith('JAN')
+        ? provider === 'linkup' ? [{ url: page1, title: 'JAN 4900000000031' }] : []
+        : [{ url: labelPage }]
+    );
+    const first = fakeGeminiPageReader(
+      [{ sourceUrl: page1, brand: 'ゼットブランド', name: 'ゼット 化粧水 150ml', ingredients: [], ingredientsFoundOnPage: false, barcode: '4900000000031' }],
+      [page1]
+    );
+    const second = fakeGeminiPageReader(
+      [{ sourceUrl: labelPage, brand: 'ゼットブランド', name: 'ゼット 化粧水', ingredients: ['水', 'BG', '香料'], ingredientsFoundOnPage: true }],
+      [labelPage]
+    );
+    let call = 0;
+    globalThis.fetch = ((url: string, init?: RequestInit) => (call++ === 0 ? first.fetchFn : second.fetchFn)(url, init)) as typeof fetch;
+    const filled = await withCloudflareEnv({ AI: multi.AI }, () => researchBarcode('4900000000031'));
+    assert.deepStrictEqual(filled?.ingredients, ['水', 'BG', '香料']);
+    assert.strictEqual(filled?.sourceUrl, labelPage);
+    assert.strictEqual(filled?.barcode, '4900000000031');
+    assert.strictEqual(multi.searches[multi.searches.length - 1].query, 'ゼットブランド ゼット 化粧水 全成分');
+
+    // どの検索結果にもバーコードが書かれていなければ、ページを読まない
+    const noCode = fakeWebSearchAI(() => [{ url: 'https://unrelated.example/jan', title: 'JAN' }]);
+    const reader = fakeGeminiPageReader([], []);
+    globalThis.fetch = reader.fetchFn;
+    assert.strictEqual(await withCloudflareEnv({ AI: noCode.AI }, () => researchBarcode('4900000000024')), null);
+    assert.deepStrictEqual(noCode.searches.map((x) => x.provider), ['linkup', 'exa']);
+    assert.strictEqual(reader.prompts.length, 0, 'No Gemini call without a matching result');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('53. Web research merges the same product listed by several pages', async () => {
+  const { productIdentityKey } = await import('../src/lib/services/web-research');
+  const official = productIdentityKey('ちふれ・CHIFURE', '美白化粧水 Ｗ');
+  assert.strictEqual(productIdentityKey('ちふれ化粧品', 'ちふれ美白化粧水 W'), official);
+  assert.strictEqual(productIdentityKey('ちふれ(Chifure)', '美白化粧水W'), official);
+  assert.notStrictEqual(productIdentityKey('ちふれ(Chifure)', '美白化粧水 W しっとりタイプ'), official, 'Variants stay separate');
+  assert.strictEqual(
+    productIdentityKey('ちふれ化粧品 / ちふれ', 'ちふれ 美白化粧水 VC&AR しっとりタイプ 180ml'),
+    productIdentityKey('ちふれ', '美白化粧水 VC&AR しっとりタイプ'),
+    'Volume does not split a product'
+  );
+  assert.notStrictEqual(productIdentityKey('キュレル', '美白化粧水 W'), productIdentityKey('ちふれ', '保湿化粧水'));
 });

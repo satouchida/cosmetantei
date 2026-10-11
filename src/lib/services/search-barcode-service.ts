@@ -2,10 +2,10 @@ import { COSMETICS_DATABASE, addProductToDynamicCache, rememberVerifiedProducts 
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
+import { researchBarcode } from './web-research';
 import {
   searchCosmeticsLive,
   searchOpenBeautyFacts,
-  searchGoogleGroundedGemini,
   normalizeSearchString,
   isGreetingOrConsultation,
   getServicePurposeExplanation,
@@ -19,7 +19,6 @@ export {
   normalizeSearchString,
   searchCosmeticsLive,
   searchOpenBeautyFacts,
-  searchGoogleGroundedGemini,
   isGreetingOrConsultation,
   getServicePurposeExplanation,
   isActualCosmeticProduct,
@@ -143,8 +142,6 @@ export function searchCosmetics(query: string, limit = 6): Product[] {
 export const BARCODE_PATTERN = /^[0-9]{8,14}$/;
 const BARCODE_TTL_SECONDS = 60 * 60 * 24 * 7;
 const BARCODE_MISS_TTL_SECONDS = 60 * 60;
-// AI推定の照合結果は誤りの可能性があるため短めに保持する
-const AI_BARCODE_TTL_SECONDS = 60 * 60 * 24;
 
 export async function lookupByBarcode(barcode: string): Promise<Product | null> {
   const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
@@ -164,7 +161,8 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   }
 
   // 2. KV に保存済みのバーコード照合結果
-  const kvKey = `barcode:v1:${cleanCode}`;
+  // v2: Google 検索グラウンディングで推定した v1 の結果は使わない
+  const kvKey = `barcode:v2:${cleanCode}`;
   const stored = await cacheGetJSON<Product>(kvKey);
   if (stored) {
     addProductToDynamicCache(stored);
@@ -261,21 +259,14 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
     // ignore
   }
 
-  // 4. Google Search Grounding でバーコード番号から商品を探索
-  try {
-    const googleResults = await searchGoogleGroundedGemini(`JANコード ${cleanCode}`);
-    if (googleResults.length > 0) {
-      // AI の推定結果なので、バーコードとの対応は確定扱いにしない（p.barcode は設定しない）
-      const p: Product = {
-        ...googleResults[0],
-        descriptionJa: `バーコード（JAN: ${cleanCode}）からAIが推定した製品です。実物のパッケージと照合してください。`,
-      };
-      await cachePutJSON(kvKey, p, AI_BARCODE_TTL_SECONDS);
-      return p;
-    }
-  } catch {
-    // ignore
+  // 4. Web リサーチ：バーコードで検索し、同じバーコードが書かれたページの製品だけを採用する
+  const webProduct = await researchBarcode(cleanCode);
+  if (webProduct) {
+    await cachePutJSON(kvKey, webProduct, BARCODE_TTL_SECONDS);
+    return webProduct;
   }
+  // 一時的な失敗（検索・Gemini のエラー）は「見つからない」として保存しない
+  if (webProduct === undefined) return null;
 
   await cachePutJSON(`${kvKey}:miss`, true, BARCODE_MISS_TTL_SECONDS);
   return null;

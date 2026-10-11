@@ -82,6 +82,11 @@ export interface GeminiRequest {
   history?: GeminiContent[];
   /** Google検索グラウンディングを有効にする */
   grounding?: boolean;
+  /**
+   * URL context ツールを有効にし、プロンプト内の URL のページを読ませる。
+   * Google 検索グラウンディングとは併用しない（グラウンディングの利用規約を適用させないため）
+   */
+  urlContext?: boolean;
   /** 指定すると JSON モード（responseMimeType: application/json）で responseSchema を適用 */
   responseSchema?: Record<string, unknown>;
   generationConfig?: Record<string, unknown>;
@@ -94,6 +99,28 @@ export interface GeminiResult {
   text: string;
   /** 出力上限（MAX_TOKENS）で途中終了した応答か */
   truncated: boolean;
+  /** URL context で読み込みに成功した URL（urlContext 指定時のみ） */
+  retrievedUrls?: string[];
+}
+
+interface UrlMetadata {
+  retrievedUrl?: string;
+  urlRetrievalStatus?: string;
+  retrieved_url?: string;
+  url_retrieval_status?: string;
+}
+
+/** URL context のメタデータから、読み込みに成功した URL を取り出す */
+export function extractRetrievedUrls(data: unknown): string[] {
+  const candidate = (data as { candidates?: Record<string, unknown>[] })?.candidates?.[0];
+  const meta = (candidate?.urlContextMetadata ?? candidate?.url_context_metadata) as
+    | { urlMetadata?: UrlMetadata[]; url_metadata?: UrlMetadata[] }
+    | undefined;
+  const entries = meta?.urlMetadata ?? meta?.url_metadata ?? [];
+  return entries
+    .filter((m) => (m.urlRetrievalStatus ?? m.url_retrieval_status) === 'URL_RETRIEVAL_STATUS_SUCCESS')
+    .map((m) => m.retrievedUrl ?? m.retrieved_url)
+    .filter((u): u is string => typeof u === 'string');
 }
 
 interface GeminiPart {
@@ -140,8 +167,14 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   if (req.systemInstruction) {
     body.systemInstruction = { parts: [{ text: req.systemInstruction }] };
   }
+  if (req.grounding && req.urlContext) {
+    throw new Error('grounding and urlContext must not be combined');
+  }
   if (req.grounding) {
     body.tools = [{ googleSearch: {} }];
+  }
+  if (req.urlContext) {
+    body.tools = [{ urlContext: {} }];
   }
 
   try {
@@ -170,7 +203,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     const finishReason = (data as { candidates?: { finishReason?: string }[] })?.candidates?.[0]?.finishReason;
     const truncated = finishReason === 'MAX_TOKENS';
     if (truncated) console.warn('Gemini output truncated (MAX_TOKENS)');
-    return { text, truncated };
+    return req.urlContext ? { text, truncated, retrievedUrls: extractRetrievedUrls(data) } : { text, truncated };
   } catch (err) {
     console.error('Gemini API request failed:', err);
     return null;

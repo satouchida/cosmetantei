@@ -14,9 +14,13 @@ const RUNTIME_CACHE: Product[] = [];
 
 export const COSMETICS_DATABASE: Product[] = RUNTIME_CACHE;
 
-/** 成分表示が実在データ源（Open Beauty Facts・ユーザー入力）由来の製品か */
-function isVerifiedSource(p: Product): boolean {
-  return p.ingredientSource === 'open_beauty_facts' || p.ingredientSource === 'user_label';
+/** 成分表示が実在データ源（Open Beauty Facts・ユーザー入力・出典ページ）由来の製品か */
+export function isVerifiedSource(p: Product): boolean {
+  return (
+    p.ingredientSource === 'open_beauty_facts' ||
+    p.ingredientSource === 'user_label' ||
+    p.ingredientSource === 'web_page'
+  );
 }
 
 /**
@@ -72,6 +76,11 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
   if (verified.length === 0) return;
 
   const stored = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY)) || [];
+  // 既に同じ内容で登録済みなら書き込まない（1つのキーへの書き込みを減らす）
+  const unchanged = verified.every((v) =>
+    stored.some((s) => s.id === v.id && s.ingredients.join('|') === v.ingredients.join('|'))
+  );
+  if (unchanged) return;
   const merged = [...verified, ...stored.filter((s) => !verified.some((v) => v.id === s.id))].slice(
     0,
     MAX_VERIFIED_PRODUCTS

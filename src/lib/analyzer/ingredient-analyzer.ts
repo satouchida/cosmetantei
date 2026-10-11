@@ -1,5 +1,5 @@
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
-import { COSMETICS_DATABASE } from '../data/cosmetics-db';
+import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { MARKETPLACE_DISCLAIMER_JA } from '../services/gemini';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import {
@@ -130,12 +130,12 @@ export function isPlaceholderIngredient(raw: string): boolean {
 
 /**
  * おすすめ代替品として提示してよい製品か
- * - 実在データ源（Open Beauty Facts・ユーザー入力の成分表示）の全成分がある製品のみ
+ * - 実在データ源（Open Beauty Facts・ユーザー入力・出典ページ）の全成分がある製品のみ
  * - AI推定の製品や成分不明の製品は、成分を照合できないため推奨しない
  */
 export function hasVerifiedIngredients(product: Product): boolean {
   return (
-    (product.ingredientSource === 'open_beauty_facts' || product.ingredientSource === 'user_label') &&
+    isVerifiedSource(product) &&
     !product.isEstimatedFromMarketplaces &&
     product.ingredients.length > 0 &&
     !product.ingredients.some(isPlaceholderIngredient)

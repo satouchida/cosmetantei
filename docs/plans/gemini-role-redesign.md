@@ -206,6 +206,74 @@ avoids repeat searches.
 `env.AI.websearch` requires wrangler ≥ 4.149. The project now has wrangler 4.149.0, from the
 dependency upgrade made on 2026-10-10.
 
+## Phase 2 status (2026-10-12): done
+
+`src/lib/services/web-research.ts` replaces Google-grounded product discovery and the barcode AI
+guess.
+
+**Product lookup (T1):**
+- Search query: `<product name> 全成分`.
+- The product name comes from `toProductSearchQuery()`, which strips request phrases such as
+  「〜の成分を教えて」. It refuses sentences, first-person or symptom words, and contact details or
+  long numbers.
+- Pages: the top 3 search results, skipping listing pages, social media and Amazon.
+- Gemini reads them with URL context in one call. An item is kept only when its `sourceUrl` is one
+  of those pages and Gemini reports it as read successfully.
+- A page without a full ingredient list gives the product name only.
+- Results are stored as `ingredientSource: 'web_page'` with a `sourceUrl`, and count as verified.
+- The same product listed by several pages is merged (`productIdentityKey`).
+
+**Where it runs:**
+- **Chat, only for `product_lookup`,** and only when no verified product already names the query.
+- **Not for type-ahead** (`/api/products/search`), which calls the API on every keystroke. Type-ahead
+  uses cached products and Open Beauty Facts only.
+- Empty or greeting searches no longer call Gemini.
+
+**Barcode lookup:**
+- Search `JAN <code>`, **Linkup first**. In a live test Exa ignored the digits and returned
+  unrelated pages, while Linkup found cosme.net with the code.
+- Only results whose text contains the code are read.
+- A product is accepted only when its page shows the same code.
+- If that page has no ingredient list, a name lookup fills it from the same product's page.
+- An unknown barcode gets a fixed reply, with no Gemini guess.
+
+**Caching:** search results are never cached. Page-derived facts go in KV under `webfacts:v1` for
+7 days, and a miss is kept for 1 hour, unless the miss came from a Gemini failure.
+`search:v1` and `barcode:v1` were bumped to v2, so earlier grounded results are dropped.
+
+**Live checks (2026-10-12), through `wrangler dev` and the dev gateway:**
+
+| Request | Time | Result |
+| --- | --- | --- |
+| 「ちふれ 美白化粧水 W の成分を教えて」 | 38 s | Official page first, 16 ingredients. 20 s of that was the old grounded chat reply timing out (phase 5). Duplicates across pages were then merged. |
+| 「キュレル 潤浸保湿 化粧水」 | 25 s | 3 products, from kao-kirei.com and cosme.com, with full ingredient lists and barcodes |
+| Barcode `4974972258010` | 14 s | ちふれ 美白化粧水 VC&AR (cosme.net shows the code), 18 ingredients from chifure.co.jp |
+
+| 「ロゼット 洗顔パスタ 海泥スムース」, after the review fixes | 20 s | 1 product from cosme.com, 15 ingredients |
+
+**Safeguards added after review:**
+- **The query filter refuses:**
+  - sentences;
+  - first-person, family and symptom wording;
+  - ages;
+  - digit runs, even split by spaces or 「ー」;
+  - more than 8 words or 40 characters.
+- **Ingredient lists from pages** must have 3–150 items of at most 80 characters each; otherwise the
+  product counts as unconfirmed. Page text is untrusted.
+- **Misses are cached only when pages were read and nothing matched.** A failed read, a failed
+  search, or every brand rejected (Clef may be down) is not cached.
+- **Barcodes** must match as a whole number.
+- **The verified-product index** in KV is written after the response, and only when it changes.
+
+**Not done (decided):** a global daily cap on paid lookups. Today they are bounded by the per-IP
+`ai` rate limit, which allows 20 per minute. Add a separate rate-limit binding if spend needs a hard
+ceiling; see cost tracking in `docs/PROGRESS.md`.
+
+**Left for later phases:**
+- Chat replies still use the grounded `generateGeminiChatResponse` (phase 5 replaces it; phase 6
+  removes grounding).
+- 「出典」 links are not shown in the UI yet (phase 7).
+
 ## Phase 1 status (2026-10-11): done (`430fe1a`, quick replies in `9fb3b1e`)
 
 - Scopes and intents as above, with enforce as the default and fixed replies (`GATE_REPLIES`).

@@ -64,25 +64,9 @@ export async function POST(request: NextRequest) {
     if (targetBarcode) {
       const product = await lookupByBarcode(targetBarcode);
       if (!product) {
-        // 未登録バーコードの場合、Geminiにオンライン探索を依頼
-        const dummyProduct: Product = {
-          id: `unknown_${targetBarcode}`,
-          name: `未登録製品 (JAN: ${targetBarcode})`,
-          brand: 'バーコード照合',
-          country: targetBarcode.startsWith('45') || targetBarcode.startsWith('49') ? 'JP' : targetBarcode.startsWith('880') ? 'KR' : 'US',
-          category: 'other',
-          barcode: targetBarcode,
-          ingredients: ['成分情報はオンラインマーケットプレイスより補完'],
-          isEstimatedFromMarketplaces: true,
-        };
-
-        const geminiReply = await generateGeminiChatResponse({
-          userMessage: `バーコード（${targetBarcode}）の化粧品をスキャンしましたがDBに見つかりませんでした。Amazon、楽天市場、Olive Young、Sephoraなどの公開情報を探索し、該当する製品名と全成分を特定して敏感肌リスクを解説してください。`,
-          contextData: { missingIngredientsProduct: dummyProduct },
-        });
-
+        // Open Beauty Facts にも、同じバーコードが書かれた Web ページにも無かった。Gemini に推測させない
         return NextResponse.json({
-          reply: geminiReply,
+          reply: `バーコード（${targetBarcode}）の製品は見つかりませんでした。ブランド名と商品名を入力して検索してください。`,
           quickReplies: ['🔍 商品名で検索する', '📸 別のバーコードをスキャン'],
         });
       }
@@ -190,7 +174,9 @@ export async function POST(request: NextRequest) {
     // find_alternative・price_inquiry は、Web検索ベースの処理（計画の Phase 3・4）ができるまで
     // 以下の一般の分岐で扱う
     // B. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
-    const matchedProducts = await searchCosmeticsLive(userText, 6);
+    // Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
+    const webResearch = gate?.intent === 'product_lookup';
+    const matchedProducts = await searchCosmeticsLive(userText, 6, { webResearch });
 
     // C. 成分に関する質問
     if (gate?.intent === 'ingredient_question') {

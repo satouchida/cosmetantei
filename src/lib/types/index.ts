@@ -46,9 +46,11 @@ export interface KnownIngredient {
  * 全成分データの出所
  * - open_beauty_facts: Open Beauty Facts に登録された成分表示
  * - user_label: ユーザーがパッケージから入力した成分表示
- * - ai_estimate: Gemini による推定（Web検索グラウンディング含む）。おすすめ代替品には使わない
+ * - web_page: Web 検索で見つけたページ（ブランド公式・販売店）の成分表示を Gemini が読み取ったもの。
+ *   読み取ったページの URL を sourceUrl に持つ
+ * - ai_estimate: Gemini による推定。おすすめ代替品には使わない
  */
-export type IngredientSource = 'open_beauty_facts' | 'user_label' | 'ai_estimate';
+export type IngredientSource = 'open_beauty_facts' | 'user_label' | 'web_page' | 'ai_estimate';
 
 export interface Product {
   id: string;
@@ -69,6 +71,8 @@ export interface Product {
   amazonSearchUrl?: string; // Amazonアフィリエイトリンク
   isEstimatedFromMarketplaces?: boolean; // Amazon/Sephora/Olive Young/Rakuten等のオンライン情報から補完
   ingredientSource?: IngredientSource;
+  /** 製品情報・成分表示の出典ページ（ingredientSource が web_page のとき） */
+  sourceUrl?: string;
 }
 
 export interface AnalyzedIngredient {

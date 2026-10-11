@@ -18,24 +18,23 @@ Last updated: 2026-10-12.
 | 2026-10-11 | `430fe1a` | Clef chat gate in enforce mode ([redesign](plans/gemini-role-redesign.md), phase 1); plans committed |
 | 2026-10-11 | `75c66d2` | pnpm, Next 16, Tailwind 4, TypeScript 7, ESLint |
 | 2026-10-11 | `9fb3b1e` | Quick-reply buttons handled in the browser; `pnpm dev` fixed ([walkthrough](walkthroughs/2026-10-11-ui-fixes.md)) |
-| 2026-10-12 | *this commit* | Maintenance: CI, README, `compatibility_date`, `fuse.js` removed, Next pinned to 16.3.8 (Worker fix), analyzer matching fixes and tests |
+| 2026-10-12 | `7585824` | Maintenance: CI, README, `compatibility_date`, `fuse.js` removed, Next pinned to 16.3.8 (Worker fix), analyzer matching fixes and tests |
+| 2026-10-12 | *this commit* | Redesign phase 2: web research (Cloudflare Web Search + Gemini URL context) replaces Google-grounded product discovery and the barcode AI guess ([status](plans/gemini-role-redesign.md#phase-2-status-2026-10-12-done)) |
 
 ## In progress
 
-**Gemini redesign, phase 2: `web-research.ts`** ([plan](plans/gemini-role-redesign.md#phases)).
-Search the web with Cloudflare Web Search (Exa, then Linkup if Exa fails), read the result pages
-with Gemini URL context, and keep a source URL for each item. It replaces the Google-grounded product
-discovery and the AI guess when a barcode isn't found. After this, user text no longer goes to
-Google search.
+Nothing. Next up is phase 5, which removes the slowest step: the old Google-grounded chat reply
+takes up to 20 s after the products are found.
 
 ## Next
 
 In order:
 
 1. **Redesign phases 3–6** ([plan](plans/gemini-role-redesign.md#phases)):
+   - phase 5 first: `summarizeResults()` replaces the grounded chat replies, which are the slowest
+     and most expensive step left;
    - phase 3: alternatives;
    - phase 4: prices;
-   - phase 5: `summarizeResults()` replaces chat replies;
    - phase 6: remove Google grounding.
 2. **Redesign phases 7–8:** source links, a price card, tests.
 3. **Clef search filter** ([plan](plans/clef-chat-gate-and-search-filter.md), phase 2): one
@@ -43,7 +42,8 @@ In order:
 4. **Don't trust product data from the browser**
    ([03](review/03-other-upgrades.md#security-and-data-trust)): look products up on the server.
    Best done together with redesign phase 2 or 5.
-5. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): per-route counters,
+5. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
+   web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.
 
 ## Later (product)
