@@ -67,6 +67,27 @@ Phase 0 below measures it before either feature is switched on.
 
 ## Phase 1: chat gate (`clef`)
 
+**Status (2026-10-09): implemented, running in `shadow` mode** (`CHAT_GATE_MODE` in `wrangler.toml`).
+Phase 0 was skipped by decision. A live check of 5 messages through the dev gateway classified all
+correctly: an ingredient question the old filter used to block; a coding request; a Japanese jailbreak
+the old filter missed; a product lookup; a skin-concern question. Each took 100–600 ms and about
+490 input tokens.
+
+Changes from the plan, from review and live testing:
+- A refusal counts the summed non-in-scope probability. Jailbreak phrases (English and Japanese)
+  are refused even if Clef says in-scope.
+- The Clef call has a 3 s timeout, then falls back to the heuristics.
+- Quick replies keep the old keyword routing (no Clef call).
+- Button actions skip the gate.
+- A Clef `find_cause` with no products added gets general advice instead of the "add products"
+  prompt.
+- Gate requests carry the user's message, so they go through AI Gateway only when payload logging
+  is allowed (`AI_GATEWAY_LOG_PAYLOAD=true`, the dev gateway). In production they call Clef
+  directly, so chat text is never stored in gateway logs.
+- To review shadow results, filter the Workers logs for `"event":"chat_gate_shadow"`. Each entry
+  has the heuristic decision, the Clef verdict and what enforce mode would have done; it never
+  contains the message text.
+
 **New file:** `src/lib/services/chat-gate.ts`
 ```ts
 type GateDecision = {

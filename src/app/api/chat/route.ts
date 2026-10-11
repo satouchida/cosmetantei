@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  searchCosmetics,
   searchCosmeticsLive,
   lookupByBarcode,
-  isGreetingOrConsultation,
   getServicePurposeExplanation,
   BARCODE_PATTERN,
 } from '@/lib/services/search-barcode-service';
 import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
 import { Product, UserRoutineState } from '@/lib/types';
-import { KNOWN_INGREDIENTS } from '@/lib/data/ingredients-db';
 import { generateGeminiChatResponse } from '@/lib/services/gemini';
+import { classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
@@ -135,14 +133,26 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 3. 差分分析（あぶり出し）実行の場合
-    if (
-      action === 'differential' ||
-      userText.includes('比較') ||
-      userText.includes('あぶり出し') ||
-      userText.includes('原因特定')
-    ) {
-      if (!routine || routine.badProducts.length === 0) {
+    // 3. 自由入力メッセージの判定（チャットゲート）。雑談・指示の書き換え・本人の医療相談は、
+    //    商品検索・Gemini を呼ばずに定型文で返す。ボタン操作（文章を含まない）は判定しない
+    //    差分分析ボタンは文章を使わない。それ以外は action に関係なく、文章があれば必ず判定する
+    const gate = action === 'differential' || !userText ? null : await classifyChatMessage(userText);
+    if (gate && gate.scope !== 'in_scope') {
+      return NextResponse.json(GATE_REPLIES[gate.scope]);
+    }
+    // 文章のないボタン操作で、上の分岐で処理できなかったもの（読み取れないバーコード等）
+    if (!gate && action !== 'differential') {
+      return NextResponse.json({
+        reply: 'バーコードまたは商品を読み取れませんでした。商品名を入力するか、もう一度スキャンしてください。',
+        quickReplies: ['📸 別のバーコードをスキャン', '🔍 商品名で検索する'],
+      });
+    }
+
+    // 4. 差分分析（あぶり出し）実行の場合
+    // 比較するコスメがまだ無ければ、肌荒れしたコスメの追加を案内する（Gemini は相談に答えない）
+    const hasBadProducts = !!routine && routine.badProducts.length > 0;
+    if (action === 'differential' || gate?.intent === 'find_cause') {
+      if (!routine || !hasBadProducts) {
         return NextResponse.json({
           reply:
             '肌荒れ原因をあぶり出すには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「普段問題なく使えている安全なコスメ」もあると、共通の安全成分を除外して犯人成分を高精度に特定できます！',
@@ -163,14 +173,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 4. 一般テキスト入力からのインテリジェント判定
-    // A. 挨拶や一般的な相談・サービス目的の質問の場合
-    if (isGreetingOrConsultation(userText)) {
-      const suggestions = await searchCosmeticsLive('', 6);
-      const explanation = getServicePurposeExplanation(userText);
+    // 5. 一般テキスト入力（分岐先はチャットゲートの意図判定）
+    // A. 挨拶・使い方の質問：定型の説明のみ（商品検索や Gemini は呼ばない）
+    if (gate?.intent === 'greeting_or_help') {
       return NextResponse.json({
-        reply: explanation,
-        productSuggestions: suggestions,
+        reply: getServicePurposeExplanation(userText),
         quickReplies: [
           '🧴 肌荒れしたコスメを入力する',
           '✅ 普段使えているコスメを入力する',
@@ -180,17 +187,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // find_alternative・price_inquiry は、Web検索ベースの処理（計画の Phase 3・4）ができるまで
+    // 以下の一般の分岐で扱う
     // B. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
     const matchedProducts = await searchCosmeticsLive(userText, 6);
 
-    // C. 成分に関する直接的な質問かチェック
-    const isIngredientQuestion = KNOWN_INGREDIENTS.some(
-      (ing) =>
-        userText.includes(ing.nameJa) ||
-        ing.aliases.some((a) => a.length >= 2 && userText.toLowerCase().includes(a.toLowerCase()))
-    );
-
-    if (isIngredientQuestion) {
+    // C. 成分に関する質問
+    if (gate?.intent === 'ingredient_question') {
       const geminiReply = await generateGeminiChatResponse({
         userMessage: userText,
         contextData: {
@@ -205,25 +208,25 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // D. 肌トラブルの相談・コスメの選び方・製品名入力など
+    // D. 商品名の入力など。該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
+    if (matchedProducts.length === 0) {
+      return NextResponse.json({
+        reply:
+          '該当する化粧品が見つかりませんでした。ブランド名と商品名を入力するか、パッケージのバーコードを読み取ってください。',
+        quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '🧴 キュレルの泡洗顔を調べる'],
+      });
+    }
     const geminiReply = await generateGeminiChatResponse({
       userMessage: userText,
       contextData: { matchedProducts },
     });
 
-    const quickReplies =
-      matchedProducts.length > 0
-        ? [
-            '🚨 この中のアイテムで肌荒れした',
-            '✅ この中のアイテムは安全に使えた',
-            '📸 バーコードで読み取る',
-            '🔍 別のキーワードで調べる',
-          ]
-        : [
-            '🔍 具体的な商品名で再検索',
-            '📸 バーコードをスキャンする',
-            '🧴 キュレルの泡洗顔を調べる',
-          ];
+    const quickReplies = [
+      '🚨 この中のアイテムで肌荒れした',
+      '✅ この中のアイテムは安全に使えた',
+      '📸 バーコードで読み取る',
+      '🔍 別のキーワードで調べる',
+    ];
 
     return NextResponse.json({
       reply: geminiReply,

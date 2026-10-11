@@ -53,19 +53,42 @@ async function getBindings(): Promise<AppBindings> {
   }
 }
 
+/**
+ * レスポンスを返した後も処理を続ける（Workers の ctx.waitUntil）。Cloudflare 外ではそのまま実行させておく
+ */
+export async function runAfterResponse(task: Promise<unknown>): Promise<void> {
+  const guarded = task.catch((err) => console.error('Background task failed:', err));
+  try {
+    const { getCloudflareContext } = await import('@opennextjs/cloudflare');
+    const { ctx } = await getCloudflareContext({ async: true });
+    ctx.waitUntil(guarded);
+  } catch (err) {
+    // next dev・テスト：Promise はそのまま完了まで実行される。
+    // 本番で起きた場合は waitUntil で延長できず、レスポンス後に処理が打ち切られる可能性がある
+    warnOnceInProduction('wait-until', 'ctx.waitUntil unavailable; background tasks may be cut off after the response:', err);
+  }
+}
+
 // ---------- Workers AI ----------
 
 /**
  * Workers AI のモデルを実行する。バインディングが無い環境（next dev・テスト）やエラー時は null
  */
-export async function runWorkersAI(model: string, input: Record<string, unknown>): Promise<unknown | null> {
+export async function runWorkersAI(
+  model: string,
+  input: Record<string, unknown>,
+  options: { containsUserText?: boolean } = {}
+): Promise<unknown | null> {
   const { AI } = await getBindings();
   if (!AI) {
     warnOnceInProduction('ai-binding', 'Workers AI binding "AI" is missing; Workers AI checks are skipped.');
     return null;
   }
-  // AI_GATEWAY_ID があれば AI Gateway を経由し、Gemini と同じダッシュボードで利用量・コストを確認できるようにする
-  const gatewayId = (process.env.AI_GATEWAY_ID || '').trim();
+  // AI_GATEWAY_ID があれば AI Gateway を経由し、Gemini と同じダッシュボードで利用量・コストを確認できるようにする。
+  // ただし利用者の入力文を含むリクエストは、本文をログに残してよいゲートウェイ（開発用）でのみ経由する
+  // （バインディング経由ではリクエストごとに本文ログを止められないため）
+  const allowGateway = !options.containsUserText || process.env.AI_GATEWAY_LOG_PAYLOAD === 'true';
+  const gatewayId = allowGateway ? (process.env.AI_GATEWAY_ID || '').trim() : '';
   try {
     return await AI.run(model, input, gatewayId ? { gateway: { id: gatewayId } } : undefined);
   } catch (err) {
