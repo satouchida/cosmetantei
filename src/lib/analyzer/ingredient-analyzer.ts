@@ -16,12 +16,37 @@ import {
  */
 export function normalizeIngredientName(name: string): string {
   if (!name) return '';
+  // 全角英数（ＢＧ・ＤＰＧ など、Web ページの成分表示に多い）を半角にそろえる
   return name
+    .normalize('NFKC')
     .trim()
     .toLowerCase()
     .replace(/[\(\)（）]/g, '')
     .replace(/[\s\-_・/]/g, '');
 }
+
+/**
+ * エタノールそのもの（無水エタノール・変性アルコール・alcohol denat. 等）か。
+ * セテアリルアルコール等の高級アルコール、ベンジルアルコール、トリエタノールアミンは別の成分
+ */
+function isEthanolName(norm: string): boolean {
+  // エタノールアミン・エタノールアミド（TEA・界面活性剤）は別成分
+  if (/エタノールアミ|ethanolamine|ethanolamide/.test(norm)) return false;
+  if (norm.includes('エタノール')) return true;
+  // 先頭一致のみ（セチルアルコール・ベンジルアルコール等の「〜アルコール」を拾わない）
+  return (
+    /^(sd|変性|無水|含水|醸造|発酵|植物性|エチル)?アルコール/.test(norm) ||
+    /^(denatured|sd)?(ethyl)?(alcohol|ethanol)/.test(norm)
+  );
+}
+
+/**
+ * 部分一致させない成分。名前を含む別成分が多い
+ * （ジプロピレングリコール≠PG、エチルヘキシルグリセリン・ポリグリセリン≠グリセリン）
+ */
+const EXACT_MATCH_ONLY = new Set(['propylene_glycol', 'glycerin']);
+/** 部分一致させない成分でも、この修飾語（「植物性」「(PG)」等）を除くと別名に一致すれば同じ成分とみなす */
+const QUALIFIER_PATTERN = /植物性|植物由来|天然|濃|vegetable|natural|pg|\d+(\.\d+)?%/g;
 
 /**
  * 既知の刺激成分辞書と照合する
@@ -56,17 +81,23 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
 
   // 3. 部分一致（短すぎる略語は除外）
   for (const item of KNOWN_INGREDIENTS) {
+    // 「無水エタノール」「変性アルコール」などはエタノールにマッチ（高級アルコール等は除く）
+    if (item.id === 'ethanol') {
+      if (isEthanolName(norm)) return item;
+      continue;
+    }
+    if (EXACT_MATCH_ONLY.has(item.id)) {
+      const stripped = norm.replace(QUALIFIER_PATTERN, '');
+      if (stripped && item.aliases.some((a) => normalizeIngredientName(a) === stripped)) return item;
+      continue;
+    }
+
     for (const alias of item.aliases) {
       const normAlias = normalizeIngredientName(alias);
       // 3文字未満の略語（pg, bg, bha, aha等）は完全一致のみ
       if (normAlias.length < 3) continue;
 
       if (norm === normAlias) {
-        return item;
-      }
-
-      // 「無水エタノール」「変性アルコール」などはエタノールにマッチ
-      if (item.id === 'ethanol' && (norm.includes('エタノール') || norm.includes('アルコール') || norm.includes('alcohol'))) {
         return item;
       }
 
@@ -367,7 +398,9 @@ export function performDifferentialAnalysis(
       category: resolved.category,
       reasonJa: matched
         ? matched.reasonJa
-        : '普段使えている安全なアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。',
+        : safeProducts.length > 0
+          ? '普段使えている安全なアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。'
+          : '刺激性のデータがない成分です。安全に使えているコスメと比較すると、候補かどうかを絞り込めます。',
       foundInProducts: c.foundInProducts,
       absenceConfirmedInSafeCount: safeProducts.length,
     };
@@ -396,7 +429,11 @@ export function performDifferentialAnalysis(
 
   if (culprits.length > 0) {
     const topCulprits = culprits.slice(0, 3).map((c) => c.nameJa);
-    summaryJa = `安全なアイテムと比較した結果、肌荒れ原因の有力候補として「${topCulprits.join('、')}」など ${culprits.length} 個の特有成分があぶり出されました。`;
+    // 安全なコスメが無いと比較による絞り込みはできないため、そのことを明示する
+    summaryJa =
+      safeProducts.length > 0
+        ? `安全なアイテムと比較した結果、肌荒れ原因の有力候補として「${topCulprits.join('、')}」など ${culprits.length} 個の特有成分があぶり出されました。`
+        : `安全に使えているコスメが未登録のため、比較による絞り込みはしていません。肌荒れしたコスメの成分のうち「${topCulprits.join('、')}」など ${culprits.length} 個を候補として挙げています。安全に使えているコスメを追加すると、候補を絞り込めます。`;
 
     const highRisks = culprits.filter(
       (c) => c.riskLevel === 'high_irritant' || c.riskLevel === 'moderate_irritant'

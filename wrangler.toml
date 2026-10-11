@@ -1,6 +1,6 @@
 name = "cosmetantei"
 main = ".open-next/worker.js"
-compatibility_date = "2024-09-23"
+compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
 
 # Static Assets

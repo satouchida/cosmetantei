@@ -67,7 +67,8 @@ Phase 0 below measures it before either feature is switched on.
 
 ## Phase 1: chat gate (`clef`)
 
-**Status (2026-10-09): implemented, running in `shadow` mode** (`CHAT_GATE_MODE` in `wrangler.toml`).
+**Status (2026-10-11): running in `enforce` mode** (`CHAT_GATE_MODE` in `wrangler.toml`), with the
+scopes and intents from `docs/plans/gemini-role-redesign.md`. It shipped in `shadow` mode on 2026-10-09.
 Phase 0 was skipped by decision. A live check of 5 messages through the dev gateway classified all
 correctly: an ingredient question the old filter used to block; a coding request; a Japanese jailbreak
 the old filter missed; a product lookup; a skin-concern question. Each took 100–600 ms and about

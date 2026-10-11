@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "test": "tsx --conditions=react-server --test tests/test_suite.ts",
     "build:cloudflare": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare preview",
@@ -18,17 +19,16 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "fuse.js": "^7.5.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.55.0",
-    "next": "^16.4.0",
+    "next": "16.3.8",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.9",
+    "@opennextjs/cloudflare": "^1.20.10",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",

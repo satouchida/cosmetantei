@@ -27,6 +27,9 @@ Search grounding is billed separately from tokens, so the first two rows are the
 
 - [ ] Ground the chat reply only when it's needed
 
+*Superseded* by the Gemini redesign (`docs/plans/gemini-role-redesign.md`), which removes Google
+Search grounding entirely (phase 6) and replaces chat replies with short result summaries (phase 5).
+
 **Where**: `src/lib/services/gemini.ts:219` (`tools: [{ googleSearch: {} }]` on every chat reply)
 
 **Change**: Include the tool only when `contextData.missingIngredientsProduct` is set, i.e. when
@@ -35,7 +38,11 @@ in the prompt.
 
 ## 2. Don't call Gemini for greetings
 
-- [ ] Serve greetings without a model call
+- [x] Serve greetings without a model call
+
+*Done for chat:* the Clef gate answers `greeting_or_help` with a fixed reply, before any search or
+Gemini call. `/api/products/search` with an empty or greeting query still fetches trending products
+through grounded Gemini (`fetchDynamicTrendingCosmetics`); that goes away with the redesign's phase 6.
 
 **Where**: `src/lib/services/live-cosmetics-service.ts:621` calls `fetchDynamicTrendingCosmetics`,
 which makes a grounded Gemini call.
@@ -71,6 +78,9 @@ little.
 
 - [ ] Add a second model setting, e.g. `GEMINI_MODEL_LITE`
 
+*Revisit after the redesign.* Clef now covers the classification jobs, so the remaining candidate
+is the per-ingredient explanation JSON.
+
 | Task | Suggested |
 |---|---|
 | Brand vs generic term | Done: no Gemini call. Precheck + 90-day cache + self-report + one batched Clef call per search for new brands (`brand-check.ts`) |
@@ -80,7 +90,11 @@ little.
 
 ## 5. One shared Gemini client
 
-- [ ] Create `src/lib/services/gemini-client.ts`
+- [x] Create `src/lib/services/gemini-client.ts`
+
+*Done:* every Gemini call goes through `callGemini()` (AI Gateway header, timeout, joined text
+parts, structured output, thinking level). Still missing: the retry on 429/503 and `usageMetadata`
+logging, which belong with item 7.
 
 The same `fetch` + parse code is copied four times (`gemini.ts:198`,
 `dynamic-ingredient-service.ts:427`, `live-cosmetics-service.ts:139`, `:483`). One

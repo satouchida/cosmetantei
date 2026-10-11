@@ -5,6 +5,8 @@ import {
   analyzeProduct,
   performDifferentialAnalysis,
   findSafeAlternatives,
+  findMatchingKnownIngredient,
+  hasVerifiedIngredients,
 } from '../src/lib/analyzer/ingredient-analyzer';
 import { COSMETICS_DATABASE, addProductToDynamicCache } from '../src/lib/data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
@@ -537,19 +539,18 @@ test('16. Zero user query reflection in brand field (Rejects generic terms in br
   assert.strictEqual(getDisplayBrand('敏感肌', 'キュレル 潤浸保湿 フェイスクリーム'), 'キュレル');
 });
 
-test('17. Verification of zero dynamic cache text on UI code', async () => {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-
-  const cardPath = path.join(
-    process.cwd(),
-    'src/components/chat/IngredientAnalysisCard.tsx'
-  );
-  const content = fs.readFileSync(cardPath, 'utf-8');
-
+test('17. Only real label data counts as verified ingredients', () => {
+  assert.ok(hasVerifiedIngredients(verifiedProduct({})), 'Open Beauty Facts product is verified');
+  assert.ok(hasVerifiedIngredients(verifiedProduct({ ingredientSource: 'user_label' })), 'User label is verified');
+  assert.ok(!hasVerifiedIngredients(verifiedProduct({ ingredientSource: 'ai_estimate' })), 'AI estimate is not verified');
   assert.ok(
-    !content.includes('動的キャッシュ対応'),
-    'UI component IngredientAnalysisCard.tsx must not contain "動的キャッシュ対応"'
+    !hasVerifiedIngredients(verifiedProduct({ isEstimatedFromMarketplaces: true })),
+    'Marketplace estimate is not verified'
+  );
+  assert.ok(!hasVerifiedIngredients(verifiedProduct({ ingredients: [] })), 'No ingredients is not verified');
+  assert.ok(
+    !hasVerifiedIngredients(verifiedProduct({ ingredients: ['水', '成分情報は公式サイトより補完'] })),
+    'A placeholder in the list is not verified'
   );
 });
 
@@ -1452,4 +1453,65 @@ test('47. Quick-reply buttons: UI actions stay in the browser; only research req
   assert.deepStrictEqual(getQuickReplyAction('⚡️ メラノCCで赤みが出た'), { kind: 'send', text: 'メラノCC' });
   assert.deepStrictEqual(getQuickReplyAction('✅ 普段安全に使えている（安全リストに追加）'), { kind: 'add_analyzed', list: 'safe' });
   assert.strictEqual(getQuickReplyAction('🚨 この中のアイテムで肌荒れした').kind, 'pick_from_cards');
+});
+
+test('48. Ingredient matching: substring rules do not catch different ingredients', () => {
+  const cases: [string, string | undefined][] = [
+    // エタノールそのもの
+    ['エタノール', 'ethanol'],
+    ['無水エタノール', 'ethanol'],
+    ['変性アルコール', 'ethanol'],
+    ['alcohol denat.', 'ethanol'],
+    ['SD Alcohol 40', 'ethanol'],
+    ['Denatured Alcohol', 'ethanol'],
+    ['Ethanol Denat.', 'ethanol'],
+    ['SDアルコール40', 'ethanol'],
+    ['発酵アルコール', 'ethanol'],
+    ['ステアロイルエタノールアミド', undefined],
+    // 名前に「アルコール」「エタノール」を含む別成分
+    ['セテアリルアルコール', undefined],
+    ['Cetyl Alcohol', undefined],
+    ['ベンジルアルコール', 'benzyl_alcohol'],
+    ['トリエタノールアミン', undefined],
+    ['フェノキシエタノール', 'phenoxyethanol'],
+    ['イソプロピルアルコール', 'isopropanol'],
+    // PG・グリセリンを名前に含む別成分
+    ['PG', 'propylene_glycol'],
+    ['プロピレングリコール', 'propylene_glycol'],
+    ['ジプロピレングリコール', undefined],
+    ['DPG', undefined],
+    ['ＤＰＧ', undefined],
+    ['ＢＧ', 'butylene_glycol'],
+    ['プロピレングリコール(PG)', 'propylene_glycol'],
+    ['PG（プロピレングリコール）', 'propylene_glycol'],
+    ['植物性グリセリン', 'glycerin'],
+    ['Glycerin (Vegetable)', 'glycerin'],
+    ['ヘキサデシロキシPGヒドロキシエチルパルミタミド', 'ceramides'],
+    ['濃グリセリン', 'glycerin'],
+    ['エチルヘキシルグリセリン', undefined],
+    ['ポリグリセリン-10', undefined],
+    // 部分一致が正しく働く例
+    ['メチルパラベン', 'parabens'],
+    ['グリチルリチン酸2K', 'dipotassium_glycyrrhizate'],
+    ['オレンジ果皮油', 'citrus_oils'],
+  ];
+  for (const [name, expected] of cases) {
+    assert.strictEqual(findMatchingKnownIngredient(name)?.id, expected, name);
+  }
+
+  // 高級アルコール入りのクリームは「アルコール入り」と判定しない
+  const cream = analyzeProduct(verifiedProduct({ ingredients: ['水', 'セテアリルアルコール', 'グリセリン'] }));
+  assert.strictEqual(cream.riskCounts.moderate_irritant, 0);
+});
+
+test('49. Differential analysis without safe products says nothing was compared', () => {
+  const diff = performDifferentialAnalysis(
+    [verifiedProduct({ name: '肌荒れした化粧水', ingredients: ['水', '香料', 'ズィクロモランD'] })],
+    []
+  );
+  assert.strictEqual(diff.culprits[0].nameJa, '香料', 'Known irritants rank first');
+  assert.ok(!diff.summaryJa.includes('比較した結果'), 'Summary must not claim a comparison');
+  assert.ok(diff.summaryJa.includes('未登録'), 'Summary must say no safe products were given');
+  const unknown = diff.culprits.find((c) => c.nameJa === 'ズィクロモランD');
+  assert.ok(unknown && !unknown.reasonJa.includes('入っていない'), 'Reason must not claim absence from safe products');
 });

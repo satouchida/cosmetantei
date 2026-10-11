@@ -17,30 +17,45 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
   Gemini prompts. Accept product IDs or barcodes and look products up on the server.
   *Partly done:* shape and size limits are enforced by `src/lib/server/validation.ts`; the routes
   still trust client-supplied ingredient lists.
-- [ ] **Restrict remote images.** `next.config.mjs:8` sets `hostname: '**'`, which lets anyone run
+- [x] **Restrict remote images.** *Resolved:* the `images` block was removed from
+  `next.config.mjs` in `75c66d2`, and nothing uses `next/image`, so there is no image optimizer to
+  abuse. Original note: `next.config.mjs:8` sets `hostname: '**'`, which lets anyone run
   any image through your image optimizer. Limit it to `images.openbeautyfacts.org` and any other
   hosts you actually use.
 
 ## Tests
 
 - [x] **Mock the network.** Tests now stub `fetch` and run offline (about 0.25 seconds in total).
-- [ ] **Replace test 17.** It only checks that a UI file doesn't contain a string.
+- [x] **Replace test 17.** It only checked that a UI file didn't contain a string. It now checks
+  that only real label data (Open Beauty Facts, user label) counts as verified ingredients.
 - [x] **Rewrite tests that assert synthesis.** Done together with fix 01 #1.
-- [ ] Add tests for the analyzer edge cases: `findMatchingKnownIngredient` substring matches
+- [x] Add tests for the analyzer edge cases: `findMatchingKnownIngredient` substring matches
   (`ingredient-analyzer.ts:59-90`) and differential analysis with zero safe products.
+  *Done (tests 48, 49).* They found real bugs, now fixed:
+  - fatty alcohols (セテアリルアルコール, cetyl alcohol, ベヘニルアルコール), ベンジルアルコール and
+    トリエタノールアミン were classified as ethanol, so most creams were flagged as containing alcohol;
+  - ジプロピレングリコール (DPG) matched PG, and エチルヘキシルグリセリン / ポリグリセリン matched glycerin;
+  - with no safe products, the summary claimed a comparison had been made.
+  - full-width label text (ＢＧ, ＤＰＧ, common on brand sites) never matched; names are now
+    NFKC-normalized.
+  Review follow-ups: qualified labels (プロピレングリコール(PG), 植物性グリセリン) still match; more
+  ethanol spellings (Denatured Alcohol, SDアルコール, 発酵アルコール) match; ethanolamides don't;
+  benzyl alcohol has its own entry (fragrance allergen, low caution).
 
 ## Tooling and config
 
 - [x] **Lint.** `next lint` was removed in Next 16. `pnpm lint` now runs `eslint .` with
   `eslint.config.mjs` (`eslint-config-next` core-web-vitals + typescript). TypeScript 7 has no API, so
   `typescript` is aliased to `@typescript/typescript6` for tooling, with TS 7 as `@typescript/native`
-  (`tsc`). 0 errors and 0 warnings.
-- [ ] **Wrangler.** Update `compatibility_date` in `wrangler.toml:3` (currently `2024-09-23`) and
-  re-test.
-- [ ] **CI.** Add a workflow running `pnpm install --frozen-lockfile`, `tsc --noEmit`, lint and tests on push.
-- [ ] **Unused dependency.** `fuse.js` is in `dependencies` but nothing in `src/` imports it.
-  Remove it.
-- [ ] **README.** Setup (gateway token `CF_AIG_TOKEN` in `.dev.vars` for `pnpm dev` and
+  (`tsc`). 0 errors and 0 warnings. `pnpm typecheck` runs `tsc --noEmit`.
+- [x] **Wrangler.** `compatibility_date` is now `2026-10-01`. Re-testing the Worker found that
+  Next 16.4 breaks it (every page 500, unrelated to the date;
+  [opennextjs-cloudflare#1355](https://github.com/opennextjs/opennextjs-cloudflare/issues/1355)),
+  so `next` is pinned to 16.3.8 and `@opennextjs/cloudflare` is 1.20.10. Home, search and chat
+  return 200 under `wrangler dev`.
+- [x] **CI.** `.github/workflows/ci.yml`. Add a workflow running `pnpm install --frozen-lockfile`, `tsc --noEmit`, lint and tests on push.
+- [x] **Unused dependency.** `fuse.js` removed.
+- [x] **README.** Setup (gateway token `CF_AIG_TOKEN` in `.dev.vars` for `pnpm dev` and
   `wrangler dev`, `wrangler secret put CF_AIG_TOKEN` in production; never in any `.env*` file),
   dev, test and deploy commands.
 

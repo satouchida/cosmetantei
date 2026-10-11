@@ -206,7 +206,7 @@ avoids repeat searches.
 `env.AI.websearch` requires wrangler ≥ 4.149. The project now has wrangler 4.149.0, from the
 dependency upgrade made on 2026-10-10.
 
-## Phase 1 status (2026-10-11): chat gate reworked, uncommitted
+## Phase 1 status (2026-10-11): done (`430fe1a`, quick replies in `9fb3b1e`)
 
 - Scopes and intents as above, with enforce as the default and fixed replies (`GATE_REPLIES`).
 - Quick-reply buttons have an explicit intent table.
@@ -221,8 +221,8 @@ dependency upgrade made on 2026-10-10.
 - **Still pending (Phase 2):** product search still sends the user's text to the current
   Google-grounded discovery. Phase 2 replaces it with Web Search queries built from product names
   only.
-- **Build currently fails** because of the 2026-10-10 dependency upgrade (Tailwind 4 needs
-  `@tailwindcss/postcss`). This is unrelated to the gate.
+- The build failure from the 2026-10-10 dependency upgrade was fixed in `75c66d2`.
+- Quick-reply buttons are now handled in the browser (`9fb3b1e`); only two labels skip Clef.
 
 ## Phase 0 status (2026-10-09)
 
