@@ -31,26 +31,32 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  // 起動中（カメラ許可待ちなど）に閉じられた場合も確実にカメラを止めるため、起動処理を保持する
+  const startPromiseRef = useRef<Promise<unknown> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const readerElementId = 'barcode-reader-viewport';
 
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-
-    if (isOpen) {
-      // DOMマウント完了を待ってからスキャナーを初期化
-      timer = setTimeout(() => {
-        startScanner();
-      }, 200);
-    } else {
-      stopScanner();
+  const stopScanner = async () => {
+    // 起動処理の完了を待ってから止める（待たないと isScanning が false のままカメラが残る）
+    await startPromiseRef.current?.catch(() => {});
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+        scannerRef.current.clear();
+      } catch (err) {
+        // ignore stop errors
+      }
+      scannerRef.current = null;
+      setIsScanning(false);
     }
+  };
 
-    return () => {
-      clearTimeout(timer);
-      stopScanner();
-    };
-  }, [isOpen]);
+  const handleSuccess = (code: string) => {
+    stopScanner();
+    onScanSuccess(code.trim());
+  };
 
   const startScanner = async () => {
     setErrorMsg(null);
@@ -91,7 +97,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       scannerRef.current = html5Qrcode;
       setIsScanning(true);
 
-      await html5Qrcode.start(
+      const starting = html5Qrcode.start(
         { facingMode: 'environment' },
         {
           fps: 15,
@@ -105,7 +111,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           // フレーム単位のエラーは無視
         }
       );
-    } catch (err: any) {
+      startPromiseRef.current = starting;
+      await starting;
+    } catch (err: unknown) {
       console.warn('Camera scan failed or permission denied:', err);
       setIsScanning(false);
       setErrorMsg(
@@ -114,25 +122,24 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop();
-        }
-        scannerRef.current.clear();
-      } catch (err) {
-        // ignore stop errors
-      }
-      scannerRef.current = null;
-      setIsScanning(false);
-    }
-  };
+  // スキャナーの開始・停止（startScanner / stopScanner の定義より後に置く）
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
 
-  const handleSuccess = (code: string) => {
-    stopScanner();
-    onScanSuccess(code.trim());
-  };
+    if (isOpen) {
+      // DOMマウント完了を待ってからスキャナーを初期化
+      timer = setTimeout(() => {
+        startScanner();
+      }, 200);
+    } else {
+      stopScanner();
+    }
+
+    return () => {
+      clearTimeout(timer);
+      stopScanner();
+    };
+  }, [isOpen]);
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,7 +174,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
       const decodedResult = await scanner.scanFile(file, true);
       handleSuccess(decodedResult);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('File scan error:', err);
       setErrorMsg('画像からバーコードを検出できませんでした。より鮮明な画像をお試しいただくか、番号を直接ご入力ください。');
     } finally {
@@ -190,7 +197,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-sand-200">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-sand-100 bg-sand-50/80">
@@ -240,7 +247,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
           {errorMsg && (
             <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-xs text-amber-800">
-              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
               <p>{errorMsg}</p>
             </div>
           )}
@@ -273,7 +280,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 placeholder="バーコード番号を直接入力 (例: 4901301272133)"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sage-400"
+                className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-sand-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-sage-400"
               />
             </div>
             <button
@@ -302,7 +309,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     <span className="font-bold text-gray-800 group-hover:text-sage-800 truncate">
                       {s.name}
                     </span>
-                    <span className="text-[10px] text-gray-500 bg-sand-100 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] text-gray-500 bg-sand-100 px-1.5 py-0.5 rounded-sm">
                       {s.badge}
                     </span>
                   </div>

@@ -160,8 +160,8 @@ export function findSafeAlternatives(
   // 敏感肌向け度の高い順（無香料・アルコールフリー・医薬部外品・セラミド等配合）にソート
   return safeItems
     .sort((a, b) => {
-      let scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0) + (a.isQuasiDrug ? 1 : 0);
-      let scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0) + (b.isQuasiDrug ? 1 : 0);
+      const scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0) + (a.isQuasiDrug ? 1 : 0);
+      const scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0) + (b.isQuasiDrug ? 1 : 0);
       return scoreB - scoreA;
     })
     .slice(0, limit);

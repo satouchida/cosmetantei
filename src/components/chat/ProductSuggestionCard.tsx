@@ -46,7 +46,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
           return (
             <div
               key={p.id}
-              className="bg-white rounded-xl p-3.5 border border-sand-200 shadow-sm hover:shadow-md hover:border-sage-400 transition-all flex flex-col justify-between"
+              className="bg-white rounded-xl p-3.5 border border-sand-200 shadow-xs hover:shadow-md hover:border-sage-400 transition-all flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between gap-1.5 mb-1.5">
@@ -73,12 +73,12 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
 
                 <div className="mt-2 flex flex-wrap gap-1">
                   {p.fragranceFree && (
-                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-sm">
                       無香料
                     </span>
                   )}
                   {p.alcoholFree && (
-                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-sm">
                       アルコールフリー
                     </span>
                   )}

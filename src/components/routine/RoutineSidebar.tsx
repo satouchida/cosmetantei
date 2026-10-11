@@ -126,7 +126,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             type="button"
             onClick={onRunDifferential}
             disabled={badProducts.length === 0}
-            className="w-full py-2.5 px-3 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all"
+            className="w-full py-2.5 px-3 bg-linear-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all"
           >
             <Sparkles className="w-4 h-4" />
             <span>⚡️ 原因成分をあぶり出す (差分分析)</span>

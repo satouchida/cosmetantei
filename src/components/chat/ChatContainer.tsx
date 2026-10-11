@@ -28,13 +28,27 @@ import {
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 
+let messageSequence = 0;
+
+/** 現在時刻（コンポーネント外の関数にして、描画中の不純な呼び出しとして扱われないようにする） */
+function currentTime(): number {
+  return Date.now();
+}
+
+/** メッセージの一意な ID とタイムスタンプ（同じミリ秒に複数作っても ID が重複しない） */
+function messageMeta(prefix: string): { id: string; timestamp: number } {
+  messageSequence += 1;
+  const timestamp = currentTime();
+  return { id: `${prefix}-${timestamp}-${messageSequence}`, timestamp };
+}
+
 export const ChatContainer: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome-1',
       role: 'assistant',
       content: `🔍 こんにちは！肌荒れ成分特定サービス「コスメ探偵 (CosmeTantei)」です。\n\n今お使いの化粧品名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコード（JAN/UPC）をカメラで読み取ってください。\n\n「肌荒れしたコスメ」と「普段使える安全なコスメ」を比較して、肌荒れの原因成分（香料、エタノール、防腐剤、高濃度アクティブなど）をあぶり出し、その成分を含まない安心の代替アイテム（Amazonリンク付）をご提案します！`,
-      timestamp: Date.now(),
+      timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
         '🧴 キュレルの泡洗顔を調べる',
@@ -55,11 +69,8 @@ export const ChatContainer: React.FC = () => {
 
   useEffect(() => {
     const trimmed = input.trim();
-    if (!trimmed) {
-      setLiveCandidates([]);
-      setIsTrayOpen(false);
-      return;
-    }
+    // 入力が空のときは何もしない（候補トレイは描画側で入力が空なら非表示にする）
+    if (!trimmed) return;
 
     // 高頻度API & Google検索への非同期問い合わせ（300msデバウンス）
     // 入力が変わったら前のリクエストを中断し、古い結果で新しい結果を上書きしないようにする
@@ -119,10 +130,9 @@ export const ChatContainer: React.FC = () => {
 
     // Add user message
     const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
+      ...messageMeta('user'),
       role: 'user',
       content: messageText,
-      timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -143,14 +153,13 @@ export const ChatContainer: React.FC = () => {
       const data = await res.json();
 
       const assistantMsg: ChatMessage = {
-        id: `bot-${Date.now()}`,
+        ...messageMeta('bot'),
         role: 'assistant',
         content: data.reply,
         productSuggestions: data.productSuggestions,
         singleAnalysis: data.singleAnalysis,
         differentialAnalysis: data.differentialAnalysis,
         quickReplies: data.quickReplies,
-        timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -159,10 +168,9 @@ export const ChatContainer: React.FC = () => {
       setMessages((prev) => [
         ...prev,
         {
-          id: `err-${Date.now()}`,
+          ...messageMeta('err'),
           role: 'assistant',
           content: '通信中にエラーが発生しました。もう一度お試しください。',
-          timestamp: Date.now(),
         },
       ]);
     } finally {
@@ -175,10 +183,9 @@ export const ChatContainer: React.FC = () => {
     setIsLoading(true);
 
     const userMsg: ChatMessage = {
-      id: `user-barcode-${Date.now()}`,
+      ...messageMeta('user-barcode'),
       role: 'user',
       content: `📷 バーコード（${barcode}）をスキャンしました`,
-      timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -197,12 +204,11 @@ export const ChatContainer: React.FC = () => {
       const data = await res.json();
 
       const assistantMsg: ChatMessage = {
-        id: `bot-barcode-${Date.now()}`,
+        ...messageMeta('bot-barcode'),
         role: 'assistant',
         content: data.reply,
         singleAnalysis: data.singleAnalysis,
         quickReplies: data.quickReplies,
-        timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -217,10 +223,9 @@ export const ChatContainer: React.FC = () => {
     setIsLoading(true);
 
     const userMsg: ChatMessage = {
-      id: `user-select-${Date.now()}`,
+      ...messageMeta('user-select'),
       role: 'user',
       content: `「${product.brand} ${product.name}」の成分を詳しく知りたい`,
-      timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -239,12 +244,11 @@ export const ChatContainer: React.FC = () => {
       const data = await res.json();
 
       const assistantMsg: ChatMessage = {
-        id: `bot-analysis-${Date.now()}`,
+        ...messageMeta('bot-analysis'),
         role: 'assistant',
         content: data.reply,
         singleAnalysis: data.singleAnalysis,
         quickReplies: data.quickReplies,
-        timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -299,10 +303,9 @@ export const ChatContainer: React.FC = () => {
     setIsLoading(true);
 
     const userMsg: ChatMessage = {
-      id: `user-diff-${Date.now()}`,
+      ...messageMeta('user-diff'),
       role: 'user',
       content: `⚡️ 肌荒れコスメ（${routine.badProducts.map((p) => p.name).join('、')}）の原因成分をあぶり出してください`,
-      timestamp: Date.now(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -320,12 +323,11 @@ export const ChatContainer: React.FC = () => {
       const data = await res.json();
 
       const assistantMsg: ChatMessage = {
-        id: `bot-diff-${Date.now()}`,
+        ...messageMeta('bot-diff'),
         role: 'assistant',
         content: data.reply,
         differentialAnalysis: data.differentialAnalysis,
         quickReplies: data.quickReplies,
-        timestamp: Date.now(),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -400,7 +402,7 @@ export const ChatContainer: React.FC = () => {
       {/* Top Navbar */}
       <header className="bg-white border-b border-sand-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-2xs z-10">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sage-600 via-emerald-600 to-amber-500 text-white flex items-center justify-center shadow-xs">
+          <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-sage-600 via-emerald-600 to-amber-500 text-white flex items-center justify-center shadow-xs">
             <Search className="w-5 h-5" />
           </div>
           <div>
@@ -451,7 +453,7 @@ export const ChatContainer: React.FC = () => {
                 className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {msg.role === 'assistant' && (
-                  <div className="w-8 h-8 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-8 h-8 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="w-4 h-4" />
                   </div>
                 )}
@@ -513,7 +515,7 @@ export const ChatContainer: React.FC = () => {
                 </div>
 
                 {msg.role === 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-sand-200 text-gray-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-8 h-8 rounded-full bg-sand-200 text-gray-600 flex items-center justify-center shrink-0 mt-0.5">
                     <User className="w-4 h-4" />
                   </div>
                 )}
@@ -522,7 +524,7 @@ export const ChatContainer: React.FC = () => {
 
             {isLoading && (
               <div className="flex gap-3 items-center text-xs text-gray-400 italic">
-                <div className="w-8 h-8 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center flex-shrink-0 animate-pulse">
+                <div className="w-8 h-8 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center shrink-0 animate-pulse">
                   <Bot className="w-4 h-4" />
                 </div>
                 <div className="flex items-center gap-1.5 bg-sand-50 p-3 rounded-2xl border border-sand-200">
@@ -543,7 +545,7 @@ export const ChatContainer: React.FC = () => {
               <LiveSearchCandidateTray
                 query={input}
                 candidates={liveCandidates}
-                isOpen={isTrayOpen && liveCandidates.length > 0}
+                isOpen={isTrayOpen && liveCandidates.length > 0 && input.trim() !== ''}
                 onClose={() => setIsTrayOpen(false)}
                 onSelectProduct={(product) => {
                   setIsTrayOpen(false);
@@ -569,7 +571,7 @@ export const ChatContainer: React.FC = () => {
                   type="button"
                   onClick={() => setIsScannerOpen(true)}
                   title="バーコードをカメラでスキャン"
-                  className="p-2.5 text-sage-700 bg-sage-50 hover:bg-sage-100 rounded-xl border border-sage-200 transition-colors flex-shrink-0"
+                  className="p-2.5 text-sage-700 bg-sage-50 hover:bg-sage-100 rounded-xl border border-sage-200 transition-colors shrink-0"
                 >
                   <Camera className="w-5 h-5" />
                 </button>
@@ -577,15 +579,23 @@ export const ChatContainer: React.FC = () => {
                 <input
                   type="text"
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setInput(value);
+                    // 入力を消したら前の検索候補を破棄する（次の入力で古い候補が一瞬表示されないように）
+                    if (!value.trim()) {
+                      setIsTrayOpen(false);
+                      setLiveCandidates([]);
+                    }
+                  }}
                   placeholder="コスメ名を入力 (例: ちふれ リップ, キュレル泡洗顔, アヌア, メラノCC...)"
-                  className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-sand-50/60 border border-sand-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sage-400 text-gray-800 placeholder:text-gray-400"
+                  className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-sand-50/60 border border-sand-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-sage-400 text-gray-800 placeholder:text-gray-400"
                 />
 
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading}
-                  className="p-2.5 bg-sage-600 hover:bg-sage-700 disabled:opacity-40 text-white rounded-xl transition-colors shadow-xs flex-shrink-0"
+                  className="p-2.5 bg-sage-600 hover:bg-sage-700 disabled:opacity-40 text-white rounded-xl transition-colors shadow-xs shrink-0"
                 >
                   <Send className="w-5 h-5" />
                 </button>

@@ -214,7 +214,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
             .filter(Boolean);
         } else if (Array.isArray(p.ingredients)) {
           ingredients = p.ingredients
-            .map((ing: any) => ing.text || ing.id?.replace('en:', '') || '')
+            .map((ing: { text?: string; id?: string }) => ing.text || ing.id?.replace('en:', '') || '')
             .filter(Boolean);
         }
 

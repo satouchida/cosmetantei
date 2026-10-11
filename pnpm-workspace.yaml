@@ -1,0 +1,11 @@
+# 依存パッケージのインストールスクリプトは許可したものだけ実行する（サプライチェーン攻撃対策）
+allowBuilds:
+  # esbuild はネイティブバイナリを optionalDependencies から取得するため、スクリプト不要
+  esbuild: false
+  # wrangler（Cloudflare Workers のローカル実行）に必要
+  workerd: true
+  # ESLint の依存。ネイティブバイナリは optionalDependencies から取得するため、スクリプト不要
+  unrs-resolver: false
+
+# 公開から1日（1440分）未満のバージョンはインストールしない（乗っ取られたリリースの多くは数時間以内に取り下げられる）
+minimumReleaseAge: 1440

@@ -48,5 +48,5 @@ CHAT_GATE_MODE = "enforce"
 
 # Gemini の APIキーはアプリに持たせず、AI Gateway の Provider Keys（Google AI Studio）に保存しています。
 # アプリが使う秘密情報は AI Gateway の認証トークン CF_AIG_TOKEN のみ。[vars] にも .env 系のファイルにも書かないでください。
-#   本番:                                                        npx wrangler secret put CF_AIG_TOKEN
-#   npm run dev / wrangler dev / opennextjs-cloudflare preview:  .dev.vars
+#   本番:                                                        pnpm exec wrangler secret put CF_AIG_TOKEN
+#   pnpm dev / wrangler dev / opennextjs-cloudflare preview:  .dev.vars

@@ -126,7 +126,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   };
 
   return (
-    <div className="my-3 bg-white rounded-2xl p-4 sm:p-5 border border-sand-200 shadow-sm space-y-4">
+    <div className="my-3 bg-white rounded-2xl p-4 sm:p-5 border border-sand-200 shadow-xs space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-sand-100">
         <div>
@@ -157,7 +157,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       {/* Online Marketplace Disclaimer Banner (if ingredients were retrieved from web/marketplace) */}
       {dataSourceDisclaimer && (
         <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 leading-relaxed flex items-start gap-2 animate-fade-in">
-          <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-700" />
+          <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
           <div className="space-y-0.5">
             <span className="font-bold text-amber-950 block">
               🌐 オンラインマーケットプレイス収集情報に関するご注意
@@ -247,32 +247,32 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               ({selectedIngredient.matchedKnown?.nameEn || selectedIngredient.rawName})
             </span>
             {selectedIngredient.riskLevel === 'safe' && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                 🟢 低刺激・安心
               </span>
             )}
             {selectedIngredient.riskLevel === 'low_caution' && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
                 🟡 軽度の注意
               </span>
             )}
             {selectedIngredient.riskLevel === 'moderate_irritant' && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">
                 🟠 中刺激注意
               </span>
             )}
             {selectedIngredient.riskLevel === 'high_irritant' && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
                 🔴 高リスク・刺激
               </span>
             )}
             {selectedIngredient.riskLevel === 'active_caution' && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
                 🟣 高濃度アクティブ
               </span>
             )}
             {selectedIngredient.riskLevel === 'unknown' && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-gray-600 border border-dashed border-gray-300">
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-white text-gray-600 border border-dashed border-gray-300">
                 ⚪ 未評価
               </span>
             )}

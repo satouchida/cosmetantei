@@ -1,6 +1,60 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* テーマ（Tailwind v3 の tailwind.config.js から移行） */
+@theme {
+  --color-sage-50: #f4f7f4;
+  --color-sage-100: #e6ede6;
+  --color-sage-200: #cfddcf;
+  --color-sage-300: #abc4ab;
+  --color-sage-400: #81a581;
+  --color-sage-500: #618861;
+  --color-sage-600: #4c6e4c;
+  --color-sage-700: #3e583e;
+  --color-sage-800: #344734;
+  --color-sage-900: #2b3b2b;
+
+  --color-sand-50: #fbf9f6;
+  --color-sand-100: #f6f1eb;
+  --color-sand-200: #ede2d5;
+  --color-sand-300: #dfcdb7;
+  --color-sand-400: #ccb194;
+  --color-sand-500: #bd9a77;
+
+  --color-blush-50: #fff5f5;
+  --color-blush-100: #feebe8;
+  --color-blush-200: #fed7d2;
+  --color-blush-300: #fdb5ad;
+  --color-blush-400: #fa8579;
+  --color-blush-500: #f15a4b;
+
+  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+}
+
+/*
+  Tailwind v4 で変わった既定値を v3 と同じ見た目に戻す（公式アップグレードガイドの互換スタイル）
+  - 色を指定しない border は currentColor ではなく gray-200
+  - ボタンのカーソルは pointer
+  - プレースホルダーの色は gray-400
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+}
 
 :root {
   --foreground-rgb: 33, 37, 41;

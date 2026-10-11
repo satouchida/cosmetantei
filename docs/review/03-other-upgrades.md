@@ -4,7 +4,7 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
 
 ## Security and data trust
 
-- [x] **Keep the Gemini key out of the Cloudflare build.** `npm run build:cloudflare` copies the
+- [x] **Keep the Gemini key out of the Cloudflare build.** `pnpm build:cloudflare` copies the
   values of every `.env*` file, for all three modes (production, development, test), into
   `.open-next/cloudflare/next-env.mjs`, which ships inside the Worker script. Resolved by moving
   Gemini behind Cloudflare AI Gateway: the Gemini key is stored in the gateways' Provider Keys
@@ -31,15 +31,16 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
 
 ## Tooling and config
 
-- [ ] **Lint.** The `lint` script runs `next lint` but there is no ESLint config, and `next lint`
-  is deprecated in newer Next versions. Add `eslint.config.mjs` with `eslint-config-next` and run
-  `eslint .` directly.
+- [x] **Lint.** `next lint` was removed in Next 16. `pnpm lint` now runs `eslint .` with
+  `eslint.config.mjs` (`eslint-config-next` core-web-vitals + typescript). TypeScript 7 has no API, so
+  `typescript` is aliased to `@typescript/typescript6` for tooling, with TS 7 as `@typescript/native`
+  (`tsc`). 0 errors; 28 warnings (mostly unused imports) remain.
 - [ ] **Wrangler.** Update `compatibility_date` in `wrangler.toml:3` (currently `2024-09-23`) and
   re-test.
-- [ ] **CI.** Add a workflow running `npm ci`, `tsc --noEmit`, lint and tests on push.
+- [ ] **CI.** Add a workflow running `pnpm install --frozen-lockfile`, `tsc --noEmit`, lint and tests on push.
 - [ ] **Unused dependency.** `fuse.js` is in `dependencies` but nothing in `src/` imports it.
   Remove it.
-- [ ] **README.** Setup (gateway token `CF_AIG_TOKEN` in `.dev.vars` for `npm run dev` and
+- [ ] **README.** Setup (gateway token `CF_AIG_TOKEN` in `.dev.vars` for `pnpm dev` and
   `wrangler dev`, `wrangler secret put CF_AIG_TOKEN` in production; never in any `.env*` file),
   dev, test and deploy commands.
 

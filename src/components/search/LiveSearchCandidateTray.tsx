@@ -79,18 +79,18 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                 <div>
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <span
-                      className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${countryBadge.color}`}
+                      className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${countryBadge.color}`}
                     >
                       {countryBadge.label}
                     </span>
                     <div className="flex items-center gap-1">
                       {product.isQuasiDrug && (
-                        <span className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded font-medium">
+                        <span className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-sm font-medium">
                           医薬部外品
                         </span>
                       )}
                       {product.fragranceFree && (
-                        <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded">
+                        <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded-sm">
                           無香料
                         </span>
                       )}
@@ -105,7 +105,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                   </h4>
 
                   {product.activeIngredientsJa && product.activeIngredientsJa.length > 0 ? (
-                    <div className="mt-1 text-[10px] text-emerald-700 truncate bg-emerald-50 px-1.5 py-0.5 rounded">
+                    <div className="mt-1 text-[10px] text-emerald-700 truncate bg-emerald-50 px-1.5 py-0.5 rounded-sm">
                       有効成分: {product.activeIngredientsJa.join(', ')}
                     </div>
                   ) : (
