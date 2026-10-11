@@ -8,7 +8,6 @@ import {
 } from '../src/lib/analyzer/ingredient-analyzer';
 import { COSMETICS_DATABASE, addProductToDynamicCache } from '../src/lib/data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
-import { MARKETPLACE_DISCLAIMER_JA } from '../src/lib/services/gemini';
 import { Product, INGREDIENT_RISK_LEVELS } from '../src/lib/types';
 
 // 外部API（Open Beauty Facts・Gemini）には接続しない：テストを高速・安定にするためネットワークを遮断する
@@ -220,7 +219,7 @@ test('10. Greeting and consultation detection & service purpose explanation', as
   assert.strictEqual(isGreetingOrConsultation('ちふれ リップ'), false);
   assert.strictEqual(isGreetingOrConsultation('キュレル 洗顔'), false);
 
-  const explanation = getServicePurposeExplanation('こんにちは');
+  const explanation = getServicePurposeExplanation();
   assert.ok(explanation.includes('コスメ探偵'), 'Explanation must mention CosmeTantei');
   assert.ok(explanation.includes('比較') || explanation.includes('あぶり出す'), 'Must explain service purpose');
   assert.ok(explanation.includes('化粧品名'), 'Must prompt user to enter cosmetic name');
@@ -334,7 +333,6 @@ test('11. Cosmetic-only suggestion filter (Rejects Google search query noise, re
 
 test('12. Dynamic API & cache-only architecture (Zero internal static brand catalogs)', async () => {
   const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
-  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
 
   // 内部データベースに固定のブランド商品カタログが存在しないこと（外部API/推測から動的供給）
   const liveModule = await import('../src/lib/services/live-cosmetics-service');
@@ -1058,6 +1056,7 @@ test('37. Chat gate: quick-reply labels match every button label in the app', as
   const fs = await import('node:fs');
   const path = await import('node:path');
   const { QUICK_REPLY_LABELS } = await import('../src/lib/services/chat-gate');
+  const { CLIENT_HANDLED_LABELS, getQuickReplyAction } = await import('../src/components/chat/quick-replies');
   const sources = ['src/app/api/chat/route.ts', 'src/components/chat/ChatContainer.tsx'].map((file) =>
     fs.readFileSync(path.join(process.cwd(), file), 'utf-8')
   );
@@ -1070,9 +1069,17 @@ test('37. Chat gate: quick-reply labels match every button label in the app', as
     }
   }
   assert.ok(found.size > 10, 'Should find the button labels');
-  for (const label of found) assert.ok(QUICK_REPLY_LABELS.has(label), `Missing quick-reply label: ${label}`);
-  for (const label of QUICK_REPLY_LABELS) {
+  // すべてのボタンが、ブラウザ側の処理かサーバー側の意図表のどちらかで扱われていること
+  for (const label of found) {
+    const handled = getQuickReplyAction(label).kind !== 'server' || QUICK_REPLY_LABELS.has(label);
+    assert.ok(handled, `Quick-reply label handled nowhere: ${label}`);
+  }
+  for (const label of [...QUICK_REPLY_LABELS, ...CLIENT_HANDLED_LABELS]) {
     assert.ok(sources.some((source) => source.includes(label)), `Stale quick-reply label no longer in the app: ${label}`);
+  }
+  // サーバーの表は、実際にサーバーへ送られるボタンだけ（手入力によるゲート素通りを最小にする）
+  for (const label of QUICK_REPLY_LABELS) {
+    assert.strictEqual(getQuickReplyAction(label).kind, 'server', `${label} never reaches the server`);
   }
 });
 
@@ -1135,9 +1142,8 @@ test('39. Chat gate modes: enforce is the default; off and quick replies skip Cl
       assert.strictEqual(calls.length, 0, 'off mode must not call Clef');
 
       process.env.CHAT_GATE_MODE = 'enforce';
-      const qr = await classifyChatMessage('🔍 別のコスメを調べる');
-      assert.deepStrictEqual([qr.source, qr.scope, qr.intent], ['quick_reply', 'in_scope', 'greeting_or_help']);
-      assert.deepStrictEqual((await classifyChatMessage('💡 おすすめの低刺激アイテムは？')).intent, 'find_alternative');
+      const qr = await classifyChatMessage('💡 おすすめの低刺激アイテムは？');
+      assert.deepStrictEqual([qr.source, qr.scope, qr.intent], ['quick_reply', 'in_scope', 'find_alternative']);
       assert.strictEqual(calls.length, 0, 'Quick replies must not call Clef');
 
       process.env.CHAT_GATE_MODE = 'shadow';
@@ -1424,4 +1430,26 @@ test('46. Chat route: a product lookup with no matching products gets a fixed re
     delete process.env.CHAT_GATE_MODE;
     clearGatewayEnv();
   }
+});
+
+test('47. Quick-reply buttons: UI actions stay in the browser; only research requests reach the server', async () => {
+  const { getQuickReplyAction, CLIENT_HANDLED_LABELS } = await import('../src/components/chat/quick-replies');
+  const { QUICK_REPLY_LABELS } = await import('../src/lib/services/chat-gate');
+
+  assert.deepStrictEqual(
+    [...QUICK_REPLY_LABELS].sort(),
+    ['🔍 この成分が入っていないコスメを探す', '💡 おすすめの低刺激アイテムは？'].sort(),
+    'Only research requests are sent to the server as-is'
+  );
+
+  for (const label of CLIENT_HANDLED_LABELS) {
+    const action = getQuickReplyAction(label);
+    if (action.kind === 'send') {
+      assert.ok(!/^\p{Extended_Pictographic}/u.test(action.text), `"${label}" must send a plain product name`);
+    }
+    if (label.includes('バーコード')) assert.strictEqual(action.kind, 'scanner', label);
+  }
+  assert.deepStrictEqual(getQuickReplyAction('⚡️ メラノCCで赤みが出た'), { kind: 'send', text: 'メラノCC' });
+  assert.deepStrictEqual(getQuickReplyAction('✅ 普段安全に使えている（安全リストに追加）'), { kind: 'add_analyzed', list: 'safe' });
+  assert.strictEqual(getQuickReplyAction('🚨 この中のアイテムで肌荒れした').kind, 'pick_from_cards');
 });

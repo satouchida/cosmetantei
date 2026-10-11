@@ -34,7 +34,7 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
 - [x] **Lint.** `next lint` was removed in Next 16. `pnpm lint` now runs `eslint .` with
   `eslint.config.mjs` (`eslint-config-next` core-web-vitals + typescript). TypeScript 7 has no API, so
   `typescript` is aliased to `@typescript/typescript6` for tooling, with TS 7 as `@typescript/native`
-  (`tsc`). 0 errors; 28 warnings (mostly unused imports) remain.
+  (`tsc`). 0 errors and 0 warnings.
 - [ ] **Wrangler.** Update `compatibility_date` in `wrangler.toml:3` (currently `2024-09-23`) and
   re-test.
 - [ ] **CI.** Add a workflow running `pnpm install --frozen-lockfile`, `tsc --noEmit`, lint and tests on push.

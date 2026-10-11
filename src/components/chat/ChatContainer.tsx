@@ -5,9 +5,7 @@ import {
   ChatMessage,
   Product,
   UserRoutineState,
-  ProductAnalysisResult,
-  DifferentialAnalysisResult,
-} from '@/lib/types';
+  } from '@/lib/types';
 import { ProductSuggestionCard } from './ProductSuggestionCard';
 import { IngredientAnalysisCard } from './IngredientAnalysisCard';
 import { DifferentialResultCard } from './DifferentialResultCard';
@@ -16,17 +14,14 @@ import { RoutineSidebar } from '../routine/RoutineSidebar';
 import {
   Camera,
   Send,
-  Sparkles,
   Bot,
   User,
-  ShieldCheck,
   Menu,
-  X,
-  RotateCcw,
   CheckCircle2,
   Search,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
+import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
 
 let messageSequence = 0;
 
@@ -87,7 +82,7 @@ export const ChatContainer: React.FC = () => {
             setIsTrayOpen(true);
           }
         }
-      } catch (e) {
+      } catch {
         // 中断・オフライン時は表示中の候補を維持
       }
     }, 300);
@@ -105,6 +100,7 @@ export const ChatContainer: React.FC = () => {
   });
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -259,28 +255,32 @@ export const ChatContainer: React.FC = () => {
     }
   };
 
-  const handleAddToBad = (product: Product) => {
-    if (!routine.badProducts.some((p) => p.id === product.id)) {
-      setRoutine((prev) => ({
-        ...prev,
-        badProducts: [...prev.badProducts, product],
-      }));
-      showToast(`「${product.name}」を【肌荒れしたコスメ】に追加しました`);
-    } else {
+  /** 肌荒れリストに追加する。追加した場合は true、すでに登録済みなら false */
+  const handleAddToBad = (product: Product): boolean => {
+    if (routine.badProducts.some((p) => p.id === product.id)) {
       showToast(`すでに肌荒れリストに登録されています`);
+      return false;
     }
+    setRoutine((prev) => ({
+      ...prev,
+      badProducts: [...prev.badProducts, product],
+    }));
+    showToast(`「${product.name}」を【肌荒れしたコスメ】に追加しました`);
+    return true;
   };
 
-  const handleAddToSafe = (product: Product) => {
-    if (!routine.safeProducts.some((p) => p.id === product.id)) {
-      setRoutine((prev) => ({
-        ...prev,
-        safeProducts: [...prev.safeProducts, product],
-      }));
-      showToast(`「${product.name}」を【安全なコスメ】に追加しました`);
-    } else {
+  /** 安全リストに追加する。追加した場合は true、すでに登録済みなら false */
+  const handleAddToSafe = (product: Product): boolean => {
+    if (routine.safeProducts.some((p) => p.id === product.id)) {
       showToast(`すでに安全リストに登録されています`);
+      return false;
     }
+    setRoutine((prev) => ({
+      ...prev,
+      safeProducts: [...prev.safeProducts, product],
+    }));
+    showToast(`「${product.name}」を【安全なコスメ】に追加しました`);
+    return true;
   };
 
   const handleRemoveBad = (id: string) => {
@@ -295,6 +295,74 @@ export const ChatContainer: React.FC = () => {
       ...prev,
       safeProducts: prev.safeProducts.filter((p) => p.id !== id),
     }));
+  };
+
+  /** サーバーを呼ばずに、押したボタンとその案内をチャットに追加する */
+  const appendLocalExchange = (label: string, reply: string, quickReplies?: string[]) => {
+    setMessages((prev) => [
+      ...prev,
+      { ...messageMeta('user-quick'), role: 'user', content: label },
+      { ...messageMeta('bot-local'), role: 'assistant', content: reply, quickReplies },
+    ]);
+  };
+
+  /** クイック返信ボタンの処理（画面操作はブラウザ側で行い、調査依頼だけをサーバーに送る） */
+  const handleQuickReply = (label: string, sourceMessage: ChatMessage) => {
+    const action = getQuickReplyAction(label);
+    if (action.kind === 'scanner') {
+      setIsScannerOpen(true);
+      return;
+    }
+    // 応答待ちの間は、メッセージの順序が入れ替わらないよう他のボタンを受け付けない
+    if (isLoading) return;
+    switch (action.kind) {
+      case 'send':
+        handleSendMessage(action.text);
+        return;
+      case 'add_analyzed': {
+        const product = sourceMessage.singleAnalysis?.product;
+        if (!product) {
+          appendLocalExchange(label, PICK_FROM_CARDS_HINT);
+          return;
+        }
+        if (action.list === 'bad') {
+          const added = handleAddToBad(product);
+          appendLocalExchange(
+            label,
+            added
+              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。普段問題なく使えているコスメも追加して「差分分析」を実行すると、肌荒れの原因になった可能性のある成分をあぶり出せます。`
+              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。普段問題なく使えているコスメも追加して「差分分析」を実行できます。`,
+            ['✅ 普段使えているコスメを入力する']
+          );
+        } else {
+          const added = handleAddToSafe(product);
+          appendLocalExchange(
+            label,
+            added
+              ? `「${product.name}」を【安全なコスメ】に追加しました。肌荒れしたコスメも追加して「差分分析」を実行すると、原因成分をあぶり出せます。`
+              : `「${product.name}」はすでに【安全なコスメ】に登録されています。肌荒れしたコスメを追加して「差分分析」を実行できます。`,
+            ['🧴 肌荒れしたコスメを入力する']
+          );
+        }
+        return;
+      }
+      case 'pick_from_cards':
+        appendLocalExchange(label, PICK_FROM_CARDS_HINT);
+        return;
+      case 'reset':
+        handleLoadPreset('clear');
+        appendLocalExchange(label, '比較リスト（肌荒れしたコスメ・安全なコスメ）を空にしました。', [
+          '🧴 肌荒れしたコスメを入力する',
+        ]);
+        return;
+      case 'prompt_input':
+        appendLocalExchange(label, action.hint);
+        inputRef.current?.focus();
+        return;
+      case 'server':
+        handleSendMessage(label);
+        return;
+    }
   };
 
   const handleRunDifferential = async () => {
@@ -498,13 +566,7 @@ export const ChatContainer: React.FC = () => {
                         <button
                           key={i}
                           type="button"
-                          onClick={() => {
-                            if (qr.includes('バーコード')) {
-                              setIsScannerOpen(true);
-                            } else {
-                              handleSendMessage(qr);
-                            }
-                          }}
+                          onClick={() => handleQuickReply(qr, msg)}
                           className="text-[11px] bg-white hover:bg-sage-50 text-sage-800 border border-sage-200 px-2.5 py-1 rounded-full font-medium transition-colors shadow-2xs"
                         >
                           {qr}
@@ -577,6 +639,7 @@ export const ChatContainer: React.FC = () => {
                 </button>
 
                 <input
+                  ref={inputRef}
                   type="text"
                   value={input}
                   onChange={(e) => {

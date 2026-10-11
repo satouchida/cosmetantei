@@ -45,7 +45,7 @@ export function isGreetingOrConsultation(text: string): boolean {
 /**
  * 挨拶や相談に対する、サービスの目的説明とコスメ名入力促進メッセージ
  */
-export function getServicePurposeExplanation(userQuery?: string): string {
+export function getServicePurposeExplanation(): string {
   return `こんにちは！コスメ探偵（CosmeTantei）へようこそ。
 
 当サービスは、あなたが「肌荒れを起こしてしまった化粧品」と「普段問題なく使えている安全な化粧品」の全成分を比較・差分分析し、肌トラブルの真の原因成分（香料、エタノール、特定の防腐剤や紫外線吸収剤など）をあぶり出すサービスです。

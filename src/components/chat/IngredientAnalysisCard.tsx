@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, Check, X, Globe, Loader2 } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 
 interface IngredientAnalysisCardProps {

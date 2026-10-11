@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Product } from '@/lib/types';
-import { Sparkles, AlertTriangle, ShieldCheck, Search, Tag } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Search } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 
 interface ProductSuggestionCardProps {

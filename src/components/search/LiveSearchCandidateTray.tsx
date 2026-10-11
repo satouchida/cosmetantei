@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Product } from '@/lib/types';
-import { Search, X, Sparkles, AlertTriangle, ShieldCheck, ChevronRight } from 'lucide-react';
+import { Search, X, Sparkles, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 
 interface LiveSearchCandidateTrayProps {

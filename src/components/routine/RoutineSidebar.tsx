@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Product, UserRoutineState } from '@/lib/types';
-import { AlertTriangle, ShieldCheck, Trash2, Sparkles, Plus, RefreshCw, Barcode } from 'lucide-react';
+import { UserRoutineState } from '@/lib/types';
+import { AlertTriangle, ShieldCheck, Trash2, Sparkles, RefreshCw, Barcode } from 'lucide-react';
 
 interface RoutineSidebarProps {
   routine: UserRoutineState;

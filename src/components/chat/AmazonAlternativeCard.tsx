@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Product } from '@/lib/types';
-import { ShoppingBag, ExternalLink, ShieldCheck, Sparkles } from 'lucide-react';
+import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -11,7 +11,6 @@ interface AmazonAlternativeCardProps {
 
 export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
   products,
-  avoidedIngredients = [],
 }) => {
   if (!products || products.length === 0) return null;
 

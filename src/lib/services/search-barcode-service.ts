@@ -257,7 +257,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
         return product;
       }
     }
-  } catch (err) {
+  } catch {
     // ignore
   }
 
@@ -273,7 +273,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
       await cachePutJSON(kvKey, p, AI_BARCODE_TTL_SECONDS);
       return p;
     }
-  } catch (err) {
+  } catch {
     // ignore
   }
 

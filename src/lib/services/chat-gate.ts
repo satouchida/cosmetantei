@@ -75,37 +75,14 @@ const INTENTS: GateIntent[] = [
 ];
 
 /**
- * アプリが表示するクイック返信ボタンの文言（route.ts と ChatContainer.tsx）と、その意図。
- * 「別のコスメを調べる」のような文言は商品名ではないため、商品検索ではなく使い方の案内にする。
- * テストで両ファイルの文言と一致することを確認している
+ * サーバーに届くクイック返信ボタンの文言と、その意図（Clef を呼ばずに無料で判定）。
+ * それ以外のボタンはブラウザ側で処理される（src/components/chat/quick-replies.ts）ため、ここには含めない。
+ * 手入力で同じ文言を送ってもゲートを素通りできる範囲を、本当に必要なボタンだけに絞る。
+ * テストでアプリの全ボタンがどちらかで扱われていることを確認している
  */
 export const QUICK_REPLY_INTENTS: Readonly<Record<string, GateIntent>> = {
-  '⚠️ 他の注意成分は？': 'find_cause',
-  '⚡️ メラノCCで赤みが出た': 'find_cause',
-  '✅ この中のアイテムは安全に使えた': 'greeting_or_help',
-  '✅ 普段使えているコスメを入力する': 'greeting_or_help',
-  '✅ 普段安全に使えている（安全リストに追加）': 'greeting_or_help',
   '💡 おすすめの低刺激アイテムは？': 'find_alternative',
-  '💧 トリデンのセラムを調べる': 'product_lookup',
-  '📝 全成分を直接入力する': 'greeting_or_help',
-  '📸 バーコードで読み取る': 'greeting_or_help',
-  '📸 バーコードをスキャン': 'greeting_or_help',
-  '📸 バーコードをスキャンする': 'greeting_or_help',
-  '📸 別のバーコードをスキャン': 'greeting_or_help',
-  '🔄 リセットする': 'greeting_or_help',
   '🔍 この成分が入っていないコスメを探す': 'find_alternative',
-  '🔍 キュレルの泡洗顔を調べる': 'product_lookup',
-  '🔍 他のコスメも調べる': 'greeting_or_help',
-  '🔍 具体的な商品名で再検索': 'greeting_or_help',
-  '🔍 別のキーワードで調べる': 'greeting_or_help',
-  '🔍 別のコスメを調べる': 'greeting_or_help',
-  '🔍 別のコスメを追加する': 'greeting_or_help',
-  '🔍 商品名で検索する': 'greeting_or_help',
-  '🔍 肌荒れしたコスメを検索': 'greeting_or_help',
-  '🚨 このアイテムで肌荒れした（原因を特定）': 'find_cause',
-  '🚨 この中のアイテムで肌荒れした': 'find_cause',
-  '🧴 キュレルの泡洗顔を調べる': 'product_lookup',
-  '🧴 肌荒れしたコスメを入力する': 'greeting_or_help',
 };
 export const QUICK_REPLY_LABELS: ReadonlySet<string> = new Set(Object.keys(QUICK_REPLY_INTENTS));
 

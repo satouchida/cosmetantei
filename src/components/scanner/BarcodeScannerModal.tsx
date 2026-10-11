@@ -6,12 +6,8 @@ import {
   X,
   RefreshCw,
   Barcode,
-  CheckCircle2,
   AlertCircle,
   Upload,
-  Image as ImageIcon,
-  Sparkles,
-  Zap,
 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 
@@ -27,7 +23,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onScanSuccess,
 }) => {
   const [manualCode, setManualCode] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -45,11 +40,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           await scannerRef.current.stop();
         }
         scannerRef.current.clear();
-      } catch (err) {
+      } catch {
         // ignore stop errors
       }
       scannerRef.current = null;
-      setIsScanning(false);
     }
   };
 
@@ -74,7 +68,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             await scannerRef.current.stop();
           }
           scannerRef.current.clear();
-        } catch (e) {
+        } catch {
           // ignore
         }
         scannerRef.current = null;
@@ -95,7 +89,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       });
 
       scannerRef.current = html5Qrcode;
-      setIsScanning(true);
 
       const starting = html5Qrcode.start(
         { facingMode: 'environment' },
@@ -115,7 +108,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       await starting;
     } catch (err: unknown) {
       console.warn('Camera scan failed or permission denied:', err);
-      setIsScanning(false);
       setErrorMsg(
         'カメラの起動に失敗しました（HTTPS環境またはカメラ権限の許可が必要です）。写真アップロード、サンプルボタン、または直接入力をご利用ください。'
       );
@@ -139,6 +131,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       clearTimeout(timer);
       stopScanner();
     };
+    // モーダルの開閉時だけ実行する（関数を依存に入れると再描画のたびにカメラが再起動する）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const handleManualSubmit = (e: React.FormEvent) => {

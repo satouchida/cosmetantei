@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
         return NextResponse.json({
           reply: geminiReply,
-          quickReplies: ['🔍 商品名で検索する', '📝 全成分を直接入力する', '📸 別のバーコードをスキャン'],
+          quickReplies: ['🔍 商品名で検索する', '📸 別のバーコードをスキャン'],
         });
       }
 
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
     // A. 挨拶・使い方の質問：定型の説明のみ（商品検索や Gemini は呼ばない）
     if (gate?.intent === 'greeting_or_help') {
       return NextResponse.json({
-        reply: getServicePurposeExplanation(userText),
+        reply: getServicePurposeExplanation(),
         quickReplies: [
           '🧴 肌荒れしたコスメを入力する',
           '✅ 普段使えているコスメを入力する',
@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         reply: geminiReply,
         productSuggestions: matchedProducts,
-        quickReplies: ['🔍 この成分が入っていないコスメを探す', '📸 バーコードをスキャンする', '⚠️ 他の注意成分は？'],
+        quickReplies: ['🔍 この成分が入っていないコスメを探す', '📸 バーコードをスキャンする'],
       });
     }
 
