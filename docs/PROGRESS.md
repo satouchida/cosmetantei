@@ -24,7 +24,8 @@ Last updated: 2026-10-12.
 | 2026-10-12 | `79e2e06` | Ingredient database audit: all 35 entries checked against regulations and safety assessments, with sources and review dates; CI warns after 12 months ([plan](plans/ingredient-db-audit.md), [walkthrough](walkthroughs/2026-10-12-ingredient-db-audit.md)) |
 | 2026-10-12 | `a9cc10b` | Japanese-market data, step 4: quasi-drug (医薬部外品) labels. Active ingredients are analysed, 「他 n成分」 and the unordered 「その他の成分」 are explained, splitting no longer breaks names like 1,3-ブチレングリコール, and the official quasi-drug names are matched ([plan](plans/japan-ingredient-data.md), [walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md)) |
 | 2026-10-12 | `9e50058` | Step 4's known limits: 「・」-only labels rejoin names by JCIA's 簡略名 guideline, old saved Open Beauty Facts products are fetched again, abbreviated and full names match (POE/Na/2K), and the name list edition is confirmed ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#follow-up-the-same-day-the-known-limits)) |
-| 2026-10-12 | *this commit* | Quasi-drug analyses link to JCIA's name list and labelling policy as their source (cited by link, not copied) ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#citing-jcia-by-link)) |
+| 2026-10-12 | `8cfe0ad` | Quasi-drug analyses link to JCIA's name list and labelling policy as their source (cited by link, not copied) ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#citing-jcia-by-link)) |
+| 2026-10-12 | *this commit* | Ingredient label input: paste a label or photograph it (Gemini transcribes, the user checks, our parser analyses with no AI call); labels aren't stored or shared ([plan](plans/label-input.md), [walkthrough](walkthroughs/2026-10-12-label-input.md)) |
 
 ## In progress
 
@@ -53,7 +54,6 @@ In order:
 ## Later (product)
 
 From [03, Product](review/03-other-upgrades.md#product):
-- ingredient label input (paste or photo);
 - where each product's data came from, shown on its card;
 - keep the bad and safe lists across reloads.
 

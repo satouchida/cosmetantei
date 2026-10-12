@@ -76,8 +76,16 @@ export interface GeminiContent {
   parts: { text: string }[];
 }
 
+/** プロンプトに添える画像（base64） */
+export interface GeminiImage {
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  data: string;
+}
+
 export interface GeminiRequest {
   prompt: string;
+  /** プロンプトの前に添える画像（成分表示の写真の読み取り等） */
+  images?: GeminiImage[];
   systemInstruction?: string;
   history?: GeminiContent[];
   /**
@@ -159,7 +167,16 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   }
 
   const body: Record<string, unknown> = {
-    contents: [...(req.history ?? []), { role: 'user', parts: [{ text: req.prompt }] }],
+    contents: [
+      ...(req.history ?? []),
+      {
+        role: 'user',
+        parts: [
+          ...(req.images ?? []).map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })),
+          { text: req.prompt },
+        ],
+      },
+    ],
     generationConfig,
   };
   if (req.systemInstruction) {
@@ -176,8 +193,11 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
         'Content-Type': 'application/json',
         // Gemini の APIキーは送らない（AI Gateway に保存されたキーが使われる）
         'cf-aig-authorization': `Bearer ${gateway.token}`,
-        // 本番はプロンプト・応答本文をログに残さない（肌トラブルの相談内容を含むため）
-        'cf-aig-collect-log-payload': process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
+        // 本番はプロンプト・応答本文をログに残さない（肌トラブルの相談内容を含むため）。
+        // 写真は開発用の AI_GATEWAY_LOG_PAYLOAD=true でもログに残さず、ゲートウェイのキャッシュも使わない
+        'cf-aig-collect-log-payload':
+          !req.images?.length && process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
+        ...(req.images?.length ? { 'cf-aig-skip-cache': 'true' } : {}),
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),

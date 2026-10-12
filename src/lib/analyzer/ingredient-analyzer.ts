@@ -261,6 +261,8 @@ export function findSafeAlternatives(
   const safeItems = COSMETICS_DATABASE.filter((product) => {
     if (excludedProductIds.includes(product.id)) return false;
     if (!hasVerifiedIngredients(product)) return false;
+    // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
+    if (product.ingredientSource === 'user_label') return false;
 
     for (const { raw } of labelIngredients(product)) {
       const known = findMatchingKnownIngredient(raw);

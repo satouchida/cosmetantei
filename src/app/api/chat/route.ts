@@ -17,6 +17,15 @@ import { classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
+import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '@/lib/services/label-reader';
+
+/** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
+function isValidLabelInput(label: unknown): boolean {
+  if (!label || typeof label !== 'object') return false;
+  const { text, name, brand } = label as Record<string, unknown>;
+  const optional = (v: unknown) => v === undefined || (typeof v === 'string' && v.length <= MAX_LABEL_NAME_LENGTH);
+  return typeof text === 'string' && text.trim().length > 0 && text.length <= MAX_LABEL_TEXT_LENGTH && optional(name) && optional(brand);
+}
 
 const INVALID_REQUEST_REPLY = 'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。';
 
@@ -34,12 +43,14 @@ export async function POST(request: NextRequest) {
       action,
       selectedProduct,
       barcode,
+      label,
     } = body as {
       message: string;
       routine: UserRoutineState;
-      action?: 'analyze_single' | 'differential' | 'barcode_lookup' | 'search';
+      action?: 'analyze_single' | 'differential' | 'barcode_lookup' | 'search' | 'analyze_label';
       selectedProduct?: Product;
       barcode?: string;
+      label?: { text?: unknown; name?: unknown; brand?: unknown };
     };
 
     // 入力の形式・サイズを検証（分析処理と Gemini プロンプトに渡す前に）
@@ -47,7 +58,8 @@ export async function POST(request: NextRequest) {
       (message !== undefined && (typeof message !== 'string' || message.length > MAX_MESSAGE_LENGTH)) ||
       (routine !== undefined && !isValidRoutine(routine)) ||
       (selectedProduct !== undefined && !isValidProduct(selectedProduct)) ||
-      (barcode !== undefined && typeof barcode !== 'string')
+      (barcode !== undefined && typeof barcode !== 'string') ||
+      (label !== undefined && !isValidLabelInput(label))
     ) {
       return NextResponse.json({ reply: INVALID_REQUEST_REPLY }, { status: 400 });
     }
@@ -71,8 +83,8 @@ export async function POST(request: NextRequest) {
       if (!product) {
         // Open Beauty Facts にも、同じバーコードが書かれた Web ページにも無かった。Gemini に推測させない
         return NextResponse.json({
-          reply: `バーコード（${targetBarcode}）の製品は見つかりませんでした。ブランド名と商品名を入力して検索してください。`,
-          quickReplies: ['🔍 商品名で検索する', '📸 別のバーコードをスキャン'],
+          reply: `バーコード（${targetBarcode}）の製品は見つかりませんでした。ブランド名と商品名で検索するか、パッケージの成分表示を入力してください。`,
+          quickReplies: ['🔍 商品名で検索する', '📝 成分表示を入力する', '📸 別のバーコードをスキャン'],
         });
       }
 
@@ -85,6 +97,34 @@ export async function POST(request: NextRequest) {
           '🚨 このアイテムで肌荒れした（原因を特定）',
           '✅ 普段安全に使えている（安全リストに追加）',
           '🔍 他のコスメも調べる',
+        ],
+      });
+    }
+
+    // 1b. 入力された成分表示の分析。文章は Gemini・Clef・検索に送らず、パーサーと成分DBだけで分析する
+    if (action === 'analyze_label' && label) {
+      const built = await productFromLabel({
+        text: label.text as string,
+        name: label.name as string | undefined,
+        brand: label.brand as string | undefined,
+      });
+      if ('error' in built) {
+        return NextResponse.json({
+          reply:
+            built.error === 'empty'
+              ? '成分を読み取れませんでした。パッケージの「全成分」の部分を入力してください。'
+              : '成分の区切りが見つかりませんでした。成分の間を「、」で区切って入力してください。',
+          quickReplies: ['📝 成分表示を入力する'],
+        });
+      }
+      const analysis = analyzeProduct(built.product);
+      return NextResponse.json({
+        reply: summarizeProductAnalysis(analysis),
+        singleAnalysis: analysis,
+        quickReplies: [
+          '🚨 このアイテムで肌荒れした（原因を特定）',
+          '✅ 普段安全に使えている（安全リストに追加）',
+          '📝 別の成分表示を入力する',
         ],
       });
     }
@@ -176,8 +216,8 @@ export async function POST(request: NextRequest) {
     if (matchedProducts.length === 0) {
       return NextResponse.json({
         reply:
-          '該当する化粧品が見つかりませんでした。ブランド名と商品名を入力するか、パッケージのバーコードを読み取ってください。',
-        quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '🧴 キュレルの泡洗顔を調べる'],
+          '該当する化粧品が見つかりませんでした。ブランド名と商品名を入力するか、パッケージのバーコードを読み取るか、成分表示を入力してください。',
+        quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '📝 成分表示を入力する'],
       });
     }
     const quickReplies = [

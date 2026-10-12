@@ -8,6 +8,8 @@
 export type QuickReplyAction =
   /** バーコードスキャナーを開く */
   | { kind: 'scanner' }
+  /** 成分表示の入力（貼り付け・写真）を開く */
+  | { kind: 'label_input' }
   /** 文言の代わりに、商品名などをメッセージとして送る */
   | { kind: 'send'; text: string }
   /** 直前に分析した商品を、肌荒れ・安全リストに追加する */
@@ -58,6 +60,7 @@ export const CLIENT_HANDLED_LABELS: readonly string[] = Object.keys(ACTIONS);
 
 export function getQuickReplyAction(label: string): QuickReplyAction {
   if (label.includes('バーコード')) return { kind: 'scanner' };
+  if (label.includes('成分表示を入力')) return { kind: 'label_input' };
   return ACTIONS[label] ?? { kind: 'server' };
 }
 

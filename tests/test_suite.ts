@@ -1893,6 +1893,11 @@ test('56. Labels: quasi-drug groups, ※ marks, 「他 n成分」, and names con
   assert.strictEqual(grouped.isQuasiDrug, true);
   assert.strictEqual(grouped.undisclosedCount, 2);
 
+  // 前の成分に続けて書かれた見出し（写真の読み取りで改行が落ちた場合）
+  const runOn = parseIngredientLabel('有効成分:トラネキサム酸、グリチルリチン酸ジカリウムその他の成分:精製水、BG');
+  assert.deepStrictEqual(runOn.activeIngredients, ['トラネキサム酸', 'グリチルリチン酸ジカリウム']);
+  assert.deepStrictEqual(runOn.ingredients, ['精製水', 'BG']);
+
   // ※印と印の説明の書き方（全角は NFKC で半角になる）
   const marked = parseIngredientLabel('全成分：ナイアシンアミド※、水、BG、フェノキシエタノール　※印は有効成分');
   assert.deepStrictEqual(marked.activeIngredients, ['ナイアシンアミド']);
@@ -2099,6 +2104,154 @@ test('59. Web research reads a quasi-drug label: actives, 「他 n成分」 and 
     assert.strictEqual(product.undisclosedIngredientCount, 2);
     const prompt: string = prompts[0].body.contents[0].parts[0].text;
     assert.ok(prompt.includes('activeIngredients') && prompt.includes('医薬部外品'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('61. Label input: analysed by the parser only, never shared, with clear replies for bad input', async () => {
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+  const { productFromLabel } = await import('../src/lib/services/label-reader');
+
+  const built = await productFromLabel({
+    text: '[医薬部外品] 有効成分：グリチルリチン酸ジカリウム　その他の成分：水、BG、エタノール、香料',
+    name: '薬用ローション',
+    brand: 'テスト',
+  });
+  assert.ok('product' in built);
+  const { product } = built;
+  assert.strictEqual(product.ingredientSource, 'user_label');
+  assert.deepStrictEqual(product.activeIngredientsJa, ['グリチルリチン酸ジカリウム']);
+  assert.strictEqual(product.isQuasiDrug, true);
+  assert.strictEqual(product.fragranceFree, false);
+  assert.match(product.id, /^label_[0-9a-f]{16}$/);
+  assert.deepStrictEqual(await productFromLabel({ text: '   ' }), { error: 'empty' });
+  assert.deepStrictEqual(
+    await productFromLabel({ text: '水 BG グリセリン フェノキシエタノール 香料 エタノール ナイアシンアミド' }),
+    { error: 'unsplit' },
+    'A space-separated label is not analysed as one name'
+  );
+  assert.deepStrictEqual(
+    await productFromLabel({ text: '水、グリセリン、BG フェノキシエタノール 香料 メチルパラベン' }),
+    { error: 'unsplit' },
+    'A space-separated run inside a list is caught too'
+  );
+  assert.ok('product' in (await productFromLabel({ text: 'PEG-60 水添ヒマシ油、Butyrospermum Parkii Seed Butter、水' })));
+  const amine = await productFromLabel({ text: '水、トリエタノールアミン、フェノキシエタノール' });
+  assert.ok('product' in amine && amine.product.alcoholFree === true, 'Ethanolamines are not ethanol');
+
+  // 長い空白を含む入力でも、読み取りはすぐ終わる（正規表現の手戻りが起きない）
+  const { parseIngredientLabel } = await import('../src/lib/analyzer/label-parser');
+  const started = Date.now();
+  parseIngredientLabel(`※${' '.repeat(4900)}`);
+  parseIngredientLabel(`※${'\n '.repeat(2400)}有`);
+  assert.ok(Date.now() - started < 500, `Parsing took ${Date.now() - started} ms`);
+
+  // ユーザーの成分表示は、呼び出し方に関係なく共有キャッシュ・KV・おすすめに入らない
+  const { addProductToDynamicCache, isShareable } = await import('../src/lib/data/cosmetics-db');
+  assert.strictEqual(isShareable(product), false);
+  const cached = COSMETICS_DATABASE.length;
+  addProductToDynamicCache(product);
+  assert.strictEqual(COSMETICS_DATABASE.length, cached);
+  // 万一キャッシュに入っても、おすすめには出さない
+  COSMETICS_DATABASE.unshift({ ...product, ingredients: ['水', 'グリセリン'], fragranceFree: true });
+  try {
+    assert.ok(!findSafeAlternatives([{ nameJa: '香料' }], [], 50).some((p) => p.id === product.id));
+  } finally {
+    COSMETICS_DATABASE.splice(COSMETICS_DATABASE.findIndex((p) => p.id === product.id), 1);
+  }
+
+  // 成分表示は Gemini・Clef・検索のどれにも送らない
+  const originalFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    calls.push(String(url));
+    return new Response('{}', { status: 503 });
+  }) as typeof fetch;
+  setGatewayEnv();
+  let ip = 120;
+  const post = (body: unknown) =>
+    POST(
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'cf-connecting-ip': `198.51.100.${ip++}` },
+        body: JSON.stringify(body),
+      })
+    );
+  try {
+    const before = COSMETICS_DATABASE.length;
+    const res = await post({ action: 'analyze_label', label: { text: '水、BG、エタノール、香料', name: 'ヒミツの化粧水' } });
+    const data = await res.json();
+    assert.strictEqual(data.singleAnalysis.product.name, 'ヒミツの化粧水');
+    assert.strictEqual(data.singleAnalysis.overallRiskLevel, 'warning');
+    assert.ok(data.reply.includes('「ヒミツの化粧水」'), 'No placeholder brand before the name');
+    assert.deepStrictEqual(calls, [], 'No external calls');
+    assert.strictEqual(COSMETICS_DATABASE.length, before, 'Not added to the shared product cache');
+    assert.ok(!COSMETICS_DATABASE.some((p) => p.ingredientSource === 'user_label'));
+
+    const unsplit = await (await post({ action: 'analyze_label', label: { text: '水 BG グリセリン フェノキシエタノール 香料 エタノール' } })).json();
+    assert.ok(unsplit.reply.includes('「、」で区切って'));
+    assert.strictEqual(unsplit.singleAnalysis, undefined);
+
+    // 長すぎる入力・不正な形式は 400
+    assert.strictEqual((await post({ action: 'analyze_label', label: { text: 'あ'.repeat(5001) } })).status, 400);
+    assert.strictEqual((await post({ action: 'analyze_label', label: { text: '水', name: 'x'.repeat(101) } })).status, 400);
+    assert.strictEqual((await post({ action: 'analyze_label', label: { text: 42 } })).status, 400);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('62. Label photos: only real JPEG/PNG/WebP within the size limit; Gemini transcribes without tools or payload logs', async () => {
+  const { parseLabelImage, readLabelImage, MAX_LABEL_IMAGE_BYTES } = await import('../src/lib/services/label-reader');
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(60)]).toString('base64');
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(60)]).toString('base64');
+  assert.ok(parseLabelImage({ mimeType: 'image/jpeg', data: jpeg }));
+  assert.ok(parseLabelImage({ mimeType: 'image/png', data: png }));
+  assert.strictEqual(parseLabelImage({ mimeType: 'image/png', data: jpeg }), null, 'Type must match the bytes');
+  assert.strictEqual(parseLabelImage({ mimeType: 'image/gif', data: jpeg }), null);
+  assert.strictEqual(parseLabelImage({ mimeType: 'image/jpeg', data: 'not base64!' }), null);
+  assert.strictEqual(parseLabelImage({ mimeType: 'image/jpeg', data: `${jpeg}A` }), null, 'Non-canonical base64 length');
+  const huge = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(MAX_LABEL_IMAGE_BYTES + 10)]).toString('base64');
+  assert.strictEqual(parseLabelImage({ mimeType: 'image/jpeg', data: huge }), null);
+
+  const originalFetch = globalThis.fetch;
+  setGatewayEnv();
+  try {
+    const gemini = fakeGeminiText(JSON.stringify({ found: true, text: '有効成分：トラネキサム酸 その他の成分：水、BG' }));
+    globalThis.fetch = gemini.fetchFn;
+    const image = parseLabelImage({ mimeType: 'image/jpeg', data: jpeg })!;
+    assert.deepStrictEqual(await readLabelImage(image), { text: '有効成分：トラネキサム酸 その他の成分：水、BG' });
+    const req = gemini.requests[0];
+    assert.deepStrictEqual(req.body.contents[0].parts[0], { inlineData: { mimeType: 'image/jpeg', data: jpeg } });
+    assert.strictEqual(req.body.tools, undefined, 'No tools');
+    assert.strictEqual(req.headers['cf-aig-collect-log-payload'], 'false', 'Photos are not logged by the gateway');
+    assert.strictEqual(req.headers['cf-aig-skip-cache'], 'true', 'Photos skip the gateway cache');
+    // 開発用にログを有効にしていても、写真は残さない
+    process.env.AI_GATEWAY_LOG_PAYLOAD = 'true';
+    await readLabelImage(image);
+    assert.strictEqual(gemini.requests[1].headers['cf-aig-collect-log-payload'], 'false');
+    delete process.env.AI_GATEWAY_LOG_PAYLOAD;
+
+    // 大きすぎる本文は読まずに断る
+    const { POST } = await import('../src/app/api/label/read/route');
+    const { NextRequest } = await import('next/server');
+    const big = await POST(
+      new NextRequest('http://localhost/api/label/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': '5000000', 'cf-connecting-ip': '198.51.100.240' },
+        body: '{}',
+      })
+    );
+    assert.strictEqual(big.status, 413);
+
+    globalThis.fetch = fakeGeminiText(JSON.stringify({ found: false, text: '' })).fetchFn;
+    assert.deepStrictEqual(await readLabelImage(image), { error: 'not_found' });
+    globalThis.fetch = (async () => new Response('{}', { status: 503 })) as typeof fetch;
+    assert.deepStrictEqual(await readLabelImage(image), { error: 'unavailable' });
   } finally {
     globalThis.fetch = originalFetch;
     clearGatewayEnv();

@@ -25,9 +25,18 @@ export function isVerifiedSource(p: Product): boolean {
 }
 
 /**
+ * 共有のキャッシュ・KV に入れてよい製品か。ユーザーが入力した成分表示は、その人だけのもので確認もされていないため入れない
+ * （他の人の検索結果・代替品候補にしない）
+ */
+export function isShareable(p: Product): boolean {
+  return p.ingredientSource !== 'user_label' && !p.id.startsWith('label_');
+}
+
+/**
  * 外部APIやGoogle検索で取得した商品情報を動的キャッシュに追加・更新
  */
 export function addProductToDynamicCache(product: Product): Product {
+  if (!isShareable(product)) return product;
   const existingIdx = RUNTIME_CACHE.findIndex(
     (p) =>
       p.id === product.id ||
@@ -73,7 +82,7 @@ let lastHydratedAt = 0;
  * 成分確認済みの製品を KV のインデックスに追記する（確認済みでない製品は無視）
  */
 export async function rememberVerifiedProducts(products: Product[]): Promise<void> {
-  const verified = products.filter(isVerifiedSource);
+  const verified = products.filter((p) => isVerifiedSource(p) && isShareable(p));
   if (verified.length === 0) return;
 
   // 古い方式で分けた成分表示の製品は捨てる（次に調べたときに新しい方式で保存される）

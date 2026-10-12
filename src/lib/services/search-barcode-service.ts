@@ -4,6 +4,7 @@ import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { researchBarcode } from './web-research';
+import { ETHANOL_IN_LABEL } from './label-reader';
 import {
   searchCosmeticsLive,
   searchOpenBeautyFacts,
@@ -241,7 +242,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
             (i) => /香料|fragrance|parfum/i.test(i)
           ),
           alcoholFree: !labelled.some(
-            (i) => /エタノール|alcohol denat/i.test(i)
+            (i) => ETHANOL_IN_LABEL.test(i)
           ),
           amazonSearchUrl: buildAmazonAffiliateUrl(brand, productName),
           isEstimatedFromMarketplaces: isEstimated,

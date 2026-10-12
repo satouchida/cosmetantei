@@ -10,6 +10,7 @@ import { ProductSuggestionCard } from './ProductSuggestionCard';
 import { IngredientAnalysisCard } from './IngredientAnalysisCard';
 import { DifferentialResultCard } from './DifferentialResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
+import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
 import { RoutineSidebar } from '../routine/RoutineSidebar';
 import {
   Camera,
@@ -19,6 +20,7 @@ import {
   Menu,
   CheckCircle2,
   Search,
+  FileText,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
@@ -46,6 +48,7 @@ export const ChatContainer: React.FC = () => {
       timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
+        '📝 成分表示を入力する',
         '🧴 キュレルの泡洗顔を調べる',
         '💧 トリデンのセラムを調べる',
         '⚡️ メラノCCで赤みが出た',
@@ -56,6 +59,7 @@ export const ChatContainer: React.FC = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isLabelInputOpen, setIsLabelInputOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -215,6 +219,57 @@ export const ChatContainer: React.FC = () => {
     }
   };
 
+  /** 入力された成分表示を分析する（サーバーはパーサーと成分DBだけで分析し、保存しない） */
+  const handleLabelSubmit = async (label: LabelInput): Promise<boolean> => {
+    // 前の応答を待っている間は受け付けない（返信の順序が入れ替わらないように）
+    if (isLoading) return false;
+    setIsLabelInputOpen(false);
+    setIsLoading(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        ...messageMeta('user-label'),
+        role: 'user',
+        content: `📝 成分表示を入力しました${label.name ? `（${label.name}）` : ''}`,
+      },
+    ]);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'analyze_label', label, routine }),
+      });
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...messageMeta('bot-label'),
+          role: 'assistant',
+          content: data.reply,
+          singleAnalysis: data.singleAnalysis,
+          quickReplies: data.quickReplies,
+        },
+      ]);
+      return !!data.singleAnalysis;
+    } catch (err) {
+      console.error(err);
+      // 入力した成分表示は入力欄に残っているので、開き直してやり直せる
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...messageMeta('bot-label-error'),
+          role: 'assistant',
+          content: '通信中にエラーが発生しました。入力した成分表示は残っているので、もう一度お試しください。',
+          quickReplies: ['📝 成分表示を入力する'],
+        },
+      ]);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSelectProductToAnalyze = async (product: Product) => {
     setIsLoading(true);
 
@@ -311,6 +366,10 @@ export const ChatContainer: React.FC = () => {
     const action = getQuickReplyAction(label);
     if (action.kind === 'scanner') {
       setIsScannerOpen(true);
+      return;
+    }
+    if (action.kind === 'label_input') {
+      setIsLabelInputOpen(true);
       return;
     }
     // 応答待ちの間は、メッセージの順序が入れ替わらないよう他のボタンを受け付けない
@@ -494,6 +553,16 @@ export const ChatContainer: React.FC = () => {
           >
             <Camera className="w-3.5 h-3.5 text-sage-700" />
             <span className="hidden sm:inline">バーコード読取</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsLabelInputOpen(true)}
+            title="パッケージの成分表示を入力・撮影"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-sand-50 text-gray-700 border border-sand-300 rounded-xl text-xs font-semibold transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5 text-sage-700" />
+            <span className="hidden sm:inline">成分表示を入力</span>
           </button>
 
           <button
@@ -706,6 +775,12 @@ export const ChatContainer: React.FC = () => {
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         onScanSuccess={handleBarcodeScanned}
+      />
+
+      <LabelInputModal
+        isOpen={isLabelInputOpen}
+        onClose={() => setIsLabelInputOpen(false)}
+        onSubmit={handleLabelSubmit}
       />
     </div>
   );

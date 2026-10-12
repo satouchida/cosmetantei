@@ -42,10 +42,15 @@ export interface ParsedLabel {
  * 有効成分を示す印の説明（「※印は有効成分」「*:有効成分」「※印の成分は有効成分です」「※有効成分」等）。
  * 「※有効成分:トラネキサム酸」のように後ろに「:」が続くものは見出しなので除く
  */
+// 空白は上限つき（\s* を並べると、印の後に長い空白が続く入力で指数的に遅くなる）
 const MARK_LEGEND =
-  /([※*★☆])\s*(?:印|マーク)?\s*(?:の(?:付いた|ついた|ある)?成分)?\s*(?:は|:|=)?\s*[「『]?有効成分[」』]?(?:です|であります|を示す|を示します|を表す)?(?!\s*:)/g;
-/** 「有効成分」「その他の成分」の見出し。文頭・区切りの後・括弧の中だけ（文中の「有効成分」では区切らない） */
-const GROUP_HEADING = /(?:^|(?<=[\s、,;。]))[※*★☆]?[【\[<(]?\s*(有効成分|その他の成分)\s*[】\]>)]?\s*:?/g;
+  /([※*★☆])\s{0,3}(?:印|マーク)?\s{0,3}(?:の(?:付いた|ついた|ある)?成分)?\s{0,3}(?:は|:|=)?\s{0,3}[「『]?有効成分[」』]?(?:です|であります|を示す|を示します|を表す)?(?!\s*:)/g;
+/**
+ * 「有効成分」「その他の成分」の見出し。文頭・区切りの後・括弧の中、または後ろに「:」が続くもの
+ * （「…ジカリウムその他の成分:精製水」のように前の成分に続けて書かれても見出しとわかる）。文中の「有効成分」では区切らない
+ */
+const GROUP_HEADING =
+  /(?:(?:^|(?<=[\s、,;。]))[※*★☆]?[【\[<(]?\s*(有効成分|その他の成分)\s*[】\]>)]?\s*:?|[【\[<(]?(有効成分|その他の成分)[】\]>)]?\s*:)/g;
 /** 「[医薬部外品]」等の区分の記載（「医薬部外品ではありません」は除く） */
 const QUASI_DRUG_LABEL = /[【\[<(]?\s*医薬部外品(?!\s*(?:では|でな))\s*[】\]>)]?/g;
 /** 「他 n成分」「その他 n 成分」 */
@@ -208,7 +213,8 @@ const ITEM_MARK = /^[※*★☆]+|[※*★☆]+$/g;
  * 全成分表示の文字列を読み取る。医薬部外品の2グループ・※印の両方の書き方に対応する
  */
 export function parseIngredientLabel(text: string): ParsedLabel {
-  let s = text.normalize('NFKC');
+  // 空白の連続は1つにまとめる（改行を含む連続は改行1つ）。区切りの判定は変わらず、正規表現の手戻りを抑える
+  let s = text.normalize('NFKC').replace(/\s{2,}/g, (w) => (/[\n\r]/.test(w) ? '\n' : ' '));
 
   const activeMarks = new Set<string>();
   s = s.replace(MARK_LEGEND, (_, mark: string) => {
@@ -236,7 +242,7 @@ export function parseIngredientLabel(text: string): ParsedLabel {
   let last = 0;
   for (const m of s.matchAll(GROUP_HEADING)) {
     (group === 'active' ? activeIngredients : ingredients).push(...splitIngredientList(s.slice(last, m.index)));
-    group = m[1] === '有効成分' ? 'active' : 'other';
+    group = (m[1] ?? m[2]) === '有効成分' ? 'active' : 'other';
     isQuasiDrug = true;
     last = m.index + m[0].length;
   }
