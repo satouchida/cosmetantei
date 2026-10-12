@@ -117,6 +117,14 @@ Each fix has a case in test 56 or 58.
 
 The re-split was confirmed to recurse at most one level.
 
+### Citing JCIA by link
+
+JCIA's site policy allows links in principle, and asks to be told when one is made. Copying its data
+still needs permission. So the list is cited, not copied. When an analysis has quasi-drug notes, the
+card links to JCIA's 「医薬部外品の成分表示名称リスト」 and 「医薬部外品の成分表示に係る基本方針」
+(`QUASI_DRUG_LABEL_REFERENCES` in `ingredients-db.ts`, `labelReferences` on the result). Test 57
+checks that both links go to www.jcia.org and that cosmetics get none.
+
 ### Known limits now
 
 - **Unrecognised parts:** in a label separated only by 「・」, a copolymer whose parts aren't

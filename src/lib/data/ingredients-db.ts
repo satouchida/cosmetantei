@@ -150,6 +150,15 @@ const REF = {
   },
 } satisfies Record<string, ReferenceLink>;
 
+/**
+ * 医薬部外品の成分表示の出典として画面に出すリンク。日本化粧品工業会のサイトポリシーでリンクは原則自由
+ * （リンクしたことは工業会へ知らせる）。名称リストの内容は複製せず、リンクで示す
+ */
+export const QUASI_DRUG_LABEL_REFERENCES: ReferenceLink[] = [
+  { title: '日本化粧品工業会「医薬部外品の成分表示名称リスト」', url: REF.jciaQuasiDrugNames.url },
+  { title: '日本化粧品工業会「医薬部外品の成分表示に係る基本方針」', url: REF.jciaQuasiDrugLabelling.url },
+];
+
 /** 成分DBの項目。出典と照合日を必須にする */
 type AuditedIngredient = KnownIngredient & Required<Pick<KnownIngredient, 'sources' | 'reviewedAt'>>;
 

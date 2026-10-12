@@ -117,6 +117,8 @@ export interface ProductAnalysisResult {
   safeAlternatives?: Product[]; // 刺激成分を含まないおすすめ代替品
   /** 成分表示の読み方の注意（医薬部外品の記載順・非表示の成分） */
   labelNotesJa?: string[];
+  /** 成分表示の読み方の出典（医薬部外品の名称リスト・表示の基本方針） */
+  labelReferences?: ReferenceLink[];
   isEstimatedFromMarketplaces?: boolean;
   dataSourceDisclaimer?: string;
 }

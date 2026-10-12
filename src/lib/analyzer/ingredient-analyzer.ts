@@ -1,4 +1,4 @@
-import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
+import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES } from '../data/ingredients-db';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import {
@@ -414,7 +414,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     warningsJa,
     soothingHighlightsJa,
     safeAlternatives,
-    ...(labelNotesJa.length > 0 && { labelNotesJa }),
+    ...(labelNotesJa.length > 0 && { labelNotesJa, labelReferences: QUASI_DRUG_LABEL_REFERENCES }),
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer: isEstimatedFromMarketplaces ? MARKETPLACE_DISCLAIMER_JA : undefined,
   };

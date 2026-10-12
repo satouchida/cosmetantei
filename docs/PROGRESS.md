@@ -23,7 +23,8 @@ Last updated: 2026-10-12.
 | 2026-10-12 | `2a52e38` | Redesign phases 5 and 6: template chat replies, short tool-free Gemini replies for the cause and ingredient questions, Google grounding removed ([status](plans/gemini-role-redesign.md#phases-5-and-6-status-2026-10-12-done)) |
 | 2026-10-12 | `79e2e06` | Ingredient database audit: all 35 entries checked against regulations and safety assessments, with sources and review dates; CI warns after 12 months ([plan](plans/ingredient-db-audit.md), [walkthrough](walkthroughs/2026-10-12-ingredient-db-audit.md)) |
 | 2026-10-12 | `a9cc10b` | Japanese-market data, step 4: quasi-drug (医薬部外品) labels. Active ingredients are analysed, 「他 n成分」 and the unordered 「その他の成分」 are explained, splitting no longer breaks names like 1,3-ブチレングリコール, and the official quasi-drug names are matched ([plan](plans/japan-ingredient-data.md), [walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md)) |
-| 2026-10-12 | *this commit* | Step 4's known limits: 「・」-only labels rejoin names by JCIA's 簡略名 guideline, old saved Open Beauty Facts products are fetched again, abbreviated and full names match (POE/Na/2K), and the name list edition is confirmed ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#follow-up-the-same-day-the-known-limits)) |
+| 2026-10-12 | `9e50058` | Step 4's known limits: 「・」-only labels rejoin names by JCIA's 簡略名 guideline, old saved Open Beauty Facts products are fetched again, abbreviated and full names match (POE/Na/2K), and the name list edition is confirmed ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#follow-up-the-same-day-the-known-limits)) |
+| 2026-10-12 | *this commit* | Quasi-drug analyses link to JCIA's name list and labelling policy as their source (cited by link, not copied) ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#citing-jcia-by-link)) |
 
 ## In progress
 
@@ -60,7 +61,9 @@ From [03, Product](review/03-other-upgrades.md#product):
 
 - **Ingredient database review:** due 2027-10-12; test 55 warns in CI. At the same review, check
   whether JCIA has published a newer quasi-drug name list (current: 2008-03-25 edition).
-- **JCIA permission:** importing JCIA's name lists needs JCIA's permission (site policy).
+- **JCIA:** the analysis card links to JCIA's quasi-drug name list and labelling policy. JCIA's
+  site policy asks to be told about links, so tell JCIA before release. Importing its name lists
+  needs JCIA's permission.
 
 - **Next 16.4:** pinned to 16.3.8 until
   [opennextjs-cloudflare#1355](https://github.com/opennextjs/opennextjs-cloudflare/issues/1355) is

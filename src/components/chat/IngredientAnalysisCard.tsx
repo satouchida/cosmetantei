@@ -68,6 +68,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer,
     labelNotesJa,
+    labelReferences,
   } = analysis;
 
   const getOverallBadge = () => {
@@ -163,6 +164,24 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             {labelNotesJa.map((note, i) => (
               <p key={i}>{note}</p>
             ))}
+            {labelReferences && labelReferences.length > 0 && (
+              <p className="pt-0.5">
+                成分名と表示のきまり:{' '}
+                {labelReferences.map((ref, i) => (
+                  <span key={ref.url}>
+                    {i > 0 && '、'}
+                    <a
+                      href={ref.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline decoration-gray-300 hover:text-gray-800"
+                    >
+                      {ref.title}
+                    </a>
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
         </div>
       )}

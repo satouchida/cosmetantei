@@ -1990,6 +1990,11 @@ test('57. Quasi-drugs: actives are analysed, listed-twice ingredients count once
   assert.ok(result.soothingHighlightsJa.some((h) => h.includes('グリチルリチン酸')), 'The active is analysed');
   assert.ok(result.labelNotesJa?.some((n) => n.includes('配合量の多い順とは限りません')));
   assert.ok(result.labelNotesJa?.some((n) => n.includes('他3成分')));
+  // 名称リストは複製せず、日本化粧品工業会のページへのリンクで示す
+  assert.deepStrictEqual(
+    result.labelReferences?.map((r) => new URL(r.url).hostname),
+    ['www.jcia.org', 'www.jcia.org']
+  );
   assert.ok(result.summaryJa.includes('3成分は名称が表示されていない'), result.summaryJa);
 
   // 有効成分の刺激成分は差分分析の候補にもなる
@@ -2003,7 +2008,9 @@ test('57. Quasi-drugs: actives are analysed, listed-twice ingredients count once
   );
 
   // 化粧品には注意書きを付けない
-  assert.strictEqual(analyzeProduct(verifiedProduct({ ingredients: ['水', 'グリセリン'] })).labelNotesJa, undefined);
+  const cosmetic = analyzeProduct(verifiedProduct({ ingredients: ['水', 'グリセリン'] }));
+  assert.strictEqual(cosmetic.labelNotesJa, undefined);
+  assert.strictEqual(cosmetic.labelReferences, undefined);
 });
 
 test('58. Quasi-drug label names (JCIA list) match the existing DB entries', () => {
