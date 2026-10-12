@@ -132,6 +132,28 @@ export function isPlaceholderIngredient(raw: string): boolean {
 }
 
 /**
+ * 分析する成分。医薬部外品は有効成分も含める。
+ * 有効成分とその他の成分の両方に書かれた成分（業界の自主基準で両方に書く）や重複は1回だけ数える
+ */
+export function labelIngredients(product: Product): { raw: string; isActive: boolean }[] {
+  const seen = new Set<string>();
+  const list: { raw: string; isActive: boolean }[] = [];
+  const groups: [string[], boolean][] = [
+    [product.activeIngredientsJa ?? [], true],
+    [product.ingredients, false],
+  ];
+  for (const [items, isActive] of groups) {
+    for (const raw of items) {
+      const norm = normalizeIngredientName(raw);
+      if (!norm || seen.has(norm)) continue;
+      seen.add(norm);
+      list.push({ raw, isActive });
+    }
+  }
+  return list;
+}
+
+/**
  * おすすめ代替品として提示してよい製品か
  * - 実在データ源（Open Beauty Facts・ユーザー入力・出典ページ）の全成分がある製品のみ
  * - AI推定の製品や成分不明の製品は、成分を照合できないため推奨しない
@@ -173,7 +195,7 @@ export function findSafeAlternatives(
     if (excludedProductIds.includes(product.id)) return false;
     if (!hasVerifiedIngredients(product)) return false;
 
-    for (const raw of product.ingredients) {
+    for (const { raw } of labelIngredients(product)) {
       const known = findMatchingKnownIngredient(raw);
       if (known) {
         if (avoidIds.has(known.id)) return false;
@@ -191,11 +213,12 @@ export function findSafeAlternatives(
     return true;
   });
 
-  // 敏感肌向け度の高い順（無香料・アルコールフリー・医薬部外品・セラミド等配合）にソート
+  // 無香料・アルコールフリーを優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、
+  // 刺激の少なさとは関係しないため順位に使わない
   return safeItems
     .sort((a, b) => {
-      const scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0) + (a.isQuasiDrug ? 1 : 0);
-      const scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0) + (b.isQuasiDrug ? 1 : 0);
+      const scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0);
+      const scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0);
       return scoreB - scoreA;
     })
     .slice(0, limit);
@@ -224,7 +247,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       (i) => i.includes('取得できませんでした') || i.includes('オンラインマーケットプレイス')
     );
 
-  for (const raw of product.ingredients) {
+  for (const { raw, isActive } of labelIngredients(product)) {
     // 「成分情報は〜より補完」などのプレースホルダーは成分として解析しない
     if (isPlaceholderIngredient(raw)) continue;
 
@@ -246,6 +269,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       isSuspect,
       category: matched.category,
       reasonJa: matched.reasonJa,
+      ...(isActive && { isActive }),
     });
 
     if (matched.riskLevel === 'high_irritant' || matched.riskLevel === 'moderate_irritant') {
@@ -257,14 +281,25 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     }
   }
 
+  // 医薬部外品の「他 n成分」：名称が無く評価できない成分
+  const undisclosedCount = product.undisclosedIngredientCount ?? 0;
+  const labelNotesJa: string[] = [];
+  if (product.isQuasiDrug) {
+    labelNotesJa.push('医薬部外品のため、「その他の成分」の記載順は配合量の多い順とは限りません（記載順は企業が決めます）。');
+  }
+  if (undisclosedCount > 0) {
+    labelNotesJa.push(`企業秘密として名称が表示されていない成分が${undisclosedCount}個あります（「他${undisclosedCount}成分」）。`);
+  }
+
   // 総合リスク判定（刺激成分の検出が優先。検出が無くても、評価できた成分が少なければ「安全」とは判定しない）
   const evaluatedCount = analyzedIngredients.length;
+  const unratedCount = riskCounts.unknown + undisclosedCount;
   let overallRiskLevel: ProductAnalysisResult['overallRiskLevel'] = 'safe';
   if (riskCounts.high_irritant > 0 || riskCounts.moderate_irritant >= 2) {
     overallRiskLevel = 'warning';
   } else if (riskCounts.moderate_irritant > 0 || riskCounts.active_caution > 0 || riskCounts.low_caution >= 3) {
     overallRiskLevel = 'caution';
-  } else if (evaluatedCount === 0 || riskCounts.unknown / evaluatedCount >= 0.5) {
+  } else if (evaluatedCount === 0 || unratedCount / (evaluatedCount + undisclosedCount) >= 0.5) {
     overallRiskLevel = 'insufficient_data';
   }
 
@@ -284,9 +319,12 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     summaryJa = '香料、精油、旧表示指定成分、または高刺激物質が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
   }
 
-  // 未評価成分がある場合は「安全」と言い切らない
-  if (riskCounts.unknown > 0 && overallRiskLevel !== 'insufficient_data') {
-    const unknownNote = `${riskCounts.unknown}成分は評価データがなく「未評価」です。安全と確認されたわけではありません。`;
+  // 未評価・非表示の成分がある場合は「安全」と言い切らない
+  if (unratedCount > 0 && overallRiskLevel !== 'insufficient_data') {
+    const parts: string[] = [];
+    if (riskCounts.unknown > 0) parts.push(`${riskCounts.unknown}成分は評価データがなく「未評価」です`);
+    if (undisclosedCount > 0) parts.push(`${undisclosedCount}成分は名称が表示されていないため評価できません`);
+    const unknownNote = `${parts.join('。また、')}。安全と確認されたわけではありません。`;
     summaryJa =
       overallRiskLevel === 'safe' && !isEstimatedFromMarketplaces
         ? `既知の刺激成分は見当たりませんでした。ただし、${unknownNote}`
@@ -309,6 +347,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     warningsJa,
     soothingHighlightsJa,
     safeAlternatives,
+    ...(labelNotesJa.length > 0 && { labelNotesJa }),
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer: isEstimatedFromMarketplaces ? MARKETPLACE_DISCLAIMER_JA : undefined,
   };
@@ -339,7 +378,7 @@ export function performDifferentialAnalysis(
   const safeNormalizedNames = new Set<string>();
 
   safeProducts.forEach((p) => {
-    p.ingredients.forEach((ing) => {
+    labelIngredients(p).forEach(({ raw: ing }) => {
       const norm = normalizeIngredientName(ing);
       safeNormalizedNames.add(norm);
       const matched = findMatchingKnownIngredient(ing);
@@ -361,7 +400,7 @@ export function performDifferentialAnalysis(
   >();
 
   badProducts.forEach((p) => {
-    p.ingredients.forEach((ing) => {
+    labelIngredients(p).forEach(({ raw: ing }) => {
       const norm = normalizeIngredientName(ing);
       const matched = findMatchingKnownIngredient(ing);
       const key = matched ? matched.id : norm;

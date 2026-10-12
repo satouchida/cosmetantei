@@ -11,6 +11,7 @@ import {
   WebSearchProvider,
 } from '../server/cloudflare';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
+import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 import { isAcceptedBrand, judgeBrands } from './brand-check';
 
@@ -41,6 +42,7 @@ const MAX_NAME_LENGTH = 100;
 const MIN_INGREDIENTS = 3;
 const MAX_INGREDIENTS = 150;
 const MAX_INGREDIENT_LENGTH = 80;
+const MAX_ACTIVE_INGREDIENTS = 10;
 
 const PRODUCT_CATEGORIES: Product['category'][] = [
   'cleanser',
@@ -154,8 +156,14 @@ export interface PageProduct {
   brand: string;
   name: string;
   category: Product['category'];
-  /** ページに全成分表示があった場合のみ。無ければ空 */
+  /** ページに全成分表示があった場合のみ。無ければ空。医薬部外品は「その他の成分」 */
   ingredients: string[];
+  /** 医薬部外品の有効成分（全成分表示があった場合のみ） */
+  activeIngredients: string[];
+  /** ページに医薬部外品と書かれていた、または有効成分が分けて書かれていた */
+  isQuasiDrug: boolean;
+  /** 「他 n成分」の n */
+  undisclosedCount: number;
   /** ページに書かれていた JAN/EAN/UPC（数字のみ）。無ければ undefined */
   barcode?: string;
 }
@@ -166,7 +174,7 @@ function buildReadPrompt(urls: string[], target: string): string {
 ${urls.map((u, i) => `${i + 1}. ${u}`).join('\n')}
 
 JSON配列のみを出力（1ページにつき最大2製品）:
-[{"sourceUrl": "読んだページのURL（上の一覧のいずれか）", "brand": "ブランド名・メーカー名", "name": "製品名", "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other", "ingredients": ["ページの全成分表示の順番どおり。全成分表示が無ければ空配列"], "ingredientsFoundOnPage": true または false, "barcode": "ページに書かれたJAN/EANコード（数字のみ）。無ければ空文字"}]`;
+[{"sourceUrl": "読んだページのURL（上の一覧のいずれか）", "brand": "ブランド名・メーカー名", "name": "製品名", "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other", "ingredients": ["ページの全成分表示の順番どおり。有効成分として分けて書かれた成分は除く。「他3成分」のような記載もそのまま1項目にする。全成分表示が無ければ空配列"], "activeIngredients": ["「有効成分」として分けて書かれた成分、または※印などで有効成分と示された成分。無ければ空配列"], "quasiDrug": ページに「医薬部外品」と書かれていれば true、無ければ false, "ingredientsFoundOnPage": true または false, "barcode": "ページに書かれたJAN/EANコード（数字のみ）。無ければ空文字"}]`;
 }
 
 /**
@@ -211,18 +219,22 @@ export async function readProductPages(urls: string[], target: string): Promise<
     if (!name || !brand || name.length > MAX_NAME_LENGTH || brand.length > MAX_NAME_LENGTH) continue;
 
     // ページの文章は信頼できない入力なので、成分表示として不自然な長さ・件数なら「成分未確認」として扱う
-    const rawIngredients =
-      item.ingredientsFoundOnPage === true && Array.isArray(item.ingredients)
-        ? item.ingredients
-            .filter((i): i is string => typeof i === 'string')
-            .map((i) => i.trim())
-            .filter((i) => i.length > 0)
-        : [];
+    const found = item.ingredientsFoundOnPage === true;
+    const strings = (v: unknown): string[] =>
+      found && Array.isArray(v) ? v.filter((i): i is string => typeof i === 'string') : [];
+    // 1行1成分にして読み直す（項目に残った「有効成分：」「※」「他3成分」を処理する）
+    const label = parseIngredientLabel(strings(item.ingredients).join('\n'));
+    // 有効成分の欄も同じ読み取りを通す（「※」「有効成分：」が名前に残らないように）
+    const activeLabel = parseIngredientLabel(strings(item.activeIngredients).join('\n'));
+    const actives = [
+      ...new Set([...activeLabel.activeIngredients, ...activeLabel.ingredients, ...label.activeIngredients]),
+    ];
     const plausible =
-      rawIngredients.length >= MIN_INGREDIENTS &&
-      rawIngredients.length <= MAX_INGREDIENTS &&
-      rawIngredients.every((i) => i.length <= MAX_INGREDIENT_LENGTH);
-    const ingredients = plausible ? [...new Set(rawIngredients)] : [];
+      label.ingredients.length >= MIN_INGREDIENTS &&
+      label.ingredients.length <= MAX_INGREDIENTS &&
+      actives.length <= MAX_ACTIVE_INGREDIENTS &&
+      [...label.ingredients, ...actives].every((i) => i.length <= MAX_INGREDIENT_LENGTH);
+    const ingredients = plausible ? [...new Set(label.ingredients)] : [];
     const barcode =
       typeof item.barcode === 'string' && /^[0-9]{8,14}$/.test(item.barcode.trim()) ? item.barcode.trim() : undefined;
 
@@ -234,6 +246,9 @@ export async function readProductPages(urls: string[], target: string): Promise<
         ? (item.category as Product['category'])
         : 'other',
       ingredients,
+      activeIngredients: plausible ? actives : [],
+      isQuasiDrug: item.quasiDrug === true || (plausible && (label.isQuasiDrug || actives.length > 0)),
+      undisclosedCount: plausible ? label.undisclosedCount : 0,
       barcode,
     });
   }
@@ -260,7 +275,12 @@ export async function toProduct(p: PageProduct): Promise<Product> {
     country: 'JP',
     category: p.category,
     barcode: p.barcode,
-    ingredients: hasIngredients ? p.ingredients : [UNCONFIRMED_INGREDIENTS],
+    ...labelProductFields({
+      ingredients: hasIngredients ? p.ingredients : [UNCONFIRMED_INGREDIENTS],
+      activeIngredients: p.activeIngredients,
+      isQuasiDrug: p.isQuasiDrug,
+      undisclosedCount: p.undisclosedCount,
+    }),
     descriptionJa: `${p.brand} - ${p.name}`,
     amazonSearchUrl: buildAmazonAffiliateUrl(p.brand, p.name),
     isEstimatedFromMarketplaces: false,
@@ -319,7 +339,8 @@ async function registerProducts(products: Product[], { fresh }: { fresh: boolean
 export async function researchProducts(productQuery: string, limit = 4): Promise<Product[]> {
   if (!isGeminiConfigured()) return [];
 
-  const cacheKey = await hashedCacheKey('webfacts:v1', productQuery.normalize('NFKC').toLowerCase());
+  // v2: 医薬部外品の有効成分・「他 n成分」を読み取るようにした
+  const cacheKey = await hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
   const cached = await cacheGetJSON<Product[]>(cacheKey);
   if (cached) return registerProducts(cached.slice(0, limit), { fresh: false });
 
@@ -400,6 +421,9 @@ export async function researchBarcode(barcode: string): Promise<Product | null |
     const withLabel = await findLabelByName(product);
     if (withLabel) {
       product.ingredients = withLabel.ingredients;
+      product.activeIngredientsJa = withLabel.activeIngredientsJa;
+      product.isQuasiDrug = product.isQuasiDrug || withLabel.isQuasiDrug;
+      product.undisclosedIngredientCount = withLabel.undisclosedIngredientCount;
       product.ingredientSource = 'web_page';
       product.sourceUrl = withLabel.sourceUrl;
     }

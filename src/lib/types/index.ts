@@ -70,7 +70,9 @@ export interface Product {
   imageUrl?: string;
   isQuasiDrug?: boolean; // 医薬部外品
   activeIngredientsJa?: string[]; // 医薬部外品の有効成分
-  ingredients: string[]; // 全成分リスト（日本語正規化）
+  ingredients: string[]; // 全成分リスト（医薬部外品は有効成分以外の「その他の成分」）
+  /** 医薬部外品の「他 n成分」（企業秘密として名称が表示されていない成分の数） */
+  undisclosedIngredientCount?: number;
   ingredientsEn?: string[]; // INCI英語名リスト
   fullIngredientsRaw?: string;
   descriptionJa?: string;
@@ -91,6 +93,8 @@ export interface AnalyzedIngredient {
   isSuspect: boolean;
   category: IngredientCategory;
   reasonJa?: string;
+  /** 医薬部外品の有効成分として表示されている */
+  isActive?: boolean;
 }
 
 export interface ProductAnalysisResult {
@@ -109,6 +113,8 @@ export interface ProductAnalysisResult {
   warningsJa: string[];
   soothingHighlightsJa: string[];
   safeAlternatives?: Product[]; // 刺激成分を含まないおすすめ代替品
+  /** 成分表示の読み方の注意（医薬部外品の記載順・非表示の成分） */
+  labelNotesJa?: string[];
   isEstimatedFromMarketplaces?: boolean;
   dataSourceDisclaimer?: string;
 }

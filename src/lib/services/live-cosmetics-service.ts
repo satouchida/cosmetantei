@@ -6,6 +6,7 @@ import {
   rememberVerifiedProducts,
 } from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
+import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { isKnownGenericTerm } from './brand-check';
 import { researchProducts, toProductSearchQuery } from './web-research';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
@@ -298,18 +299,9 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
 
       const barcode = p.code || undefined;
 
-      let ingredients: string[] = [];
-      if (p.ingredients_text_ja) {
-        ingredients = p.ingredients_text_ja
-          .split(/[,、・\n\r/]/)
-          .map((s: string) => s.trim())
-          .filter(Boolean);
-      } else if (p.ingredients_text) {
-        ingredients = p.ingredients_text
-          .split(/[,、・\n\r/]/)
-          .map((s: string) => s.trim())
-          .filter(Boolean);
-      }
+      const labelText = p.ingredients_text_ja || p.ingredients_text;
+      const label = labelProductFields(parseIngredientLabel(typeof labelText === 'string' ? labelText : ''));
+      const { ingredients } = label;
 
       const hasIngredients = ingredients.length > 0;
       const product: Product = {
@@ -319,6 +311,8 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
         country: 'JP',
         category: 'other',
         barcode,
+        // 有効成分だけでは全成分がわからないため、その他の成分が無ければ医薬部外品の項目も使わない
+        ...(hasIngredients && label),
         ingredients: hasIngredients ? ingredients : ['成分情報はオンラインマーケットプレイスより探索'],
         descriptionJa: p.generic_name_ja || p.generic_name || `${brand}のコスメアイテム`,
         amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),

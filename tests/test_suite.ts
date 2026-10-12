@@ -1872,3 +1872,156 @@ test('55. Every ingredient DB entry cites sources and a review date; old reviews
     console.warn(`::warning::Ingredient DB entries not reviewed for over ${REVIEW_INTERVAL_DAYS} days: ${overdue.join(', ')}`);
   }
 });
+
+test('56. Labels: quasi-drug groups, ※ marks, 「他 n成分」, and names containing 「,」「・」「/」', async () => {
+  const { parseIngredientLabel, splitIngredientList } = await import('../src/lib/analyzer/label-parser');
+
+  // 2グループの書き方（JCIA 基本方針 §7）
+  const grouped = parseIngredientLabel(
+    '[医薬部外品] 有効成分：トラネキサム酸、グリチルリチン酸ジカリウム　その他の成分：精製水、1,3-ブチレングリコール、濃グリセリン、メチルクロロイソチアゾリノン・メチルイソチアゾリノン液、他2成分'
+  );
+  assert.deepStrictEqual(grouped.activeIngredients, ['トラネキサム酸', 'グリチルリチン酸ジカリウム']);
+  assert.deepStrictEqual(grouped.ingredients, [
+    '精製水',
+    '1,3-ブチレングリコール',
+    '濃グリセリン',
+    'メチルクロロイソチアゾリノン・メチルイソチアゾリノン液',
+  ]);
+  assert.strictEqual(grouped.isQuasiDrug, true);
+  assert.strictEqual(grouped.undisclosedCount, 2);
+
+  // ※印と印の説明の書き方（全角は NFKC で半角になる）
+  const marked = parseIngredientLabel('全成分：ナイアシンアミド※、水、BG、フェノキシエタノール　※印は有効成分');
+  assert.deepStrictEqual(marked.activeIngredients, ['ナイアシンアミド']);
+  assert.deepStrictEqual(marked.ingredients, ['水', 'BG', 'フェノキシエタノール']);
+  assert.strictEqual(marked.isQuasiDrug, true);
+
+  // 化粧品：見出しも印も無ければ全成分。括弧の中の「/」「,」では分けない
+  const cosmetic = parseIngredientLabel('水, BG, (アクリレーツ/アクリル酸アルキル(C10-30))クロスポリマー, 香料');
+  assert.deepStrictEqual(cosmetic.ingredients, ['水', 'BG', '(アクリレーツ/アクリル酸アルキル(C10-30))クロスポリマー', '香料']);
+  assert.deepStrictEqual(cosmetic.activeIngredients, []);
+  assert.strictEqual(cosmetic.isQuasiDrug, false);
+  assert.strictEqual(cosmetic.undisclosedCount, 0);
+
+  // 「・」「/」は、ほかの区切りが無いラベルでだけ区切る
+  assert.deepStrictEqual(splitIngredientList('水・BG・グリセリン'), ['水', 'BG', 'グリセリン']);
+  assert.deepStrictEqual(splitIngredientList('水/BG/グリセリン'), ['水', 'BG', 'グリセリン']);
+  assert.deepStrictEqual(splitIngredientList('Aqua, Dimethicone/Vinyl Dimethicone Crosspolymer'), [
+    'Aqua',
+    'Dimethicone/Vinyl Dimethicone Crosspolymer',
+  ]);
+  // 位置番号の「,」だけを名称の一部にする。詰めて書かれたリストは区切る
+  assert.deepStrictEqual(splitIngredientList('ポリソルベート80,1,2-ヘキサンジオール,1,2,6-ヘキサントリオール,CI 77891,77492'), [
+    'ポリソルベート80',
+    '1,2-ヘキサンジオール',
+    '1,2,6-ヘキサントリオール',
+    'CI 77891',
+    '77492',
+  ]);
+  // 閉じていない括弧や「<」で残りのリストが1項目にならない
+  assert.deepStrictEqual(splitIngredientList('水、ミネラルオイル(、BG、香料'), ['水', 'ミネラルオイル(', 'BG', '香料']);
+  assert.deepStrictEqual(splitIngredientList('水、pH<7調整剤、BG'), ['水', 'pH<7調整剤', 'BG']);
+
+  // ほかの書き方の印の説明。「※有効成分：」は見出し
+  const legend = parseIngredientLabel('アラントイン※、水、BG ※印の成分は有効成分です');
+  assert.deepStrictEqual(legend.activeIngredients, ['アラントイン']);
+  assert.deepStrictEqual(legend.ingredients, ['水', 'BG']);
+  const markedHeading = parseIngredientLabel('※有効成分:トラネキサム酸 その他の成分:水、BG');
+  assert.deepStrictEqual(markedHeading.activeIngredients, ['トラネキサム酸']);
+  assert.deepStrictEqual(markedHeading.ingredients, ['水', 'BG']);
+
+  // 「医薬部外品ではありません」は医薬部外品にしない。「他 n成分」は上限で止める
+  assert.strictEqual(parseIngredientLabel('水、BG（医薬部外品ではありません）').isQuasiDrug, false);
+  assert.strictEqual(parseIngredientLabel('水、他999成分、他999成分').undisclosedCount, 999);
+});
+
+test('57. Quasi-drugs: actives are analysed, listed-twice ingredients count once, and the label notes are shown', () => {
+  const quasiDrug = verifiedProduct({
+    name: '薬用ローション',
+    isQuasiDrug: true,
+    activeIngredientsJa: ['グリチルリチン酸ジカリウム', 'エタノール'],
+    // 同じ成分を有効成分とその他の成分の両方に書く（JCIA 基本方針 §9）
+    ingredients: ['水', 'エタノール', 'BG'],
+    undisclosedIngredientCount: 3,
+  });
+  const result = analyzeProduct(quasiDrug);
+  const names = result.ingredients.map((i) => i.rawName);
+  assert.deepStrictEqual(names, ['グリチルリチン酸ジカリウム', 'エタノール', '水', 'BG']);
+  assert.strictEqual(result.ingredients.find((i) => i.rawName === 'エタノール')?.isActive, true);
+  assert.strictEqual(result.ingredients.find((i) => i.rawName === '水')?.isActive, undefined);
+  assert.strictEqual(result.riskCounts.moderate_irritant, 1, 'Ethanol counts once');
+  assert.ok(result.soothingHighlightsJa.some((h) => h.includes('グリチルリチン酸')), 'The active is analysed');
+  assert.ok(result.labelNotesJa?.some((n) => n.includes('配合量の多い順とは限りません')));
+  assert.ok(result.labelNotesJa?.some((n) => n.includes('他3成分')));
+  assert.ok(result.summaryJa.includes('3成分は名称が表示されていない'), result.summaryJa);
+
+  // 有効成分の刺激成分は差分分析の候補にもなる
+  const diff = performDifferentialAnalysis(
+    [verifiedProduct({ name: '薬用美容液', isQuasiDrug: true, activeIngredientsJa: ['サリチル酸'], ingredients: ['水', 'グリセリン'] })],
+    [verifiedProduct({ name: '乳液', ingredients: ['水', 'グリセリン'] })]
+  );
+  assert.deepStrictEqual(
+    diff.culprits.map((c) => findMatchingKnownIngredient(c.nameJa)?.id),
+    ['salicylic_acid']
+  );
+
+  // 化粧品には注意書きを付けない
+  assert.strictEqual(analyzeProduct(verifiedProduct({ ingredients: ['水', 'グリセリン'] })).labelNotesJa, undefined);
+});
+
+test('58. Quasi-drug label names (JCIA list) match the existing DB entries', () => {
+  const cases: [string, string][] = [
+    ['パラオキシ安息香酸メチル', 'parabens'],
+    ['D-パントテニルアルコール', 'panthenol'],
+    ['パラメトキシケイ皮酸2-エチルヘキシル', 'ethylhexyl_methoxycinnamate'],
+    ['ポリオキシエチレンラウリルエーテル硫酸ナトリウム', 'sodium_laureth_sulfate'],
+    ['メチルクロロイソチアゾリノン・メチルイソチアゾリノン液', 'methylchloroisothiazolinone'],
+    ['ヒアルロン酸ナトリウム(2)', 'hyaluronic_acid'],
+    ['酢酸レチノール', 'retinol'],
+    ['センテラエキス', 'centella_asiatica'],
+    ['1,3-ブチレングリコール', 'butylene_glycol'],
+    ['濃グリセリン', 'glycerin'],
+    ['ニコチン酸アミド', 'niacinamide'],
+  ];
+  for (const [name, id] of cases) {
+    assert.strictEqual(findMatchingKnownIngredient(name)?.id, id, name);
+  }
+});
+
+test('59. Web research reads a quasi-drug label: actives, 「他 n成分」 and leftover marks', async () => {
+  const { readProductPages, toProduct } = await import('../src/lib/services/web-research');
+  const page = 'https://brand.example.jp/products/medicated-lotion/';
+  const { fetchFn, prompts } = fakeGeminiPageReader(
+    [
+      {
+        sourceUrl: page,
+        brand: '薬用ブランド',
+        name: '薬用ローション',
+        category: 'toner',
+        // Gemini が有効成分の一部を全成分側に残した場合も、※印の説明で有効成分に移す
+        ingredients: ['ナイアシンアミド※', '精製水', '1,3-ブチレングリコール', 'フェノキシエタノール', '他2成分', '※印は有効成分'],
+        activeIngredients: ['グリチルリチン酸ジカリウム'],
+        quasiDrug: true,
+        ingredientsFoundOnPage: true,
+      },
+    ],
+    [page]
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetchFn;
+  setGatewayEnv();
+  try {
+    const pages = await readProductPages([page], '薬用ローション');
+    assert.ok(pages && pages.length === 1);
+    const product = await toProduct(pages[0]);
+    assert.deepStrictEqual(product.activeIngredientsJa, ['グリチルリチン酸ジカリウム', 'ナイアシンアミド']);
+    assert.deepStrictEqual(product.ingredients, ['精製水', '1,3-ブチレングリコール', 'フェノキシエタノール']);
+    assert.strictEqual(product.isQuasiDrug, true);
+    assert.strictEqual(product.undisclosedIngredientCount, 2);
+    const prompt: string = prompts[0].body.contents[0].parts[0].text;
+    assert.ok(prompt.includes('activeIngredients') && prompt.includes('医薬部外品'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});

@@ -1,6 +1,7 @@
 import { COSMETICS_DATABASE, addProductToDynamicCache, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
+import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { researchBarcode } from './web-research';
 import {
@@ -199,18 +200,10 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
           `製品 (JAN: ${cleanCode})`;
         const brand = p.brands || p.brand || 'ブランド未登録';
 
-        let ingredients: string[] = [];
-        if (p.ingredients_text_ja) {
-          ingredients = p.ingredients_text_ja
-            .split(/[,、・\n\r/]/)
-            .map((s: string) => s.trim())
-            .filter(Boolean);
-        } else if (p.ingredients_text) {
-          ingredients = p.ingredients_text
-            .split(/[,、・\n\r/]/)
-            .map((s: string) => s.trim())
-            .filter(Boolean);
-        } else if (Array.isArray(p.ingredients)) {
+        const labelText = p.ingredients_text_ja || p.ingredients_text;
+        const label = labelProductFields(parseIngredientLabel(typeof labelText === 'string' ? labelText : ''));
+        let ingredients = label.ingredients;
+        if (ingredients.length === 0 && Array.isArray(p.ingredients)) {
           ingredients = p.ingredients
             .map((ing: { text?: string; id?: string }) => ing.text || ing.id?.replace('en:', '') || '')
             .filter(Boolean);
@@ -220,6 +213,9 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
         if (isEstimated) {
           ingredients = ['成分情報はGoogle検索およびオンラインマーケットプレイスより補完'];
         }
+
+        // 医薬部外品の有効成分も含めて香料・エタノールの有無を見る
+        const labelled = [...(label.activeIngredientsJa ?? []), ...ingredients];
 
         const country: 'JP' | 'KR' | 'US' | 'EU' =
           cleanCode.startsWith('45') || cleanCode.startsWith('49')
@@ -236,12 +232,14 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
           category: 'other',
           barcode: cleanCode,
           imageUrl: p.image_front_url || p.image_url,
+          // 有効成分だけでは全成分がわからないため、その他の成分が無ければ医薬部外品の項目も使わない
+          ...(label.ingredients.length > 0 && label),
           ingredients: ingredients,
           descriptionJa: `バーコード（JAN: ${cleanCode}）から取得した最新商品データです`,
-          fragranceFree: !ingredients.some(
+          fragranceFree: !labelled.some(
             (i) => /香料|fragrance|parfum/i.test(i)
           ),
-          alcoholFree: !ingredients.some(
+          alcoholFree: !labelled.some(
             (i) => /エタノール|alcohol denat/i.test(i)
           ),
           amazonSearchUrl: buildAmazonAffiliateUrl(brand, productName),

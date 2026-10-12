@@ -67,6 +67,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     safeAlternatives,
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer,
+    labelNotesJa,
   } = analysis;
 
   const getOverallBadge = () => {
@@ -154,6 +155,18 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         {summaryJa}
       </div>
 
+      {/* 医薬部外品の成分表示の読み方（記載順・名称が表示されていない成分） */}
+      {labelNotesJa && labelNotesJa.length > 0 && (
+        <div className="p-3 bg-white rounded-xl border border-sand-200 text-[11px] text-gray-600 leading-relaxed flex items-start gap-2">
+          <Info className="w-4 h-4 shrink-0 mt-0.5 text-gray-500" />
+          <div className="space-y-0.5">
+            {labelNotesJa.map((note, i) => (
+              <p key={i}>{note}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Online Marketplace Disclaimer Banner (if ingredients were retrieved from web/marketplace) */}
       {dataSourceDisclaimer && (
         <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 leading-relaxed flex items-start gap-2 animate-fade-in">
@@ -224,6 +237,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
                 ing
               )}`}
             >
+              {ing.isActive && <span className="mr-1 text-[10px] font-bold text-sage-700">有効成分</span>}
               {ing.rawName}
             </button>
           ))}
@@ -246,6 +260,11 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             <span className="text-[11px] text-gray-500 font-normal">
               ({selectedIngredient.matchedKnown?.nameEn || selectedIngredient.rawName})
             </span>
+            {selectedIngredient.isActive && (
+              <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-white text-sage-800 border border-sage-200">
+                医薬部外品の有効成分
+              </span>
+            )}
             {selectedIngredient.riskLevel === 'safe' && (
               <span className="px-2 py-0.5 rounded-sm text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                 🟢 低刺激・安心

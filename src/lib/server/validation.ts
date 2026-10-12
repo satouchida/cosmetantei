@@ -1,14 +1,17 @@
 import 'server-only';
 import { Product, UserRoutineState } from '../types';
+import { LABEL_LIMITS } from '../analyzer/label-parser';
 
 /**
  * APIリクエストで受け取る製品データの検証
  * 分析処理は成分数×既知DBの計算量になるため、件数と文字数に上限を設ける
  */
-const MAX_INGREDIENTS = 300;
+const MAX_INGREDIENTS = LABEL_LIMITS.ingredients;
 const MAX_INGREDIENT_LENGTH = 200;
 const MAX_TEXT_LENGTH = 200;
 const MAX_ROUTINE_PRODUCTS = 20;
+const MAX_ACTIVE_INGREDIENTS = LABEL_LIMITS.activeIngredients;
+const MAX_UNDISCLOSED_INGREDIENTS = LABEL_LIMITS.undisclosed;
 export const MAX_MESSAGE_LENGTH = 1000;
 
 const isShortString = (v: unknown, max = MAX_TEXT_LENGTH): v is string =>
@@ -23,7 +26,17 @@ export function isValidProduct(p: unknown): p is Product {
     isShortString(product.brand) &&
     Array.isArray(product.ingredients) &&
     product.ingredients.length <= MAX_INGREDIENTS &&
-    product.ingredients.every((i) => isShortString(i, MAX_INGREDIENT_LENGTH))
+    product.ingredients.every((i) => isShortString(i, MAX_INGREDIENT_LENGTH)) &&
+    // 医薬部外品の項目（有効成分も分析するため、成分と同じく上限を設ける）
+    (product.activeIngredientsJa === undefined ||
+      (Array.isArray(product.activeIngredientsJa) &&
+        product.activeIngredientsJa.length <= MAX_ACTIVE_INGREDIENTS &&
+        product.activeIngredientsJa.every((i) => isShortString(i, MAX_INGREDIENT_LENGTH)))) &&
+    (product.isQuasiDrug === undefined || typeof product.isQuasiDrug === 'boolean') &&
+    (product.undisclosedIngredientCount === undefined ||
+      (Number.isInteger(product.undisclosedIngredientCount) &&
+        (product.undisclosedIngredientCount as number) >= 0 &&
+        (product.undisclosedIngredientCount as number) <= MAX_UNDISCLOSED_INGREDIENTS))
   );
 }
 
