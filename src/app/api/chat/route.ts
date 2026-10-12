@@ -7,7 +7,12 @@ import {
 } from '@/lib/services/search-barcode-service';
 import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
 import { Product, UserRoutineState } from '@/lib/types';
-import { generateGeminiChatResponse } from '@/lib/services/gemini';
+import {
+  answerIngredientQuestion,
+  explainCulprits,
+  summarizeProductAnalysis,
+  summarizeProductResults,
+} from '@/lib/services/chat-replies';
 import { classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
@@ -71,19 +76,10 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      // 結果はカードに出るので、返答は定型のまとめ（Gemini は使わない）
       const analysis = analyzeProduct(product);
-      const isMissing = analysis.isEstimatedFromMarketplaces || product.ingredients.some(i => i.includes('取得できませんでした'));
-
-      const geminiReply = await generateGeminiChatResponse({
-        userMessage: `バーコード（${targetBarcode}）から「${product.brand} - ${product.name}」を読み取りました。全成分解析を踏まえた敏感肌向けアドバイスをお願いします。`,
-        contextData: {
-          singleAnalysis: analysis,
-          missingIngredientsProduct: isMissing ? product : undefined,
-        },
-      });
-
       return NextResponse.json({
-        reply: geminiReply,
+        reply: summarizeProductAnalysis(analysis, targetBarcode),
         singleAnalysis: analysis,
         quickReplies: [
           '🚨 このアイテムで肌荒れした（原因を特定）',
@@ -96,18 +92,8 @@ export async function POST(request: NextRequest) {
     // 2. 単一製品解析指定の場合
     if (action === 'analyze_single' && selectedProduct) {
       const analysis = analyzeProduct(selectedProduct);
-      const isMissing = analysis.isEstimatedFromMarketplaces || selectedProduct.ingredients.some(i => i.includes('取得できませんでした'));
-
-      const geminiReply = await generateGeminiChatResponse({
-        userMessage: `「${selectedProduct.brand} - ${selectedProduct.name}」の成分を詳しく解説し、敏感肌が注意すべき点を教えてください。`,
-        contextData: {
-          singleAnalysis: analysis,
-          missingIngredientsProduct: isMissing ? selectedProduct : undefined,
-        },
-      });
-
       return NextResponse.json({
-        reply: geminiReply,
+        reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
         quickReplies: [
           '🚨 このアイテムで肌荒れした（原因を特定）',
@@ -145,13 +131,9 @@ export async function POST(request: NextRequest) {
       }
 
       const diffResult = performDifferentialAnalysis(routine.badProducts, routine.safeProducts || []);
-      const geminiReply = await generateGeminiChatResponse({
-        userMessage: `肌荒れしたコスメ（${routine.badProducts.map(p => p.name).join(', ')}）と安全なコスメ（${(routine.safeProducts || []).map(p => p.name).join(', ') || 'なし'}）を比較し、あぶり出された疑わしい成分（${diffResult.culprits.map(c => c.nameJa).join(', ')}）について、今後のコスメ選びのアドバイスをしてください。`,
-        contextData: { differentialAnalysis: diffResult },
-      });
-
+      // 候補成分が刺激になりやすい理由だけを Gemini に説明させる（商品名・ユーザーの文章は渡さない）
       return NextResponse.json({
-        reply: geminiReply,
+        reply: await explainCulprits(diffResult),
         differentialAnalysis: diffResult,
         quickReplies: ['💡 おすすめの低刺激アイテムは？', '🔍 別のコスメを追加する', '🔄 リセットする'],
       });
@@ -171,28 +153,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // find_alternative・price_inquiry は、Web検索ベースの処理（計画の Phase 3・4）ができるまで
-    // 以下の一般の分岐で扱う
-    // B. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
-    // Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
-    const webResearch = gate?.intent === 'product_lookup';
-    const matchedProducts = await searchCosmeticsLive(userText, 6, { webResearch });
-
-    // C. 成分に関する質問
+    // B. 成分に関する質問：一般的な成分知識の短い解説（関連商品の検索と並行して作る）
     if (gate?.intent === 'ingredient_question') {
-      const geminiReply = await generateGeminiChatResponse({
-        userMessage: userText,
-        contextData: {
-          matchedProducts: matchedProducts.length > 0 ? matchedProducts : undefined,
-        },
-      });
-
+      const [matchedProducts, reply] = await Promise.all([
+        searchCosmeticsLive(userText, 6),
+        answerIngredientQuestion(userText),
+      ]);
       return NextResponse.json({
-        reply: geminiReply,
+        reply,
         productSuggestions: matchedProducts,
         quickReplies: ['🔍 この成分が入っていないコスメを探す', '📸 バーコードをスキャンする'],
       });
     }
+
+    // C. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
+    // find_alternative・price_inquiry は、Web検索ベースの処理（計画の Phase 3・4）ができるまでここで扱う
+    // Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
+    const webResearch = gate?.intent === 'product_lookup';
+    const matchedProducts = await searchCosmeticsLive(userText, 6, { webResearch });
 
     // D. 商品名の入力など。該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
     if (matchedProducts.length === 0) {
@@ -202,11 +180,6 @@ export async function POST(request: NextRequest) {
         quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '🧴 キュレルの泡洗顔を調べる'],
       });
     }
-    const geminiReply = await generateGeminiChatResponse({
-      userMessage: userText,
-      contextData: { matchedProducts },
-    });
-
     const quickReplies = [
       '🚨 この中のアイテムで肌荒れした',
       '✅ この中のアイテムは安全に使えた',
@@ -215,7 +188,7 @@ export async function POST(request: NextRequest) {
     ];
 
     return NextResponse.json({
-      reply: geminiReply,
+      reply: summarizeProductResults(matchedProducts),
       productSuggestions: matchedProducts,
       quickReplies,
     });

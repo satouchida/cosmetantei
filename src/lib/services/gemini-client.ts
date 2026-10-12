@@ -80,11 +80,9 @@ export interface GeminiRequest {
   prompt: string;
   systemInstruction?: string;
   history?: GeminiContent[];
-  /** Google検索グラウンディングを有効にする */
-  grounding?: boolean;
   /**
    * URL context ツールを有効にし、プロンプト内の URL のページを読ませる。
-   * Google 検索グラウンディングとは併用しない（グラウンディングの利用規約を適用させないため）
+   * Google 検索グラウンディングは使わない（Web 検索は Cloudflare Web Search で行う）
    */
   urlContext?: boolean;
   /** 指定すると JSON モード（responseMimeType: application/json）で responseSchema を適用 */
@@ -167,12 +165,6 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   if (req.systemInstruction) {
     body.systemInstruction = { parts: [{ text: req.systemInstruction }] };
   }
-  if (req.grounding && req.urlContext) {
-    throw new Error('grounding and urlContext must not be combined');
-  }
-  if (req.grounding) {
-    body.tools = [{ googleSearch: {} }];
-  }
   if (req.urlContext) {
     body.tools = [{ urlContext: {} }];
   }
@@ -247,7 +239,7 @@ export async function callGeminiJSON<T>(req: GeminiRequest & { responseSchema: R
 
 /**
  * モデル出力からJSONを取り出す（そのまま → コードブロック内 → 最初と最後の括弧の範囲 の順に試す）
- * 構造化出力を使えないグラウンディング呼び出し向け
+ * 構造化出力を使えない URL context 呼び出し向け
  */
 export function parseJsonLoose<T>(text: string): T | null {
   const candidates: string[] = [text.trim()];

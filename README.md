@@ -11,8 +11,13 @@ get a fixed reply that suggests seeing a dermatologist.
 
 - **Next.js 16** (App Router), deployed to **Cloudflare Workers** with
   [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare).
-- **Ingredient data:** [Open Beauty Facts](https://world.openbeautyfacts.org/) first. Gemini is
-  used for product research, and its estimates are labelled.
+- **Ingredient data:** [Open Beauty Facts](https://world.openbeautyfacts.org/) first, then web
+  research: Cloudflare Web Search finds brand or shop pages and Gemini reads them (URL context).
+  A product keeps its ingredients only if they come from a page that loaded, and the page is kept
+  as its source.
+- **Chat replies** (`src/lib/services/chat-replies.ts`): templates for search and analysis
+  results. Short Gemini replies, with no tools, only explain the likely cause and answer
+  ingredient questions with general facts.
 - **Ingredient analysis** (`src/lib/analyzer/`): rule-based and runs without a model. It
   classifies ingredients against `src/lib/data/ingredients-db.ts` and compares the irritating and
   safe products.
@@ -23,7 +28,7 @@ get a fixed reply that suggests seeing a dermatologist.
 - **Cloudflare bindings** (`wrangler.toml`):
   - KV `APP_CACHE` for caching;
   - two rate limiters;
-  - Workers AI (`AI`) for Clef.
+  - Workers AI (`AI`) for Clef and Web Search.
 
 ## Setup
 

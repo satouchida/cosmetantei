@@ -1,6 +1,5 @@
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
-import { MARKETPLACE_DISCLAIMER_JA } from '../services/gemini';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import {
   AnalyzedIngredient,
@@ -10,6 +9,10 @@ import {
   Product,
   ProductAnalysisResult,
 } from '../types';
+
+/** 旧来の AI 推定（マーケットプレイス情報からの補完）で成分を得た製品の注意書き */
+export const MARKETPLACE_DISCLAIMER_JA =
+  '※本製品の全成分情報は、Amazon / 楽天市場 / Olive Young / Sephora などのオンラインマーケットプレイスおよび公開情報をもとに探索・収集したものです。商品のリニューアルや販売地域（国内処方・並行輸入・海外処方）により実際のパッケージ表記と一部異なる（誤差を含む）場合がありますので、ご使用前にお手元の製品パッケージ表記もご確認ください。';
 
 /**
  * 原材料テキストの正規化

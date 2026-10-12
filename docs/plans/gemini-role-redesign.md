@@ -206,6 +206,50 @@ avoids repeat searches.
 `env.AI.websearch` requires wrangler ≥ 4.149. The project now has wrangler 4.149.0, from the
 dependency upgrade made on 2026-10-10.
 
+## Phases 5 and 6 status (2026-10-12): done
+
+`src/lib/services/chat-replies.ts` replaces `generateGeminiChatResponse`, its system prompt and the
+`chat:v1` cache. No code calls Google Search grounding any more, and the `grounding` option is
+gone from `gemini-client.ts`. Old `chat:v1` KV entries expire on their own within 30 minutes.
+
+**Deviation from the plan:** there is no single `summarizeResults()`. Replies where Gemini would
+only repeat the cards are code-built text; Gemini writes only the parts the cards can't show.
+
+| Reply | How | Cache |
+|---|---|---|
+| Product lookup results (T6) | Template: count, how many have confirmed ingredients, source sites | none needed |
+| Barcode result, single product (T6) | Template from the analyzer: summary, caution and soothing ingredients, source site | none needed |
+| Cause after the comparison (T2) | Gemini, no tools, thinking `low`, 150–250 characters | `cause-reply:v1`, 7 days |
+| Ingredient question naming a known ingredient (T5) | Gemini with the DB facts; the question text is not sent | `ingredient-reply:v1`, 7 days |
+| Other ingredient question (T5) | Gemini with the question, general facts only | `question-reply:v1`, 30 minutes |
+
+Each cache key is a hash of the model, the system prompt and the prompt. A prompt holds only
+DB data, so users with the same culprits share one entry, and a prompt or DB change starts new
+entries.
+
+**Safeguards:**
+- The T2 prompt holds only data from `ingredients-db` for culprits that match it. Product names
+  and unknown ingredient strings come from the browser and are never sent.
+- If Gemini fails, or a reply is truncated or longer than 600 characters, a template is used: the
+  analyzer's summary for T2, the DB's reason text for T5. Templates are never cached. Replies
+  with a URL are also rejected.
+- Whether to suggest adding safe products is decided in code, not by Gemini. In a live test it
+  suggested this when safe products had been compared.
+- `findIngredientsInText()` takes the longest match and doesn't match inside a longer katakana
+  word, so 「ジプロピレングリコール」 is not PG and 「フェノキシエタノール」 is not ethanol. A
+  vitamin C derivative is not ascorbic acid, 「無香料」 is not fragrance, and "cetyl alcohol" is
+  not ethanol.
+
+**Live results (`wrangler dev`, dev gateway):**
+
+| Request | Before | After |
+|---|---|---|
+| 「無印良品 敏感肌用化粧水 高保湿タイプ」 (new lookup) | 25–38 s for comparable lookups | 19.7 s, all of it web research |
+| Barcode `4974972258010` (product cached) | 14 s | 0.1 s |
+| Cause comparison, 4 culprits | grounded call, up to 20 s | 4.0 s; 0.0 s from cache |
+| 「フェノキシエタノールってどんな成分？」 | grounded call | 5.4 s |
+| 「ビタミンC誘導体はどんな成分？」 (not in the DB) | grounded call | 11.1 s |
+
 ## Phase 2 status (2026-10-12): done
 
 `src/lib/services/web-research.ts` replaces Google-grounded product discovery and the barcode AI
@@ -270,8 +314,7 @@ guess.
 ceiling; see cost tracking in `docs/PROGRESS.md`.
 
 **Left for later phases:**
-- Chat replies still use the grounded `generateGeminiChatResponse` (phase 5 replaces it; phase 6
-  removes grounding).
+- Chat replies used the grounded `generateGeminiChatResponse` until phases 5 and 6 replaced it.
 - 「出典」 links are not shown in the UI yet (phase 7).
 
 ## Phase 1 status (2026-10-11): done (`430fe1a`, quick replies in `9fb3b1e`)

@@ -295,7 +295,7 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     id: 'ceramides',
     nameJa: 'ヒト型セラミド（NP, AP, EOP, EOS, NS）',
     nameEn: 'Human-Type Ceramides (NP, AP, EOP, NS, AS)',
-    aliases: ['セラミドnp', 'セラミドap', 'セラミドeop', 'セラミドns', 'セラミド2', 'セラミド3', 'セラミド6ii', 'セラミド1', 'ceramide np', 'ceramide ap', 'ceramide eop'],
+    aliases: ['セラミド', 'セラミドnp', 'セラミドap', 'セラミドeop', 'セラミドns', 'セラミド2', 'セラミド3', 'セラミド6ii', 'セラミド1', 'ceramide np', 'ceramide ap', 'ceramide eop'],
     category: 'barrier_support',
     riskLevel: 'safe',
     reasonJa: '人の肌に存在するセラミドと同一の立体構造を持ち、乱れた角層ラメラ構造を整えてバリア機能を劇的に強化します。',
