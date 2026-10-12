@@ -6,7 +6,7 @@ import {
   rememberVerifiedProducts,
 } from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
-import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { isKnownGenericTerm } from './brand-check';
 import { researchProducts, toProductSearchQuery } from './web-research';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
@@ -313,6 +313,7 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
         barcode,
         // 有効成分だけでは全成分がわからないため、その他の成分が無ければ医薬部外品の項目も使わない
         ...(hasIngredients && label),
+        labelFormat: LABEL_FORMAT,
         ingredients: hasIngredients ? ingredients : ['成分情報はオンラインマーケットプレイスより探索'],
         descriptionJa: p.generic_name_ja || p.generic_name || `${brand}のコスメアイテム`,
         amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),

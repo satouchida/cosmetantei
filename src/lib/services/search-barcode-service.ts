@@ -1,7 +1,7 @@
 import { COSMETICS_DATABASE, addProductToDynamicCache, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
-import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { researchBarcode } from './web-research';
 import {
@@ -165,7 +165,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   // v2: Google 検索グラウンディングで推定した v1 の結果は使わない
   const kvKey = `barcode:v2:${cleanCode}`;
   const stored = await cacheGetJSON<Product>(kvKey);
-  if (stored) {
+  if (stored && !hasStaleLabel(stored)) {
     addProductToDynamicCache(stored);
     return stored;
   }
@@ -234,6 +234,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
           imageUrl: p.image_front_url || p.image_url,
           // 有効成分だけでは全成分がわからないため、その他の成分が無ければ医薬部外品の項目も使わない
           ...(label.ingredients.length > 0 && label),
+          labelFormat: LABEL_FORMAT,
           ingredients: ingredients,
           descriptionJa: `バーコード（JAN: ${cleanCode}）から取得した最新商品データです`,
           fragranceFree: !labelled.some(
@@ -256,6 +257,9 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   } catch {
     // ignore
   }
+
+  // Open Beauty Facts で取り直せなかったときは、古い分け方でも保存済みの製品を返す（失うよりよい。次回また取り直す）
+  if (stored) return stored;
 
   // 4. Web リサーチ：バーコードで検索し、同じバーコードが書かれたページの製品だけを採用する
   const webProduct = await researchBarcode(cleanCode);

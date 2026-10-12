@@ -73,6 +73,8 @@ export interface Product {
   ingredients: string[]; // 全成分リスト（医薬部外品は有効成分以外の「その他の成分」）
   /** 医薬部外品の「他 n成分」（企業秘密として名称が表示されていない成分の数） */
   undisclosedIngredientCount?: number;
+  /** 成分表示を読み取った方式の版（label-parser の LABEL_FORMAT）。古い分け方で保存された製品を見分ける */
+  labelFormat?: number;
   ingredientsEn?: string[]; // INCI英語名リスト
   fullIngredientsRaw?: string;
   descriptionJa?: string;

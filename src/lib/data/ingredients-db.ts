@@ -398,7 +398,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     id: 'salicylic_acid',
     nameJa: 'サリチル酸（BHA）',
     nameEn: 'Salicylic Acid (BHA)',
-    aliases: ['サリチル酸', 'salicylic acid', 'bha'],
+    aliases: ['サリチル酸', 'salicylic acid'],
     category: 'potent_active',
     riskLevel: 'active_caution',
     reasonJa: '油になじみやすい角質をやわらげる成分。濃度や使用頻度が高いと、乾燥や刺激の原因になります。',

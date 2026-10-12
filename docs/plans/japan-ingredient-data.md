@@ -1,7 +1,9 @@
 # Plan: ingredient data for the Japanese market
 
 Written 2026-10-12. Status: step 4 done on 2026-10-12
-([walkthrough](../walkthroughs/2026-10-12-quasi-drug-labels.md)); steps 1–3, 5 and 6 not started.
+([walkthrough](../walkthroughs/2026-10-12-quasi-drug-labels.md)), and its known limits fixed the same
+day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Steps 2,
+3, 5 and 6 not started.
 
 ## Why
 
@@ -46,7 +48,7 @@ Not used: brand sites, blogs, and Gemini.
 
 | # | Step | What | Status |
 |---|---|---|---|
-| 1 | Name bridge | Japanese label names ⇄ INCI, from the JCIA lists, including quasi-drug names. Check JCIA's terms before importing the lists in bulk; otherwise hand-curate the most common names | not started |
+| 1 | Name bridge | Japanese label names ⇄ INCI, from the JCIA lists, including quasi-drug names | **partly done; the rest is blocked.** Done: matching abbreviated and full names (POE/ポリオキシエチレン, Na/ナトリウム, 2K/ジカリウム) by the rules of JCIA's 簡略名作成ガイドライン, without the list. Blocked: JCIA's [site policy](https://www.jcia.org/user/jcia/sitepolicy) says its data and PDFs may not be quoted, copied, reproduced or processed without permission, and asks users to contact JCIA first. Importing the lists needs that permission. Until then, names are added one by one as aliases with a source, as in step 4 |
 | 2 | 化粧品基準 rules | Banned (別表第1), restricted (第2) and approved-list (第3, 第4) facts as data, so a card can say "limited to X%" or "rinse-off only" | not started |
 | 3 | Japan-specific incidents | Sourced entries for 加水分解コムギ and ロドデノール | not started |
 | 4 | Quasi-drug labels | See below | **done 2026-10-12** |
@@ -92,5 +94,9 @@ Work:
    ingredient is approved for an effect; it says nothing about being gentle.
 8. **Tests** for the parser, the analysis and the new names.
 
-Out of scope for step 4: the full JCIA name lists (step 1), and checking whether the 2008 name
-list has a newer edition.
+Out of scope for step 4: the full JCIA name lists (step 1).
+
+Edition check (2026-10-12): the name list JCIA links today
+(`…/ingredients/drugexplain/qdlnl.pdf`) is byte-identical to the copy used above. It is the
+2008-03-25 edition, last modified on the server on 2018-06-29. JCIA says it will update the list on
+its site but gives no date, so recheck at each review.

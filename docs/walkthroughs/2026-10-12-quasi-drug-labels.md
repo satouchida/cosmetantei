@@ -81,13 +81,55 @@ and applied, each with a test in 56:
 
 No second review pass: the fixes are local to the parser and covered by the new test cases.
 
-## Known limits
+## Follow-up the same day: the known limits
 
-- **One-name labels:** a label whose only separator is 「・」 is split there, even inside a single
-  name. No separator rule can tell those apart.
-- **Old saved products:** products already saved in KV (the verified-product list) keep their old
-  splitting until they are looked up again.
-- **Name list edition:** the JCIA quasi-drug name list used is the 2008 edition linked from JCIA's
-  site. Whether a newer edition exists wasn't checked (plan, out of scope).
-- **Only existing entries:** only our 35 entries got quasi-drug names. Other quasi-drug names still
-  fall to the rule-based fallback; that is step 1.
+The first version listed four limits. What changed for each:
+
+| Limit | Now |
+|---|---|
+| A label whose only separator is 「・」 was split inside names | After splitting at 「・」 or 「/」, pieces are rejoined by the rules in JCIA's 医薬部外品簡略名作成ガイドライン (2006) §8-2, which says where 「・」 goes inside a name: between element symbols (「硫酸Al・K」), between copolymer parts (「アクリル酸アルキル・VA共重合体液」), and after POE/POP before the rest (「POE・POPラノリン」). A 「〜共重合体」 takes in up to four preceding monomer pieces (アクリル, メタクリル, スチレン, ビニル, マレイン, ウレタン, ジフェニルポリシロキサン, VA, VP, POE, POP, ブチレン). ジメチコン joins only when it comes right before the copolymer. Never taken in: glycols, glycerins, EDTA, and words common in standalone ingredients (シクロペンタシロキサン, エチレン/プロピレン surfactants, ピロリドンカルボン酸). 「〜クロスポリマー」 and 「〜コポリマー」 are cosmetic names and take nothing in; a bracketed name is already one piece. Also rejoined: 「PEG/PPG-14/7ジメチルエーテル」 (a mole number, not a locant like 「1,2-」) and the MCI/MI mixture. A standalone abbreviation (BG, PG, …) is never attached to POE/PEG. 「1,3-」 is now kept after 「・」 too. A label that uses 「、」 or newlines but has a piece with two or more 「・」 has that piece split the same way, so one stray newline doesn't turn a 「・」 list into one item |
+| Old saved products kept the old splitting | Products the new parser makes carry `labelFormat: 2`. A saved Open Beauty Facts product without it is skipped when read from KV (the barcode cache and the verified-product list), so the next lookup fetches and parses it again. If Open Beauty Facts can't be reached, the saved product is still returned rather than lost, and no "not found" is cached. The verified list is rewritten once without the old products. The original text isn't saved, so the old pieces can't be repaired. Web-page products were never split by the old rules and are kept |
+| Name list edition unchecked | Checked: the list JCIA links today is byte-identical to the one used, the 2008-03-25 edition (server date 2018-06-29) |
+| Only our 35 entries got quasi-drug names | An extra exact-match pass compares names after applying the guideline's abbreviation rules: POE, POP, PEG, PPG, DPG, BG, PG, TEA, DEA, MEA, EDTA, PCA, ジメチコン; element names to symbols with ジ/二→2, トリ/三→3 (§2, §8-1); the natural 「L-」 dropped (§7-6). So 「POEラウリルエーテル硫酸Na」, 「ポリオキシエチレンラウリルエーテル硫酸Na」 and 「グリチルリチン酸二カリウム」 match without new aliases. Test 55 also fails if two entries share an alias in this form. Importing the JCIA list itself needs JCIA's permission (its site policy forbids copying or processing its data without it), so it isn't done |
+
+### Code review of the follow-up
+
+`code-improver` found two High issues, both confirmed and fixed:
+- **Silicones swallowed:** the copolymer rule took in ordinary silicones. 「水・ジメチコン・シクロペンタシロキサン・ジメチコンクロスポリマー」 became one name. It now applies only to 「〜共重合体」, with a narrower monomer list.
+- **One newline turned off 「・」 splitting:** a single newline or 「、」 stopped 「・」 splitting for the whole label. The old parser didn't have this problem.
+
+Medium, all fixed:
+- 「PEG・BG」 was joined;
+- 「PEG-40/1,2-ヘキサンジオール」 was joined;
+- an old barcode product was lost when the refetch failed, and the barcode was cached as "not found".
+
+Low, fixed:
+- the verified list was never rewritten without the old products;
+- the alias `bha` on salicylic acid. On Japanese labels BHA is ブチルヒドロキシアニソール, per the guideline's abbreviation table. This mistake predates the change.
+
+Low, declined: kanji numerals before an element name (「三…アルミニウム」) are read as a count. That can only cause a missed exact match, not a wrong one. The natural 「L-」 is dropped on both sides, as the guideline does.
+
+Each fix has a case in test 56 or 58.
+
+**Second pass** (allowed once after significant fixes):
+- **Medium, fixed:** the POE/POP chain took in 「ブチレン」, so 「POE・POP・ブチレン・ジメチコン共重合体」 came out as two names. A prefix chain now links only abbreviations, and the copolymer takes the chain in.
+- **Low, declined:** a bare 「PEG」 or 「POE」 in a 「・」-only list still joins the next name (「PEG・フェノキシエタノール」). A bare PEG/POE is rare on labels, and telling a product name from a standalone ingredient here would need a name list, which JCIA's policy rules out.
+
+The re-split was confirmed to recurse at most one level.
+
+### Known limits now
+
+- **Unrecognised parts:** in a label separated only by 「・」, a copolymer whose parts aren't
+  recognised as monomers, and a 「〜・〜混合物」, still split. Each piece is then rated on its own.
+- **Missed abbreviations:** abbreviations outside the guideline (brand-specific short names) don't
+  match.
+- **Names outside the database:** quasi-drug names for ingredients outside our database still go to
+  the rule-based fallback until the JCIA list can be used.
+
+### Tests
+
+- **55:** aliases must also be unique in the abbreviated form.
+- **56:** nine 「・」/「/」 labels, from the guideline's examples and the cases above.
+- **58:** abbreviated names match; DPG doesn't match PG.
+- **60:** old Open Beauty Facts products are dropped from the saved list, and new ones carry the
+  format marker.

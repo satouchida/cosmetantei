@@ -1839,7 +1839,7 @@ test('54. Chat replies: lookups and single products use templates; the cause rep
 test('55. Every ingredient DB entry cites sources and a review date; old reviews are flagged', async () => {
   const { KNOWN_INGREDIENTS } = await import('../src/lib/data/ingredients-db');
   const REVIEW_INTERVAL_DAYS = 365;
-  const { normalizeIngredientName } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { normalizeIngredientName, abbreviateIngredientName } = await import('../src/lib/analyzer/ingredient-analyzer');
   const overdue: string[] = [];
   const ids = new Set<string>();
   // 照合は最初に一致した項目を返すため、ID や別名の重複は後の項目を隠してしまう
@@ -1848,9 +1848,12 @@ test('55. Every ingredient DB entry cites sources and a review date; old reviews
     assert.ok(!ids.has(item.id), `${item.id}: duplicate id`);
     ids.add(item.id);
     for (const alias of item.aliases) {
-      const owner = aliasOwner.get(normalizeIngredientName(alias));
-      assert.ok(!owner || owner === item.id, `alias "${alias}" is on both ${owner} and ${item.id}`);
-      aliasOwner.set(normalizeIngredientName(alias), item.id);
+      // 簡略形（POE/Na 等をそろえた形）でも別の項目と重ならない
+      for (const key of [normalizeIngredientName(alias), abbreviateIngredientName(normalizeIngredientName(alias))]) {
+        const owner = aliasOwner.get(key);
+        assert.ok(!owner || owner === item.id, `alias "${alias}" is on both ${owner} and ${item.id}`);
+        aliasOwner.set(key, item.id);
+      }
     }
     assert.ok(item.sources && item.sources.length > 0, `${item.id}: needs at least one source`);
     for (const s of item.sources) {
@@ -1905,6 +1908,40 @@ test('56. Labels: quasi-drug groups, ※ marks, 「他 n成分」, and names con
 
   // 「・」「/」は、ほかの区切りが無いラベルでだけ区切る
   assert.deepStrictEqual(splitIngredientList('水・BG・グリセリン'), ['水', 'BG', 'グリセリン']);
+  // 「・」だけのラベルでも、名称の中の「・」（JCIA 簡略名ガイドライン 8-2）はつなぎ直す
+  const dotted: [string, string[]][] = [
+    ['水・BG・アクリル酸アルキル・VA共重合体液・メチルパラベン', ['水', 'BG', 'アクリル酸アルキル・VA共重合体液', 'メチルパラベン']],
+    ['水・ジフェニルポリシロキサン・ジメチコン共重合体・香料', ['水', 'ジフェニルポリシロキサン・ジメチコン共重合体', '香料']],
+    ['精製水・硫酸Al・K・エタノール', ['精製水', '硫酸Al・K', 'エタノール']],
+    ['水・POE・POPラノリン・BG', ['水', 'POE・POPラノリン', 'BG']],
+    ['水・POE・POP・ブチレン・ジメチコン共重合体・BG', ['水', 'POE・POP・ブチレン・ジメチコン共重合体', 'BG']],
+    [
+      '水・アクリル酸・アクリル酸2-エチルヘキシル・スチレン共重合体エマルション・PG',
+      ['水', 'アクリル酸・アクリル酸2-エチルヘキシル・スチレン共重合体エマルション', 'PG'],
+    ],
+    ['水・メチルクロロイソチアゾリノン・メチルイソチアゾリノン液', ['水', 'メチルクロロイソチアゾリノン・メチルイソチアゾリノン液']],
+    ['水/BG/PEG/PPG-14/7ジメチルエーテル/グリセリン', ['水', 'BG', 'PEG/PPG-14/7ジメチルエーテル', 'グリセリン']],
+    // 単独の成分（グリコール類）や括弧でまとまった名称は取り込まない
+    ['水・1,3-ブチレングリコール・アクリル酸アミド・スチレン共重合体', ['水', '1,3-ブチレングリコール', 'アクリル酸アミド・スチレン共重合体']],
+    ['水・ジメチコン・(ジメチコン/ビニルジメチコン)クロスポリマー', ['水', 'ジメチコン', '(ジメチコン/ビニルジメチコン)クロスポリマー']],
+    // 単独の成分を共重合体・略号・付加モル数に取り込まない
+    [
+      '水・ジメチコン・シクロペンタシロキサン・ジメチコンクロスポリマー',
+      ['水', 'ジメチコン', 'シクロペンタシロキサン', 'ジメチコンクロスポリマー'],
+    ],
+    ['水・ジメチコン・アクリル酸・スチレン共重合体', ['水', 'ジメチコン', 'アクリル酸・スチレン共重合体']],
+    ['水・PEG・BG・グリセリン', ['水', 'PEG', 'BG', 'グリセリン']],
+    ['水/PEG-40/1,2-ヘキサンジオール/香料', ['水', 'PEG-40', '1,2-ヘキサンジオール', '香料']],
+  ];
+  for (const [label, expected] of dotted) assert.deepStrictEqual(splitIngredientList(label), expected, label);
+  // 改行が1つあっても、「・」で並べた一覧は分ける
+  assert.deepStrictEqual(splitIngredientList('水・BG・グリセリン・フェノキシエタノール\n香料'), [
+    '水',
+    'BG',
+    'グリセリン',
+    'フェノキシエタノール',
+    '香料',
+  ]);
   assert.deepStrictEqual(splitIngredientList('水/BG/グリセリン'), ['水', 'BG', 'グリセリン']);
   assert.deepStrictEqual(splitIngredientList('Aqua, Dimethicone/Vinyl Dimethicone Crosspolymer'), [
     'Aqua',
@@ -1986,6 +2023,41 @@ test('58. Quasi-drug label names (JCIA list) match the existing DB entries', () 
   for (const [name, id] of cases) {
     assert.strictEqual(findMatchingKnownIngredient(name)?.id, id, name);
   }
+
+  // 簡略名と成分名の違い（JCIA 簡略名ガイドラインの略号・元素記号・漢数字・L-）を除いて一致
+  const abbreviated: [string, string | undefined][] = [
+    ['POEラウリルエーテル硫酸Na', 'sodium_laureth_sulfate'],
+    ['ポリオキシエチレンラウリルエーテル硫酸Na', 'sodium_laureth_sulfate'],
+    ['グリチルリチン酸二カリウム', 'dipotassium_glycyrrhizate'],
+    ['L-アスコルビン酸', 'ascorbic_acid'],
+    ['ヒアルロン酸Na', 'hyaluronic_acid'],
+    ['ジプロピレングリコール', undefined],
+    // 表示の「BHA」はブチルヒドロキシアニソール（JCIA 簡略名ガイドラインの略号）。サリチル酸ではない
+    ['BHA', undefined],
+  ];
+  for (const [name, id] of abbreviated) {
+    assert.strictEqual(findMatchingKnownIngredient(name)?.id, id, name);
+  }
+});
+
+test('60. Saved Open Beauty Facts products split by the old rules are fetched again', async () => {
+  const { hasStaleLabel, LABEL_FORMAT, labelProductFields, parseIngredientLabel } = await import(
+    '../src/lib/analyzer/label-parser'
+  );
+  const old = verifiedProduct({ ingredients: ['水', '1', '3-ブチレングリコール'] });
+  assert.strictEqual(hasStaleLabel(old), true);
+  assert.strictEqual(hasStaleLabel({ ...old, labelFormat: LABEL_FORMAT }), false);
+  assert.strictEqual(hasStaleLabel({ ...old, ingredientSource: 'web_page' }), false, 'Web pages were never split by the old rules');
+  assert.strictEqual(labelProductFields(parseIngredientLabel('水、BG')).labelFormat, LABEL_FORMAT);
+
+  // KV の確認済み一覧を更新するとき、古い分け方の製品は捨てる（読み込み時も同じ判定で除く）
+  const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
+  const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const kept = verifiedProduct({ id: 'obf_kept_label', labelFormat: LABEL_FORMAT });
+  await cachePutJSON('verified-products:v1', [kept, verifiedProduct({ id: 'obf_stale_label' })], 60);
+  await rememberVerifiedProducts([verifiedProduct({ id: 'obf_new_label', labelFormat: LABEL_FORMAT })]);
+  const stored = (await cacheGetJSON<Product[]>('verified-products:v1')) ?? [];
+  assert.deepStrictEqual(stored.map((p) => p.id), ['obf_new_label', 'obf_kept_label']);
 });
 
 test('59. Web research reads a quasi-drug label: actives, 「他 n成分」 and leftover marks', async () => {

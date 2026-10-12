@@ -1,6 +1,7 @@
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from '../services/amazon-affiliate';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
+import { hasStaleLabel } from '../analyzer/label-parser';
 
 /**
  * 【動的コスメキャッシュ】
@@ -75,9 +76,11 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
   const verified = products.filter(isVerifiedSource);
   if (verified.length === 0) return;
 
-  const stored = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY)) || [];
-  // 既に同じ内容で登録済みなら書き込まない（1つのキーへの書き込みを減らす）
-  const unchanged = verified.every((v) =>
+  // 古い方式で分けた成分表示の製品は捨てる（次に調べたときに新しい方式で保存される）
+  const raw = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY)) || [];
+  const stored = raw.filter((p) => !hasStaleLabel(p));
+  // 既に同じ内容で登録済みなら書き込まない（1つのキーへの書き込みを減らす）。古い製品を捨てたときは書き込む
+  const unchanged = stored.length === raw.length && verified.every((v) =>
     stored.some((s) => s.id === v.id && s.ingredients.join('|') === v.ingredients.join('|'))
   );
   if (unchanged) return;
@@ -99,7 +102,7 @@ export async function hydrateVerifiedProducts(): Promise<void> {
   if (!stored) return;
   // 古い順に追加し、新しいものがキャッシュの先頭に来るようにする
   for (const product of [...stored].reverse()) {
-    if (!RUNTIME_CACHE.some((p) => p.id === product.id)) {
+    if (!hasStaleLabel(product) && !RUNTIME_CACHE.some((p) => p.id === product.id)) {
       addProductToDynamicCache(product);
     }
   }

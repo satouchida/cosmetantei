@@ -22,7 +22,8 @@ Last updated: 2026-10-12.
 | 2026-10-12 | `b3fe5b3` | Redesign phase 2: web research (Cloudflare Web Search + Gemini URL context) replaces Google-grounded product discovery and the barcode AI guess ([status](plans/gemini-role-redesign.md#phase-2-status-2026-10-12-done)) |
 | 2026-10-12 | `2a52e38` | Redesign phases 5 and 6: template chat replies, short tool-free Gemini replies for the cause and ingredient questions, Google grounding removed ([status](plans/gemini-role-redesign.md#phases-5-and-6-status-2026-10-12-done)) |
 | 2026-10-12 | `79e2e06` | Ingredient database audit: all 35 entries checked against regulations and safety assessments, with sources and review dates; CI warns after 12 months ([plan](plans/ingredient-db-audit.md), [walkthrough](walkthroughs/2026-10-12-ingredient-db-audit.md)) |
-| 2026-10-12 | *this commit* | Japanese-market data, step 4: quasi-drug (医薬部外品) labels. Active ingredients are analysed, 「他 n成分」 and the unordered 「その他の成分」 are explained, splitting no longer breaks names like 1,3-ブチレングリコール, and the official quasi-drug names are matched ([plan](plans/japan-ingredient-data.md), [walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md)) |
+| 2026-10-12 | `a9cc10b` | Japanese-market data, step 4: quasi-drug (医薬部外品) labels. Active ingredients are analysed, 「他 n成分」 and the unordered 「その他の成分」 are explained, splitting no longer breaks names like 1,3-ブチレングリコール, and the official quasi-drug names are matched ([plan](plans/japan-ingredient-data.md), [walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md)) |
+| 2026-10-12 | *this commit* | Step 4's known limits: 「・」-only labels rejoin names by JCIA's 簡略名 guideline, old saved Open Beauty Facts products are fetched again, abbreviated and full names match (POE/Na/2K), and the name list edition is confirmed ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#follow-up-the-same-day-the-known-limits)) |
 
 ## In progress
 
@@ -41,9 +42,9 @@ In order:
    ([03](review/03-other-upgrades.md#security-and-data-trust)): look products up on the server.
 5. **Audit the rule-based ingredient explanations** (`dynamic-ingredient-service.ts`) the same
    way ([plan](plans/ingredient-db-audit.md#out-of-scope-recorded-for-later)).
-6. **Japanese-market data, steps 1–3, 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
-   the JCIA name lists (check terms of use first), 化粧品基準 rules as data, the wheat-protein and
-   rhododenol incidents, pair rules across products, and 旧表示指定成分.
+6. **Japanese-market data, steps 2, 3, 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
+   化粧品基準 rules as data, the wheat-protein and rhododenol incidents, pair rules across products,
+   and 旧表示指定成分. Step 1 (the JCIA name lists) waits for JCIA's permission.
 7. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
    web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.
@@ -57,7 +58,9 @@ From [03, Product](review/03-other-upgrades.md#product):
 
 ## Watch
 
-- **Ingredient database review:** due 2027-10-12; test 55 warns in CI.
+- **Ingredient database review:** due 2027-10-12; test 55 warns in CI. At the same review, check
+  whether JCIA has published a newer quasi-drug name list (current: 2008-03-25 edition).
+- **JCIA permission:** importing JCIA's name lists needs JCIA's permission (site policy).
 
 - **Next 16.4:** pinned to 16.3.8 until
   [opennextjs-cloudflare#1355](https://github.com/opennextjs/opennextjs-cloudflare/issues/1355) is
