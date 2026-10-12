@@ -1835,3 +1835,40 @@ test('54. Chat replies: lookups and single products use templates; the cause rep
     clearGatewayEnv();
   }
 });
+
+test('55. Every ingredient DB entry cites sources and a review date; old reviews are flagged', async () => {
+  const { KNOWN_INGREDIENTS } = await import('../src/lib/data/ingredients-db');
+  const REVIEW_INTERVAL_DAYS = 365;
+  const { normalizeIngredientName } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const overdue: string[] = [];
+  const ids = new Set<string>();
+  // 照合は最初に一致した項目を返すため、ID や別名の重複は後の項目を隠してしまう
+  const aliasOwner = new Map<string, string>();
+  for (const item of KNOWN_INGREDIENTS) {
+    assert.ok(!ids.has(item.id), `${item.id}: duplicate id`);
+    ids.add(item.id);
+    for (const alias of item.aliases) {
+      const owner = aliasOwner.get(normalizeIngredientName(alias));
+      assert.ok(!owner || owner === item.id, `alias "${alias}" is on both ${owner} and ${item.id}`);
+      aliasOwner.set(normalizeIngredientName(alias), item.id);
+    }
+    assert.ok(item.sources && item.sources.length > 0, `${item.id}: needs at least one source`);
+    for (const s of item.sources) {
+      assert.ok(s.title.trim(), `${item.id}: source without a title`);
+      assert.match(s.url, /^https:\/\/\S+$/, `${item.id}: source URL must be https`);
+    }
+    assert.match(item.reviewedAt ?? '', /^\d{4}-\d{2}-\d{2}$/, `${item.id}: reviewedAt must be YYYY-MM-DD`);
+    const reviewedMs = Date.parse(`${item.reviewedAt}T00:00:00Z`);
+    assert.ok(
+      !Number.isNaN(reviewedMs) && new Date(reviewedMs).toISOString().startsWith(item.reviewedAt),
+      `${item.id}: reviewedAt is not a real date`
+    );
+    const ageDays = (Date.now() - reviewedMs) / 86_400_000;
+    assert.ok(ageDays > -1, `${item.id}: reviewedAt is in the future`);
+    if (ageDays > REVIEW_INTERVAL_DAYS) overdue.push(`${item.id} (${item.reviewedAt})`);
+  }
+  // 期限切れは失敗にせず、CI の出力で見えるようにする
+  if (overdue.length > 0) {
+    console.warn(`::warning::Ingredient DB entries not reviewed for over ${REVIEW_INTERVAL_DAYS} days: ${overdue.join(', ')}`);
+  }
+});

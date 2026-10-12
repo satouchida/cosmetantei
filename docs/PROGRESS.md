@@ -20,7 +20,8 @@ Last updated: 2026-10-12.
 | 2026-10-11 | `9fb3b1e` | Quick-reply buttons handled in the browser; `pnpm dev` fixed ([walkthrough](walkthroughs/2026-10-11-ui-fixes.md)) |
 | 2026-10-12 | `7585824` | Maintenance: CI, README, `compatibility_date`, `fuse.js` removed, Next pinned to 16.3.8 (Worker fix), analyzer matching fixes and tests |
 | 2026-10-12 | `b3fe5b3` | Redesign phase 2: web research (Cloudflare Web Search + Gemini URL context) replaces Google-grounded product discovery and the barcode AI guess ([status](plans/gemini-role-redesign.md#phase-2-status-2026-10-12-done)) |
-| 2026-10-12 | *this commit* | Redesign phases 5 and 6: template chat replies, short tool-free Gemini replies for the cause and ingredient questions, Google grounding removed ([status](plans/gemini-role-redesign.md#phases-5-and-6-status-2026-10-12-done)) |
+| 2026-10-12 | `2a52e38` | Redesign phases 5 and 6: template chat replies, short tool-free Gemini replies for the cause and ingredient questions, Google grounding removed ([status](plans/gemini-role-redesign.md#phases-5-and-6-status-2026-10-12-done)) |
+| 2026-10-12 | *this commit* | Ingredient database audit: all 35 entries checked against regulations and safety assessments, with sources and review dates; CI warns after 12 months ([plan](plans/ingredient-db-audit.md), [walkthrough](walkthroughs/2026-10-12-ingredient-db-audit.md)) |
 
 ## In progress
 
@@ -37,7 +38,9 @@ In order:
    `clef-flash` call per search that drops irrelevant results.
 4. **Don't trust product data from the browser**
    ([03](review/03-other-upgrades.md#security-and-data-trust)): look products up on the server.
-5. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
+5. **Audit the rule-based ingredient explanations** (`dynamic-ingredient-service.ts`) the same
+   way ([plan](plans/ingredient-db-audit.md#out-of-scope-recorded-for-later)).
+6. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
    web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.
 
@@ -49,6 +52,8 @@ From [03, Product](review/03-other-upgrades.md#product):
 - keep the bad and safe lists across reloads.
 
 ## Watch
+
+- **Ingredient database review:** due 2027-10-12; test 55 warns in CI.
 
 - **Next 16.4:** pinned to 16.3.8 until
   [opennextjs-cloudflare#1355](https://github.com/opennextjs/opennextjs-cloudflare/issues/1355) is

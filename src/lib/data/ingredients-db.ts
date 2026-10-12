@@ -1,8 +1,149 @@
-import { KnownIngredient } from '../types';
+import { KnownIngredient, ReferenceLink } from '../types';
 
-export const KNOWN_INGREDIENTS: KnownIngredient[] = [
+/**
+ * 既知成分の辞書。リスク度と説明文は出典（sources）と照合済み。
+ * 項目を直すときは出典を確かめて sources と reviewedAt を更新する（手順: docs/plans/ingredient-db-audit.md）
+ */
+
+const REVIEWED = '2026-10-12';
+
+const REF = {
+  euCosmetics: {
+    title: 'Regulation (EC) No 1223/2009 on cosmetic products (Annexes II–VI)',
+    url: 'https://eur-lex.europa.eu/eli/reg/2009/1223/oj',
+  },
+  euFragranceAllergens2023: {
+    title: 'Commission Regulation (EU) 2023/1545: labelling of fragrance allergens',
+    url: 'https://eur-lex.europa.eu/eli/reg/2023/1545/oj',
+  },
+  euMiLeaveOnBan: {
+    title: 'Commission Regulation (EU) 2016/1198: methylisothiazolinone banned in leave-on products',
+    url: 'https://eur-lex.europa.eu/eli/reg/2016/1198/oj',
+  },
+  euMiRinseOff: {
+    title: 'Commission Regulation (EU) 2017/1224: methylisothiazolinone limited to 0.0015% in rinse-off products',
+    url: 'https://eur-lex.europa.eu/eli/reg/2017/1224/oj',
+  },
+  euParabens2014: {
+    title: 'Commission Regulation (EU) No 358/2014: parabens',
+    url: 'https://eur-lex.europa.eu/eli/reg/2014/358/oj',
+  },
+  euUvFilters2022: {
+    title: 'Commission Regulation (EU) 2022/1176: Benzophenone-3 and Octocrylene',
+    url: 'https://eur-lex.europa.eu/eli/reg/2022/1176/oj',
+  },
+  euVitaminA2024: {
+    title: 'Commission Regulation (EU) 2024/996: vitamin A (0.05% RE body lotion, 0.3% RE other products)',
+    url: 'https://eur-lex.europa.eu/eli/reg/2024/996/oj',
+  },
+  jpCosmeticStandard: {
+    title: '化粧品基準（平成12年厚生省告示第331号）別表第3・第4',
+    url: 'https://www.mhlw.go.jp/content/000491511.pdf',
+  },
+  acdsAllergenOfTheYear: {
+    title: 'American Contact Dermatitis Society, Allergen of the Year (list)',
+    url: 'https://en.wikipedia.org/wiki/Allergen_of_the_Year',
+  },
+  oxidizedTerpenes: {
+    title: 'Bråred Christensson et al. Oxidized limonene and oxidized linalool: concomitant contact allergy. Contact Dermatitis 2016',
+    url: 'https://doi.org/10.1111/cod.12545',
+  },
+  oxidizedLavender: {
+    title: 'Hagvall & Bråred Christensson. Patch testing with main sensitizers does not detect all cases of contact allergy to oxidized lavender oil. Acta Derm Venereol 2016',
+    url: 'https://medicaljournals.se/acta/content/html/10.2340/00015555-2319',
+  },
+  sccsTeaTree2025: {
+    title: 'SCCS Final Opinion on Tea Tree Oil (2025)',
+    url: 'https://health.ec.europa.eu/latest-updates/sccs-final-opinion-tea-tree-oil-2025-11-14_en',
+  },
+  ethanolSkin: {
+    title: 'Lachenmeier. Safety evaluation of topical applications of ethanol on the skin and inside the oral cavity. J Occup Med Toxicol 2008',
+    url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC2596158/',
+  },
+  alcoholsCompared: {
+    title: 'Cartner et al. Effect of different alcohols on stratum corneum kallikrein 5 and phospholipase A2 … and skin irritation. Int J Cosmet Sci 2017',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/27578266/',
+  },
+  detergentIrritancy: {
+    title: 'Profile of irritant patch testing with detergents: sodium lauryl sulfate, sodium laureth sulfate and alkyl polyglucoside. Contact Dermatitis 2003',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/12641575/',
+  },
+  sccsPhenoxyethanol: {
+    title: 'SCCS Opinion on Phenoxyethanol (SCCS/1575/16): safe as a preservative up to 1.0%',
+    url: 'https://health.ec.europa.eu/publications/phenoxyethanol_en',
+  },
+  benzylAlcohol2026: {
+    title: 'Le & Wu. Benzyl Alcohol: Allergen of the Year 2026. Dermatitis 2026',
+    url: 'https://doi.org/10.1177/17103568251386038',
+  },
+  cirPropyleneGlycol: {
+    title: 'CIR. Safety assessment of propylene glycol, tripropylene glycol, and PPGs as used in cosmetics. Int J Toxicol 2012',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/23064775/',
+  },
+  fdaAha: {
+    title: 'U.S. FDA. Alpha Hydroxy Acids (cosmetics)',
+    url: 'https://www.fda.gov/cosmetics/cosmetic-ingredients/alpha-hydroxy-acids',
+  },
+  vitaminCAbsorption: {
+    title: 'Pinnell et al. Topical L-ascorbic acid: percutaneous absorption studies. Dermatol Surg 2001',
+    url: 'https://doi.org/10.1046/j.1524-4725.2001.00264.x',
+  },
+  octocryleneReview: {
+    title: 'de Groot & Roberts. Contact and photocontact allergy to octocrylene: a review. Contact Dermatitis 2014',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/24628344/',
+  },
+  cirCeramides: {
+    title: 'CIR. Safety assessment of ceramides as used in cosmetics. Int J Toxicol 2020',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/33203269/',
+  },
+  cirGlycyrrhizates: {
+    title: 'CIR. Final report on the safety assessment of glycyrrhetinic acid, glycyrrhizic acid and their salts. Int J Toxicol 2007',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/17613133/',
+  },
+  cirAllantoin: {
+    title: 'CIR. Final report of the safety assessment of allantoin and its related complexes. Int J Toxicol 2010',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/20448269/',
+  },
+  centellaReview: {
+    title: 'Bylka et al. Centella asiatica in dermatology: an overview. Phytother Res 2014',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/24399761',
+  },
+  cirPanthenol: {
+    title: 'CIR. Safety assessment of panthenol, pantothenic acid, and derivatives as used in cosmetics. Int J Toxicol 2022',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/36177798/',
+  },
+  cirNiacinamide: {
+    title: 'CIR. Final report of the safety assessment of niacinamide and niacin. Int J Toxicol 2005',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/16596767/',
+  },
+  nicotinamideVsNiacin: {
+    title: 'Nicotinamide: an update and review of safety & differences from niacin. Skin Therapy Lett 2020',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/33196157',
+  },
+  cirHyaluronates: {
+    title: 'CIR. Final report of the safety assessment of hyaluronic acid, potassium hyaluronate, and sodium hyaluronate. Int J Toxicol 2009',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/19636067',
+  },
+  squaleneReview: {
+    title: 'Huang et al. Biological and pharmacological activities of squalene and related compounds: potential uses in cosmetic dermatology. Molecules 2009',
+    url: 'https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6253993/',
+  },
+  glycerolReview: {
+    title: 'Fluhr et al. Glycerol and the skin: holistic approach to its origin and functions. Br J Dermatol 2008',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/18510666/',
+  },
+  butyleneGlycolAllergy: {
+    title: 'Allergic contact dermatitis due to butylene glycol in cosmetics. Contact Dermatitis 2020',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/32342510/',
+  },
+} satisfies Record<string, ReferenceLink>;
+
+/** 成分DBの項目。出典と照合日を必須にする */
+type AuditedIngredient = KnownIngredient & Required<Pick<KnownIngredient, 'sources' | 'reviewedAt'>>;
+
+export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
   // ==========================================
-  // 🔴 高リスク刺激物・香料・アレルゲン・旧表示指定
+  // 🔴 香料・香料アレルゲン・精油
   // ==========================================
   {
     id: 'fragrance',
@@ -11,9 +152,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['香料', 'parfum', 'fragrance', 'flavor'],
     category: 'fragrance',
     riskLevel: 'high_irritant',
-    reasonJa: '数百種類の香料成分の混合物であり、敏感肌・接触性皮膚炎の最大の誘因の一つです。',
-    sensitiveSkinAdviceJa: '敏感肌や赤みが出やすい肌は「無香料（Fragrance-Free）」と明記された製品を選ぶのが最も安全です。',
-    comedogenicRating: 0,
+    reasonJa: '多数の香り成分の混合物で、化粧品による接触アレルギーの代表的な原因です。表示は「香料」の一語でも、中身の成分はわかりません。',
+    sensitiveSkinAdviceJa: '香料でかぶれた経験がある場合は、「無香料」と表示された製品が選択肢になります。',
+    sources: [REF.acdsAllergenOfTheYear, REF.euFragranceAllergens2023],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'limonene',
@@ -22,9 +164,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['リモネン', 'limonene', 'd-リモネン'],
     category: 'essential_oil',
     riskLevel: 'high_irritant',
-    reasonJa: '柑橘系精油に含まれる代表的アレルゲン。空気に触れて酸化すると強い皮膚感作（アレルギー）物質に変化します。',
-    sensitiveSkinAdviceJa: 'EUでアレルギー表示が義務付けられている26成分の一つ。肌のバリア機能が低下している時は避けるのが賢明です。',
-    comedogenicRating: 0,
+    reasonJa: '柑橘系の香り成分。空気に触れて酸化するとヒドロペルオキシドができ、これが接触アレルギーの主な原因になります。',
+    sensitiveSkinAdviceJa: 'EUで一定量以上の表示が義務付けられている香料アレルゲンの一つです（2023年の改正で表示対象は80種類以上に拡大）。',
+    sources: [REF.euCosmetics, REF.euFragranceAllergens2023, REF.oxidizedTerpenes],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'linalool',
@@ -33,9 +176,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['リナロール', 'linalool'],
     category: 'essential_oil',
     riskLevel: 'high_irritant',
-    reasonJa: 'ラベンダーや柑橘に多く含まれる芳香成分。酸化すると接触アレルギー・かぶれ・赤みを引き起こしやすい成分です。',
-    sensitiveSkinAdviceJa: 'オーガニック・ナチュラルコスメに多く含まれますが、敏感肌には刺激になるケースが多発します。',
-    comedogenicRating: 0,
+    reasonJa: 'ラベンダーや柑橘に多い香り成分。酸化したリナロールは接触アレルギーを起こしやすく、皮膚炎の患者のパッチテストで陽性率の高い香料成分です。',
+    sensitiveSkinAdviceJa: 'EUで表示義務のある香料アレルゲンです。精油を使った「ナチュラル」な製品にもよく含まれます。',
+    sources: [REF.euCosmetics, REF.oxidizedTerpenes],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'citral',
@@ -44,9 +188,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['シトラール', 'citral'],
     category: 'essential_oil',
     riskLevel: 'high_irritant',
-    reasonJa: 'レモングラス等の精油由来の香料成分。皮膚刺激・アレルギー誘発性が高い成分です。',
-    sensitiveSkinAdviceJa: 'EU規制アレルゲン。ヒリヒリ感や赤みの原因になりやすいです。',
-    comedogenicRating: 0,
+    reasonJa: 'レモングラス等の精油に含まれる香り成分で、皮膚刺激やアレルギーを起こすことがあります。',
+    sensitiveSkinAdviceJa: 'EUで表示義務のある香料アレルゲンです。',
+    sources: [REF.euCosmetics],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'geraniol',
@@ -55,9 +200,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ゲラニオール', 'geraniol'],
     category: 'essential_oil',
     riskLevel: 'high_irritant',
-    reasonJa: 'ローズやゼラニウムに含まれる芳香成分で、EU指定香料アレルゲンです。',
-    sensitiveSkinAdviceJa: '敏感肌・アトピー素因がある場合は注意が必要です。',
-    comedogenicRating: 0,
+    reasonJa: 'ローズやゼラニウムに含まれる香り成分で、EUで表示義務のある香料アレルゲンです。',
+    sensitiveSkinAdviceJa: '香料でかぶれた経験がある場合は、全成分表示で確認できます。',
+    sources: [REF.euCosmetics],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'lavender_oil',
@@ -66,9 +212,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ラベンダー油', 'ラベンダー精油', 'ラベンダーエキス', 'lavandula angustifolia oil', 'lavender oil'],
     category: 'essential_oil',
     riskLevel: 'moderate_irritant',
-    reasonJa: 'リラックス効果がある反面、リナロールや酢酸リナリルを高濃度に含み、敏感肌に細胞毒性・アレルギーを及ぼす可能性があります。',
-    sensitiveSkinAdviceJa: '肌がゆらいでいる時期は精油（エッセンシャルオイル）配合アイテムは休止しましょう。',
-    comedogenicRating: 0,
+    reasonJa: '主成分のリナロールと酢酸リナリルは、空気で酸化すると接触アレルギーを起こしやすくなります。酸化したラベンダー油は、精油の中でもパッチテストの陽性率が高い部類です。',
+    sensitiveSkinAdviceJa: 'EUでは2023年の改正で、表示義務のある香料アレルゲンに加わりました。',
+    sources: [REF.euFragranceAllergens2023, REF.oxidizedLavender],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'tea_tree_oil',
@@ -77,9 +224,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ティーツリー葉油', 'ティーツリーオイル', 'ティーツリー油', 'tea tree leaf oil', 'melaleuca alternifolia leaf oil'],
     category: 'essential_oil',
     riskLevel: 'moderate_irritant',
-    reasonJa: '抗菌・抗ニキビ作用がある一方、テルピネン-4-オール等を含み、敏感肌には強い刺激や接触皮膚炎の原因になることがあります。',
-    sensitiveSkinAdviceJa: 'ニキビケア用韓国コスメに頻出ですが、バリア機能が壊れた肌には強すぎることがあります。',
-    comedogenicRating: 0,
+    reasonJa: '抗菌目的で配合される精油。EUの科学委員会（SCCS）は中程度の皮膚感作性があると評価しており、光・熱・空気で劣化すると感作性が高まります。',
+    sensitiveSkinAdviceJa: 'SCCSは顔用クリームでの配合を0.1%までなら安全としています（2025年）。',
+    sources: [REF.sccsTeaTree2025],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'citrus_oils',
@@ -88,9 +236,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['オレンジ果皮油', 'レモン果皮油', 'ベルガモット果実油', 'グレープフルーツ果皮油', 'citrus aurantium dulcis', 'citrus limon', 'citrus grandis'],
     category: 'essential_oil',
     riskLevel: 'high_irritant',
-    reasonJa: 'リモネン・シトラールを大量に含み、光毒性（ベルガプテン等による日光でのシミ・炎症）やアレルギーのリスクがあります。',
-    sensitiveSkinAdviceJa: '爽やかな香りのため配合されがちですが、敏感肌トラブルの原因トップクラスです。',
-    comedogenicRating: 0,
+    reasonJa: 'リモネンやシトラールを多く含み、香料アレルギーの原因になります。ベルガモット油などフロクマリンを含むものは、日光に当たると炎症を起こす光毒性があります。',
+    sensitiveSkinAdviceJa: 'EUでは2023年の改正で、オレンジ・レモン・ベルガモット油が表示義務のある香料アレルゲンに加わりました。日焼け止めではフロクマリンを1 mg/kg未満にする規制があります。',
+    sources: [REF.euFragranceAllergens2023, REF.euCosmetics],
+    reviewedAt: REVIEWED,
   },
 
   // ==========================================
@@ -103,9 +252,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['エタノール', '無水エタノール', '変性アルコール', 'alcohol', 'alcohol denat', 'ethanol', 'sd alcohol 40'],
     category: 'drying_alcohol',
     riskLevel: 'moderate_irritant',
-    reasonJa: '皮脂と水分を急速に揮発させ、角層の細胞間脂質（ラメラ構造）を一時的に乱してバリア機能を低下させます。',
-    sensitiveSkinAdviceJa: '全成分表示の上位（1〜5番目）にある場合は乾燥・ヒリつきの原因になりやすいため、「アルコールフリー」製品が推奨されます。',
-    comedogenicRating: 0,
+    reasonJa: '揮発するときに肌の水分を奪い、乾燥やしみる感じの原因になることがあります。皮膚刺激や接触皮膚炎の報告があり、肌荒れ中など傷んだ肌では刺激を感じやすくなります。',
+    sensitiveSkinAdviceJa: '全成分は配合量の多い順に書かれるため、上位にあるほど多く入っています。',
+    sources: [REF.ethanolSkin],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'isopropanol',
@@ -113,10 +263,11 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     nameEn: 'Isopropyl Alcohol',
     aliases: ['イソプロパノール', 'イソプロピルアルコール', 'isopropyl alcohol'],
     category: 'drying_alcohol',
-    riskLevel: 'high_irritant',
-    reasonJa: 'エタノールよりもさらに脱脂力・刺激性が強く、極度の乾燥と皮膚刺激をもたらします。',
-    sensitiveSkinAdviceJa: '敏感肌・乾燥肌のスキンケアには極力避けるべき成分です。',
-    comedogenicRating: 0,
+    riskLevel: 'moderate_irritant',
+    reasonJa: '溶剤として使われるアルコール。繰り返し使う試験では、エタノールより皮膚の赤みやバリアへの影響が大きいと報告されています。',
+    sensitiveSkinAdviceJa: '乾燥しやすい肌では、配合量の多い製品で刺激を感じることがあります。',
+    sources: [REF.alcoholsCompared],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'sodium_lauryl_sulfate',
@@ -125,9 +276,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ラウリル硫酸na', 'ラウリル硫酸ナトリウム', 'sodium lauryl sulfate', 'sls'],
     category: 'sulfate',
     riskLevel: 'high_irritant',
-    reasonJa: '強力な脱脂力を持つ陰イオン界面活性剤。皮膚の細胞間脂質や天然保湿因子（NMF）を過剰に洗い流します。',
-    sensitiveSkinAdviceJa: 'アミノ酸系洗浄成分（ココイルグルタミン酸Na、ラウロイルメチルアラニンNaなど）の低刺激洗顔料を選びましょう。',
-    comedogenicRating: 5,
+    reasonJa: '洗浄力の強い陰イオン界面活性剤。皮膚刺激の試験で基準の刺激物質として使われるほど、角層のバリアを傷めやすい成分です。',
+    sensitiveSkinAdviceJa: '洗い流す製品でも、肌荒れ中は刺激になることがあります。',
+    sources: [REF.detergentIrritancy],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'sodium_laureth_sulfate',
@@ -136,31 +288,34 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ラウレス硫酸na', 'ラウレス硫酸ナトリウム', 'sodium laureth sulfate', 'sles'],
     category: 'sulfate',
     riskLevel: 'moderate_irritant',
-    reasonJa: 'SLSよりは刺激緩和されていますが、敏感肌やアトピー肌には乾燥・つっぱり・バリア低下を招くことがあります。',
-    sensitiveSkinAdviceJa: '洗顔後に肌が赤くなる・突っ張る場合は、サルフェートフリーの洗顔料に切り替えてください。',
-    comedogenicRating: 3,
+    reasonJa: 'SLSより刺激は弱い洗浄成分ですが、敏感な肌では乾燥やつっぱりの原因になることがあります。',
+    sensitiveSkinAdviceJa: '洗顔後に赤みやつっぱりが出る場合は、洗浄成分の違う製品と比べてみる手がかりになります。',
+    sources: [REF.detergentIrritancy],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'methylisothiazolinone',
     nameJa: 'メチルイソチアゾリノン (MI/MIT)',
     nameEn: 'Methylisothiazolinone',
-    aliases: ['メチルイソチアゾリノン', 'methylisothiazolinone', 'mit', 'kathon cg'],
+    aliases: ['メチルイソチアゾリノン', 'methylisothiazolinone', 'mit'],
     category: 'preservative',
     riskLevel: 'high_irritant',
-    reasonJa: '強力なアレルゲンとして知られ、欧州では洗い流さない化粧品への配合が禁止されている接触皮膚炎の主要原因物質です。',
-    sensitiveSkinAdviceJa: '赤み・腫れ・激しい痒みを起こすリスクが高いため、絶対避けるべき成分です。',
-    comedogenicRating: 0,
+    reasonJa: '接触アレルギーの増加が問題になった防腐剤。EUでは洗い流さない化粧品への配合が禁止され、洗い流す製品も0.0015%までに制限されています。',
+    sensitiveSkinAdviceJa: '日本の化粧品基準では、洗い流す・洗い流さない製品とも0.01%まで配合できます。',
+    sources: [REF.euMiLeaveOnBan, REF.euMiRinseOff, REF.jpCosmeticStandard, REF.acdsAllergenOfTheYear],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'methylchloroisothiazolinone',
     nameJa: 'メチルクロロイソチアゾリノン (MCI)',
     nameEn: 'Methylchloroisothiazolinone',
-    aliases: ['メチルクロロイソチアゾリノン', 'methylchloroisothiazolinone', 'mci'],
+    aliases: ['メチルクロロイソチアゾリノン', 'methylchloroisothiazolinone', 'mci', 'kathon cg'],
     category: 'preservative',
     riskLevel: 'high_irritant',
-    reasonJa: 'MIと同様、極めて感作性の高い防腐剤です。',
-    sensitiveSkinAdviceJa: '敏感肌・アレルギー体質の方は必ず避けてください。',
-    comedogenicRating: 0,
+    reasonJa: 'MIとの混合物として使われる、感作性の高い防腐剤です。',
+    sensitiveSkinAdviceJa: '日本でもEUでも、洗い流す製品にだけ配合できます。',
+    sources: [REF.euCosmetics, REF.jpCosmeticStandard],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'phenoxyethanol',
@@ -169,9 +324,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['フェノキシエタノール', 'phenoxyethanol'],
     category: 'preservative',
     riskLevel: 'low_caution',
-    reasonJa: 'パラベンフリーコスメで最も広く使われる防腐剤。一般的には安全ですが、超敏感肌や皮膚炎時はピリピリ感の引き金になることがあります。',
-    sensitiveSkinAdviceJa: '通常濃度（1%以下）では多くの方に安全ですが、特定の人において塗布直後の熱感・ヒリヒリ感の原因になります。',
-    comedogenicRating: 0,
+    reasonJa: 'パラベンの代わりに広く使われる防腐剤。EUの科学委員会は1%までなら安全と評価しています。肌の状態によっては、塗った直後にピリピリ感じることがあります。',
+    sensitiveSkinAdviceJa: '日本・EUとも配合上限は1%です。',
+    sources: [REF.sccsPhenoxyethanol, REF.jpCosmeticStandard],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'benzyl_alcohol',
@@ -180,9 +336,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ベンジルアルコール', 'benzyl alcohol'],
     category: 'preservative',
     riskLevel: 'low_caution',
-    reasonJa: '防腐剤・香料成分として使われます。EUで表示義務のある香料アレルゲンの一つで、ごく一部の人に接触皮膚炎を起こすことがあります。',
-    sensitiveSkinAdviceJa: '香料アレルギーの経験がある方は、ベンジルアルコールを含まない製品を選ぶと安心です。',
-    comedogenicRating: 0,
+    reasonJa: '防腐剤・溶剤・香料として使われます。EUで表示義務のある香料アレルゲンの一つで、米国接触皮膚炎学会の2026年「今年のアレルゲン」に選ばれました。アレルギーの頻度は高くありません。',
+    sensitiveSkinAdviceJa: '香料アレルギーの経験がある場合は、全成分表示で確認できます。',
+    sources: [REF.euCosmetics, REF.benzylAlcohol2026],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'parabens',
@@ -191,24 +348,26 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['パラベン', 'メチルパラベン', 'エチルパラベン', 'プロピルパラベン', 'ブチルパラベン', 'methylparaben', 'propylparaben'],
     category: 'preservative',
     riskLevel: 'low_caution',
-    reasonJa: '古くから使われる実績ある防腐剤ですが、旧表示指定成分であり、ごく一部のパラベンアレルギー体質の人に湿疹やかゆみを引き起こします。',
-    sensitiveSkinAdviceJa: '世間の悪評ほど全員に危険なわけではありませんが、パッチテストで反応が出た経験がある方はパラベンフリーを選びましょう。',
-    comedogenicRating: 0,
+    reasonJa: '古くから使われる防腐剤。アレルギーはまれで、米国接触皮膚炎学会は2019年に「アレルギーの原因になりにくい成分」としてパラベンを取り上げました。',
+    sensitiveSkinAdviceJa: '日本の化粧品基準では合計1%まで。EUでは一部のパラベン（イソプロピル・イソブチル等）が禁止されています。',
+    sources: [REF.acdsAllergenOfTheYear, REF.jpCosmeticStandard, REF.euParabens2014],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'propylene_glycol',
     nameJa: 'PG（プロピレングリコール）',
     nameEn: 'Propylene Glycol (PG)',
     aliases: ['pg', 'プロピレングリコール', 'propylene glycol'],
-    category: 'drying_alcohol',
+    category: 'moisturizer',
     riskLevel: 'moderate_irritant',
-    reasonJa: '浸透促進作用のある保湿剤ですが、皮膚刺激性・アレルギー性（旧表示指定成分）があり、敏感肌では灼熱感や赤みを生じることがあります。',
-    sensitiveSkinAdviceJa: 'PGの代わりにDPG、BG、プロパンジオールなどを使用した低刺激処方の製品がおすすめです。',
-    comedogenicRating: 0,
+    reasonJa: '保湿剤・溶剤。使用濃度でのアレルギーはまれですが、刺激が問題になることがあり、米国の安全性評価（CIR）も「刺激のない処方にすること」を条件に安全としています。米国接触皮膚炎学会の2018年「今年のアレルゲン」です。',
+    sensitiveSkinAdviceJa: '肌荒れ中に塗ってしみる場合は、PGを含まない製品と比べる手がかりになります。',
+    sources: [REF.cirPropyleneGlycol, REF.acdsAllergenOfTheYear],
+    reviewedAt: REVIEWED,
   },
 
   // ==========================================
-  // 🟣 高濃度アクティブ・ピーリング・紫外線吸収剤
+  // 🟣 アクティブ成分・ピーリング・紫外線吸収剤
   // ==========================================
   {
     id: 'retinol',
@@ -217,9 +376,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['レチノール', 'レチナール', 'パルミチン酸レチノール', 'retinol', 'retinal', 'retinyl palmitate'],
     category: 'potent_active',
     riskLevel: 'active_caution',
-    reasonJa: '細胞のターンオーバーを急激に促すため、「A反応（レチノイド反応）」による皮剥け、赤み、乾燥、ヒリヒリ感を高頻度で引き起こします。',
-    sensitiveSkinAdviceJa: '敏感肌の方は0.1%以下の低濃度から週1〜2回で開始し、セラミド等で十分保湿しながら慎重に慣らしてください。',
-    comedogenicRating: 0,
+    reasonJa: '使い始めに皮むけ・赤み・乾燥・ヒリヒリ感（いわゆるA反応）が出やすい成分です。',
+    sensitiveSkinAdviceJa: 'EUでは2024年から、ボディローションで0.05%、その他の製品で0.3%（レチノール換算）までに制限されています。',
+    sources: [REF.euVitaminA2024],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'salicylic_acid',
@@ -228,9 +388,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['サリチル酸', 'salicylic acid', 'bha'],
     category: 'potent_active',
     riskLevel: 'active_caution',
-    reasonJa: '脂溶性の角質溶解成分。毛穴の詰まりやニキビに効果的ですが、濃度や頻度が高いと角層を削りすぎてバリア崩壊を招きます。',
-    sensitiveSkinAdviceJa: '敏感肌は全顔連用を避け、気になるTゾーンのみの部分使いや、低濃度（0.5%以下）に留めましょう。',
-    comedogenicRating: 0,
+    reasonJa: '油になじみやすい角質をやわらげる成分。濃度や使用頻度が高いと、乾燥や刺激の原因になります。',
+    sensitiveSkinAdviceJa: '日本の化粧品基準では0.2%まで。ニキビ用の医薬部外品などでは、これより多く配合されることがあります。',
+    sources: [REF.jpCosmeticStandard],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'glycolic_acid',
@@ -239,9 +400,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['グリコール酸', 'glycolic acid', 'aha'],
     category: 'potent_active',
     riskLevel: 'active_caution',
-    reasonJa: '分子量が小さく角層深部まで素早く浸透するため、チクチクした痛みや強い赤み・炎症後色素沈着を起こしやすい酸です。',
-    sensitiveSkinAdviceJa: '敏感肌のピーリングには、分子量が大きくマイルドな乳酸（Lactic Acid）やPHA（グルコノラクトン）が推奨されます。',
-    comedogenicRating: 0,
+    reasonJa: '角質をはがす作用のある酸。濃度が高く pH が低いほど刺激が強く、使用中と使用後しばらくは日焼けしやすくなります。',
+    sensitiveSkinAdviceJa: '米国の安全性評価（CIR）は、濃度10%以下・pH 3.5以上で安全としています。米国FDAは使用中と使用後1週間の紫外線対策を勧めています。',
+    sources: [REF.fdaAha],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'ascorbic_acid',
@@ -250,9 +412,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['アスコルビン酸', 'l-アスコルビン酸', 'ascorbic acid', 'l-ascorbic acid', 'ビタミンc'],
     category: 'potent_active',
     riskLevel: 'active_caution',
-    reasonJa: '高濃度（10%〜20%）ピュアビタミンCはpHが強酸性（pH 2.5〜3.5）のため、塗布時に強いピリピリ感や赤みを誘発します。',
-    sensitiveSkinAdviceJa: '刺激を感じる場合は、中性付近で安定するビタミンC誘導体（3-O-エチルアスコルビン酸、アスコルビルグルコシド等）や低濃度品を選んでください。',
-    comedogenicRating: 0,
+    reasonJa: '肌に浸透させるには pH 3.5未満の酸性処方が必要なため、高濃度の製品では塗ったときにピリピリ感や赤みが出やすくなります。',
+    sensitiveSkinAdviceJa: '刺激を感じる場合は、安定型のビタミンC誘導体（3-O-エチルアスコルビン酸、アスコルビルグルコシド等）を使った製品が選択肢になります。',
+    sources: [REF.vitaminCAbsorption],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'oxybenzone',
@@ -261,9 +424,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['オキシベンゾン-3', 'オキシベンゾン', 'ベンゾフェノン-3', 'oxybenzone', 'benzophenone-3'],
     category: 'uv_filter',
     riskLevel: 'high_irritant',
-    reasonJa: '紫外線吸収剤の中で最もアレルギー・接触皮膚炎・光アレルギーを引き起こしやすい成分の一つです。',
-    sensitiveSkinAdviceJa: '敏感肌の日焼け止めは「ノンケミカル（紫外線吸収剤フリー/酸化チタン・酸化亜鉛の散乱剤主体）」が最も安全です。',
-    comedogenicRating: 0,
+    reasonJa: '紫外線吸収剤の中でも、接触アレルギーや光アレルギーの原因として知られる成分です（ベンゾフェノン類は米国接触皮膚炎学会の2014年「今年のアレルゲン」）。',
+    sensitiveSkinAdviceJa: '日本の化粧品基準では洗い流さない製品で5%まで。EUでも2022年に配合上限が引き下げられました。',
+    sources: [REF.acdsAllergenOfTheYear, REF.jpCosmeticStandard, REF.euUvFilters2022],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'octocrylene',
@@ -272,9 +436,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['オクトクリレン', 'octocrylene'],
     category: 'uv_filter',
     riskLevel: 'moderate_irritant',
-    reasonJa: '光安定性の高い吸収剤ですが、ケトプロフェン等との交差反応や光アレルギーの報告があります。',
-    sensitiveSkinAdviceJa: '日焼け止めでブツブツや赤みが出た経験がある方は要チェックの成分です。',
-    comedogenicRating: 0,
+    reasonJa: '光に安定な紫外線吸収剤ですが、光アレルギーの報告があり、特に湿布薬などのケトプロフェンで光アレルギーを起こした人に多くみられます。',
+    sensitiveSkinAdviceJa: '日焼け止めで赤みやブツブツが出た経験がある場合に、確認したい成分の一つです。',
+    sources: [REF.octocryleneReview, REF.jpCosmeticStandard],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'ethylhexyl_methoxycinnamate',
@@ -283,35 +448,38 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['メトキシケイヒ酸エチルヘキシル', 'メトキシケイヒ酸オクチル', 'octinoxate', 'ethylhexyl methoxycinnamate'],
     category: 'uv_filter',
     riskLevel: 'low_caution',
-    reasonJa: '日本で最も汎用されるUV-B吸収剤ですが、肌が極度に敏感な時は熱感や刺激を感じることがあります。',
-    sensitiveSkinAdviceJa: '肌荒れ時は紫外線吸収剤フリー処方（ノンケミカル）を推奨します。',
-    comedogenicRating: 0,
+    reasonJa: '広く使われるUV-B吸収剤。肌が敏感な時期は刺激を感じることがあります。',
+    sensitiveSkinAdviceJa: '日本の化粧品基準では20%まで（粘膜に使う製品は8%）。',
+    sources: [REF.jpCosmeticStandard],
+    reviewedAt: REVIEWED,
   },
 
   // ==========================================
-  // 🟢 敏感肌向け鎮静・抗炎症・バリア修復成分
+  // 🟢 鎮静・バリア・保湿成分
   // ==========================================
   {
     id: 'ceramides',
-    nameJa: 'ヒト型セラミド（NP, AP, EOP, EOS, NS）',
-    nameEn: 'Human-Type Ceramides (NP, AP, EOP, NS, AS)',
+    nameJa: 'ヒト型セラミド（NP, AP, EOP, NS）',
+    nameEn: 'Human-Type Ceramides (NP, AP, EOP, NS)',
     aliases: ['セラミド', 'セラミドnp', 'セラミドap', 'セラミドeop', 'セラミドns', 'セラミド2', 'セラミド3', 'セラミド6ii', 'セラミド1', 'ceramide np', 'ceramide ap', 'ceramide eop'],
     category: 'barrier_support',
     riskLevel: 'safe',
-    reasonJa: '人の肌に存在するセラミドと同一の立体構造を持ち、乱れた角層ラメラ構造を整えてバリア機能を劇的に強化します。',
-    sensitiveSkinAdviceJa: '敏感肌・ゆらぎ肌・アトピー素因のスキンケアに最も推奨される必須成分です。',
-    comedogenicRating: 0,
+    reasonJa: '角層の細胞間脂質の主成分と同じ構造の成分で、肌のバリアを支えます。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    sensitiveSkinAdviceJa: '乾燥しやすい肌の保湿成分としてよく使われます。',
+    sources: [REF.cirCeramides],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'dipotassium_glycyrrhizate',
     nameJa: 'グリチルリチン酸ジカリウム（グリチルリチン酸2K）',
     nameEn: 'Dipotassium Glycyrrhizate',
-    aliases: ['グリチルリチン酸2k', 'グリチルリチン酸ジカリウム', 'グリチルリチン酸二カリウム', 'dipotassium glycyrrhizate', '甘草エキス'],
+    aliases: ['グリチルリチン酸2k', 'グリチルリチン酸ジカリウム', 'グリチルリチン酸二カリウム', 'dipotassium glycyrrhizate'],
     category: 'soothing',
     riskLevel: 'safe',
-    reasonJa: '甘草由来の強力な抗炎症有効成分。肌の赤み、ヒリつき、炎症、肌荒れを優しく鎮静させます。',
-    sensitiveSkinAdviceJa: '日本の敏感肌向け医薬部外品（キュレル、IHADAなど）に定番配合されている安心成分です。',
-    comedogenicRating: 0,
+    reasonJa: '甘草の根に含まれる成分から作られる抗炎症成分で、肌荒れを防ぐ目的で配合されます。',
+    sensitiveSkinAdviceJa: '肌荒れ防止をうたう医薬部外品の有効成分として広く使われています。',
+    sources: [REF.cirGlycyrrhizates],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'allantoin',
@@ -320,9 +488,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['アラントイン', 'allantoin'],
     category: 'soothing',
     riskLevel: 'safe',
-    reasonJa: '組織修復・抗炎症作用を持ち、傷ついた肌の再生を助ける低刺激な有効成分です。',
-    sensitiveSkinAdviceJa: '肌荒れ防止・抗炎症作用が高く、デリケートな肌にも非常にマイルドです。',
-    comedogenicRating: 0,
+    reasonJa: '肌荒れを防ぐ目的で配合される低刺激な成分です。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    sensitiveSkinAdviceJa: '肌荒れ防止をうたう医薬部外品の有効成分として使われます。',
+    sources: [REF.cirAllantoin],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'centella_asiatica',
@@ -331,9 +500,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ツボクサエキス', 'ツボクサ葉エキス', 'マデカッソシド', 'アシアチコシド', 'マデカシン酸', 'アシアチン酸', 'centella asiatica extract', 'madecassoside', 'asiaticoside', 'cica'],
     category: 'soothing',
     riskLevel: 'safe',
-    reasonJa: '韓国コスメで絶大な支持を得るCICA成分。炎症を抑え、コラーゲン合成とバリア修復をサポートします。',
-    sensitiveSkinAdviceJa: '赤みが出やすい肌やニキビ跡の鎮静に最適です（精油が無添加のものを選びましょう）。',
-    comedogenicRating: 0,
+    reasonJa: 'ツボクサ由来の成分。主成分のトリテルペン（マデカッソシド等）に、炎症を抑え傷の治りを助ける働きが報告されています。',
+    sensitiveSkinAdviceJa: '肌荒れケアをうたう製品に配合されます。人での臨床データはまだ多くありません。',
+    sources: [REF.centellaReview],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'panthenol',
@@ -342,9 +512,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['パンテノール', 'デクスパンテノール', 'panthenol', 'd-panthenol'],
     category: 'soothing',
     riskLevel: 'safe',
-    reasonJa: '肌に浸透してビタミンB5に変化し、強力な保湿力とともに細胞修復・バリア強化を促進します。',
-    sensitiveSkinAdviceJa: '肌のつっぱりや粉吹き、皮剥けを素早く鎮める優秀な成分です。',
-    comedogenicRating: 0,
+    reasonJa: '肌でパントテン酸（ビタミンB5）に変わる保湿成分です。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    sensitiveSkinAdviceJa: '乾燥や肌荒れ対策の製品によく配合されます。',
+    sources: [REF.cirPanthenol],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'niacinamide',
@@ -353,9 +524,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ナイアシンアミド', 'ニコチン酸アミド', 'niacinamide', 'nicotinamide'],
     category: 'barrier_support',
     riskLevel: 'safe',
-    reasonJa: 'セラミド合成を促進してバリア機能を底上げし、シワ改善・美白・皮脂バランス調整を行います。',
-    sensitiveSkinAdviceJa: '通常濃度（2%〜5%）は敏感肌に極めて有益ですが、10%以上の超高濃度品は一時的な赤み（ナイアシンフラッシュ）が出る場合があるため低〜中濃度が安全です。',
-    comedogenicRating: 0,
+    reasonJa: 'ビタミンB3の一種で、肌のバリア機能を支える成分として配合されます。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    sensitiveSkinAdviceJa: 'ナイアシン（ニコチン酸）と違い、顔のほてり（フラッシング）は起こしにくい成分です。高濃度の製品で刺激を感じる人もいます。',
+    sources: [REF.cirNiacinamide, REF.nicotinamideVsNiacin],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'hyaluronic_acid',
@@ -364,9 +536,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['ヒアルロン酸na', '加水分解ヒアルロン酸', 'アセチルヒアルロン酸na', 'ヒアルロン酸ヒドロキシプロピルトリモニウム', 'sodium hyaluronate', 'hyaluronic acid', 'hydrolyzed hyaluronic acid'],
     category: 'moisturizer',
     riskLevel: 'safe',
-    reasonJa: '1gで6リットルの水分を抱え込む保水力。生体親和性が高く、敏感肌にも刺激のない安全な保湿成分です。',
-    sensitiveSkinAdviceJa: '乾燥によるバリア低下を防ぐ基礎保湿として万人に適しています。',
-    comedogenicRating: 0,
+    reasonJa: '水分を抱える力の大きい保湿成分です。米国の安全性評価（CIR）は化粧品での使用を安全とし、動物試験で感作性は認められていません。',
+    sensitiveSkinAdviceJa: '基本的な保湿成分として幅広い製品に使われます。',
+    sources: [REF.cirHyaluronates],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'squalane',
@@ -375,9 +548,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['スクワラン', '植物性スクワラン', 'squalane'],
     category: 'moisturizer',
     riskLevel: 'safe',
-    reasonJa: '皮脂膜を構成するスクワレンを水素添加して酸化しにくくしたオイル。肌なじみが抜群で低刺激です。',
-    sensitiveSkinAdviceJa: '毛穴を詰まらせにくく（ノンコメドジェニック）、敏感肌の油分補給に最適です。',
-    comedogenicRating: 1,
+    reasonJa: '皮脂に含まれるスクワレンに水素を添加して、酸化しにくくしたオイルです。',
+    sensitiveSkinAdviceJa: '酸化しにくいため、油分を補う成分として使われます。',
+    sources: [REF.squaleneReview],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'glycerin',
@@ -386,9 +560,10 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['グリセリン', '濃グリセリン', 'glycerin', 'glycerine', 'glycerol'],
     category: 'moisturizer',
     riskLevel: 'safe',
-    reasonJa: '最も安全で刺激のない代表的な水溶性保湿剤。角層の水分保持とバリア修復に必須です。',
-    sensitiveSkinAdviceJa: '敏感肌・アトピー肌にも安心の定番基剤です。',
-    comedogenicRating: 0,
+    reasonJa: '代表的な水溶性の保湿剤。角層の水分を保ち、バリアの回復を助けることが報告されています。',
+    sensitiveSkinAdviceJa: '乾燥肌向けの多くの製品の基本成分です。',
+    sources: [REF.glycerolReview],
+    reviewedAt: REVIEWED,
   },
   {
     id: 'butylene_glycol',
@@ -397,8 +572,9 @@ export const KNOWN_INGREDIENTS: KnownIngredient[] = [
     aliases: ['bg', '1,3-ブチレングリコール', 'ブチレングリコール', 'butylene glycol'],
     category: 'moisturizer',
     riskLevel: 'safe',
-    reasonJa: 'PGと比べて皮膚刺激・アレルギー性が極めて低い多価アルコール保湿剤・防腐助剤です。',
-    sensitiveSkinAdviceJa: '日本の敏感肌向け化粧品で最も信頼されている低刺激な基剤の一つです。',
-    comedogenicRating: 1,
-  }
+    reasonJa: '保湿剤・溶剤として広く使われる多価アルコール。刺激は少ない成分ですが、まれに接触アレルギーの報告があります。',
+    sensitiveSkinAdviceJa: '多くの化粧品に含まれる基本成分です。',
+    sources: [REF.butyleneGlycolAllergy],
+    reviewedAt: REVIEWED,
+  },
 ];

@@ -57,7 +57,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'safe',
       reasonJa: '化粧品の大部分（基剤）を構成する精製水です。他の成分を溶解・均一に保ち、肌に水分を補給します。',
       sensitiveSkinAdviceJa: '皮膚刺激性やアレルギー性はなく、すべての肌質・敏感肌において安全に使用できます。',
-      comedogenicRating: 0,
     };
   }
 
@@ -82,7 +81,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'low_caution',
       reasonJa: '微細な多孔質構造を持ち、毛穴の余分な皮脂や汚れ、角栓を物理的に吸着して洗い流す清浄成分です。',
       sensitiveSkinAdviceJa: '皮脂吸着力が比較的高いため、乾燥肌や極度の敏感肌が毎日使うとつっぱり感を感じる場合があります。擦らず優しく洗い流してください。',
-      comedogenicRating: 0,
     };
   }
 
@@ -104,7 +102,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'low_caution',
       reasonJa: '植物繊維由来のマイルドな粒子で、古い角質や毛穴汚れをやさしく絡め取るスクラブ・テクスチャー調整成分です。',
       sensitiveSkinAdviceJa: '化学合成プラスチックビーズよりも肌当たりは穏やかですが、肌のバリア機能が低下している時は擦りすぎないよう注意が必要です。',
-      comedogenicRating: 0,
     };
   }
 
@@ -129,7 +126,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       sensitiveSkinAdviceJa: isLauric
         ? 'ラウリン酸は泡立ちに優れますが、肌の脱脂力がやや強く、敏感肌にはつっぱり感の原因になることがあります。'
         : '皮脂膜を構成する脂肪酸に近く刺激性は低めですが、洗い流しを十分に行い肌に残さないことが大切です。',
-      comedogenicRating: isLauric ? 4 : 2,
     };
   }
 
@@ -156,7 +152,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'safe',
       reasonJa: 'pH調整剤および脂肪酸とケン化反応を起こして石けんを形成するためのアルカリ成分です。製品中では中和されて存在します。',
       sensitiveSkinAdviceJa: '製品のpHを適切に保つために配合されており、最終製品中では中和されているため直接的なアルカリ刺激の心配は通常ありません。',
-      comedogenicRating: 0,
     };
   }
 
@@ -185,7 +180,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       sensitiveSkinAdviceJa: isDPG
         ? 'DPGは高濃度で配合された場合、超敏感肌や赤み肌でごく稀にピリピリ感を感じることがあります。グリセリンやBG主体の処方はより低刺激です。'
         : '肌への親和性が高く、刺激性は極めて低いため、乾燥性敏感肌でも安心して使える基本の保湿成分です。',
-      comedogenicRating: 0,
     };
   }
 
@@ -209,7 +203,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'safe',
       reasonJa: '皮脂を取りすぎず、アミノ酸や両性イオンの力でマイルドに洗浄する低刺激な界面活性剤です。キメ細やかな泡立ちを補助します。',
       sensitiveSkinAdviceJa: 'バリア機能を壊しにくく、肌の天然保湿因子（NMF）を守りながら洗えるため、敏感肌や乾燥肌に最もおすすめされる洗浄処方です。',
-      comedogenicRating: 0,
     };
   }
 
@@ -229,7 +222,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'high_irritant',
       reasonJa: '極めて高い脱脂力と起泡力を持つ陰イオン界面活性剤です。頑固な皮脂や油分を強力に落とします。',
       sensitiveSkinAdviceJa: '皮膚のバリア脂質（細胞間脂質やセラミド）まで過剰に洗い流してしまい、肌荒れ・乾燥・かゆみを引き起こす代表的な刺激成分です。敏感肌は避けることを推奨します。',
-      comedogenicRating: 0,
     };
   }
 
@@ -254,7 +246,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'safe',
       reasonJa: '肌表面に薄い保護ヴェールを形成し、水分の蒸発を防いで滑らかな感触を与えるエモリエント・保護成分です。',
       sensitiveSkinAdviceJa: '肌の角層に浸透せず表面を保護するため化学的刺激性はほとんどなく、バリア機能が低下した肌の水分保護に適しています。',
-      comedogenicRating: 1,
     };
   }
 
@@ -277,7 +268,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'safe',
       reasonJa: '化粧水やジェルのとろみ・粘度を安定させ、肌に塗布した際の摩擦を軽減する高分子ポリマーです。',
       sensitiveSkinAdviceJa: '分子量が非常に大きいため皮膚内に浸透せず、アレルギーや刺激のリスクは極めて低いです。敏感肌でも安全に使用できます。',
-      comedogenicRating: 0,
     };
   }
 
@@ -299,7 +289,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'active_caution',
       reasonJa: '古い角質（タンパク質）や過剰な角栓（皮脂）を選択的に分解し、ざらつきやくすみをオフする酵素成分です。',
       sensitiveSkinAdviceJa: '角質分解作用があるため、肌がデリケートな時期や連日使用すると角層が薄くなりヒリつきを感じる場合があります。週1〜2回のスペシャルケアが安全です。',
-      comedogenicRating: 0,
     };
   }
 
@@ -321,7 +310,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'safe',
       reasonJa: '水道水中のミネラル（銅・鉄イオン）を封鎖して石けんカスの発生を防ぎ、製品の酸化・変質を防止する品質保持成分です。',
       sensitiveSkinAdviceJa: '微量配合で製品の安定性を高める役割を持ち、敏感肌に対しても一般的な配合量では刺激になりにくい成分です。',
-      comedogenicRating: 0,
     };
   }
 
@@ -341,7 +329,6 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       riskLevel: 'low_caution',
       reasonJa: '植物や発酵由来の美容成分（ポリフェノール・アミノ酸・ビタミン等）を含み、肌のキメや透明感をサポートします。',
       sensitiveSkinAdviceJa: '天然由来成分ですが、植物固有の成分に対して稀にアレルギー反応を起こす体質の方もいます。初めて使う際はパッチテストを行うと安心です。',
-      comedogenicRating: 0,
     };
   }
 

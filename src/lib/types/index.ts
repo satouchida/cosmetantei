@@ -39,7 +39,15 @@ export interface KnownIngredient {
   riskLevel: IngredientRiskLevel;
   reasonJa: string;
   sensitiveSkinAdviceJa: string;
-  comedogenicRating?: number; // 0 - 5
+  /** 記述の根拠（規制・安全性評価・論文）。成分DB（ingredients-db.ts）の項目では必須 */
+  sources?: ReferenceLink[];
+  /** 記述を出典と照合した日（YYYY-MM-DD）。成分DBの項目では必須 */
+  reviewedAt?: string;
+}
+
+export interface ReferenceLink {
+  title: string;
+  url: string;
 }
 
 /**
