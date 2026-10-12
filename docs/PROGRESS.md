@@ -25,7 +25,7 @@ Last updated: 2026-10-12.
 | 2026-10-12 | `a9cc10b` | Japanese-market data, step 4: quasi-drug (医薬部外品) labels. Active ingredients are analysed, 「他 n成分」 and the unordered 「その他の成分」 are explained, splitting no longer breaks names like 1,3-ブチレングリコール, and the official quasi-drug names are matched ([plan](plans/japan-ingredient-data.md), [walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md)) |
 | 2026-10-12 | `9e50058` | Step 4's known limits: 「・」-only labels rejoin names by JCIA's 簡略名 guideline, old saved Open Beauty Facts products are fetched again, abbreviated and full names match (POE/Na/2K), and the name list edition is confirmed ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#follow-up-the-same-day-the-known-limits)) |
 | 2026-10-12 | `8cfe0ad` | Quasi-drug analyses link to JCIA's name list and labelling policy as their source (cited by link, not copied) ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#citing-jcia-by-link)) |
-| 2026-10-12 | *this commit* | Ingredient label input: paste a label or photograph it (Gemini transcribes, the user checks, our parser analyses with no AI call); labels aren't stored or shared ([plan](plans/label-input.md), [walkthrough](walkthroughs/2026-10-12-label-input.md)) |
+| 2026-10-12 | `b8ccd57` | Ingredient label input: paste a label or photograph it (Gemini transcribes, the user checks, our parser analyses with no AI call); labels aren't stored or shared ([plan](plans/label-input.md), [walkthrough](walkthroughs/2026-10-12-label-input.md)) |
 
 ## In progress
 
@@ -62,8 +62,8 @@ From [03, Product](review/03-other-upgrades.md#product):
 - **Ingredient database review:** due 2027-10-12; test 55 warns in CI. At the same review, check
   whether JCIA has published a newer quasi-drug name list (current: 2008-03-25 edition).
 - **JCIA:** the analysis card links to JCIA's quasi-drug name list and labelling policy. JCIA's
-  site policy asks to be told about links, so tell JCIA before release. Importing its name lists
-  needs JCIA's permission.
+  site policy asks to be told about links; JCIA was told on 2026-10-13. If a linked URL moves,
+  update `QUASI_DRUG_LABEL_REFERENCES`. Importing its name lists still needs JCIA's permission.
 
 - **Next 16.4:** pinned to 16.3.8 until
   [opennextjs-cloudflare#1355](https://github.com/opennextjs/opennextjs-cloudflare/issues/1355) is
