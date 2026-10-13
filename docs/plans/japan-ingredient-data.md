@@ -1,9 +1,10 @@
 # Plan: ingredient data for the Japanese market
 
-Written 2026-10-12. Status: step 4 done on 2026-10-12
+Written 2026-10-12. Status: step 2 done on 2026-10-14
+([walkthrough](../walkthroughs/2026-10-14-cosmetic-standards.md)); step 4 done on 2026-10-12
 ([walkthrough](../walkthroughs/2026-10-12-quasi-drug-labels.md)), and its known limits fixed the same
-day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Steps 2,
-3, 5 and 6 not started.
+day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Steps 3, 5
+and 6 not started.
 
 ## Why
 
@@ -49,7 +50,7 @@ Not used: brand sites, blogs, and Gemini.
 | # | Step | What | Status |
 |---|---|---|---|
 | 1 | Name bridge | Japanese label names ⇄ INCI, from the JCIA lists, including quasi-drug names | **partly done; the rest is blocked.** Done: matching abbreviated and full names (POE/ポリオキシエチレン, Na/ナトリウム, 2K/ジカリウム) by the rules of JCIA's 簡略名作成ガイドライン, without the list. Blocked: JCIA's [site policy](https://www.jcia.org/user/jcia/sitepolicy) says its data and PDFs may not be quoted, copied, reproduced or processed without permission, and asks users to contact JCIA first. Linking is allowed in principle (JCIA asks to be told about links), so the app cites the list by linking to it: a quasi-drug's analysis card links to the name list and the labelling policy. Importing the lists still needs permission. Until then, names are added one by one as aliases with a source, as in step 4 |
-| 2 | 化粧品基準 rules | Banned (別表第1), restricted (第2) and approved-list (第3, 第4) facts as data, so a card can say "limited to X%" or "rinse-off only" | not started |
+| 2 | 化粧品基準 rules | Banned (別表第1), restricted (第2) and approved-list (第3, 第4) facts as data, so a card can say "limited to X%" or "rinse-off only" | **done 2026-10-14** (see below) |
 | 3 | Japan-specific incidents | Sourced entries for 加水分解コムギ and ロドデノール | not started |
 | 4 | Quasi-drug labels | See below | **done 2026-10-12** |
 | 5 | Pair rules across products | E.g. a retinoid with AHA/BHA; several fragrance allergens across a routine. Each rule needs a source | not started |
@@ -100,3 +101,54 @@ Edition check (2026-10-12): the name list JCIA links today
 (`…/ingredients/drugexplain/qdlnl.pdf`) is byte-identical to the copy used above. It is the
 2008-03-25 edition, last modified on the server on 2018-06-29. JCIA says it will update the list on
 its site but gives no date, so recheck at each review.
+
+## Step 2: 化粧品基準
+
+Sources, given by the owner on 2026-10-14:
+- MHLW, [化粧品・医薬部外品 page](https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/kenkou_iryou/iyakuhin/keshouhin/):
+  links the 化粧品基準 with amendments applied (`000491511.pdf`), the English edition
+  (`001257665.pdf`) and the 2021 Q&A.
+- 東京都健康安全研究センター, [通知 page](https://www.tmiph.metro.tokyo.lg.jp/k_yakuji/i-sinsa/cosmetics/tsuuchi/):
+  the history of amendments. The latest is 令和6年7月12日 厚生労働省告示第243号 (システアミン塩酸塩 in
+  別表第2の2), and MHLW's PDF includes it.
+- `000839905.pdf` is 医薬部外品原料規格2021 (purity specifications for quasi-drug raw
+  materials), and the 添加物リスト (平成20年 薬食審査発第0327004号) gives quasi-drug additive
+  limits. Neither is used in step 2. Labels don't give amounts, and the 化粧品基準 does not apply
+  to quasi-drugs.
+
+Rights: a 告示 is not protected by copyright (著作権法13条2号), so the tables are stored as data.
+
+How the tables were read:
+- **Text:** extracted with PDFKit.
+- **Columns:** checked on page images, because a blank cell means "banned for this type", and
+  the extracted text loses which column is blank.
+- **Counts:** test 73 checks the entry count of each table and spot values.
+
+What the app does:
+- `src/lib/data/cosmetic-standards-jp.ts`:
+  - every entry, with the 告示 name, the English edition's name, and the names to match
+    against labels;
+  - groups of substances (parabens, 感光素, mercury and the other elements) are matched by a
+    name pattern;
+  - classes with no recognisable name (hormones, antihistamines, nitrofurans …) are kept for
+    completeness but match nothing.
+- `src/lib/analyzer/jp-standards.ts`: the product type comes from the category (`cleanser`
+  rinse-off; `toner`, `serum`, `cream` and `sunscreen` leave-on; everything else unknown).
+- **The ingredient card** shows the limit for each type, and links to the 告示. For 別表第3 and
+  第4 it says "when used as a preservative / UV filter", because those tables only govern
+  that use.
+- **Product notes** (cosmetics only, not quasi-drugs):
+  - banned 別表第1 ingredients;
+  - ingredients not allowed for the product's type, such as MCI or DMDM hydantoin in a
+    leave-on cream.
+- Labels give no amounts, so the card says the label can't show whether a limit is kept.
+
+Open questions:
+- **Lip products:** neither the 告示 nor the 2021 Q&A defines whether a lip product is
+  「粘膜に使用されることがある化粧品」 (the Q&A only covers bath products). So lip products get
+  no product-type ruling, and their cards list all three columns.
+- **Label names** (化粧品表示名称, e.g. t-ブチルメトキシジベンゾイルメタン for 4-tert-ブチル-4'-
+  メトキシジベンゾイルメタン) come from the INCI names in the English edition, and from common
+  label usage. They are not checked against JCIA's name list (step 1).
+- **Amendments:** the PDF is "as amended to 令和6年7月12日" (`COSMETIC_STANDARD_AMENDED`).
+  Recheck the Tokyo page for new 告示 at each review.

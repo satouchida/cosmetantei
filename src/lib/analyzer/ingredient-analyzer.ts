@@ -1,7 +1,9 @@
 import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES } from '../data/ingredients-db';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
-import { normalizeIngredientName } from '../utils/ingredient-name';
+import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
+import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
+import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
 import {
   AnalyzedIngredient,
   CulpritIngredient,
@@ -15,57 +17,7 @@ import {
 export const MARKETPLACE_DISCLAIMER_JA =
   '※本製品の全成分情報は、Amazon / 楽天市場 / Olive Young / Sephora などのオンラインマーケットプレイスおよび公開情報をもとに探索・収集したものです。商品のリニューアルや販売地域（国内処方・並行輸入・海外処方）により実際のパッケージ表記と一部異なる（誤差を含む）場合がありますので、ご使用前にお手元の製品パッケージ表記もご確認ください。';
 
-export { normalizeIngredientName };
-
-/**
- * 成分名と簡略名（「ポリオキシエチレン〜ナトリウム」と「POE〜Na」）を同じ形にそろえる。完全一致の照合だけに使う。
- * 日本化粧品工業連合会「医薬部外品簡略名作成ガイドライン」(2006) の略号（1.）・元素記号（2.）・漢数字（8-1）・
- * 天然の L 体の「L-」の省略（7-6）による。成分名の一覧（名称リスト）は使わない
- */
-const ABBREVIATIONS: [RegExp, string][] = [
-  [/ポリオキシエチレン/g, 'poe'],
-  [/ポリオキシプロピレン/g, 'pop'],
-  [/ポリエチレングリコール/g, 'peg'],
-  [/ポリプロピレングリコール/g, 'ppg'],
-  [/ジプロピレングリコール/g, 'dpg'],
-  [/1,3ブチレングリコール/g, 'bg'],
-  [/プロピレングリコール/g, 'pg'],
-  [/トリエタノールアミン/g, 'tea'],
-  [/ジエタノールアミン/g, 'dea'],
-  [/モノエタノールアミン/g, 'mea'],
-  [/エチレンジアミンテトラ酢酸/g, 'edta'],
-  [/ピロリドンカルボン酸/g, 'pca'],
-  [/ジメチルポリシロキサン/g, 'ジメチコン'],
-];
-const ELEMENTS: [string, string][] = [
-  ['リチウム', 'li'],
-  ['ナトリウム', 'na'],
-  ['カリウム', 'k'],
-  ['マグネシウム', 'mg'],
-  ['カルシウム', 'ca'],
-  ['バリウム', 'ba'],
-  ['ジルコニウム', 'zr'],
-  ['アルミニウム', 'al'],
-  ['亜鉛', 'zn'],
-  ['チタン', 'ti'],
-  ['クロム', 'cr'],
-  ['ビスマス', 'bi'],
-  ['コバルト', 'co'],
-];
-const MULTIPLIERS: Record<string, string> = { モノ: '', ジ: '2', 二: '2', トリ: '3', 三: '3', テトラ: '4', 四: '4' };
-const ELEMENT_PATTERN = new RegExp(
-  `(モノ|ジ|二|トリ|三|テトラ|四)?(${ELEMENTS.map(([name]) => name).join('|')})`,
-  'g'
-);
-const ELEMENT_SYMBOLS = new Map(ELEMENTS);
-
-export function abbreviateIngredientName(norm: string): string {
-  let s = norm.replace(/^l(?=[ァ-ヶ])/, '');
-  for (const [pattern, abbr] of ABBREVIATIONS) s = s.replace(pattern, abbr);
-  return s.replace(ELEMENT_PATTERN, (_, mult: string | undefined, name: string) => {
-    return `${mult ? MULTIPLIERS[mult] : ''}${ELEMENT_SYMBOLS.get(name)}`;
-  });
-}
+export { normalizeIngredientName, abbreviateIngredientName };
 
 /** 既知DBの名称・別名の簡略形（照合のたびに作らない） */
 let abbreviatedKnownNames: { item: KnownIngredient; names: Set<string> }[] | undefined;
@@ -311,6 +263,9 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
 
   const warningsJa: string[] = [];
   const soothingHighlightsJa: string[] = [];
+  // 化粧品基準（化粧品のみ。医薬部外品は品目ごとの承認による）
+  const useType = productUseType(product);
+  const standardFound: { rawName: string; entry: StandardEntry; note: ReturnType<typeof standardNote> }[] = [];
 
   const isEstimatedFromMarketplaces =
     product.isEstimatedFromMarketplaces ||
@@ -332,6 +287,11 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       matched.riskLevel === 'moderate_irritant' ||
       matched.riskLevel === 'active_caution';
 
+    const norm = normalizeIngredientName(raw);
+    const standardEntry = product.isQuasiDrug ? undefined : findStandardEntry(norm, abbreviateIngredientName(norm));
+    const jpStandard = standardEntry ? standardNote(standardEntry, useType) : undefined;
+    if (standardEntry && jpStandard) standardFound.push({ rawName: raw, entry: standardEntry, note: jpStandard });
+
     analyzedIngredients.push({
       rawName: raw,
       normalizedJa: matched.nameJa,
@@ -341,6 +301,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       category: matched.category,
       reasonJa: matched.reasonJa,
       ...(isActive && { isActive }),
+      ...(jpStandard && { jpStandard }),
     });
 
     if (matched.riskLevel === 'high_irritant' || matched.riskLevel === 'moderate_irritant') {
@@ -361,6 +322,12 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
   if (undisclosedCount > 0) {
     labelNotesJa.push(`企業秘密として名称が表示されていない成分が${undisclosedCount}個あります（「他${undisclosedCount}成分」）。`);
   }
+  labelNotesJa.push(...standardLabelNotes(product, standardFound));
+
+  const labelReferences = [
+    ...(product.isQuasiDrug || undisclosedCount > 0 ? QUASI_DRUG_LABEL_REFERENCES : []),
+    ...(standardFound.length > 0 ? [COSMETIC_STANDARD_REFERENCE] : []),
+  ];
 
   // 総合リスク判定（刺激成分の検出が優先。検出が無くても、評価できた成分が少なければ「安全」とは判定しない）
   const evaluatedCount = analyzedIngredients.length;
@@ -418,7 +385,8 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     warningsJa,
     soothingHighlightsJa,
     safeAlternatives,
-    ...(labelNotesJa.length > 0 && { labelNotesJa, labelReferences: QUASI_DRUG_LABEL_REFERENCES }),
+    ...(labelNotesJa.length > 0 && { labelNotesJa }),
+    ...(labelReferences.length > 0 && { labelReferences }),
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer: isEstimatedFromMarketplaces ? MARKETPLACE_DISCLAIMER_JA : undefined,
   };

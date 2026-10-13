@@ -3210,3 +3210,103 @@ test('72. Ingredient explanations: rules classify look-alike names correctly; th
     clearGatewayEnv();
   }
 });
+
+test('73. 化粧品基準: the tables match the 告示; label names find their entries; notes only for cosmetics', async () => {
+  const { COSMETIC_STANDARD } = await import('../src/lib/data/cosmetic-standards-jp');
+  const { findStandardEntry, standardNote } = await import('../src/lib/analyzer/jp-standards');
+  const { normalizeIngredientName, abbreviateIngredientName } = await import('../src/lib/analyzer/ingredient-analyzer');
+
+  // 表ごとの項目数（告示の PDF、令和6年7月12日改正版）
+  const counts: Record<string, number> = {};
+  for (const e of COSMETIC_STANDARD) counts[e.table] = (counts[e.table] ?? 0) + 1;
+  assert.deepStrictEqual(counts, {
+    別表第1: 30,
+    別表第2の1: 4,
+    別表第2の2: 11,
+    別表第2の3: 3,
+    別表第3の1: 16,
+    別表第3の2: 32,
+    別表第4の1: 6,
+    別表第4の2: 28,
+  });
+
+  // 値の形：区分ごとの表は3つの区分すべて、数値は正
+  const valid = (v: unknown) => v === 'any' || v === 'banned' || (typeof v === 'number' && v > 0);
+  for (const e of COSMETIC_STANDARD) {
+    if (['別表第2の3', '別表第3の2', '別表第4の2'].includes(e.table)) {
+      assert.ok(valid(e.rinseOff) && valid(e.leaveOn) && valid(e.mucosa), e.nameJa);
+    }
+    if (['別表第2の1', '別表第3の1', '別表第4の1'].includes(e.table)) assert.ok(valid(e.all), e.nameJa);
+  }
+
+  // 照合する名前は項目どうしで重ならない
+  const seen = new Map<string, string>();
+  for (const e of COSMETIC_STANDARD) {
+    for (const n of e.names) {
+      const key = normalizeIngredientName(n);
+      assert.ok(!seen.has(key) || seen.get(key) === e.nameJa, `${n}: ${seen.get(key)} / ${e.nameJa}`);
+      seen.set(key, e.nameJa);
+    }
+  }
+
+  // 告示の値（ページの画像で列を確かめたもの）
+  const entry = (name: string) => {
+    const norm = normalizeIngredientName(name);
+    return findStandardEntry(norm, abbreviateIngredientName(norm));
+  };
+  const limits = (name: string) => {
+    const e = entry(name);
+    return e && (e.all !== undefined ? e.all : [e.rinseOff, e.leaveOn, e.mucosa]);
+  };
+  assert.deepStrictEqual(limits('クロルフェネシン'), [0.3, 0.3, 'banned']);
+  assert.deepStrictEqual(limits('Methylchloroisothiazolinone'), [0.1, 'banned', 'banned']);
+  assert.deepStrictEqual(limits('メトキシケイヒ酸エチルヘキシル'), [20, 20, 8.0]);
+  assert.deepStrictEqual(limits('チモール'), [0.05, 0.05, 'any']);
+  assert.deepStrictEqual(limits('塩化ベンゼトニウム'), [0.5, 0.2, 'banned']);
+  assert.deepStrictEqual(limits('オキシベンゾン-3'), ['any', 5.0, 5.0]);
+  assert.strictEqual(limits('フェノキシエタノール'), 1.0);
+  assert.strictEqual(limits('メチルパラベン'), 1.0);
+  assert.strictEqual(limits('パラオキシ安息香酸プロピル'), 1.0);
+  assert.strictEqual(limits('サリチル酸'), 0.2);
+  assert.strictEqual(limits('サリチル酸ナトリウム'), 1.0);
+  assert.strictEqual(entry('ホウ酸')?.table, '別表第1');
+  // 対象外：オキシ塩化ビスマス（別表第1の除外）、香料のサリチル酸ベンジル、ホウ砂を含まない「ホウケイ酸」
+  // 簡略名（Na・Zn）でも、名前の全部（ナトリウム・亜鉛）でも見つかる
+  assert.strictEqual(entry('ピリチオンZn')?.nameJa, 'ピリチオン亜鉛');
+  assert.strictEqual(entry('オルトフェニルフェノールNa')?.nameJa, 'オルトフェニルフェノールナトリウム');
+  assert.strictEqual(entry('o-シメン-5-オール')?.nameJa, 'イソプロピルメチルフェノール');
+  for (const name of ['オキシ塩化ビスマス', 'オキシ塩化Bi', 'Bismuth Oxychloride', 'ビスマスオキシクロリド', 'サリチル酸ベンジル', 'ホウケイ酸(Ca/Na)', '水', 'グリセリン']) {
+    assert.strictEqual(entry(name), undefined, name);
+  }
+  // 区分がわかるときだけ「配合できません」
+  const mci = entry('メチルクロロイソチアゾリノン')!;
+  assert.strictEqual(standardNote(mci, 'leaveOn').notAllowedHere, true);
+  assert.strictEqual(standardNote(mci, 'rinseOff').notAllowedHere, false);
+  assert.strictEqual(standardNote(mci, undefined).notAllowedHere, false);
+
+  // 製品の分析
+  const product = (category: Product['category'], ingredients: string[], extra: Partial<Product> = {}): Product => ({
+    id: 'std_test', name: 'テスト', brand: 'テスト', country: 'US', category, ingredients, ...extra,
+  });
+  const cream = analyzeProduct(product('cream', ['Water', 'Methylchloroisothiazolinone', 'Phenoxyethanol', 'Boric Acid']));
+  assert.ok(cream.ingredients.find((i) => i.rawName === 'Phenoxyethanol')?.jpStandard?.textJa.includes('100g中1gまで'));
+  assert.ok(cream.labelNotesJa?.some((n) => n.includes('配合が禁止されている成分') && n.includes('Boric Acid')));
+  assert.ok(cream.labelNotesJa?.some((n) => n.includes('洗い流さない化粧品に配合できない') && n.includes('Methylchloroisothiazolinone')));
+  assert.ok(cream.labelReferences?.some((r) => r.url.includes('000491511')));
+  // 洗い流す製品では MCI は配合できる
+  const wash = analyzeProduct(product('cleanser', ['Water', 'Methylchloroisothiazolinone']));
+  assert.ok(!wash.labelNotesJa?.length);
+  // 拭き取り・クレンジングウォーターは「洗い流すもの」と決めない
+  const { productUseType } = await import('../src/lib/analyzer/jp-standards');
+  assert.strictEqual(productUseType({ category: 'cleanser', name: '泡洗顔フォーム' }), 'rinseOff');
+  assert.strictEqual(productUseType({ category: 'cleanser', name: 'クレンジングウォーター' }), undefined);
+  assert.strictEqual(productUseType({ category: 'cleanser', name: '拭き取り化粧水' }), undefined);
+  // リップ製品は区分を決めない（「粘膜に使用されることがある化粧品」に当たるかの定義が無い）
+  const lip = analyzeProduct(product('lip', ['ワセリン', 'クロルフェネシン']));
+  assert.ok(lip.ingredients[1].jpStandard && !lip.ingredients[1].jpStandard.notAllowedHere);
+  assert.ok(!lip.labelNotesJa?.length);
+  // 医薬部外品には化粧品基準を当てはめない
+  const quasi = analyzeProduct(product('cream', ['水', 'メチルパラベン', 'ホウ酸'], { isQuasiDrug: true }));
+  assert.ok(quasi.ingredients.every((i) => !i.jpStandard));
+  assert.ok(!quasi.labelNotesJa?.some((n) => n.includes('化粧品基準')));
+});

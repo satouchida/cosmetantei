@@ -326,6 +326,23 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             💡 アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
               '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。'}
           </p>
+          {selectedIngredient.jpStandard && (
+            <p
+              className={`text-[11px] leading-relaxed ${
+                selectedIngredient.jpStandard.notAllowedHere ? 'text-rose-800' : 'text-gray-600'
+              }`}
+            >
+              📋 {selectedIngredient.jpStandard.textJa}{' '}
+              <a
+                href={selectedIngredient.jpStandard.referenceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 text-sage-700 hover:text-sage-900"
+              >
+                告示を見る<span className="sr-only">（新しいタブで開く）</span>
+              </a>
+            </p>
+          )}
           {selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
             <p className="text-[10px] text-gray-500">この解説はAIが作成した参考情報です。</p>
           )}
