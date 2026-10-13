@@ -59,7 +59,9 @@ Not used: brand sites, blogs, marketing copy, and Gemini.
 ## Out of scope (recorded for later)
 
 - The rule-based explanations in `dynamic-ingredient-service.ts`, which cover ingredients not in
-  this database. They have the same problem and should get the same treatment next.
+  this database. Audited on 2026-10-14
+  ([walkthrough](../walkthroughs/2026-10-14-ingredient-explanations.md)); they still have no
+  per-rule sources.
 - Adding new ingredients.
 - `comedogenicRating`: nothing reads it. It comes from old animal tests of low reliability; the
   audit removes values it can't source rather than defending them.

@@ -1,6 +1,7 @@
 import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES } from '../data/ingredients-db';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
+import { normalizeIngredientName } from '../utils/ingredient-name';
 import {
   AnalyzedIngredient,
   CulpritIngredient,
@@ -14,19 +15,7 @@ import {
 export const MARKETPLACE_DISCLAIMER_JA =
   '※本製品の全成分情報は、Amazon / 楽天市場 / Olive Young / Sephora などのオンラインマーケットプレイスおよび公開情報をもとに探索・収集したものです。商品のリニューアルや販売地域（国内処方・並行輸入・海外処方）により実際のパッケージ表記と一部異なる（誤差を含む）場合がありますので、ご使用前にお手元の製品パッケージ表記もご確認ください。';
 
-/**
- * 原材料テキストの正規化
- */
-export function normalizeIngredientName(name: string): string {
-  if (!name) return '';
-  // 全角英数（ＢＧ・ＤＰＧ など、Web ページの成分表示に多い）を半角にそろえる
-  return name
-    .normalize('NFKC')
-    .trim()
-    .toLowerCase()
-    .replace(/[\(\)（）]/g, '')
-    .replace(/[\s\-_・/]/g, '');
-}
+export { normalizeIngredientName };
 
 /**
  * 成分名と簡略名（「ポリオキシエチレン〜ナトリウム」と「POE〜Na」）を同じ形にそろえる。完全一致の照合だけに使う。
@@ -112,6 +101,11 @@ function isEthanolName(norm: string): boolean {
 const EXACT_MATCH_ONLY = new Set(['propylene_glycol', 'glycerin']);
 /** 部分一致させない成分でも、この修飾語（「植物性」「(PG)」等）を除くと別名に一致すれば同じ成分とみなす */
 const QUALIFIER_PATTERN = /植物性|植物由来|天然|濃|vegetable|natural|pg|\d+(\.\d+)?%/g;
+/**
+ * 酸の名前の後ろに付いてよいもの（塩）。アクティブ成分の酸は、これ以外の名前の一部としては照合しない
+ * （「サリチル酸ベンジル」「サリチル酸ヘキシル」などのエステル、「チオグリコール酸〜」「3-O-エチルアスコルビン酸」は別の成分）
+ */
+const ACID_SALT_SUFFIX = /^(na|2na|3na|k|2k|ca|mg|tea|アンモニウム|ナトリウム|カリウム|カルシウム|マグネシウム)?$/;
 
 /**
  * 既知の刺激成分辞書と照合する
@@ -169,6 +163,12 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
 
       if (norm === normAlias) {
         return item;
+      }
+
+      // アクティブ成分の酸（サリチル酸・グリコール酸・アスコルビン酸）は、その酸と塩だけ
+      if (item.category === 'potent_active' && /(酸|acid)$/.test(normAlias)) {
+        if (norm.startsWith(normAlias) && ACID_SALT_SUFFIX.test(norm.slice(normAlias.length))) return item;
+        continue;
       }
 
       // 精油・エキス系

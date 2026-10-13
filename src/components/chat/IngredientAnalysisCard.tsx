@@ -326,6 +326,9 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             💡 アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
               '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。'}
           </p>
+          {selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
+            <p className="text-[10px] text-gray-500">この解説はAIが作成した参考情報です。</p>
+          )}
           <div className="pt-1.5 flex items-center justify-between border-t border-sand-200/60">
             <button
               type="button"
