@@ -391,10 +391,9 @@ export function getOrGenerateIngredientExplanation(rawName: string): KnownIngred
     }
   }
 
-  // 3. Layer 2: ルールベース動的推論
-  const generated = generateIngredientExplanation(rawName);
-  DYNAMIC_INGREDIENT_CACHE.set(norm, generated);
-  return generated;
+  // 3. Layer 2: ルールベース動的推論。結果には呼び出した人の表記が入るので、共有のキャッシュには入れない
+  //    （名前から決まる軽い処理なので、毎回作り直す）
+  return generateIngredientExplanation(rawName);
 }
 
 /**

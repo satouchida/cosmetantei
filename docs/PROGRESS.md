@@ -29,7 +29,8 @@ Last updated: 2026-10-13.
 | 2026-10-13 | `f983d3f` | Redesign phases 3 and 4: alternatives without the culprits and confirmed shop prices, through web research; queries built only from DB names and product names, every alternative re-checked in code, prices never cached ([walkthrough](walkthroughs/2026-10-13-alternatives-and-prices.md)) |
 | 2026-10-13 | `8ab108f` | Prices only from 楽天市場 (with 楽天24), Yahoo!ショッピング and @cosme SHOPPING: their APIs when the keys are set, otherwise their product pages; affiliate links once the IDs are set, with 「PR」 and the API credits; no Amazon prices ([plan](plans/shop-prices.md), [walkthrough](walkthroughs/2026-10-13-shop-prices.md)) |
 | 2026-10-13 | `ed7d7c9` | Redesign phases 7 and 8: 「出典」 links on product, alternative and analysis cards (web page, Open Beauty Facts, the user's label), a 「Web検索」 badge, the alternatives heading and note; tests that refused messages make no paid call ([walkthrough](walkthroughs/2026-10-13-source-links.md)) |
-| 2026-10-13 | *this commit* | Clef search filter (phase 2), built and **off by default** (`SEARCH_FILTER_MODE`): on our real results it hid nothing real and caught every planted non-cosmetic, but today's results have nothing to remove. Clef model IDs fixed (`clef-flash` needs its own ID) ([plan and eval](plans/clef-chat-gate-and-search-filter.md#phase-2-evaluation-2026-10-13)) |
+| 2026-10-13 | `12c2fbf` | Clef search filter (phase 2), built and **off by default** (`SEARCH_FILTER_MODE`): on our real results it hid nothing real and caught every planted non-cosmetic, but today's results have nothing to remove. Clef model IDs fixed (`clef-flash` needs its own ID) ([plan and eval](plans/clef-chat-gate-and-search-filter.md#phase-2-evaluation-2026-10-13)) |
+| 2026-10-13 | *this commit* | Products from the browser: the server's copy wins for known IDs; sent products stay out of shared caches and Gemini prompts (test 71); a cold-start hydration race, a cross-user spelling leak in rule-generated ingredient entries, and the missing `/api/analyze` rate limit fixed ([walkthrough](walkthroughs/2026-10-13-browser-products.md)) |
 
 ## In progress
 
@@ -39,17 +40,16 @@ Nothing.
 
 In order:
 
-1. **Don't trust product data from the browser**
-   ([03](review/03-other-upgrades.md#security-and-data-trust)): look products up on the server.
-2. **Audit the rule-based ingredient explanations** (`dynamic-ingredient-service.ts`) the same
-   way ([plan](plans/ingredient-db-audit.md#out-of-scope-recorded-for-later)).
-3. **Japanese-market data, steps 2, 3, 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
+1. **Audit the rule-based ingredient explanations** (`dynamic-ingredient-service.ts`) the same
+   way ([plan](plans/ingredient-db-audit.md#out-of-scope-recorded-for-later)), including
+   `/api/ingredients/explain` ([note](walkthroughs/2026-10-13-browser-products.md#code-review)).
+2. **Japanese-market data, steps 2, 3, 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
    化粧品基準 rules as data, the wheat-protein and rhododenol incidents, pair rules across products,
    and 旧表示指定成分. Step 1 (the JCIA name lists) waits for JCIA's permission.
-4. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
+3. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
    web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.
-5. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
+4. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
    (it uses only cached products and Open Beauty Facts, which has almost no Japanese data). Use the
    verified products already researched (KV), and consider a longer Open Beauty Facts timeout
    (`nivea` took 2.3 s against 2.5 s).

@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { isValidProduct, isValidProductList } from '@/lib/server/validation';
+import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client-products';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 
 export async function POST(request: NextRequest) {
+  // 成分数×既知DBの計算をするため、回数を制限する（有料の呼び出しは無いので検索と同じ枠）
+  if (await isRateLimited('search', getClientIp(request.headers))) {
+    return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
+  }
   try {
     const body = await request.json();
     const { product, badProducts, safeProducts } = body as {
@@ -24,13 +30,17 @@ export async function POST(request: NextRequest) {
     // KV に保存された成分確認済みの製品を読み込み、おすすめ代替品の候補にする
     await hydrateVerifiedProducts();
 
+    // サーバーが持っている製品は、ブラウザから送られた内容ではなくサーバーの内容を使う
     if (product) {
-      const result = analyzeProduct(product);
+      const result = analyzeProduct(await resolveClientProduct(product));
       return NextResponse.json({ type: 'single', result });
     }
 
     if (badProducts && badProducts.length > 0) {
-      const diffResult = performDifferentialAnalysis(badProducts, safeProducts || []);
+      const diffResult = performDifferentialAnalysis(
+        await resolveClientProducts(badProducts),
+        await resolveClientProducts(safeProducts || [])
+      );
       return NextResponse.json({ type: 'differential', result: diffResult });
     }
 

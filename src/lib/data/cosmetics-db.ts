@@ -105,9 +105,10 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
  */
 export async function hydrateVerifiedProducts(): Promise<void> {
   if (Date.now() - lastHydratedAt < HYDRATE_INTERVAL_MS) return;
-  lastHydratedAt = Date.now();
 
+  // 読み込みが終わってから印を付ける（読み込み中に来た別のリクエストが、空のまま進まないように）
   const stored = await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY);
+  lastHydratedAt = Date.now();
   if (!stored) return;
   // 古い順に追加し、新しいものがキャッシュの先頭に来るようにする
   for (const product of [...stored].reverse()) {

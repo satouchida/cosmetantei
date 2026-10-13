@@ -20,6 +20,7 @@ import { researchPrices, summarizePriceResult, toPriceSearchQuery } from '@/lib/
 import { productSearchQuery } from '@/lib/services/web-research';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
+import { resolveClientProduct, resolveClientRoutine } from '@/lib/server/client-products';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '@/lib/services/label-reader';
 
@@ -65,9 +66,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       message,
-      routine,
+      routine: sentRoutine,
       action,
-      selectedProduct,
+      selectedProduct: sentProduct,
       barcode,
       label,
     } = body as {
@@ -82,8 +83,8 @@ export async function POST(request: NextRequest) {
     // 入力の形式・サイズを検証（分析処理と Gemini プロンプトに渡す前に）
     if (
       (message !== undefined && (typeof message !== 'string' || message.length > MAX_MESSAGE_LENGTH)) ||
-      (routine !== undefined && !isValidRoutine(routine)) ||
-      (selectedProduct !== undefined && !isValidProduct(selectedProduct)) ||
+      (sentRoutine !== undefined && !isValidRoutine(sentRoutine)) ||
+      (sentProduct !== undefined && !isValidProduct(sentProduct)) ||
       (barcode !== undefined && typeof barcode !== 'string') ||
       (label !== undefined && !isValidLabelInput(label))
     ) {
@@ -92,6 +93,9 @@ export async function POST(request: NextRequest) {
 
     // KV に保存された成分確認済みの製品を読み込み、おすすめ代替品の候補にする
     await hydrateVerifiedProducts();
+    // サーバーが持っている製品は、ブラウザから送られた内容ではなくサーバーの内容を使う
+    const routine = sentRoutine && (await resolveClientRoutine(sentRoutine));
+    const selectedProduct = sentProduct && (await resolveClientProduct(sentProduct));
 
     const userText = (message || '').trim();
     const cleanNumeric = userText.replace(/[\s\-_]/g, '');

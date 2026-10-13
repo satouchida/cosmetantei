@@ -11,12 +11,23 @@ Review date: 2026-10-08, against commit `623dfc9`. Line numbers refer to that co
   (`cosmetantei-dev`, `cosmetantei-prod`), and the app only holds the gateway token `CF_AIG_TOKEN`
   (`.dev.vars` locally, `wrangler secret put` in production). Rotate the old Gemini key if a build
   made while it was in `.env.local` was deployed, and delete the unused `GEMINI_API_KEY` Worker secret.
-- [ ] **Don't trust product objects from the browser.**
+- [x] **Don't trust product objects from the browser.**
   `src/app/api/chat/route.ts:65` (`selectedProduct`, `routine`) and `src/app/api/analyze/route.ts`
   accept full `Product` objects, including ingredient lists, and put their text straight into
   Gemini prompts. Accept product IDs or barcodes and look products up on the server.
-  *Partly done:* shape and size limits are enforced by `src/lib/server/validation.ts`; the routes
-  still trust client-supplied ingredient lists.
+  *Resolved 2026-10-13* ([walkthrough](../walkthroughs/2026-10-13-browser-products.md)):
+  - **The server's copy wins.** When the server holds a verified product with the same ID, the
+    routes use it: its name, ingredients and source (`src/lib/server/client-products.ts`). A product
+    edited in the browser is analysed, compared and priced as the server knows it.
+  - **Other products are taken as sent, for the sender only.** Labels the user typed are never
+    stored, so there is nothing to look up. These products go into the sender's own response, and
+    nowhere else:
+    - not into shared caches (KV or the in-memory product cache);
+    - not into other users' search results or alternatives;
+    - not into Gemini prompts. Since phases 5 and 6 the cause reply gets only ingredient-DB facts,
+      and the other replies are templates.
+  - **Test 71** locks these in.
+  - **Shape and size limits** stay in `src/lib/server/validation.ts`.
 - [x] **Restrict remote images.** *Resolved:* the `images` block was removed from
   `next.config.mjs` in `75c66d2`, and nothing uses `next/image`, so there is no image optimizer to
   abuse. Original note: `next.config.mjs:8` sets `hostname: '**'`, which lets anyone run
