@@ -1,10 +1,11 @@
 # Plan: ingredient data for the Japanese market
 
-Written 2026-10-12. Status: steps 2 and 3 done on 2026-10-14
-([2](../walkthroughs/2026-10-14-cosmetic-standards.md), [3](../walkthroughs/2026-10-14-japan-incidents.md)); step 4 done on 2026-10-12
+Written 2026-10-12. Status: steps 2, 3 and 5 done on 2026-10-14
+([2](../walkthroughs/2026-10-14-cosmetic-standards.md), [3](../walkthroughs/2026-10-14-japan-incidents.md),
+[5](../walkthroughs/2026-10-14-pair-rules.md)); step 4 done on 2026-10-12
 ([walkthrough](../walkthroughs/2026-10-12-quasi-drug-labels.md)), and its known limits fixed the same
-day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Steps 5 and 6
-not started.
+day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Step 6 not
+started.
 
 ## Why
 
@@ -53,7 +54,7 @@ Not used: brand sites, blogs, and Gemini.
 | 2 | 化粧品基準 rules | Banned (別表第1), restricted (第2) and approved-list (第3, 第4) facts as data, so a card can say "limited to X%" or "rinse-off only" | **done 2026-10-14** (see below) |
 | 3 | Japan-specific incidents | Sourced entries for 加水分解コムギ and ロドデノール | **done 2026-10-14** (see below) |
 | 4 | Quasi-drug labels | See below | **done 2026-10-12** |
-| 5 | Pair rules across products | E.g. a retinoid with AHA/BHA; several fragrance allergens across a routine. Each rule needs a source | not started |
+| 5 | Pair rules across products | E.g. a retinoid with AHA/BHA; several fragrance allergens across a routine. Each rule needs a source | **done 2026-10-14** (see below) |
 | 6 | 旧表示指定成分 | Find the 1980 告示 and add the flag back where it applies (open item from the audit) | not started |
 
 Each step gets its own walkthrough in `docs/walkthroughs/` and a row in `docs/PROGRESS.md`.
@@ -171,3 +172,20 @@ Sources, all primary:
   - グルパール19S (the trade name), the 2,111 case count and the 2017 molecular-weight rule
     for raw materials: none of them is in an MHLW document;
   - the press and the company's reports.
+
+## Step 5: pair rules across products
+
+The rules apply to the products the user marked as having caused trouble, in the comparison
+(`performDifferentialAnalysis`). Those are the products most likely used together.
+`currentlyUsing` exists in the routine type, but the UI never fills it.
+
+| Rule | When | Source, and what it supports |
+|---|---|---|
+| Retinoid with salicylic acid | retinol or retinal in one product; salicylic acid, sulfur or resorcinol in another | [RETIN-A label](https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=9556d73d-c573-4e0a-9feb-764ce2d1107b): "particular caution" with these, for tretinoin (a drug). The text says the label is about tretinoin, not cosmetic retinol |
+| Exfoliants in several products | retinoid, salicylic acid, AHA (glycolic or mandelic), sulfur or resorcinol in ≥2 products | [21 CFR 333.350](https://www.law.cornell.edu/cfr/text/21/333.350), cited only when an acne-drug ingredient is involved: OTC acne drugs must warn about using another acne medication at the same time. [FDA, AHA](https://www.fda.gov/cosmetics/cosmetic-ingredients/alpha-hydroxy-acids), cited only with an AHA: sun sensitivity during use and for a week after |
+| Fragrance in several products | fragrance or essential-oil ingredients in ≥2 products | [European Commission SCCS summary](https://ec.europa.eu/health/scientific_committees/opinions_layman/perfume-allergies/en/l-3/5-exposure-public.htm): the cumulative dose per area matters, from all sources |
+
+Not done, for lack of a source:
+- **A general "retinol with AHA" rule:** the search found no guideline. The overlap rule covers
+  it, with the hedged wording above.
+- **PHAs (gluconolactone, lactobionic acid):** the FDA page covers AHAs only.

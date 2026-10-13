@@ -3350,3 +3350,40 @@ test('74. Japanese incidents: 加水分解コムギ and ロドデノール are r
   const plain = analyzeProduct({ id: 'plain', name: 't', brand: 'b', country: 'JP', category: 'toner', ingredients: ['水', 'グリセリン'] });
   assert.ok(!plain.labelNotesJa?.some((n) => n.includes('小麦')));
 });
+
+test('75. Pair rules across products: retinoid with salicylic acid, overlapping exfoliants, fragrance in several products', () => {
+  const p = (id: string, ingredients: string[]): Product => ({ id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients });
+  const ids = (bad: Product[]) => (performDifferentialAnalysis(bad, []).pairFindings ?? []).map((f) => f.id);
+
+  // レチノールとサリチル酸が別々の製品に
+  const retinoidPair = performDifferentialAnalysis([p('A', ['水', 'レチノール']), p('B', ['水', 'サリチル酸'])], []);
+  const f = retinoidPair.pairFindings?.find((x) => x.id === 'retinoid_with_salicylic');
+  assert.ok(f);
+  assert.deepStrictEqual(f.products, ['製品A', '製品B']);
+  assert.deepStrictEqual(f.ingredients, ['レチノール', 'サリチル酸']);
+  assert.ok(f.sources.some((s) => s.url.includes('dailymed')));
+  assert.ok(!retinoidPair.pairFindings?.some((x) => x.id === 'exfoliant_overlap'), 'The specific rule replaces the general one');
+
+  // AHA どうし（ルールで判定する AHA を含む）：紫外線の注意と FDA の出典
+  const aha = performDifferentialAnalysis([p('C', ['グリコール酸']), p('D', ['マンデル酸'])], []).pairFindings?.find((x) => x.id === 'exfoliant_overlap');
+  assert.ok(aha && aha.textJa.includes('紫外線') && aha.sources.some((s) => s.url.includes('fda.gov')));
+  assert.ok(!aha.sources.some((s) => s.url.includes('333.350')), 'The acne-drug rule is cited only for acne-drug ingredients');
+  // サリチル酸だけの重なりは紫外線の注意を付けず、ニキビ用医薬品の規則を引く
+  const bha = performDifferentialAnalysis([p('E', ['サリチル酸']), p('F', ['サリチル酸Na'])], []).pairFindings?.find((x) => x.id === 'exfoliant_overlap');
+  assert.ok(bha && !bha.textJa.includes('紫外線') && bha.sources.some((s) => s.url.includes('333.350')));
+  // レチノールのエステル（パルミチン酸レチノール）はレチノール類に数えない
+  assert.deepStrictEqual(ids([p('L', ['パルミチン酸レチノール']), p('M', ['サリチル酸'])]), []);
+  // 1 に当たっても、AHA の紫外線の注意は落とさない
+  const three = performDifferentialAnalysis([p('N', ['レチノール']), p('O', ['サリチル酸']), p('P', ['グリコール酸'])], []).pairFindings ?? [];
+  assert.deepStrictEqual(three.map((x) => x.id), ['retinoid_with_salicylic', 'exfoliant_overlap']);
+  assert.ok(three[1].textJa.includes('紫外線'));
+  // 同じ製品が2回入っていても1つと数える
+  assert.deepStrictEqual(ids([p('Q', ['香料']), p('Q', ['香料'])]), []);
+
+  // 香料が2つの製品に（DB の香料・精油、ルールの香料アレルゲン）
+  assert.deepStrictEqual(ids([p('G', ['水', '香料']), p('H', ['水', 'ヘキシルシンナマル'])]), ['fragrance_overlap']);
+
+  // 当てはまらない：1つの製品の中だけ、製品が1つ、片方だけ
+  assert.deepStrictEqual(ids([p('I', ['レチノール', 'サリチル酸', '香料'])]), []);
+  assert.deepStrictEqual(ids([p('J', ['レチノール', '香料']), p('K', ['水', 'グリセリン'])]), []);
+});

@@ -33,7 +33,8 @@ Last updated: 2026-10-13.
 | 2026-10-13 | `e8ae5e8` | Products from the browser: the server's copy wins for known IDs; sent products stay out of shared caches and Gemini prompts (test 71); a cold-start hydration race, a cross-user spelling leak in rule-generated ingredient entries, and the missing `/api/analyze` rate limit fixed ([walkthrough](walkthroughs/2026-10-13-browser-products.md)) |
 | 2026-10-14 | `1abb585` | Ingredient explanations audit: rules fixed for look-alike names (サリチル酸ベンジル read as BHA, magnesium sulfate as a harsh sulfate, plain betaine as a cleanser, plant waters as water) and new rules for fragrance allergens, plant waters, emulsifiers and AHAs; the AI explanation takes the name as data, keeps the database's rating, shares no spelling, and never feeds analysis (test 72) ([walkthrough](walkthroughs/2026-10-14-ingredient-explanations.md)) |
 | 2026-10-14 | `412fac6` | Japan step 2, 化粧品基準: all 130 別表 entries as data (from the MHLW 告示); ingredient cards show the limit per product type with a link to the 告示; product notes for banned ingredients and ones not allowed for the product's type (cosmetics only); test 73 ([walkthrough](walkthroughs/2026-10-14-cosmetic-standards.md)) |
-| 2026-10-14 | *this commit* | Japan step 3, incidents: sourced entries for ロドデノール (recalled 2013) and 加水分解コムギ (the 茶のしずく石鹸 allergy cases); wheat-derived ingredients flagged on the card and the product, and 「（小麦由来）」 no longer stops a name from matching; test 74 ([walkthrough](walkthroughs/2026-10-14-japan-incidents.md)) |
+| 2026-10-14 | `e32accb` | Japan step 3, incidents: sourced entries for ロドデノール (recalled 2013) and 加水分解コムギ (the 茶のしずく石鹸 allergy cases); wheat-derived ingredients flagged on the card and the product, and 「（小麦由来）」 no longer stops a name from matching; test 74 ([walkthrough](walkthroughs/2026-10-14-japan-incidents.md)) |
+| 2026-10-14 | *this commit* | Japan step 5, pair rules: the comparison warns when the problem products combine a retinoid with salicylic acid, exfoliants in several products (with the AHA sun note), or fragrance in several products, each with its source; test 75 ([walkthrough](walkthroughs/2026-10-14-pair-rules.md)) |
 
 ## In progress
 
@@ -43,9 +44,8 @@ Nothing.
 
 In order:
 
-1. **Japanese-market data, steps 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
-   pair rules across products, and 旧表示指定成分. Steps 2 and 3 are done. Step 1 (the JCIA name
-   lists) waits for JCIA's permission.
+1. **Japanese-market data, step 6** ([plan](plans/japan-ingredient-data.md#steps)): 旧表示指定成分.
+   Steps 2, 3 and 5 are done. Step 1 (the JCIA name lists) waits for JCIA's permission.
 2. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
    web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.

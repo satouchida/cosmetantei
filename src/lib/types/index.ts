@@ -137,10 +137,24 @@ export interface CulpritIngredient {
   absenceConfirmedInSafeCount: number;
 }
 
+/** 製品をまたぐ組み合わせの注意（pair-rules.ts） */
+export interface PairFinding {
+  id: 'retinoid_with_salicylic' | 'exfoliant_overlap' | 'fragrance_overlap';
+  titleJa: string;
+  textJa: string;
+  /** 当てはまる製品名 */
+  products: string[];
+  /** 当てはまる成分（成分表示の名前） */
+  ingredients: string[];
+  sources: ReferenceLink[];
+}
+
 export interface DifferentialAnalysisResult {
   badProducts: Product[];
   safeProducts: Product[];
   culprits: CulpritIngredient[];
+  /** 肌荒れした製品を一緒に使っていた場合の、組み合わせの注意 */
+  pairFindings?: PairFinding[];
   sharedIngredients: string[];
   summaryJa: string;
   adviceJa: string[];
