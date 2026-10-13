@@ -10,3 +10,10 @@ AI_GATEWAY_ID="cosmetantei-dev"
 
 # 開発用ゲートウェイではプロンプト・応答本文もログに残す（本番は残さない）
 AI_GATEWAY_LOG_PAYLOAD="true"
+
+# お店の価格（docs/plans/shop-prices.md）。未設定のお店は、商品ページを読んで調べます
+# 楽天ウェブサービスのアプリ ID とアクセスキー（秘密情報。本番は wrangler secret put）
+RAKUTEN_APPLICATION_ID="YOUR_RAKUTEN_APPLICATION_ID"
+RAKUTEN_ACCESS_KEY="YOUR_RAKUTEN_ACCESS_KEY"
+# Yahoo!デベロッパーネットワークの Client ID（本番は wrangler secret put）
+YAHOO_CLIENT_ID="YOUR_YAHOO_CLIENT_ID"

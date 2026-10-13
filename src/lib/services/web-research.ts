@@ -99,17 +99,23 @@ export function toProductSearchQuery(text: string): string | null {
 
 /**
  * Web 検索（Exa → 失敗・0件なら Linkup）。両方だめなら null
+ * accept を渡すと、それに合うページだけを残す（合うページが無ければ次のプロバイダーを試す）
  */
 export async function webSearch(
   query: string,
-  limit = SEARCH_RESULT_LIMIT
+  limit = SEARCH_RESULT_LIMIT,
+  accept?: (url: string) => boolean
 ): Promise<{ provider: WebSearchProvider; items: WebSearchItem[] } | null> {
+  let searched = false;
   for (const provider of SEARCH_PROVIDERS) {
-    const items = await runWebSearch(query, provider, limit);
+    const found = await runWebSearch(query, provider, limit);
+    if (found) searched = true;
+    const items = found && accept ? found.filter((i) => accept(i.url)) : found;
     // 読めるページが1件も無ければ（Amazon・SNS だけ等）次のプロバイダーを試す
     if (items && pickPagesToRead(items).length > 0) return { provider, items };
   }
-  return null;
+  // accept に合うページが無かっただけなら、検索の失敗ではない
+  return accept && searched ? { provider: SEARCH_PROVIDERS[0], items: [] } : null;
 }
 
 /** 検索結果一覧のページ（複数の店・商品が混ざり、店名・商品名を取り違えやすい） */

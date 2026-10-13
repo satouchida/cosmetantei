@@ -26,7 +26,8 @@ Last updated: 2026-10-13.
 | 2026-10-12 | `9e50058` | Step 4's known limits: 「・」-only labels rejoin names by JCIA's 簡略名 guideline, old saved Open Beauty Facts products are fetched again, abbreviated and full names match (POE/Na/2K), and the name list edition is confirmed ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#follow-up-the-same-day-the-known-limits)) |
 | 2026-10-12 | `8cfe0ad` | Quasi-drug analyses link to JCIA's name list and labelling policy as their source (cited by link, not copied) ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#citing-jcia-by-link)) |
 | 2026-10-12 | `b8ccd57` | Ingredient label input: paste a label or photograph it (Gemini transcribes, the user checks, our parser analyses with no AI call); labels aren't stored or shared ([plan](plans/label-input.md), [walkthrough](walkthroughs/2026-10-12-label-input.md)) |
-| 2026-10-13 | *this commit* | Redesign phases 3 and 4: alternatives without the culprits and confirmed shop prices, through web research; queries built only from DB names and product names, every alternative re-checked in code, prices never cached ([walkthrough](walkthroughs/2026-10-13-alternatives-and-prices.md)) |
+| 2026-10-13 | `f983d3f` | Redesign phases 3 and 4: alternatives without the culprits and confirmed shop prices, through web research; queries built only from DB names and product names, every alternative re-checked in code, prices never cached ([walkthrough](walkthroughs/2026-10-13-alternatives-and-prices.md)) |
+| 2026-10-13 | *this commit* | Prices only from 楽天市場 (with 楽天24), Yahoo!ショッピング and @cosme SHOPPING: their APIs when the keys are set, otherwise their product pages; affiliate links once the IDs are set, with 「PR」 and the API credits; no Amazon prices ([plan](plans/shop-prices.md), [walkthrough](walkthroughs/2026-10-13-shop-prices.md)) |
 
 ## In progress
 
@@ -67,5 +68,8 @@ From [03, Product](review/03-other-upgrades.md#product):
 - **Next 16.4:** pinned to 16.3.8 until
   [opennextjs-cloudflare#1355](https://github.com/opennextjs/opennextjs-cloudflare/issues/1355) is
   fixed. Upgrade, then check `pnpm build:cloudflare` and `wrangler dev` serve pages.
+- **Shop keys and affiliate IDs:** waiting on the owner. Rakuten prices need the Rakuten API keys
+  (the web search almost never finds Rakuten product pages). When they arrive, follow the
+  [to-do list](walkthroughs/2026-10-13-shop-prices.md#to-do-when-the-ids-and-keys-arrive).
 - **Exa terms:** never send user chat text as a search query, and never cache Exa or Linkup
   results ([plan](plans/gemini-role-redesign.md#storage-and-caching-by-provider-terms)).

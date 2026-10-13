@@ -45,8 +45,14 @@ AI_GATEWAY_ID = "cosmetantei-prod"
 # チャットゲート（Clef）: enforce | shadow | off。雑談・指示の書き換え・本人の医療相談を Gemini の前で止める
 # この判定はキーワードでは代替できないため enforce で運用する（docs/plans/gemini-role-redesign.md）
 CHAT_GATE_MODE = "enforce"
+# アフィリエイト（docs/plans/shop-prices.md）。ID を取得したら設定する。未設定ならリンクは商品ページそのもの
+# RAKUTEN_AFFILIATE_ID = "楽天アフィリエイト ID"
+# YAHOO_AFFILIATE_LINK_TEMPLATE = "https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=…&pid=…&vc_url={url}"
+# COSME_AFFILIATE_LINK_TEMPLATE = "ASP のリンクの雛形（{url} に商品ページの URL が入る）"
 
 # Gemini の APIキーはアプリに持たせず、AI Gateway の Provider Keys（Google AI Studio）に保存しています。
-# アプリが使う秘密情報は AI Gateway の認証トークン CF_AIG_TOKEN のみ。[vars] にも .env 系のファイルにも書かないでください。
+# AI で使う秘密情報は AI Gateway の認証トークン CF_AIG_TOKEN のみ。[vars] にも .env 系のファイルにも書かないでください。
 #   本番:                                                        pnpm exec wrangler secret put CF_AIG_TOKEN
 #   pnpm dev / wrangler dev / opennextjs-cloudflare preview:  .dev.vars
+# お店の API キー（楽天・Yahoo!）も秘密情報として同じように設定する:
+#   pnpm exec wrangler secret put RAKUTEN_APPLICATION_ID / RAKUTEN_ACCESS_KEY / YAHOO_CLIENT_ID

@@ -13,16 +13,10 @@ function safeHref(url: string): string | undefined {
   return /^https?:\/\//i.test(url) ? url : undefined;
 }
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '');
-  } catch {
-    return '';
-  }
-}
-
 /**
  * 販売ページで確認した価格（安い順）。価格は保存せず、調べた時点のものとして表示する
+ * - アフィリエイトリンクがあれば「PR」と書く（景品表示法のステルスマーケティング規制）
+ * - 楽天・Yahoo! の API で取得した価格を出すときは、各社の決まったクレジットを表示する（そのままの文言で）
  */
 export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
   const checkedAt = new Date(result.checkedAt).toLocaleString('ja-JP', {
@@ -33,6 +27,9 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
     minute: '2-digit',
   });
 
+  const sponsored = result.offers.some((o) => o.sponsored) || !!safeHref(result.amazonUrl);
+  const credits = result.credits ?? [];
+
   return (
     <div className="my-3 p-4 bg-sand-50 rounded-2xl border border-sand-200 shadow-xs space-y-3">
       <div className="flex items-center gap-2">
@@ -40,7 +37,14 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
           <Tag className="w-4 h-4" />
         </div>
         <div>
-          <h4 className="text-xs sm:text-sm font-bold text-gray-900">販売価格（{checkedAt}時点）</h4>
+          <h4 className="text-xs sm:text-sm font-bold text-gray-900">
+            販売価格（{checkedAt}時点）
+            {sponsored && (
+              <span className="ml-1.5 align-middle text-[10px] font-bold text-gray-500 border border-gray-300 rounded px-1">
+                PR
+              </span>
+            )}
+          </h4>
           <p className="text-[11px] text-gray-500">
             {result.offers.length > 0
               ? '販売ページに書かれていた価格です。購入前にページでご確認ください。'
@@ -52,7 +56,7 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
       {result.offers.length > 0 && (
         <ul className="space-y-2">
           {result.offers.map((offer, i) => {
-            const href = safeHref(offer.sourceUrl);
+            const href = safeHref(offer.href ?? offer.sourceUrl);
             return (
               <li
                 key={`${offer.sourceUrl}-${i}`}
@@ -66,16 +70,20 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
                     </span>
                   </div>
                   <div className="text-[11px] text-gray-600 truncate">{offer.productName}</div>
-                  <div className="text-[10px] text-gray-400 truncate">{offer.shop}</div>
+                  <div className="text-[10px] text-gray-400 truncate">
+                    {offer.marketplace && offer.marketplace !== offer.shop
+                      ? `${offer.marketplace}・${offer.shop}`
+                      : offer.shop}
+                  </div>
                 </div>
                 {href && (
                   <a
                     href={href}
                     target="_blank"
-                    rel="noopener noreferrer nofollow"
+                    rel={offer.sponsored ? 'noopener noreferrer sponsored nofollow' : 'noopener noreferrer nofollow'}
                     className="shrink-0 flex items-center gap-1 text-[11px] text-sage-700 hover:text-sage-900 border border-sage-200 rounded-lg px-2 py-1"
                   >
-                    <span>出典: {hostOf(href)}</span>
+                    <span>{offer.marketplace || 'お店'}で見る</span>
                     <ExternalLink className="w-3 h-3" />
                   </a>
                 )}
@@ -95,6 +103,35 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
           <span>Amazonで探す</span>
           <ExternalLink className="w-3.5 h-3.5" />
         </a>
+      )}
+
+      {sponsored && (
+        <p className="text-[10px] text-gray-500">
+          PR：このカードのリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格や表示の順番は紹介料に関係ありません。
+        </p>
+      )}
+
+      {credits.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-500">
+          {credits.includes('rakuten') && (
+            <>
+              {/* Rakuten Web Services Attribution Snippet FROM HERE */}
+              <a href="https://developers.rakuten.com/" target="_blank">
+                Supported by Rakuten Developers
+              </a>
+              {/* Rakuten Web Services Attribution Snippet TO HERE */}
+            </>
+          )}
+          {credits.includes('yahoo') && (
+            <>
+              {/* Begin Yahoo! JAPAN Web Services Attribution Snippet */}
+              <span style={{ margin: '15px 15px 15px 15px' }}>
+                <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
+              </span>
+              {/* End Yahoo! JAPAN Web Services Attribution Snippet */}
+            </>
+          )}
+        </div>
       )}
     </div>
   );

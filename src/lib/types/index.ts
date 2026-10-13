@@ -145,13 +145,24 @@ export interface DifferentialAnalysisResult {
 
 /** 販売ページで確認した価格（T4。キャッシュしない） */
 export interface PriceOffer {
+  /** 販売している店（楽天・Yahoo! の出店者名など） */
   shop: string;
+  /** モールの名前（楽天市場・Yahoo!ショッピング・@cosme SHOPPING） */
+  marketplace: string;
   productName: string;
   priceYen: number;
   /** 税込と書かれていれば true、税抜なら false、書かれていなければ null */
   taxIncluded: boolean | null;
+  /** 価格を確かめた商品ページ */
   sourceUrl: string;
+  /** 開くリンク。アフィリエイト ID が設定されていればアフィリエイトリンク */
+  href: string;
+  /** href がアフィリエイトリンクか（PR 表示・rel="sponsored"） */
+  sponsored: boolean;
 }
+
+/** 価格の取得に使った API（API の利用規約で、表示にクレジットが必要） */
+export type PriceApiCredit = 'rakuten' | 'yahoo';
 
 export interface PriceResult {
   productQuery: string;
@@ -162,6 +173,8 @@ export interface PriceResult {
   /** 調べた日時（ISO 8601） */
   checkedAt: string;
   amazonUrl: string;
+  /** 表示している価格の取得に使った API */
+  credits: PriceApiCredit[];
 }
 
 export interface ChatMessage {
