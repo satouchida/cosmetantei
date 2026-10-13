@@ -43,6 +43,8 @@ const MIN_INGREDIENTS = 3;
 const MAX_INGREDIENTS = 150;
 const MAX_INGREDIENT_LENGTH = 80;
 const MAX_ACTIVE_INGREDIENTS = 10;
+/** 製品に持たせる出典 URL の長さの上限（validation.ts の MAX_URL_LENGTH と同じ） */
+const MAX_SOURCE_URL_LENGTH = 2048;
 
 const PRODUCT_CATEGORIES: Product['category'][] = [
   'cleanser',
@@ -313,7 +315,8 @@ export async function toProduct(p: PageProduct): Promise<Product> {
     amazonSearchUrl: buildAmazonAffiliateUrl(p.brand, p.name),
     isEstimatedFromMarketplaces: false,
     ingredientSource: hasIngredients ? 'web_page' : undefined,
-    sourceUrl: p.sourceUrl,
+    // 長すぎる URL は持たない（製品を送り返したときの検証で、比較リスト全体が拒否されないように）
+    sourceUrl: p.sourceUrl.length <= MAX_SOURCE_URL_LENGTH ? p.sourceUrl : undefined,
   };
 }
 

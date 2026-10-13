@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
 import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
+import { ProductSourceLink } from './ProductSourceLink';
 
 interface IngredientAnalysisCardProps {
   analysis: ProductAnalysisResult;
@@ -142,6 +143,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             )}
           </div>
           <h3 className="text-base font-bold text-gray-900 leading-snug mt-0.5">{product.name}</h3>
+          <ProductSourceLink product={product} className="mt-1" />
         </div>
         <div
           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-bold self-start sm:self-auto ${badge.bg}`}

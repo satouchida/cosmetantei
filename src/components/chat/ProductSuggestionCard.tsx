@@ -4,12 +4,16 @@ import React from 'react';
 import { Product } from '@/lib/types';
 import { AlertTriangle, ShieldCheck, Search } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
+import { productSourceInfo } from '@/lib/product-source';
+import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
 
 interface ProductSuggestionCardProps {
   products: Product[];
   onSelectToAnalyze: (product: Product) => void;
   onAddToBad: (product: Product) => void;
   onAddToSafe: (product: Product) => void;
+  /** 原因成分を含まない代わりの商品（見出しと注意書きを変える） */
+  isAlternatives?: boolean;
 }
 
 export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
@@ -17,8 +21,10 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
   onSelectToAnalyze,
   onAddToBad,
   onAddToSafe,
+  isAlternatives = false,
 }) => {
   if (!products || products.length === 0) return null;
+  const anyFromWeb = products.some((p) => productSourceInfo(p)?.fromWebSearch);
 
   const getCountryBadge = (country: string) => {
     switch (country) {
@@ -38,8 +44,13 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
   return (
     <div className="my-3 space-y-2.5">
       <p className="text-xs font-semibold text-gray-500 tracking-wide">
-        該当するコスメ（タップして選択）:
+        {isAlternatives ? '避けたい成分を含まないコスメ:' : '該当するコスメ（タップして選択）:'}
       </p>
+      {isAlternatives && anyFromWeb && (
+        <p className="text-[11px] text-gray-500 leading-relaxed">
+          「Web検索」の商品は、Web検索で見つけたページの全成分表示を読み取り、アプリで成分を確かめたものです。出典のページと、購入時のパッケージの表示もご確認ください。
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
         {products.map((p) => {
           const countryBadge = getCountryBadge(p.country);
@@ -53,17 +64,21 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${countryBadge.color}`}>
                     {countryBadge.label}
                   </span>
-                  {p.isQuasiDrug && (
-                    <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
-                      医薬部外品
-                    </span>
-                  )}
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    <WebSearchBadge product={p} />
+                    {p.isQuasiDrug && (
+                      <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-md font-medium">
+                        医薬部外品
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="text-xs font-bold text-sage-800">{getDisplayBrand(p.brand, p.name)}</div>
                 <h4 className="text-sm font-bold text-gray-900 line-clamp-2 mt-0.5 leading-snug">
                   {p.name}
                 </h4>
+                <ProductSourceLink product={p} className="mt-1" />
 
                 {p.activeIngredientsJa && p.activeIngredientsJa.length > 0 && (
                   <div className="mt-1.5 text-[11px] text-emerald-700 bg-emerald-50/80 px-2 py-1 rounded-md">

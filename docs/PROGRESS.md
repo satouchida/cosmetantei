@@ -27,7 +27,8 @@ Last updated: 2026-10-13.
 | 2026-10-12 | `8cfe0ad` | Quasi-drug analyses link to JCIA's name list and labelling policy as their source (cited by link, not copied) ([walkthrough](walkthroughs/2026-10-12-quasi-drug-labels.md#citing-jcia-by-link)) |
 | 2026-10-12 | `b8ccd57` | Ingredient label input: paste a label or photograph it (Gemini transcribes, the user checks, our parser analyses with no AI call); labels aren't stored or shared ([plan](plans/label-input.md), [walkthrough](walkthroughs/2026-10-12-label-input.md)) |
 | 2026-10-13 | `f983d3f` | Redesign phases 3 and 4: alternatives without the culprits and confirmed shop prices, through web research; queries built only from DB names and product names, every alternative re-checked in code, prices never cached ([walkthrough](walkthroughs/2026-10-13-alternatives-and-prices.md)) |
-| 2026-10-13 | *this commit* | Prices only from 楽天市場 (with 楽天24), Yahoo!ショッピング and @cosme SHOPPING: their APIs when the keys are set, otherwise their product pages; affiliate links once the IDs are set, with 「PR」 and the API credits; no Amazon prices ([plan](plans/shop-prices.md), [walkthrough](walkthroughs/2026-10-13-shop-prices.md)) |
+| 2026-10-13 | `8ab108f` | Prices only from 楽天市場 (with 楽天24), Yahoo!ショッピング and @cosme SHOPPING: their APIs when the keys are set, otherwise their product pages; affiliate links once the IDs are set, with 「PR」 and the API credits; no Amazon prices ([plan](plans/shop-prices.md), [walkthrough](walkthroughs/2026-10-13-shop-prices.md)) |
+| 2026-10-13 | *this commit* | Redesign phases 7 and 8: 「出典」 links on product, alternative and analysis cards (web page, Open Beauty Facts, the user's label), a 「Web検索」 badge, the alternatives heading and note; tests that refused messages make no paid call ([walkthrough](walkthroughs/2026-10-13-source-links.md)) |
 
 ## In progress
 
@@ -37,17 +38,16 @@ Nothing.
 
 In order:
 
-1. **Redesign phases 7–8:** source links on product and alternative cards, the web-search label on alternatives, tests. (The price card was built with phase 4.)
-2. **Clef search filter** ([plan](plans/clef-chat-gate-and-search-filter.md), phase 2): one
+1. **Clef search filter** ([plan](plans/clef-chat-gate-and-search-filter.md), phase 2): one
    `clef-flash` call per search that drops irrelevant results.
-3. **Don't trust product data from the browser**
+2. **Don't trust product data from the browser**
    ([03](review/03-other-upgrades.md#security-and-data-trust)): look products up on the server.
-4. **Audit the rule-based ingredient explanations** (`dynamic-ingredient-service.ts`) the same
+3. **Audit the rule-based ingredient explanations** (`dynamic-ingredient-service.ts`) the same
    way ([plan](plans/ingredient-db-audit.md#out-of-scope-recorded-for-later)).
-5. **Japanese-market data, steps 2, 3, 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
+4. **Japanese-market data, steps 2, 3, 5 and 6** ([plan](plans/japan-ingredient-data.md#steps)):
    化粧品基準 rules as data, the wheat-protein and rhododenol incidents, pair rules across products,
    and 旧表示指定成分. Step 1 (the JCIA name lists) waits for JCIA's permission.
-6. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
+5. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
    web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.
 

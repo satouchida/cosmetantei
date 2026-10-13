@@ -206,6 +206,30 @@ avoids repeat searches.
 `env.AI.websearch` requires wrangler ≥ 4.149. The project now has wrangler 4.149.0, from the
 dependency upgrade made on 2026-10-10.
 
+## Phases 7 and 8 (2026-10-13): done
+
+[Walkthrough](../walkthroughs/2026-10-13-source-links.md).
+
+- **Phase 7, UI:**
+  - **Sources:** product, alternative and analysis cards show 「出典」:
+    - the page the ingredient list was read from (https links only);
+    - Open Beauty Facts, with a link to the product page;
+    - or 「パッケージの成分表示（入力）」, with no link.
+  - **Web-search label:** products read from web pages carry a 「Web検索」 badge. The alternatives
+    reply is marked `suggestionKind: 'alternatives'`, so the card says what the products are and
+    how they were checked.
+  - **Prices:** the price card was built in phase 4 and moved to listed shops in
+    [shop prices](shop-prices.md).
+- **Phase 8, tests:** most were already in place:
+  - unconfirmed sources: 33, 52, 64, 65;
+  - Linkup fallback: 50;
+  - refusals: 41–43;
+  - user text never a query: 51, 63, 66.
+  - **Added:**
+    - 69, a refused message makes no web search, shop API or Gemini call, even when Clef also
+      picks a price or alternative intent;
+    - 68, the source links.
+
 ## Phases 3 and 4 (2026-10-13): done
 
 [Walkthrough](../walkthroughs/2026-10-13-alternatives-and-prices.md). The price card from phase 7 was

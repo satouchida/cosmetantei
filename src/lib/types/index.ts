@@ -183,6 +183,8 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   productSuggestions?: Product[];
+  /** productSuggestions が、原因成分を含まない代わりの商品 */
+  suggestionKind?: 'alternatives';
   singleAnalysis?: ProductAnalysisResult;
   differentialAnalysis?: DifferentialAnalysisResult;
   safeAlternatives?: Product[];

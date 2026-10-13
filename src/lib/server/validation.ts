@@ -15,6 +15,9 @@ const MAX_UNDISCLOSED_INGREDIENTS = LABEL_LIMITS.undisclosed;
 export const MAX_MESSAGE_LENGTH = 1000;
 
 const PRODUCT_CATEGORIES: readonly string[] = ['cleanser', 'toner', 'serum', 'cream', 'sunscreen', 'mask', 'lip', 'other'];
+const INGREDIENT_SOURCES: readonly string[] = ['open_beauty_facts', 'user_label', 'web_page', 'ai_estimate'];
+/** 出典ページの URL（カードにリンクとして出すため、長さと種類を確かめる） */
+const MAX_URL_LENGTH = 2048;
 
 const isShortString = (v: unknown, max = MAX_TEXT_LENGTH): v is string =>
   typeof v === 'string' && v.length <= max;
@@ -41,7 +44,11 @@ export function isValidProduct(p: unknown): p is Product {
     (product.undisclosedIngredientCount === undefined ||
       (Number.isInteger(product.undisclosedIngredientCount) &&
         (product.undisclosedIngredientCount as number) >= 0 &&
-        (product.undisclosedIngredientCount as number) <= MAX_UNDISCLOSED_INGREDIENTS))
+        (product.undisclosedIngredientCount as number) <= MAX_UNDISCLOSED_INGREDIENTS)) &&
+    (product.ingredientSource === undefined ||
+      (typeof product.ingredientSource === 'string' && INGREDIENT_SOURCES.includes(product.ingredientSource))) &&
+    (product.sourceUrl === undefined ||
+      (isShortString(product.sourceUrl, MAX_URL_LENGTH) && /^https?:\/\//i.test(product.sourceUrl)))
   );
 }
 

@@ -244,7 +244,7 @@ export async function POST(request: NextRequest) {
       const { products } = await findAlternatives(req);
       return NextResponse.json({
         reply: summarizeAlternatives(req, products),
-        ...(products.length > 0 && { productSuggestions: products }),
+        ...(products.length > 0 && { productSuggestions: products, suggestionKind: 'alternatives' }),
         quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
       });
     }

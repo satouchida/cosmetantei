@@ -159,6 +159,7 @@ export const ChatContainer: React.FC = () => {
         role: 'assistant',
         content: data.reply,
         productSuggestions: data.productSuggestions,
+        suggestionKind: data.suggestionKind === 'alternatives' ? 'alternatives' : undefined,
         singleAnalysis: data.singleAnalysis,
         differentialAnalysis: data.differentialAnalysis,
         priceResult: data.priceResult,
@@ -657,6 +658,7 @@ export const ChatContainer: React.FC = () => {
                       onSelectToAnalyze={handleSelectProductToAnalyze}
                       onAddToBad={handleAddToBad}
                       onAddToSafe={handleAddToSafe}
+                      isAlternatives={msg.suggestionKind === 'alternatives'}
                     />
                   )}
 

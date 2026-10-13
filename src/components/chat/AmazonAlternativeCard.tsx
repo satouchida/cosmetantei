@@ -3,6 +3,7 @@
 import React from 'react';
 import { Product } from '@/lib/types';
 import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
+import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -45,18 +46,22 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
               className="bg-white rounded-xl p-3.5 border border-sand-200 shadow-2xs hover:shadow-md hover:border-amber-400 transition-all flex flex-col justify-between"
             >
               <div>
-                <div className="flex items-center justify-between text-[10px] text-gray-400 mb-1">
-                  <span className="font-bold text-sage-800">{p.brand}</span>
-                  {p.isQuasiDrug && (
-                    <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-sm font-medium border border-emerald-200">
-                      医薬部外品
-                    </span>
-                  )}
+                <div className="flex items-center justify-between gap-1 text-[10px] text-gray-400 mb-1">
+                  <span className="font-bold text-sage-800 min-w-0 truncate">{p.brand}</span>
+                  <div className="flex flex-wrap items-center justify-end gap-1 shrink-0">
+                    <WebSearchBadge product={p} />
+                    {p.isQuasiDrug && (
+                      <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-sm font-medium border border-emerald-200">
+                        医薬部外品
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <h5 className="text-xs sm:text-sm font-bold text-gray-900 line-clamp-2 leading-snug">
                   {p.name}
                 </h5>
+                <ProductSourceLink product={p} className="mt-1" />
 
                 <p className="text-[11px] text-gray-600 line-clamp-2 mt-1 leading-relaxed">
                   {p.descriptionJa}
