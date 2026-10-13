@@ -10,6 +10,7 @@ import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analy
 import { isKnownGenericTerm } from './brand-check';
 import { researchProducts, toProductSearchQuery } from './web-research';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
+import { filterSearchResults } from './search-filter';
 
 /**
  * 検索文字列の正規化（全角半角・大文字小文字・不要記号の統一）
@@ -459,7 +460,8 @@ export async function searchCosmeticsLive(
   // 件数が足りなくても架空の候補は合成しない（0件ならUI側で再検索・バーコードを案内）
 
   // D. 厳格フィルター（実在コスメのみを確実に保証）
-  const validProducts = collected.filter(isActualCosmeticProduct);
+  const validProducts = collected.filter(isActualCosmeticProduct).slice(0, limit);
 
-  return validProducts.slice(0, limit);
+  // E. Clef による検索語との照合（SEARCH_FILTER_MODE。既定は off）。空の検索・挨拶は照合しない
+  return filterSearchResults(clean && !isGreetingOrConsultation(clean) ? clean : '', validProducts);
 }

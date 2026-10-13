@@ -5,6 +5,7 @@ import { KnownIngredient } from '../types';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey, runAfterResponse, runWorkersAI } from '../server/cloudflare';
 import { isCosmeticTopicRelevant, isJailbreakAttempt, OFF_TOPIC_REPLY_JA } from './gemini';
 import { isGreetingOrConsultation } from './live-cosmetics-service';
+import { ClefModel, clefModelId, clefModelSetting } from './clef-models';
 
 /**
  * チャットゲート（docs/plans/gemini-role-redesign.md の「Chat gate changes」）
@@ -135,8 +136,8 @@ export function getGateMode(): GateMode {
   return mode === 'off' || mode === 'shadow' ? mode : 'enforce';
 }
 
-function getGateModel(): 'clef' | 'clef-flash' {
-  return (process.env.CLEF_MODEL_GATE || '').trim() === 'clef-flash' ? 'clef-flash' : 'clef';
+function getGateModel(): ClefModel {
+  return clefModelSetting('CLEF_MODEL_GATE', 'clef');
 }
 
 // キーワード判定用の語彙（Clef が使えない場合のフォールバック）
@@ -207,8 +208,9 @@ async function classifyWithClef(message: string): Promise<ClefVerdict | null> {
   const cached = await cacheGetJSON<ClefVerdict>(cacheKey);
   if (cached) return cached;
 
-  const response = await runWorkersAI('@cf/cloudflare/clef', {
-    model: getGateModel(),
+  const model = getGateModel();
+  const response = await runWorkersAI(clefModelId(model), {
+    model,
     state: {
       app: '敏感肌向けの化粧品成分チェッカー「コスメ探偵」。化粧品の成分を調べ、肌荒れの原因になった可能性のある成分を化粧品同士の比較で特定し、その成分を含まない代わりの商品や販売価格を探す。医療相談や雑談は受け付けない',
       userMessage: message,

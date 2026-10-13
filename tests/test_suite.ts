@@ -2820,3 +2820,122 @@ test('69. Refused messages make no web search, shop API or Gemini call, even wit
     clearGatewayEnv();
   }
 });
+
+test('70. Search filter: off by default; enforce drops only sure irrelevants and orders by match; Clef model IDs pair', async () => {
+  const { filterSearchResults, applyVerdicts } = await import('../src/lib/services/search-filter');
+  const products = [
+    verifiedProduct({ id: 'sf_1', brand: 'キュレル', name: 'キュレル 潤浸保湿 泡洗顔料' }),
+    verifiedProduct({ id: 'sf_2', brand: 'キュレル', name: 'キュレル 潤浸保湿 化粧水' }),
+    verifiedProduct({ id: 'sf_3', brand: 'Apple', name: 'iPhone ケース' }),
+    verifiedProduct({ id: 'sf_4', brand: 'ちふれ', name: 'ちふれ 化粧水' }),
+  ];
+  const answers = {
+    c0: { type: 'choice', choice: 'complement', probabilities: { complement: 0.6, irrelevant: 0.1 } },
+    c1: { type: 'choice', choice: 'exact', probabilities: { exact: 0.95, irrelevant: 0.01 } },
+    c2: { type: 'choice', choice: 'irrelevant', probabilities: { irrelevant: 0.98 } },
+    // 迷っている irrelevant（0.75 未満）は除かない
+    c3: { type: 'choice', choice: 'irrelevant', probabilities: { irrelevant: 0.6 } },
+  };
+  const calls: { model: string; input: any; options?: any }[] = [];
+  const AI = {
+    async run(model: string, input: any, options?: any) {
+      calls.push({ model, input, options });
+      return { answers, usage: { input_tokens: 900 } };
+    },
+  };
+  const ids = (list: { id: string }[]) => list.map((p) => p.id);
+  const logs: string[] = [];
+  const originalLog = console.log;
+  setGatewayEnv();
+  try {
+    // 既定は off：Clef を呼ばない
+    assert.deepStrictEqual(ids(await withCloudflareEnv({ AI }, () => filterSearchResults('キュレル 化粧水', products))), ids(products));
+    assert.strictEqual(calls.length, 0);
+
+    process.env.SEARCH_FILTER_MODE = 'enforce';
+    const filtered = await withCloudflareEnv({ AI }, () => filterSearchResults('キュレル 化粧水', products));
+    assert.deepStrictEqual(ids(filtered), ['sf_2', 'sf_1', 'sf_4']);
+    assert.strictEqual(calls.length, 1, 'One Clef call per search');
+    // clef-flash は専用のモデル ID と model の値の組で呼ぶ。検索語は利用者の入力なので本文を残すゲートウェイを通さない
+    assert.strictEqual(calls[0].model, '@cf/cloudflare/clef-flash');
+    assert.strictEqual(calls[0].input.model, 'clef-flash');
+    assert.strictEqual(calls[0].options, undefined, 'User text skips a gateway that does not log payloads');
+    assert.strictEqual(Object.keys(calls[0].input.questions).length, 4);
+
+    // 同じ検索語と候補は判定をキャッシュする
+    await withCloudflareEnv({ AI }, () => filterSearchResults('キュレル 化粧水', products));
+    assert.strictEqual(calls.length, 1);
+
+    // 空の検索語・Clef なし・不完全な応答・時間切れは、結果をそのまま返す
+    assert.deepStrictEqual(ids(await withCloudflareEnv({ AI }, () => filterSearchResults('  ', products))), ids(products));
+    assert.deepStrictEqual(ids(await withCloudflareEnv({}, () => filterSearchResults('別の検索', products))), ids(products));
+    const partial = { async run() { return { answers: { c0: answers.c0 } }; } };
+    assert.deepStrictEqual(ids(await withCloudflareEnv({ AI: partial }, () => filterSearchResults('部分的な応答', products))), ids(products));
+    const slow = { async run() { await new Promise((r) => setTimeout(r, 2000)); return { answers }; } };
+    assert.deepStrictEqual(ids(await withCloudflareEnv({ AI: slow }, () => filterSearchResults('遅い応答', products))), ids(products));
+
+    // shadow：結果は変えず、件数だけをログに出す（検索語・商品名は出さない）
+    process.env.SEARCH_FILTER_MODE = 'shadow';
+    console.log = (...args: unknown[]) => logs.push(args.map(String).join(' '));
+    const shadow = await withCloudflareEnv({ AI }, () => filterSearchResults('シャドー検索', products));
+    console.log = originalLog;
+    assert.deepStrictEqual(ids(shadow), ids(products));
+    const event = logs.map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((e) => e?.event === 'search_filter_shadow');
+    assert.ok(event, 'Shadow mode logs a summary');
+    assert.strictEqual(event.wouldDrop, 1);
+    assert.ok(!logs.some((l) => l.includes('シャドー検索') || l.includes('iPhone')), 'No query or product names in logs');
+
+    // すべて irrelevant と判定されても、結果を空にしない
+    process.env.SEARCH_FILTER_MODE = 'enforce';
+    const allIrrelevant = {
+      async run() {
+        return { answers: Object.fromEntries(products.map((_, i) => [`c${i}`, { type: 'choice', choice: 'irrelevant', probabilities: { irrelevant: 0.99 } }])) };
+      },
+    };
+    assert.deepStrictEqual(ids(await withCloudflareEnv({ AI: allIrrelevant }, () => filterSearchResults('全部はずれ', products))), ids(products));
+
+    // 壊れたキャッシュの値は使わず、Clef に聞き直す（検索は失敗しない）
+    const store = new Map<string, string>();
+    const APP_CACHE = {
+      async get(key: string) { return store.get(key) ?? null; },
+      async put(key: string, value: string) { store.set(key, value); },
+    };
+    const { hashedCacheKey } = await import('../src/lib/server/cloudflare');
+    const badKey = await hashedCacheKey(
+      'sfilter:v1:clef-flash',
+      JSON.stringify(['キャッシュ確認', products.map((p) => [p.brand, p.name])])
+    );
+    store.set(badKey, JSON.stringify([null, null, null, null]));
+    const before = calls.length;
+    const recovered = await withCloudflareEnv({ AI, APP_CACHE }, () => filterSearchResults('キャッシュ確認', products));
+    assert.deepStrictEqual(ids(recovered), ['sf_2', 'sf_1', 'sf_4']);
+    assert.ok(calls.length > before, 'A bad cached value is ignored');
+    process.env.SEARCH_FILTER_MODE = 'shadow';
+
+    // 1文字の検索語は照合しない
+    const callsBefore = calls.length;
+    await withCloudflareEnv({ AI }, () => filterSearchResults('キ', products));
+    assert.strictEqual(calls.length, callsBefore);
+
+    assert.deepStrictEqual(
+      ids(applyVerdicts(products, products.map(() => ({ match: 'irrelevant' as const, irrelevant: 0.74 })))),
+      ids(products),
+      'Below 0.75 nothing is dropped'
+    );
+
+    // チャットゲートで clef-flash を選んでも、モデル ID と model の値が組になる
+    const { classifyChatMessage } = await import('../src/lib/services/chat-gate');
+    process.env.CLEF_MODEL_GATE = 'clef-flash';
+    process.env.CHAT_GATE_MODE = 'enforce';
+    const gate = fakeGateClef(['in_scope', 0.95], ['product_lookup', 0.9]);
+    await withCloudflareEnv({ AI: gate.AI }, () => classifyChatMessage('キュレル 化粧水 clef-flash テスト'));
+    assert.strictEqual(gate.calls[0]?.model, '@cf/cloudflare/clef-flash');
+    assert.strictEqual(gate.calls[0]?.input.model, 'clef-flash');
+  } finally {
+    console.log = originalLog;
+    delete process.env.SEARCH_FILTER_MODE;
+    delete process.env.CLEF_MODEL_GATE;
+    delete process.env.CHAT_GATE_MODE;
+    clearGatewayEnv();
+  }
+});

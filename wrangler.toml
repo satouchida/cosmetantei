@@ -45,6 +45,9 @@ AI_GATEWAY_ID = "cosmetantei-prod"
 # チャットゲート（Clef）: enforce | shadow | off。雑談・指示の書き換え・本人の医療相談を Gemini の前で止める
 # この判定はキーワードでは代替できないため enforce で運用する（docs/plans/gemini-role-redesign.md）
 CHAT_GATE_MODE = "enforce"
+# 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）
+# docs/plans/clef-chat-gate-and-search-filter.md の Phase 2
+SEARCH_FILTER_MODE = "off"
 # アフィリエイト（docs/plans/shop-prices.md）。ID を取得したら設定する。未設定ならリンクは商品ページそのもの
 # RAKUTEN_AFFILIATE_ID = "楽天アフィリエイト ID"
 # YAHOO_AFFILIATE_LINK_TEMPLATE = "https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=…&pid=…&vc_url={url}"

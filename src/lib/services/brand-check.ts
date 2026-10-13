@@ -2,6 +2,7 @@ import 'server-only';
 
 import { BoundedCache } from '../utils/bounded-cache';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey, runWorkersAI } from '../server/cloudflare';
+import { clefModelId, clefModelSetting } from './clef-models';
 
 /**
  * ブランド名チェック
@@ -27,7 +28,6 @@ export interface BrandCandidate {
 /** 判定結果。unverified は Clef が使えず自己申告のみで採用したもの */
 export type BrandDecision = BrandVerdict | 'unverified';
 
-const CLEF_MODEL_ID = '@cf/cloudflare/clef';
 const BRAND_VERDICT_TTL_SECONDS = 60 * 60 * 24 * 90;
 /** Clef の判定を採用する最低確率。これ未満は判定保留（キャッシュしない） */
 const MIN_CLEF_PROBABILITY = 0.7;
@@ -120,8 +120,9 @@ async function judgeWithClef(
     };
   }
 
-  const response = await runWorkersAI(CLEF_MODEL_ID, {
-    model: 'clef',
+  const model = clefModelSetting('CLEF_MODEL_BRAND', 'clef');
+  const response = await runWorkersAI(clefModelId(model), {
+    model,
     state: {
       task: '化粧品検索アプリで、AIが生成した製品候補の brand 欄が実在ブランドかを確認する',
       searchQuery,

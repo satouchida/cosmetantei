@@ -155,6 +155,10 @@ point.
 
 ## Phase 2: search result filter (`clef-flash`)
 
+**Status (2026-10-13): built, off by default** (`SEARCH_FILTER_MODE = "off"` in `wrangler.toml`).
+See [the evaluation](#phase-2-evaluation-2026-10-13) below for why it is off.
+
+
 **New file:** `src/lib/services/search-filter.ts`, called at the end of `searchCosmeticsLive`.
 `/api/products/search` and the chat product suggestions both go through `searchCosmeticsLive`,
 so both get the filter.
@@ -189,6 +193,74 @@ precheck. Simplify them only after Phase 0/1 data shows the filter covers what t
 - irrelevant candidates are dropped only at ≥ 0.75;
 - the result order follows the labels;
 - no AI binding → results unchanged.
+
+**As built** (`src/lib/services/search-filter.ts`):
+- **`SEARCH_FILTER_MODE`:** `off` (default), `shadow` (log counts only, results unchanged) or
+  `enforce`.
+- **The call:** one `@cf/cloudflare/clef-flash` call per search (`CLEF_MODEL_FILTER` switches the
+  model), at the end of `searchCosmeticsLive`, on at most the results that will be shown.
+- **Policy:** as planned. Drop only `irrelevant` ≥ 0.75, then order exact > substitute >
+  complement, keeping the original order within each group.
+- **Never empty:** if every candidate would be dropped, the results are returned unchanged.
+- **Failures:** a 1.5 s timeout. Any failure, incomplete answer or malformed cached value returns
+  the results unchanged. A late answer still finishes after the response (`waitUntil`) and fills
+  the cache.
+- **Cache:** verdicts in KV for 1 day, keyed by a hash of the normalised query and the candidates.
+  The model sees the same normalised query. Bump `sfilter:v1` when the question wording changes.
+- **Short queries:** queries under 2 characters are not checked.
+- **Privacy:** the query is user text, so the call goes through the AI Gateway only when payload
+  logging is allowed. Shadow logs carry no query or product names.
+
+**Fixed on the way:** each Clef model needs its own model ID plus the matching `model` value
+(`@cf/cloudflare/clef` with `"clef"`, `@cf/cloudflare/clef-flash` with `"clef-flash"`).
+`CLEF_MODEL_GATE=clef-flash` used to send `"clef-flash"` to `@cf/cloudflare/clef`, which the API
+rejects ("Unsupported model 'clef-flash'"). That would have silently moved the gate onto the
+keyword rules. The new `clef-models.ts` pairs them, and `CLEF_MODEL_BRAND` was added as the order of
+work asked.
+
+## Phase 2 evaluation (2026-10-13)
+
+The eval set was the candidates the app actually returns. Two things were checked first:
+- **Type-ahead** (`/api/products/search`, cached products plus Open Beauty Facts): 30 Japanese and
+  English queries returned **1 product in total**. Open Beauty Facts has almost no Japanese
+  products: 1 for キュレル, 0 for ちふれ. `nivea` took 2.3 s against the 2.5 s timeout.
+- **Chat search with web research:** 20 queries returned 46 products, and **all of them matched
+  the query** (the exact product, or a same-line variant). Web research already keeps only
+  products that name the query.
+
+`clef-flash` was then run on those results, plus planted candidates, with the plan's ≥ 0.75 rule:
+
+| Candidates | Hidden |
+|---|---|
+| The app's real results (36, from 17 queries with results) | **0** (34 exact, 2 substitute) |
+| A non-cosmetic (iPhone case, cup noodles), 2 per query | **34 of 34** |
+| Another brand's cosmetic (from a different query) | 2 of 17 (mostly labelled substitute or below 0.75) |
+
+Latency was 350–780 ms per call, with about 900–1,500 input tokens ($0.038 per million). The plan
+assumed 78 ms.
+
+**Decision:**
+- The filter is safe: it hid no real result, and caught every non-cosmetic.
+- It has nothing to remove from today's results, so it ships off.
+- Switch on `shadow`, then `enforce`, if a looser source is added (e.g. a fuller type-ahead), or if
+  shadow logs show drops.
+
+**Code review (`code-improver`):** no Critical issues.
+
+Fixed:
+- **High:** a timed-out answer was cut off with the response and never cached, so a slow query
+  waited 1.5 s every time. It now runs on after the response.
+- **High:** enforce could return an empty list, and a malformed cached value could throw.
+- **Medium:** the cache key was ambiguous (it joined with `\n` and `|`), and the model saw a
+  different query from the key.
+
+Partly applied:
+- **Medium:** a call per type-ahead keystroke. Only the 2-character minimum was added, since the
+  filter ships off and the type-ahead route caches results for 1 hour.
+
+Not changed:
+- **Low:** ordering by a single label.
+- **Low:** unfenced product names. These can only promote a candidate, never hide a real one.
 
 ## Phase 3 (optional): product categories, decided against a separate Clef step
 
