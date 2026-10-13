@@ -10,10 +10,14 @@ import { Product, UserRoutineState } from '@/lib/types';
 import {
   answerIngredientQuestion,
   explainCulprits,
+  findIngredientsInText,
   summarizeProductAnalysis,
   summarizeProductResults,
 } from '@/lib/services/chat-replies';
-import { classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
+import { alternativeButtonLabel, classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
+import { alternativeRequest, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
+import { researchPrices, summarizePriceResult, toPriceSearchQuery } from '@/lib/services/price-service';
+import { productSearchQuery } from '@/lib/services/web-research';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
@@ -26,6 +30,28 @@ function isValidLabelInput(label: unknown): boolean {
   const optional = (v: unknown) => v === undefined || (typeof v === 'string' && v.length <= MAX_LABEL_NAME_LENGTH);
   return typeof text === 'string' && text.trim().length > 0 && text.length <= MAX_LABEL_TEXT_LENGTH && optional(name) && optional(brand);
 }
+
+/** 価格を調べて返す（T4）。query は商品名だけ。商品名が無ければ入力を案内する */
+async function priceReply(query: string | null) {
+  if (!query) {
+    return NextResponse.json({
+      reply: '価格を調べたい商品の名前（ブランド名＋商品名）を入力してください。例：「キュレル 潤浸保湿 化粧水 の価格」',
+      quickReplies: ['🔍 商品名で検索する'],
+    });
+  }
+  const priceResult = await researchPrices(query);
+  return NextResponse.json({
+    reply: summarizePriceResult(priceResult),
+    priceResult,
+    quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
+  });
+}
+
+const SINGLE_ANALYSIS_REPLIES = [
+  '🚨 このアイテムで肌荒れした（原因を特定）',
+  '✅ 普段安全に使えている（安全リストに追加）',
+  '💴 この商品の価格を調べる',
+];
 
 const INVALID_REQUEST_REPLY = 'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。';
 
@@ -47,7 +73,7 @@ export async function POST(request: NextRequest) {
     } = body as {
       message: string;
       routine: UserRoutineState;
-      action?: 'analyze_single' | 'differential' | 'barcode_lookup' | 'search' | 'analyze_label';
+      action?: 'analyze_single' | 'differential' | 'barcode_lookup' | 'search' | 'analyze_label' | 'price_lookup';
       selectedProduct?: Product;
       barcode?: string;
       label?: { text?: unknown; name?: unknown; brand?: unknown };
@@ -93,11 +119,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis, targetBarcode),
         singleAnalysis: analysis,
-        quickReplies: [
-          '🚨 このアイテムで肌荒れした（原因を特定）',
-          '✅ 普段安全に使えている（安全リストに追加）',
-          '🔍 他のコスメも調べる',
-        ],
+        quickReplies: [...SINGLE_ANALYSIS_REPLIES, '🔍 他のコスメも調べる'],
       });
     }
 
@@ -135,12 +157,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
-        quickReplies: [
-          '🚨 このアイテムで肌荒れした（原因を特定）',
-          '✅ 普段安全に使えている（安全リストに追加）',
-          '🔍 別のコスメを調べる',
-        ],
+        quickReplies: [...SINGLE_ANALYSIS_REPLIES, '🔍 別のコスメを調べる'],
       });
+    }
+
+    // 2b. 分析した商品の価格（ボタン操作）。検索語はブランド名と商品名だけ
+    if (action === 'price_lookup' && selectedProduct) {
+      return priceReply(productSearchQuery(selectedProduct));
     }
 
     // 3. 自由入力メッセージの判定（チャットゲート）。雑談・指示の書き換え・本人の医療相談は、
@@ -199,20 +222,44 @@ export async function POST(request: NextRequest) {
         searchCosmeticsLive(userText, 6),
         answerIngredientQuestion(userText),
       ]);
+      // 成分DBの成分なら、その成分を含まない商品を探すボタンを出す
+      const [mentioned] = findIngredientsInText(userText);
       return NextResponse.json({
         reply,
         productSuggestions: matchedProducts,
-        quickReplies: ['🔍 この成分が入っていないコスメを探す', '📸 バーコードをスキャンする'],
+        quickReplies: [...(mentioned ? [alternativeButtonLabel(mentioned)] : []), '📸 バーコードをスキャンする'],
       });
     }
 
-    // C. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
-    // find_alternative・price_inquiry は、Web検索ベースの処理（計画の Phase 3・4）ができるまでここで扱う
+    // C. 代わりの商品探し（T3）。避ける成分は成分DBの名前か比較の候補成分だけで、検索語に文章を使わない
+    if (gate?.intent === 'find_alternative') {
+      const req = alternativeRequest(userText, routine);
+      if (!req) {
+        return NextResponse.json({
+          reply:
+            '避けたい成分（例：香料、エタノール）か、商品の種類（例：化粧水）を入力してください。肌荒れしたコスメを登録して原因成分をあぶり出すと、その成分を含まない商品を探せます。',
+          quickReplies: ['🧴 肌荒れしたコスメを入力する', '🔍 商品名で検索する'],
+        });
+      }
+      const { products } = await findAlternatives(req);
+      return NextResponse.json({
+        reply: summarizeAlternatives(req, products),
+        ...(products.length > 0 && { productSuggestions: products }),
+        quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
+      });
+    }
+
+    // D. 価格（T4）。検索語は文章から取り出した商品名だけ。価格はキャッシュしない
+    if (gate?.intent === 'price_inquiry') {
+      return priceReply(toPriceSearchQuery(userText));
+    }
+
+    // E. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
     // Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
     const webResearch = gate?.intent === 'product_lookup';
     const matchedProducts = await searchCosmeticsLive(userText, 6, { webResearch });
 
-    // D. 商品名の入力など。該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
+    // F. 商品名の入力など。該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
     if (matchedProducts.length === 0) {
       return NextResponse.json({
         reply:

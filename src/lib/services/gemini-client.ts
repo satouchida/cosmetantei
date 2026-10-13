@@ -99,6 +99,8 @@ export interface GeminiRequest {
   /** 思考レベル。未指定なら getDefaultThinkingLevel() */
   thinkingLevel?: ThinkingLevel;
   timeoutMs?: number;
+  /** AI Gateway のキャッシュを使わない（価格など、古い応答を返してはいけないもの）。画像付きは常に使わない */
+  skipCache?: boolean;
 }
 
 export interface GeminiResult {
@@ -197,7 +199,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
         // 写真は開発用の AI_GATEWAY_LOG_PAYLOAD=true でもログに残さず、ゲートウェイのキャッシュも使わない
         'cf-aig-collect-log-payload':
           !req.images?.length && process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
-        ...(req.images?.length ? { 'cf-aig-skip-cache': 'true' } : {}),
+        ...(req.images?.length || req.skipCache ? { 'cf-aig-skip-cache': 'true' } : {}),
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),

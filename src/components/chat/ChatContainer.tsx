@@ -9,6 +9,7 @@ import {
 import { ProductSuggestionCard } from './ProductSuggestionCard';
 import { IngredientAnalysisCard } from './IngredientAnalysisCard';
 import { DifferentialResultCard } from './DifferentialResultCard';
+import { PriceResultCard } from './PriceResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
 import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
 import { RoutineSidebar } from '../routine/RoutineSidebar';
@@ -105,6 +106,7 @@ export const ChatContainer: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const priceLookupRef = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -159,6 +161,7 @@ export const ChatContainer: React.FC = () => {
         productSuggestions: data.productSuggestions,
         singleAnalysis: data.singleAnalysis,
         differentialAnalysis: data.differentialAnalysis,
+        priceResult: data.priceResult,
         quickReplies: data.quickReplies,
       };
 
@@ -215,6 +218,43 @@ export const ChatContainer: React.FC = () => {
     } catch (err) {
       console.error(err);
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** 分析した商品の販売価格を調べる（サーバーはブランド名と商品名だけで検索する） */
+  const handlePriceLookup = async (label: string, product: Product) => {
+    // 再描画の前に2回押されても、有料の検索を2回しない
+    if (priceLookupRef.current) return;
+    priceLookupRef.current = true;
+    setIsLoading(true);
+    setMessages((prev) => [...prev, { ...messageMeta('user-price'), role: 'user', content: label }]);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'price_lookup', selectedProduct: product }),
+      });
+      if (!res.ok && res.status !== 429) throw new Error('API Error');
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...messageMeta('bot-price'),
+          role: 'assistant',
+          content: data.reply,
+          priceResult: data.priceResult,
+          quickReplies: data.quickReplies,
+        },
+      ]);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => [
+        ...prev,
+        { ...messageMeta('err'), role: 'assistant', content: '通信中にエラーが発生しました。もう一度お試しください。' },
+      ]);
+    } finally {
+      priceLookupRef.current = false;
       setIsLoading(false);
     }
   };
@@ -403,6 +443,12 @@ export const ChatContainer: React.FC = () => {
             ['🧴 肌荒れしたコスメを入力する']
           );
         }
+        return;
+      }
+      case 'price_analyzed': {
+        const product = sourceMessage.singleAnalysis?.product;
+        if (product) handlePriceLookup(label, product);
+        else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
       }
       case 'pick_from_cards':
@@ -627,6 +673,8 @@ export const ChatContainer: React.FC = () => {
                   {msg.differentialAnalysis && (
                     <DifferentialResultCard result={msg.differentialAnalysis} />
                   )}
+
+                  {msg.priceResult && <PriceResultCard result={msg.priceResult} />}
 
                   {/* Quick Replies */}
                   {msg.quickReplies && msg.quickReplies.length > 0 && (

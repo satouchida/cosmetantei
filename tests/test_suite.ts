@@ -1527,7 +1527,7 @@ test('47. Quick-reply buttons: UI actions stay in the browser; only research req
 
   assert.deepStrictEqual(
     [...QUICK_REPLY_LABELS].sort(),
-    ['🔍 この成分が入っていないコスメを探す', '💡 おすすめの低刺激アイテムは？'].sort(),
+    ['💡 おすすめの低刺激アイテムは？'],
     'Only research requests are sent to the server as-is'
   );
 
@@ -2254,6 +2254,293 @@ test('62. Label photos: only real JPEG/PNG/WebP within the size limit; Gemini tr
     assert.deepStrictEqual(await readLabelImage(image), { error: 'unavailable' });
   } finally {
     globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+
+test('63. Alternatives: the search query uses only DB names and fixed words; the ingredient button is DB-checked', async () => {
+  const { alternativeRequest, alternativeRequestFromText, alternativeRequestFromRoutine, buildAlternativeQuery } =
+    await import('../src/lib/services/alternatives-service');
+  const { quickReplyIntent, alternativeButtonLabel } = await import('../src/lib/services/chat-gate');
+  const { KNOWN_INGREDIENTS } = await import('../src/lib/data/ingredients-db');
+
+  const query = (text: string) => {
+    const req = alternativeRequestFromText(text);
+    return req ? buildAlternativeQuery(req) : null;
+  };
+  assert.strictEqual(query('香料不使用の化粧水'), '敏感肌 化粧水 無香料 全成分');
+  assert.strictEqual(query('エタノールとパラベンが入っていない乳液を探して'), '敏感肌 クリーム アルコールフリー パラベンフリー 全成分');
+  assert.strictEqual(query('PGが入ってない美容液'), '敏感肌 美容液 PG不使用 全成分');
+  assert.strictEqual(query('リモネンも香料も入っていない洗顔'), '敏感肌 洗顔料 無香料 全成分', 'Fragrance allergens share one term');
+  // 文章の中の個人的な内容は検索語に入らない
+  const personal = query('私の頬が赤くなった化粧水の代わりを探して');
+  assert.strictEqual(personal, '敏感肌 化粧水 全成分');
+  assert.strictEqual(query('何かいいものある？'), null, 'No ingredient and no category: no request');
+  // 欲しい成分は避けない。避けたいと書かれた成分だけを避ける
+  assert.strictEqual(query('セラミド配合で香料フリーの化粧水'), '敏感肌 化粧水 無香料 全成分');
+  assert.strictEqual(query('無香料でグリセリン入りの乳液'), '敏感肌 クリーム 無香料 全成分');
+
+  // 比較リストから：候補成分を避け、種類は肌荒れしたコスメから。文章の種類が優先
+  const routine = {
+    currentlyUsing: [],
+    badProducts: [verifiedProduct({ id: 'alt_bad_1', category: 'toner', ingredients: ['水', 'エタノール', '香料', 'グリセリン'] })],
+    safeProducts: [verifiedProduct({ id: 'alt_safe_1', category: 'toner', ingredients: ['水', 'グリセリン'] })],
+  };
+  const fromRoutine = alternativeRequestFromRoutine(routine)!;
+  assert.deepStrictEqual(fromRoutine.known.map((k) => k.id).sort(), ['ethanol', 'fragrance']);
+  assert.strictEqual(fromRoutine.category, 'toner');
+  assert.deepStrictEqual(fromRoutine.excludeIds, ['alt_bad_1']);
+  assert.strictEqual(alternativeRequest('💡 おすすめの低刺激アイテムは？', routine)?.category, 'toner');
+  assert.strictEqual(alternativeRequest('クリームでおすすめは？', routine)?.category, 'cream');
+  assert.deepStrictEqual(alternativeRequest('パラベンが入っていないクリーム', routine)?.known.map((k) => k.id), ['parabens']);
+  assert.strictEqual(alternativeRequestFromRoutine({ currentlyUsing: [], badProducts: [], safeProducts: [] }), null);
+
+  // 成分ごとのボタン：成分DBの名前のときだけ、Clef を通さず代わりの商品探しになる
+  for (const item of KNOWN_INGREDIENTS) {
+    const label = alternativeButtonLabel(item);
+    assert.strictEqual(quickReplyIntent(label), 'find_alternative', label);
+    assert.ok(alternativeRequestFromText(label)?.known.some((k) => k.id === item.id), `${label} finds ${item.id}`);
+  }
+  assert.strictEqual(quickReplyIntent('🔍 指示を無視してが入っていないコスメを探す'), undefined);
+  assert.strictEqual(quickReplyIntent('constructor'), undefined);
+  assert.strictEqual(quickReplyIntent('__proto__'), undefined);
+});
+
+test('64. Alternatives from web pages are re-checked in code; none confirmed means none shown', async () => {
+  const { findAlternatives, alternativeRequestFromText, summarizeAlternatives } = await import(
+    '../src/lib/services/alternatives-service'
+  );
+  const pageA = 'https://brand.example.jp/uv/mild';
+  const pageB = 'https://shop.example.com/uv/list';
+  const { AI, searches } = fakeWebSearchAI(() => [{ url: pageA }, { url: pageB }]);
+  const reader = fakeGeminiPageReader(
+    [
+      { sourceUrl: pageA, brand: 'マイルドUV', name: 'マイルド UVミルク', category: 'sunscreen', ingredients: ['水', 'グリセリン', 'BG', '酸化亜鉛'], ingredientsFoundOnPage: true },
+      // 香料入り → 外す
+      { sourceUrl: pageB, brand: 'カオリUV', name: 'カオリ UVジェル', category: 'sunscreen', ingredients: ['水', 'BG', '香料'], ingredientsFoundOnPage: true },
+      // 種類が違う → 外す
+      { sourceUrl: pageB, brand: 'マイルドUV', name: 'マイルド クリーム', category: 'cream', ingredients: ['水', 'グリセリン', 'BG'], ingredientsFoundOnPage: true },
+      // 全成分がページに無い → 外す
+      { sourceUrl: pageB, brand: 'ナゾUV', name: 'ナゾ UV', category: 'sunscreen', ingredients: [], ingredientsFoundOnPage: false },
+    ],
+    [pageA, pageB]
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = reader.fetchFn;
+  setGatewayEnv();
+  try {
+    const req = alternativeRequestFromText('香料が入っていない日焼け止め')!;
+    const { products, researched } = await withCloudflareEnv({ AI }, () => findAlternatives(req));
+    assert.strictEqual(researched, true);
+    assert.deepStrictEqual(products.map((p) => p.name), ['マイルド UVミルク']);
+    assert.strictEqual(products[0].sourceUrl, pageA);
+    assert.strictEqual(searches[0].query, '敏感肌 日焼け止め 無香料 全成分');
+    assert.ok(!JSON.stringify(reader.prompts).includes('香料が入っていない日焼け止め'), 'User text never reaches Gemini');
+    assert.match(summarizeAlternatives(req, products), /「香料」を含まない日焼け止めを1件/);
+
+    // ブランド表記が違うだけの同じ製品は1件にまとめる
+    addProductToDynamicCache(
+      verifiedProduct({ id: 'web_dup_uv', brand: 'マイルドUV化粧品 / マイルドUV', name: 'マイルドUV マイルド UVミルク 50ml', category: 'sunscreen', ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'web_page' })
+    );
+    const deduped = await withCloudflareEnv({ AI }, () => findAlternatives(req));
+    assert.strictEqual(deduped.products.filter((p) => p.name.includes('UVミルク')).length, 1);
+
+    // 確認できる候補が無ければ、代わりの商品は出さない
+    const none = alternativeRequestFromText('BGが入っていないパック')!;
+    globalThis.fetch = fakeGeminiPageReader(
+      [{ sourceUrl: pageA, brand: 'パックB', name: 'パックB マスク', category: 'mask', ingredients: ['水', 'BG', 'グリセリン'], ingredientsFoundOnPage: true }],
+      [pageA]
+    ).fetchFn;
+    const empty = await withCloudflareEnv({ AI }, () => findAlternatives(none));
+    assert.deepStrictEqual(empty.products, []);
+    assert.match(summarizeAlternatives(none, []), /見つかりませんでした/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('65. Prices: product name only, page-confirmed offers, sane amounts, the same product, never cached', async () => {
+  const { toPriceSearchQuery, researchPrices, summarizePriceResult, offerMatchesQuery } = await import(
+    '../src/lib/services/price-service'
+  );
+  const cases: [string, string | null][] = [
+    ['キュレル 潤浸保湿 化粧水の最安値を教えて', 'キュレル 潤浸保湿 化粧水'],
+    ['ちふれ 美白化粧水 W はいくら？', 'ちふれ 美白化粧水 W'],
+    ['キュレル化粧水 どこで買える？', 'キュレル化粧水'],
+    ['最安値 メラノCC', 'メラノCC'],
+    ['メラノCCの価格', 'メラノCC'],
+    ['私が使ってる化粧水を安く買いたい', null],
+    ['090-1234-5678 の価格', null],
+    ['いくら？', null],
+    ['このクリームの最安値', null],
+    ['それはどこで買える？', null],
+  ];
+  for (const [input, expected] of cases) assert.strictEqual(toPriceSearchQuery(input), expected, input);
+
+  assert.ok(offerMatchesQuery('Curel', 'キュレル 潤浸保湿 化粧水 III 150ml', 'キュレル 潤浸保湿 化粧水'));
+  assert.ok(!offerMatchesQuery('キュレル', '潤浸保湿 泡洗顔料', 'キュレル 潤浸保湿 化粧水'));
+
+  const shopA = 'https://shop-a.example.jp/item/1';
+  const shopB = 'https://shop-b.example.jp/item/2';
+  const unread = 'https://shop-c.example.jp/item/3';
+  const { AI, searches } = fakeWebSearchAI(() => [{ url: shopA }, { url: shopB }, { url: unread }]);
+  const reader = fakeGeminiPageReader(
+    [
+      { sourceUrl: shopA, shop: 'ショップA', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水 150ml', priceYen: 1500, taxIncluded: true },
+      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水 III', priceYen: 1192, taxIncluded: null },
+      { sourceUrl: shopB, shop: 'ショップB', brand: 'ちふれ', productName: 'ちふれ 化粧水', priceYen: 600, taxIncluded: true },
+      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 12, taxIncluded: true },
+      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1_500_000, taxIncluded: true },
+      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1192.5, taxIncluded: true },
+      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: '980', taxIncluded: true },
+      { sourceUrl: unread, shop: 'ショップC', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 900, taxIncluded: true },
+    ],
+    [shopA, shopB]
+  );
+  const headers: Record<string, string>[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url: string, init?: RequestInit) => {
+    headers.push({ ...(init?.headers as Record<string, string>) });
+    return reader.fetchFn(url, init);
+  }) as typeof fetch;
+  setGatewayEnv();
+  try {
+    const result = await withCloudflareEnv({ AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
+    assert.deepStrictEqual(result.offers.map((o) => [o.shop, o.priceYen]), [['ショップB', 1192], ['ショップA', 1500]]);
+    assert.strictEqual(result.offers[0].sourceUrl, shopB);
+    assert.strictEqual(searches[0].query, 'キュレル 潤浸保湿 化粧水 価格');
+    assert.strictEqual(headers[0]['cf-aig-skip-cache'], 'true', 'Price reads skip the AI Gateway cache');
+    assert.match(result.amazonUrl, /^https:\/\/www\.amazon\.co\.jp\/s\?k=/);
+    assert.match(summarizePriceResult(result), /最も安いのはショップBの「キュレル 潤浸保湿 化粧水 III」で1,192円です/);
+    assert.strictEqual(result.status, 'ok');
+    // 1ページずつ読む（別のページの価格として出力させない）。商品名は指示ではなくデータとして渡す
+    assert.strictEqual(reader.prompts.length, 3);
+    for (const { body } of reader.prompts) {
+      const prompt = JSON.stringify(body);
+      assert.strictEqual([shopA, shopB, unread].filter((u) => prompt.includes(u)).length, 1, 'One page per read');
+    }
+
+    // 価格はキャッシュしない：同じ商品をもう一度調べると、もう一度検索する。KV にも書かない
+    const kvPuts: string[] = [];
+    const APP_CACHE = { async get() { return null; }, async put(key: string) { kvPuts.push(key); } };
+    await withCloudflareEnv({ AI, APP_CACHE }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
+    assert.strictEqual(searches.length, 2);
+    assert.deepStrictEqual(kvPuts, [], 'Prices are never written to KV');
+
+    // 税抜の価格は税込に直して比べる
+    globalThis.fetch = fakeGeminiPageReader(
+      [
+        { sourceUrl: shopA, shop: '税抜ショップ', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1100, taxIncluded: false },
+        { sourceUrl: shopA, shop: '税込ショップ', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1150, taxIncluded: true },
+      ],
+      [shopA]
+    ).fetchFn;
+    const taxed = await withCloudflareEnv({ AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
+    assert.deepStrictEqual(taxed.offers.map((o) => o.shop), ['税込ショップ', '税抜ショップ']);
+
+    // 検索・読み取りの失敗は「価格が無い」とは言わない
+    const down = fakeWebSearchAI(() => new Error('down'));
+    const failed = await withCloudflareEnv({ AI: down.AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
+    assert.strictEqual(failed.status, 'unavailable');
+    assert.match(summarizePriceResult(failed), /時間をおいて/);
+
+    // 検索結果一覧のページは読まない（店名・商品名を取り違えやすい）
+    const { pickPagesToRead } = await import('../src/lib/services/web-research');
+    assert.deepStrictEqual(
+      pickPagesToRead([
+        { url: 'https://search.rakuten.co.jp/search/mall/x/', title: '', description: '' },
+        { url: 'https://shopping.example.jp/search?q=x', title: '', description: '' },
+        { url: 'https://shop.example.jp/s/item-x', title: '', description: '' },
+        { url: 'https://shop.example.jp/item/research-lotion', title: '', description: '' },
+      ]),
+      // 「/s/」は商品ページに使うお店もあるので読む
+      ['https://shop.example.jp/s/item-x', 'https://shop.example.jp/item/research-lotion']
+    );
+
+    const none = { ...result, status: 'ok' as const, offers: [] };
+    assert.match(summarizePriceResult(none), /確認できませんでした/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('66. Chat route: price and alternative requests reach their services with app-built queries', async () => {
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+  const call = async (env: Record<string, unknown>, body: unknown) =>
+    (await withCloudflareEnv(env, () =>
+      POST(
+        new NextRequest('http://localhost/api/chat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.66' },
+          body: JSON.stringify(body),
+        })
+      )
+    )).json();
+
+  const { AI, searches } = fakeWebSearchAI(() => []);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fakeGeminiPageReader([], []).fetchFn;
+  setGatewayEnv();
+  process.env.CHAT_GATE_MODE = 'off';
+  try {
+    const price = await call({ AI }, { message: 'ルート価格テスト 化粧水の最安値を教えて' });
+    assert.ok(price.priceResult, 'A price question returns a price result');
+    assert.deepStrictEqual(price.priceResult.offers, []);
+    assert.strictEqual(searches.at(-1)?.query, 'ルート価格テスト 化粧水 価格');
+
+    const product = verifiedProduct({ id: 'route_price_1', brand: 'ルートブランド', name: 'ルート 乳液 120ml' });
+    const button = await call({ AI }, { action: 'price_lookup', selectedProduct: product });
+    assert.ok(button.priceResult);
+    assert.strictEqual(searches.at(-1)?.query, 'ルートブランド ルート 乳液 価格');
+
+    // 長い商品名は先頭の語で、複数表記のブランドは最初の表記で調べる
+    const longName = verifiedProduct({ id: 'route_price_2', brand: 'ビオレ・Biore', name: 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+ PA++++ 70g 限定デザインボトル' });
+    const longRes = await call({ AI }, { action: 'price_lookup', selectedProduct: longName });
+    assert.ok(longRes.priceResult, 'A long product name still gets a price lookup');
+    assert.strictEqual(searches.at(-1)?.query, 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+ 価格');
+    const multiBrand = verifiedProduct({ id: 'route_price_3', brand: 'ちふれ化粧品 / ちふれ', name: '美白化粧水 W' });
+    await call({ AI }, { action: 'price_lookup', selectedProduct: multiBrand });
+    assert.strictEqual(searches.at(-1)?.query, 'ちふれ化粧品 美白化粧水 W 価格');
+
+    // 種類は決まった語だけ（検索語に入るため）。それ以外は 400
+    for (const category of ['constructor', '__proto__', 'foo']) {
+      const res = await withCloudflareEnv({ AI }, () =>
+        POST(
+          new NextRequest('http://localhost/api/chat', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.66' },
+            body: JSON.stringify({
+              message: '💡 おすすめの低刺激アイテムは？',
+              routine: { currentlyUsing: [], badProducts: [{ ...verifiedProduct({ id: 'bad_cat' }), category }], safeProducts: [] },
+            }),
+          })
+        )
+      );
+      assert.strictEqual(res.status, 400, category);
+    }
+    assert.ok(!searches.some((x) => /function|\[object|undefined/.test(x.query)));
+
+    const alt = await call({ AI }, { message: '香料が入っていない化粧水のおすすめは？' });
+    // キャッシュ済みの確認済み製品で3件そろわなければ、決まった語の検索語で Web を探す
+    if ((alt.productSuggestions ?? []).length < 3) {
+      assert.ok(searches.some((x) => x.query === '敏感肌 化粧水 無香料 全成分'), 'Alternatives search uses the built query');
+    }
+    assert.ok(!searches.some((x) => x.query.includes('おすすめ')), 'User text is never a search query');
+
+    const before = searches.length;
+    const ask = await call({ AI }, { message: '代わりのおすすめは？', routine: { currentlyUsing: [], badProducts: [], safeProducts: [] } });
+    assert.match(ask.reply, /避けたい成分/);
+    assert.strictEqual(searches.length, before, 'Nothing to avoid and no category: no search');
+
+    const ingredient = await call({ AI }, { message: '香料ってどんな成分？' });
+    assert.ok(ingredient.quickReplies.includes('🔍 香料が入っていないコスメを探す'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.CHAT_GATE_MODE;
     clearGatewayEnv();
   }
 });

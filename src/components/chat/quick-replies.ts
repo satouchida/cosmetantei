@@ -14,6 +14,8 @@ export type QuickReplyAction =
   | { kind: 'send'; text: string }
   /** 直前に分析した商品を、肌荒れ・安全リストに追加する */
   | { kind: 'add_analyzed'; list: 'bad' | 'safe' }
+  /** 直前に分析した商品の販売価格を調べる */
+  | { kind: 'price_analyzed' }
   /** 候補カードのボタンから選んでもらうよう案内する */
   | { kind: 'pick_from_cards' }
   /** 比較リストを空にする */
@@ -38,6 +40,7 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
 
   '🚨 このアイテムで肌荒れした（原因を特定）': { kind: 'add_analyzed', list: 'bad' },
   '✅ 普段安全に使えている（安全リストに追加）': { kind: 'add_analyzed', list: 'safe' },
+  '💴 この商品の価格を調べる': { kind: 'price_analyzed' },
 
   '🚨 この中のアイテムで肌荒れした': { kind: 'pick_from_cards' },
   '✅ この中のアイテムは安全に使えた': { kind: 'pick_from_cards' },
@@ -61,7 +64,7 @@ export const CLIENT_HANDLED_LABELS: readonly string[] = Object.keys(ACTIONS);
 export function getQuickReplyAction(label: string): QuickReplyAction {
   if (label.includes('バーコード')) return { kind: 'scanner' };
   if (label.includes('成分表示を入力')) return { kind: 'label_input' };
-  return ACTIONS[label] ?? { kind: 'server' };
+  return Object.hasOwn(ACTIONS, label) ? ACTIONS[label] : { kind: 'server' };
 }
 
 /** 候補カードから選んでもらう案内文 */

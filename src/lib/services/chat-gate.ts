@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
+import { KnownIngredient } from '../types';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey, runAfterResponse, runWorkersAI } from '../server/cloudflare';
 import { isCosmeticTopicRelevant, isJailbreakAttempt, OFF_TOPIC_REPLY_JA } from './gemini';
 import { isGreetingOrConsultation } from './live-cosmetics-service';
@@ -82,9 +83,34 @@ const INTENTS: GateIntent[] = [
  */
 export const QUICK_REPLY_INTENTS: Readonly<Record<string, GateIntent>> = {
   '💡 おすすめの低刺激アイテムは？': 'find_alternative',
-  '🔍 この成分が入っていないコスメを探す': 'find_alternative',
 };
 export const QUICK_REPLY_LABELS: ReadonlySet<string> = new Set(Object.keys(QUICK_REPLY_INTENTS));
+
+/**
+ * 成分の解説のあとに出すボタンで使う成分名。最初の名前だけ
+ * （「メチルイソチアゾリノン (MI/MIT)」→「メチルイソチアゾリノン」、「ツボクサエキス / マデカッソシド」→「ツボクサエキス」）
+ */
+function buttonIngredientName(item: KnownIngredient): string {
+  return item.nameJa.split(/[（(/／]/)[0].trim();
+}
+
+/** 「🔍 香料が入っていないコスメを探す」。成分DBの成分ごとのボタン */
+export function alternativeButtonLabel(item: KnownIngredient): string {
+  return `🔍 ${buttonIngredientName(item)}が入っていないコスメを探す`;
+}
+
+const ALTERNATIVE_BUTTON = /^🔍 (.{1,40})が入っていないコスメを探す$/u;
+
+/**
+ * クイック返信ボタンの意図。決まった文言の表と、成分DBの成分名が入ったボタン（名前がDBに無ければ対象外）
+ */
+export function quickReplyIntent(text: string): GateIntent | undefined {
+  const fixed = Object.hasOwn(QUICK_REPLY_INTENTS, text) ? QUICK_REPLY_INTENTS[text] : undefined;
+  if (fixed) return fixed;
+  const name = ALTERNATIVE_BUTTON.exec(text)?.[1];
+  if (name && KNOWN_INGREDIENTS.some((item) => buttonIngredientName(item) === name)) return 'find_alternative';
+  return undefined;
+}
 
 /** ゲートで止めたメッセージへの定型返信（Gemini・Web検索は呼ばない） */
 export const GATE_REPLIES: Readonly<Record<Exclude<GateScope, 'in_scope'>, { reply: string; quickReplies: string[] }>> = {
@@ -308,9 +334,9 @@ export async function classifyChatMessage(message: string): Promise<GateDecision
   const heuristic = classifyWithHeuristics(text);
 
   // 1. クイック返信ボタン：アプリ自身の文言なので無料で対象内。意図はボタンごとの対応表
-  const quickReplyIntent = QUICK_REPLY_INTENTS[text];
-  if (quickReplyIntent) {
-    return { scope: 'in_scope', intent: quickReplyIntent, source: 'quick_reply' };
+  const buttonIntent = quickReplyIntent(text);
+  if (buttonIntent) {
+    return { scope: 'in_scope', intent: buttonIntent, source: 'quick_reply' };
   }
 
   const mode = getGateMode();

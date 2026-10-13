@@ -143,6 +143,27 @@ export interface DifferentialAnalysisResult {
   safeAlternatives: Product[]; // 疑わしい成分を含まない安心のAmazonおすすめ商品
 }
 
+/** 販売ページで確認した価格（T4。キャッシュしない） */
+export interface PriceOffer {
+  shop: string;
+  productName: string;
+  priceYen: number;
+  /** 税込と書かれていれば true、税抜なら false、書かれていなければ null */
+  taxIncluded: boolean | null;
+  sourceUrl: string;
+}
+
+export interface PriceResult {
+  productQuery: string;
+  /** unavailable: 検索・ページの読み取りに失敗した（「価格が無い」とは区別する） */
+  status: 'ok' | 'unavailable';
+  /** 安い順。確認できた価格が無ければ空 */
+  offers: PriceOffer[];
+  /** 調べた日時（ISO 8601） */
+  checkedAt: string;
+  amazonUrl: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -152,6 +173,7 @@ export interface ChatMessage {
   singleAnalysis?: ProductAnalysisResult;
   differentialAnalysis?: DifferentialAnalysisResult;
   safeAlternatives?: Product[];
+  priceResult?: PriceResult;
   quickReplies?: string[];
 }
 

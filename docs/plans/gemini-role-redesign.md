@@ -206,6 +206,43 @@ avoids repeat searches.
 `env.AI.websearch` requires wrangler ≥ 4.149. The project now has wrangler 4.149.0, from the
 dependency upgrade made on 2026-10-10.
 
+## Phases 3 and 4 (2026-10-13): done
+
+[Walkthrough](../walkthroughs/2026-10-13-alternatives-and-prices.md). The price card from phase 7 was
+built here too.
+
+**T3, alternatives:**
+- **What to avoid** comes only from the ingredient DB, never from user text:
+  - after a comparison, the culprits that match a DB entry (recomputed on the server from the
+    routine);
+  - from a message, the DB ingredients named in it (「香料が入っていない化粧水」);
+  - from the ingredient-answer button, which now names the ingredient
+    (「🔍 香料が入っていないコスメを探す」). The gate accepts that label without Clef only when
+    the name is a DB entry.
+- **Category** comes from the bad products' category, or from a fixed word list (化粧水, 乳液…).
+- **Local first:** verified products already cached are checked first. Web research runs only if
+  fewer than 3 pass.
+- **Query:** built from fixed words: `敏感肌 <category> <無香料 | アルコールフリー | X不使用> 全成分`.
+- **Pages:** read as in T1. Products with a full ingredient list are registered like T1 results,
+  and the page facts are cached for 7 days (`altfacts:v1`).
+- **Code re-checks every candidate** with `findSafeAlternatives`: a full ingredient list from a
+  confirmed page, none of the avoided ingredients, no high or moderate irritant, the requested
+  category, and never a user's own label. **No candidate passes → no alternatives**, and the reply
+  says so.
+
+**T4, prices:**
+- **Product name:** from a message, through `toProductSearchQuery` after the price phrasing is
+  removed; or from the 「💴 この商品の価格を調べる」 button after a single analysis (brand and
+  name of the analysed product).
+- **Query:** `<product name> 価格`. Pages are read with URL context, and Gemini returns each offer
+  with its page URL, shop, product name, price and whether tax is included.
+- **Code checks:** the page was requested and read; the price is a whole number of yen from 100 to
+  100,000; the product name on the page contains every word of the query.
+- **Never cached:** not the search, not the page facts, not the result.
+- **Reply:** the lowest confirmed offers (up to 5) on a price card, each linked to its page, with
+  the time checked and a note that prices change. **No confirmed offer → no price**, only the
+  Amazon search link.
+
 ## Phases 5 and 6 status (2026-10-12): done
 
 `src/lib/services/chat-replies.ts` replaces `generateGeminiChatResponse`, its system prompt and the

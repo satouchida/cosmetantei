@@ -14,6 +14,8 @@ const MAX_ACTIVE_INGREDIENTS = LABEL_LIMITS.activeIngredients;
 const MAX_UNDISCLOSED_INGREDIENTS = LABEL_LIMITS.undisclosed;
 export const MAX_MESSAGE_LENGTH = 1000;
 
+const PRODUCT_CATEGORIES: readonly string[] = ['cleanser', 'toner', 'serum', 'cream', 'sunscreen', 'mask', 'lip', 'other'];
+
 const isShortString = (v: unknown, max = MAX_TEXT_LENGTH): v is string =>
   typeof v === 'string' && v.length <= max;
 
@@ -24,6 +26,9 @@ export function isValidProduct(p: unknown): p is Product {
     isShortString(product.id) &&
     isShortString(product.name) &&
     isShortString(product.brand) &&
+    // 種類は決まった語だけ（代わりの商品探しの検索語に使う）
+    (product.category === undefined ||
+      (typeof product.category === 'string' && PRODUCT_CATEGORIES.includes(product.category))) &&
     Array.isArray(product.ingredients) &&
     product.ingredients.length <= MAX_INGREDIENTS &&
     product.ingredients.every((i) => isShortString(i, MAX_INGREDIENT_LENGTH)) &&

@@ -240,9 +240,11 @@ const ASCII_WORD = /^[a-z0-9]+$/;
 /**
  * 文章に出てくる既知成分を取り出す（長い名前を優先し、重なる一致は捨てる）。
  * 「ジプロピレングリコール」の中の「プロピレングリコール」、「セテアリルアルコール」の中の
- * 「アルコール」を拾わないよう、カタカナ語はカタカナの途中では一致させない
+ * 「アルコール」を拾わないよう、カタカナ語はカタカナの途中では一致させない。
+ * 「無香料」「パラベン不使用」は含まないという意味なので、既定では拾わない。
+ * 代わりの商品探しでは、含まないでほしい成分として拾う（includeNegated）
  */
-export function findIngredientsInText(text: string): KnownIngredient[] {
+export function findIngredientsInText(text: string, { includeNegated = false } = {}): KnownIngredient[] {
   const norm = normalizeIngredientName(text);
   const ascii = text.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
   const hits: { item: KnownIngredient; start: number; end: number; inAscii: boolean }[] = [];
@@ -263,7 +265,7 @@ export function findIngredientsInText(text: string): KnownIngredient[] {
           const end = m.index + asciiName.length;
           // 「cetyl alcohol」等の高級アルコールはエタノールではない。「alcohol free」等は含まないという意味
           if (asciiName === 'alcohol' && /[a-z]+yl $/.test(ascii.slice(0, m.index))) continue;
-          if (/^ (free|0)(?![a-z0-9])/.test(ascii.slice(end))) continue;
+          if (!includeNegated && /^ (free|0)(?![a-z0-9])/.test(ascii.slice(end))) continue;
           hits.push({ item, start: m.index, end, inAscii: true });
         }
         continue;
@@ -277,7 +279,9 @@ export function findIngredientsInText(text: string): KnownIngredient[] {
         // 「ビタミンC誘導体」「ビタミンCエチル」「アスコルビン酸グルコシド」は、アスコルビン酸とは性質の違う別の成分
         if (norm.startsWith('誘導体', end) || (/[酸a-z0-9]$/.test(name) && KATAKANA.test(after))) continue;
         // 「無香料」「香料フリー」「パラベン不使用」は、その成分を含まないという意味
-        if (before === '無' || norm.startsWith('フリー', end) || norm.startsWith('不使用', end)) continue;
+        if (!includeNegated && (before === '無' || norm.startsWith('フリー', end) || norm.startsWith('不使用', end))) {
+          continue;
+        }
         hits.push({ item, start, end, inAscii: false });
         break;
       }

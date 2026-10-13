@@ -240,7 +240,8 @@ export function hasVerifiedIngredients(product: Product): boolean {
 export function findSafeAlternatives(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
   excludedProductIds: string[] = [],
-  limit = 3
+  limit = 3,
+  options: { category?: Product['category'] } = {}
 ): Product[] {
   // 避けるべき成分を「既知DBのID」と「日本語名・英語名」の両方で表す（英語INCI表記の製品にも対応）
   const avoidIds = new Set<string>();
@@ -260,6 +261,7 @@ export function findSafeAlternatives(
   // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
   const safeItems = COSMETICS_DATABASE.filter((product) => {
     if (excludedProductIds.includes(product.id)) return false;
+    if (options.category && product.category !== options.category) return false;
     if (!hasVerifiedIngredients(product)) return false;
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
     if (product.ingredientSource === 'user_label') return false;
