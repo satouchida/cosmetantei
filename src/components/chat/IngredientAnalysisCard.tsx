@@ -326,6 +326,11 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             💡 アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
               '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。'}
           </p>
+          {selectedIngredient.wheatDerived && (
+            <p className="text-[11px] leading-relaxed text-amber-900">
+              🌾 小麦由来の成分です。小麦アレルギーがある方は注意し、使用中にかゆみやはれが出たら使用をやめて医師に相談してください。
+            </p>
+          )}
           {selectedIngredient.jpStandard && (
             <p
               className={`text-[11px] leading-relaxed ${

@@ -3310,3 +3310,43 @@ test('73. 化粧品基準: the tables match the 告示; label names find their e
   assert.ok(quasi.ingredients.every((i) => !i.jpStandard));
   assert.ok(!quasi.labelNotesJa?.some((n) => n.includes('化粧品基準')));
 });
+
+test('74. Japanese incidents: 加水分解コムギ and ロドデノール are rated with sources; wheat-derived ingredients are flagged', async () => {
+  const { parseIngredientLabel } = await import('../src/lib/analyzer/label-parser');
+  const { isWheatDerivedName } = await import('../src/lib/utils/ingredient-name');
+
+  // 表示名のゆれ（医薬部外品の有効成分名・英語名・カッコ書きの注記）
+  assert.strictEqual(findMatchingKnownIngredient('加水分解コムギ末')?.id, 'hydrolyzed_wheat');
+  assert.strictEqual(findMatchingKnownIngredient('Hydrolyzed Wheat Protein')?.id, 'hydrolyzed_wheat');
+  assert.strictEqual(findMatchingKnownIngredient('ヒドロキシプロピルトリモニウム加水分解コムギ')?.id, 'hydrolyzed_wheat');
+  assert.strictEqual(findMatchingKnownIngredient('4-(4-ヒドロキシフェニル)-2-ブタノール')?.id, 'rhododenol');
+  assert.strictEqual(findMatchingKnownIngredient('ロドデノール')?.riskLevel, 'high_irritant');
+  // 「（小麦由来）」の注記は成分名の照合に影響しない
+  assert.strictEqual(findMatchingKnownIngredient('グリセリン（小麦由来）')?.id, 'glycerin');
+  assert.strictEqual(findMatchingKnownIngredient('BG(コムギ由来)')?.id, 'butylene_glycol');
+  assert.strictEqual(findMatchingKnownIngredient('グリセリン(小麦由来成分)')?.id, 'glycerin');
+  // デンプンは対象外
+  assert.strictEqual(findMatchingKnownIngredient('加水分解コムギデンプン'), undefined);
+
+  // 小麦由来の判定（buckwheat はソバ）
+  for (const name of ['グリセリン（小麦由来）', 'コムギ胚芽油', 'Triticum Vulgare Germ Oil', 'Hydrolyzed Wheat Protein']) {
+    assert.strictEqual(isWheatDerivedName(name), true, name);
+  }
+  for (const name of ['Buckwheat Extract', 'ソバエキス', 'グリセリン']) {
+    assert.strictEqual(isWheatDerivedName(name), false, name);
+  }
+
+  // 製品の分析：小麦由来の成分を知らせ、厚生労働省の通知を出典に出す
+  const { ingredients } = parseIngredientLabel('全成分：水、グリセリン（小麦由来）、加水分解コムギ末、BG');
+  const result = analyzeProduct({ id: 'wheat_test', name: 'テスト石けん', brand: 'テスト', country: 'JP', category: 'cleanser', ingredients });
+  assert.deepStrictEqual(
+    result.ingredients.filter((i) => i.wheatDerived).map((i) => i.rawName),
+    ['グリセリン(小麦由来)', '加水分解コムギ末']
+  );
+  assert.strictEqual(result.ingredients.find((i) => i.rawName.startsWith('グリセリン'))?.riskLevel, 'safe');
+  assert.ok(result.labelNotesJa?.some((n) => n.startsWith('小麦由来の成分が表示されています')));
+  assert.ok(result.labelReferences?.some((r) => r.url.includes('cyanoshizuku/dl/01.pdf')));
+  // 小麦由来の成分が無ければ出さない
+  const plain = analyzeProduct({ id: 'plain', name: 't', brand: 'b', country: 'JP', category: 'toner', ingredients: ['水', 'グリセリン'] });
+  assert.ok(!plain.labelNotesJa?.some((n) => n.includes('小麦')));
+});

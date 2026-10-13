@@ -148,7 +148,34 @@ const REF = {
     title: 'Allergic contact dermatitis due to butylene glycol in cosmetics. Contact Dermatitis 2020',
     url: 'https://pubmed.ncbi.nlm.nih.gov/32342510/',
   },
+  mhlwWheatSoapRecall: {
+    title: '厚生労働省「『茶のしずく石鹸』の自主回収について」（加水分解コムギ末を含む石けんと全身性アレルギー）',
+    url: 'https://www.mhlw.go.jp/bunya/iyakuhin/cyanoshizuku/',
+  },
+  mhlwWheatNotice2010: {
+    title: '厚生労働省 平成22年10月15日 薬食安発1015第2号・薬食審査発1015第13号「加水分解コムギ末を含有する医薬部外品・化粧品の使用上の注意事項等について」',
+    url: 'https://www.mhlw.go.jp/bunya/iyakuhin/cyanoshizuku/dl/05.pdf',
+  },
+  mhlwWheatLabelling2011: {
+    title: '厚生労働省 平成23年9月9日 薬食審査発0909第1号・薬食安発0909第1号「小麦由来成分を配合する医薬部外品及び化粧品への成分表示について」',
+    url: 'https://www.mhlw.go.jp/bunya/iyakuhin/cyanoshizuku/dl/01.pdf',
+  },
+  mhlwRhododenol2013: {
+    title: '厚生労働省医薬食品局安全対策課「美白美容液による白斑問題への対応について」（平成25年11月12日、消費者委員会 資料4）',
+    url: 'https://www.cao.go.jp/consumer/iinkai/2013/135/doc/135_131112_shiryou4_.pdf',
+  },
+  jdaRhododenol: {
+    title: '日本皮膚科学会「ロドデノール含有化粧品について（ロドデノール誘発性脱色素斑）」',
+    url: 'https://www.dermatol.or.jp/medical/guideline/4745/',
+  },
+  jdaRhododenolFaq: {
+    title: '日本皮膚科学会 ロドデノール含有化粧品の安全性に関する特別委員会「患者さんの質問にお答えします」（2015年8月7日改訂）',
+    url: 'https://www.dermatol.or.jp/uploads/uploads/files/news/J20150807_1.pdf',
+  },
 } satisfies Record<string, ReferenceLink>;
+
+/** 小麦由来の成分の表示（成分カードの出典）。厚生労働省の2011年の通知と、茶のしずく石鹸の回収のページ */
+export const WHEAT_LABEL_REFERENCES: ReferenceLink[] = [REF.mhlwWheatLabelling2011, REF.mhlwWheatSoapRecall];
 
 /**
  * 医薬部外品の成分表示の出典として画面に出すリンク。日本化粧品工業会のサイトポリシーでリンクは原則自由
@@ -440,6 +467,21 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     reviewedAt: REVIEWED,
   },
   {
+    // 日本の事例（docs/plans/japan-ingredient-data.md の Step 3）
+    id: 'rhododenol',
+    nameJa: 'ロドデノール（4-(4-ヒドロキシフェニル)-2-ブタノール）',
+    nameEn: 'Rhododenol (4-(4-hydroxyphenyl)-2-butanol)',
+    aliases: ['ロドデノール', '4-(4-ヒドロキシフェニル)-2-ブタノール', 'rhododenol', 'rhododendrol', '4-(4-hydroxyphenyl)-2-butanol'],
+    category: 'potent_active',
+    riskLevel: 'high_irritant',
+    reasonJa:
+      'カネボウ化粧品が開発した医薬部外品の美白有効成分です。配合した薬用化粧品で、塗った部位の肌の色が白く抜ける「脱色素斑」が相次ぎ、2013年7月4日にカネボウ化粧品・リサージ・エキップの54製品が自主回収されました。',
+    sensitiveSkinAdviceJa:
+      '回収の対象になった成分です。手元に残っている製品は使わないでください。日本皮膚科学会の全国三次調査（2014年12月〜2015年3月、通院中の964人）では約8割が軽快しましたが、完全に治った・ほぼなくなった人は17%で、変わらない人や悪化した人もいました。',
+    sources: [REF.mhlwRhododenol2013, REF.jdaRhododenol, REF.jdaRhododenolFaq],
+    reviewedAt: '2026-10-14',
+  },
+  {
     id: 'oxybenzone',
     nameJa: 'オキシベンゾン-3',
     nameEn: 'Benzophenone-3 / Oxybenzone',
@@ -598,5 +640,25 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     sensitiveSkinAdviceJa: '多くの化粧品に含まれる基本成分です。',
     sources: [REF.butyleneGlycolAllergy],
     reviewedAt: REVIEWED,
+  },
+
+  // ==========================================
+  // 日本の事例（docs/plans/japan-ingredient-data.md の Step 3）
+  // ==========================================
+  {
+    id: 'hydrolyzed_wheat',
+    nameJa: '加水分解コムギ（加水分解コムギ末）',
+    nameEn: 'Hydrolyzed Wheat Protein',
+    aliases: ['加水分解コムギ', '加水分解コムギ末', '加水分解コムギタンパク', '加水分解小麦', '加水分解小麦タンパク', 'hydrolyzed wheat protein', 'hydrolyzed wheat gluten'],
+    category: 'other',
+    // 事例は加水分解コムギ末を配合した石けん。小麦タンパクの加水分解物すべての評価ではないため「軽度の注意」。
+    // 小麦アレルギーの人への注意は、製品の注記（小麦由来の成分）で出す
+    riskLevel: 'low_caution',
+    reasonJa:
+      '小麦のタンパク質を分解した成分です。加水分解コムギ末を配合した石けん（「茶のしずく石鹸」など）の使用後に、顔のかゆみが出たり、小麦を食べた後の運動でアナフィラキシーなどの全身性アレルギーを起こしたりする例が相次いで報告され、製品は自主回収されました。使用者が気づかないうちにこの成分に感作された可能性が否定できないとして、厚生労働省が2010年と2011年に通知を出しています。',
+    sensitiveSkinAdviceJa:
+      '小麦アレルギーがある方や、この成分を含む製品で顔のかゆみ・腫れが出たことがある方は避けてください。厚生労働省は2011年の通知で、小麦由来の成分に「小麦由来」などと表示するよう業界に求めています（成分名に「小麦」「コムギ」が入る場合は成分名だけでよいとされています）。',
+    sources: [REF.mhlwWheatSoapRecall, REF.mhlwWheatNotice2010, REF.mhlwWheatLabelling2011],
+    reviewedAt: '2026-10-14',
   },
 ];

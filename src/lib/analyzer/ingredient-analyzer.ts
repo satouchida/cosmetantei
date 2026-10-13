@@ -1,7 +1,7 @@
-import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES } from '../data/ingredients-db';
+import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES, WHEAT_LABEL_REFERENCES } from '../data/ingredients-db';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
-import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
+import { abbreviateIngredientName, isWheatDerivedName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
 import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
 import {
@@ -82,6 +82,9 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
   const abbreviated = abbreviateIngredientName(norm);
   const byAbbreviation = knownAbbreviatedNames().find(({ names }) => names.has(abbreviated));
   if (byAbbreviation) return byAbbreviation.item;
+
+  // 加水分解コムギデンプンはタンパク質ではない（加水分解コムギの事例はタンパク質の成分）
+  if (/加水分解(コムギ|小麦)(でんぷん|デンプン)|hydrolyzedwheatstarch/.test(norm)) return undefined;
 
   // 2. 特殊ケースの除外ルール
   // 「フェノキシエタノール」は「エタノール」ではない
@@ -266,6 +269,8 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
   // 化粧品基準（化粧品のみ。医薬部外品は品目ごとの承認による）
   const useType = productUseType(product);
   const standardFound: { rawName: string; entry: StandardEntry; note: ReturnType<typeof standardNote> }[] = [];
+  // 小麦由来の成分（加水分解コムギの事例。小麦アレルギーの人に知らせる）
+  const wheatNames: string[] = [];
 
   const isEstimatedFromMarketplaces =
     product.isEstimatedFromMarketplaces ||
@@ -291,6 +296,8 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     const standardEntry = product.isQuasiDrug ? undefined : findStandardEntry(norm, abbreviateIngredientName(norm));
     const jpStandard = standardEntry ? standardNote(standardEntry, useType) : undefined;
     if (standardEntry && jpStandard) standardFound.push({ rawName: raw, entry: standardEntry, note: jpStandard });
+    const wheatDerived = isWheatDerivedName(raw);
+    if (wheatDerived && !wheatNames.includes(raw)) wheatNames.push(raw);
 
     analyzedIngredients.push({
       rawName: raw,
@@ -302,6 +309,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       reasonJa: matched.reasonJa,
       ...(isActive && { isActive }),
       ...(jpStandard && { jpStandard }),
+      ...(wheatDerived && { wheatDerived }),
     });
 
     if (matched.riskLevel === 'high_irritant' || matched.riskLevel === 'moderate_irritant') {
@@ -323,10 +331,16 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     labelNotesJa.push(`企業秘密として名称が表示されていない成分が${undisclosedCount}個あります（「他${undisclosedCount}成分」）。`);
   }
   labelNotesJa.push(...standardLabelNotes(product, standardFound));
+  if (wheatNames.length > 0) {
+    labelNotesJa.push(
+      `小麦由来の成分が表示されています：${wheatNames.join('、')}。小麦アレルギーがある方は注意してください。使用中にかゆみやまぶたのはれなどが出たら使用をやめ、医師に相談してください（加水分解コムギ末を含む石けんで、小麦の全身性アレルギーを起こした事例があります）。`
+    );
+  }
 
   const labelReferences = [
     ...(product.isQuasiDrug || undisclosedCount > 0 ? QUASI_DRUG_LABEL_REFERENCES : []),
     ...(standardFound.length > 0 ? [COSMETIC_STANDARD_REFERENCE] : []),
+    ...(wheatNames.length > 0 ? WHEAT_LABEL_REFERENCES : []),
   ];
 
   // 総合リスク判定（刺激成分の検出が優先。検出が無くても、評価できた成分が少なければ「安全」とは判定しない）

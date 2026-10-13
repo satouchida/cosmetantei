@@ -99,6 +99,8 @@ export interface AnalyzedIngredient {
   isActive?: boolean;
   /** 日本の化粧品基準（別表）に載っている成分の、配合の禁止・上限（化粧品のみ。医薬部外品には付けない） */
   jpStandard?: { table: string; textJa: string; notAllowedHere: boolean; referenceUrl: string };
+  /** 小麦由来の成分（「（小麦由来）」の注記、または名前に小麦・コムギ・wheat が入る） */
+  wheatDerived?: boolean;
 }
 
 export interface ProductAnalysisResult {

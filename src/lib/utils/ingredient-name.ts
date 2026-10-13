@@ -2,11 +2,26 @@
  * 成分名の正規化（全角英数を半角に、小文字化、空白・ハイフン・中点・スラッシュ・括弧の除去）。
  * 成分DBとの照合（ingredient-analyzer）・ルールの解説（dynamic-ingredient-service）・化粧品基準（jp-standards）で同じものを使う
  */
+/**
+ * 小麦由来であることの注記（「グリセリン（小麦由来）」）。厚生労働省の2011年の通知
+ * （薬食審査発0909第1号）で、成分名のあとにカッコ書きで付ける。成分名の照合では除く
+ */
+export const WHEAT_ORIGIN_NOTE = /[(（]\s*(?:小麦|コムギ|こむぎ)\s*(?:に)?由来(?:成分)?\s*[)）]/;
+const WHEAT_ORIGIN_NOTE_ALL = new RegExp(WHEAT_ORIGIN_NOTE.source, 'g');
+
+/** 小麦由来の成分か（注記がある、または名前に小麦・コムギ・wheat が入る。buckwheat はソバ） */
+export function isWheatDerivedName(raw: string): boolean {
+  if (WHEAT_ORIGIN_NOTE.test(raw)) return true;
+  const n = raw.normalize('NFKC').toLowerCase();
+  return /コムギ|小麦|トリティカム|triticum/.test(n) || /(?<!buck)wheat/.test(n.replace(/\s+/g, ''));
+}
+
 export function normalizeIngredientName(name: string): string {
   if (!name) return '';
   // 全角英数（ＢＧ・ＤＰＧ など、Web ページの成分表示に多い）を半角にそろえる
   return name
     .normalize('NFKC')
+    .replace(WHEAT_ORIGIN_NOTE_ALL, '')
     .trim()
     .toLowerCase()
     .replace(/[\(\)（）]/g, '')

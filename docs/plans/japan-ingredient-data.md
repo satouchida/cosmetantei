@@ -1,10 +1,10 @@
 # Plan: ingredient data for the Japanese market
 
-Written 2026-10-12. Status: step 2 done on 2026-10-14
-([walkthrough](../walkthroughs/2026-10-14-cosmetic-standards.md)); step 4 done on 2026-10-12
+Written 2026-10-12. Status: steps 2 and 3 done on 2026-10-14
+([2](../walkthroughs/2026-10-14-cosmetic-standards.md), [3](../walkthroughs/2026-10-14-japan-incidents.md)); step 4 done on 2026-10-12
 ([walkthrough](../walkthroughs/2026-10-12-quasi-drug-labels.md)), and its known limits fixed the same
-day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Steps 3, 5
-and 6 not started.
+day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Steps 5 and 6
+not started.
 
 ## Why
 
@@ -51,7 +51,7 @@ Not used: brand sites, blogs, and Gemini.
 |---|---|---|---|
 | 1 | Name bridge | Japanese label names ⇄ INCI, from the JCIA lists, including quasi-drug names | **partly done; the rest is blocked.** Done: matching abbreviated and full names (POE/ポリオキシエチレン, Na/ナトリウム, 2K/ジカリウム) by the rules of JCIA's 簡略名作成ガイドライン, without the list. Blocked: JCIA's [site policy](https://www.jcia.org/user/jcia/sitepolicy) says its data and PDFs may not be quoted, copied, reproduced or processed without permission, and asks users to contact JCIA first. Linking is allowed in principle (JCIA asks to be told about links), so the app cites the list by linking to it: a quasi-drug's analysis card links to the name list and the labelling policy. Importing the lists still needs permission. Until then, names are added one by one as aliases with a source, as in step 4 |
 | 2 | 化粧品基準 rules | Banned (別表第1), restricted (第2) and approved-list (第3, 第4) facts as data, so a card can say "limited to X%" or "rinse-off only" | **done 2026-10-14** (see below) |
-| 3 | Japan-specific incidents | Sourced entries for 加水分解コムギ and ロドデノール | not started |
+| 3 | Japan-specific incidents | Sourced entries for 加水分解コムギ and ロドデノール | **done 2026-10-14** (see below) |
 | 4 | Quasi-drug labels | See below | **done 2026-10-12** |
 | 5 | Pair rules across products | E.g. a retinoid with AHA/BHA; several fragrance allergens across a routine. Each rule needs a source | not started |
 | 6 | 旧表示指定成分 | Find the 1980 告示 and add the flag back where it applies (open item from the audit) | not started |
@@ -152,3 +152,22 @@ Open questions:
   label usage. They are not checked against JCIA's name list (step 1).
 - **Amendments:** the PDF is "as amended to 令和6年7月12日" (`COSMETIC_STANDARD_AMENDED`).
   Recheck the Tokyo page for new 告示 at each review.
+
+## Step 3: Japan-specific incidents
+
+Sources, all primary:
+- **加水分解コムギ:**
+  - MHLW, [「茶のしずく石鹸」の自主回収について](https://www.mhlw.go.jp/bunya/iyakuhin/cyanoshizuku/) and its
+    recall list (`dl/06.pdf`: products with the same 加水分解コムギ末);
+  - notice 薬食安発1015第2号・薬食審査発1015第13号 (2010-10-15): the cases, and the cautions on
+    labels;
+  - notice 薬食審査発0909第1号・薬食安発0909第1号 (2011-09-09): labels must show 「小麦由来」 after a
+    wheat-derived ingredient's name, unless the name already contains 小麦 or コムギ.
+- **ロドデノール:**
+  - MHLW 医薬食品局安全対策課, 「美白美容液による白斑問題への対応について」 (2013-11-12, the
+    Consumer Commission's 資料4). MHLW's own press pages for 2013 no longer resolve;
+  - the JDA committee's page, and its patient FAQ (revised 2015-08-07).
+- **Not used:**
+  - グルパール19S (the trade name), the 2,111 case count and the 2017 molecular-weight rule
+    for raw materials: none of them is in an MHLW document;
+  - the press and the company's reports.
