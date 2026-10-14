@@ -13,5 +13,5 @@ export default defineConfig([
       '@typescript-eslint/no-require-imports': 'off',
     },
   },
-  globalIgnores(['.next/**', '.open-next/**', '.wrangler/**', 'next-env.d.ts']),
+  globalIgnores(['.next/**', '.open-next/**', '.wrangler/**', 'next-env.d.ts', 'worker.ts']),
 ]);

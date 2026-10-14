@@ -370,9 +370,9 @@ guess.
 - **Barcodes** must match as a whole number.
 - **The verified-product index** in KV is written after the response, and only when it changes.
 
-**Cap across users (added 2026-10-14):** paid web searches are also capped, shared by all users, by the
-`WEB_SEARCH_LIMITER` binding, 30 per minute per Cloudflare location ([cost tracking](../walkthroughs/2026-10-14-cost-tracking.md)).
-Rate-limit bindings only count per 10 or 60 seconds, so there is no daily cap.
+**Strict cap (added 2026-10-14):** paid web searches, Gemini and Workers AI calls are also capped
+across all users, per minute and per UTC day, by one Durable Object counter
+([cost tracking](../walkthroughs/2026-10-14-cost-tracking.md#strict-spend-cap)).
 
 **Left for later phases:**
 - Chat replies used the grounded `generateGeminiChatResponse` until phases 5 and 6 replaced it.

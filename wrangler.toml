@@ -1,5 +1,6 @@
 name = "cosmetantei"
-main = ".open-next/worker.js"
+# OpenNext の worker.js に、アプリの Durable Object を足したエントリー
+main = "worker.ts"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
 
@@ -24,13 +25,15 @@ name = "SEARCH_RATE_LIMITER"
 namespace_id = "1002"
 simple = { limit = 60, period = 60 }
 
-# 有料の Web 検索の、利用者をまたいだ上限（key は "global" のみ）。利用者ごとの上限だけでは合計に上限が無いため。
-# 数えるのは Cloudflare の拠点ごと（全世界での厳密な上限ではない）。
-# 値を変えるときは src/lib/server/cloudflare.ts の WEB_SEARCH_GLOBAL_LIMIT（バインディングが無いときのメモリ版）も合わせる
-[[ratelimits]]
-name = "WEB_SEARCH_LIMITER"
-namespace_id = "1003"
-simple = { limit = 30, period = 60 }
+# 有料の呼び出し（Gemini・Workers AI・Web 検索）の上限を、全世界で1つの Durable Object で厳密に数える
+# （src/lib/server/spend-cap.ts）。クラスは worker.ts から export している。上限は [vars] の SPEND_CAP_*
+[[durable_objects.bindings]]
+name = "SPEND_CAP"
+class_name = "SpendCapObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SpendCapObject"]
 
 # 有料の呼び出し（Gemini・Workers AI・Web 検索）の利用量（src/lib/server/usage.ts）。
 # 件数・トークン数・所要時間だけを書く。集計の SQL は docs/walkthroughs/2026-10-14-cost-tracking.md
@@ -59,6 +62,11 @@ AI_GATEWAY_ID = "cosmetantei-prod"
 # チャットゲート（Clef）: enforce | shadow | off。雑談・指示の書き換え・本人の医療相談を Gemini の前で止める
 # この判定はキーワードでは代替できないため enforce で運用する（docs/plans/gemini-role-redesign.md）
 CHAT_GATE_MODE = "enforce"
+# 有料の呼び出しの上限（全体で厳密に数える。「1分あたり/1日あたり（UTC）」）。上限に達した呼び出しはせず、
+# 利用量の記録に capped と残す。値は docs/walkthroughs/2026-10-14-cost-tracking.md
+SPEND_CAP_WEB_SEARCH = "30/1000"
+SPEND_CAP_GEMINI = "60/3000"
+SPEND_CAP_WORKERS_AI = "120/10000"
 # 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）
 # docs/plans/clef-chat-gate-and-search-filter.md の Phase 2
 SEARCH_FILTER_MODE = "off"

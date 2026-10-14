@@ -1,6 +1,7 @@
 import 'server-only';
 import { BoundedCache } from '../utils/bounded-cache';
 import { recordUsage } from './usage';
+import { consumeSpend } from './spend-cap';
 
 /**
  * Cloudflare バインディング（KV・Rate Limiting）へのアクセスヘルパー
@@ -23,6 +24,12 @@ interface WorkersAiLike {
   websearch?(input: { query: string; provider?: string; limit?: number; gatewayId?: string }): Promise<unknown>;
 }
 
+/** Durable Object の名前空間（有料の呼び出しの上限。src/lib/server/spend-cap.ts） */
+export interface DurableObjectNamespaceLike {
+  idFromName(name: string): unknown;
+  get(id: unknown): { fetch(url: string, init?: RequestInit): Promise<Response> };
+}
+
 /** Workers Analytics Engine のデータセット（利用量の記録。src/lib/server/usage.ts） */
 export interface AnalyticsEngineLike {
   writeDataPoint(point: { blobs?: string[]; doubles?: number[]; indexes?: string[] }): void;
@@ -33,8 +40,8 @@ interface AppBindings {
   APP_CACHE?: KVNamespaceLike;
   AI_RATE_LIMITER?: RateLimiterLike;
   SEARCH_RATE_LIMITER?: RateLimiterLike;
-  /** 有料の Web 検索の、利用者をまたいだ上限（1分あたり） */
-  WEB_SEARCH_LIMITER?: RateLimiterLike;
+  /** 有料の呼び出しの上限を全体で数える Durable Object（worker.ts の SpendCapObject） */
+  SPEND_CAP?: DurableObjectNamespaceLike;
   USAGE?: AnalyticsEngineLike;
 }
 
@@ -42,7 +49,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const loggedWarnings = new Set<string>();
 
 /** 本番環境でのみ、同じ警告を一度だけ出す（設定ミスで保護が無効になったことに気付けるように） */
-function warnOnceInProduction(key: string, message: string, err?: unknown): void {
+export function warnOnceInProduction(key: string, message: string, err?: unknown): void {
   if (!isProduction || loggedWarnings.has(key)) return;
   loggedWarnings.add(key);
   console.error(message, err ?? '');
@@ -100,6 +107,11 @@ export async function runWorkersAI(
   // （バインディング経由ではリクエストごとに本文ログを止められないため）
   const allowGateway = !options.containsUserText || process.env.AI_GATEWAY_LOG_PAYLOAD === 'true';
   const gatewayId = allowGateway ? (process.env.AI_GATEWAY_ID || '').trim() : '';
+  if (!(await consumeSpend('workers_ai'))) {
+    console.warn(`Workers AI ${model} skipped: spend cap reached`);
+    await recordUsage({ kind: 'workers_ai', task: options.task, model, outcome: 'capped' });
+    return null;
+  }
   const started = Date.now();
   try {
     const result = await AI.run(model, input, gatewayId ? { gateway: { id: gatewayId } } : undefined);
@@ -134,40 +146,6 @@ export interface WebSearchItem {
 const WEB_SEARCH_TIMEOUT_MS = 8_000;
 
 /**
- * 有料の Web 検索の、利用者をまたいだ上限（1分あたり）。WEB_SEARCH_LIMITER（wrangler.toml）と同じ値。
- * 利用者ごとの上限（ai: 20回/分）だけでは、多くの利用者からの検索の合計に上限が無いため。
- * レート制限のバインディングは Cloudflare の拠点（データセンター）ごとに数え、厳密でもない
- * （Cloudflare のドキュメントの Locality・Accuracy）。全体の厳密な上限ではなく、拠点ごとの急増を止めるもの
- */
-export const WEB_SEARCH_GLOBAL_LIMIT = 30;
-const webSearchHistory: number[] = [];
-
-/** テスト用：メモリの上限の記録を消す（テストは1つのプロセスで多数の検索をするため） */
-export function resetWebSearchCap(): void {
-  webSearchHistory.length = 0;
-}
-
-/** 上限に達していれば true（このときは検索しない） */
-async function isWebSearchCapped(): Promise<boolean> {
-  const { WEB_SEARCH_LIMITER } = await getBindings();
-  if (WEB_SEARCH_LIMITER) {
-    try {
-      const { success } = await WEB_SEARCH_LIMITER.limit({ key: 'global' });
-      return !success;
-    } catch (err) {
-      console.error('Web search limiter failed, using in-memory fallback:', err);
-    }
-  } else {
-    warnOnceInProduction('limiter:web_search', 'WEB_SEARCH_LIMITER binding is missing; using per-isolate in-memory cap.');
-  }
-  const now = Date.now();
-  while (webSearchHistory.length > 0 && now - webSearchHistory[0] >= RATE_LIMIT_WINDOW_MS) webSearchHistory.shift();
-  if (webSearchHistory.length >= WEB_SEARCH_GLOBAL_LIMIT) return true;
-  webSearchHistory.push(now);
-  return false;
-}
-
-/**
  * Cloudflare Web Search で1回検索する。バインディングが無い・エラー・タイムアウト時は null
  * - 結果は読むページの候補として一時的に使うだけで、どこにもキャッシュしない（Exa・Linkup の規約）
  * - 検索語はアプリが商品名などから組み立てたもの。利用者のチャット文は渡さない
@@ -189,8 +167,8 @@ export async function runWebSearch(
     return null;
   }
 
-  if (await isWebSearchCapped()) {
-    console.warn(`Web search skipped: global cap of ${WEB_SEARCH_GLOBAL_LIMIT} per minute reached`);
+  if (!(await consumeSpend('web_search'))) {
+    console.warn('Web search skipped: spend cap reached');
     await recordUsage({ kind: 'web_search', task: 'web_search', model: provider, outcome: 'capped' });
     return null;
   }

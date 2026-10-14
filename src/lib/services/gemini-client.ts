@@ -9,6 +9,7 @@ import 'server-only';
  */
 
 import { geminiTokenCounts, recordUsage, UsageOutcome } from '../server/usage';
+import { consumeSpend } from '../server/spend-cap';
 
 const AI_GATEWAY_BASE = 'https://gateway.ai.cloudflare.com/v1';
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -190,6 +191,13 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   }
   if (req.urlContext) {
     body.tools = [{ urlContext: {} }];
+  }
+
+  // 有料の呼び出しの上限（全体で数える）。上限に達していれば呼ばない
+  if (!(await consumeSpend('gemini'))) {
+    console.warn('Gemini call skipped: spend cap reached');
+    await recordUsage({ kind: 'gemini', task: req.task, model, outcome: 'capped' });
+    return null;
   }
 
   const started = Date.now();

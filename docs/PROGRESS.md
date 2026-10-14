@@ -37,7 +37,8 @@ Last updated: 2026-10-13.
 | 2026-10-14 | `86b074a` | Japan step 5, pair rules: the comparison warns when the problem products combine a retinoid with salicylic acid, exfoliants in several products (with the AHA sun note), or fragrance in several products, each with its source; test 75 ([walkthrough](walkthroughs/2026-10-14-pair-rules.md)) |
 | 2026-10-14 | `6b14a2c` | 「今使っているコスメ」: a third list, filled from the product cards, saved only in this browser with the date each item was added; 「組み合わせをチェック」 runs the pair rules on it without AI; items added 3+ months ago get a banner asking the user to confirm or remove them; test 76 ([walkthrough](walkthroughs/2026-10-14-current-use.md)) |
 | 2026-10-14 | `e7dfca2` | Japan step 6, 表示指定成分: the 1980 告示 was repealed in 2001, so the app uses the current quasi-drug list (告示第332号, 140 items, with the 2007 label aliases); ingredient cards say an ingredient is designated, with the notice; ratings unchanged; test 77 ([walkthrough](walkthroughs/2026-10-14-designated-ingredients.md)) |
-| 2026-10-14 | *this commit* | Cost tracking: every Gemini, Workers AI and web-search call writes a usage record (route, task, model, outcome, tokens, time; no text) to the log and Workers Analytics Engine; paid web searches capped at 30 per minute per Cloudflare location; test 78 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md)) |
+| 2026-10-14 | `4db6592` | Cost tracking: every Gemini, Workers AI and web-search call writes a usage record (route, task, model, outcome, tokens, time; no text) to the log and Workers Analytics Engine; paid web searches capped at 30 per minute per Cloudflare location; test 78 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md)) |
+| 2026-10-14 | *this commit* | Strict spend cap: one Durable Object counts every web search, Gemini and Workers AI call across all users, per minute and per UTC day (`SPEND_CAP_*` in `[vars]`); over the cap the call is skipped and recorded as `capped`; it fails closed; replaces the per-location `WEB_SEARCH_LIMITER`; the Worker entry is now `worker.ts`; test 79 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md#strict-spend-cap)) |
 
 ## In progress
 
@@ -62,6 +63,9 @@ From [03, Product](review/03-other-upgrades.md#product):
 
 - **Ingredient database review:** due 2027-10-12; test 55 warns in CI. At the same review, check
   whether JCIA has published a newer quasi-drug name list (current: 2008-03-25 edition).
+- **Spend cap values:** `SPEND_CAP_*` in `wrangler.toml` are starting values (web search 30/1000,
+  Gemini 60/3000, Workers AI 120/10000 per minute/day). Set them from the price list and the
+  usage dataset before launch.
 - **表示指定成分 (告示第332号):** the list is as amended by 平成21年告示第29号, copied from
   Kanagawa's undated checklist. Check for later amendments (MHLW cosmetics page, Tokyo notice
   list) at the yearly ingredient review.

@@ -67,24 +67,58 @@ ORDER BY calls DESC
 The app records counts, not prices. Multiply by the current price list to get cost. The AI
 Gateway dashboard also shows Gemini and Workers AI spend per model.
 
-## Hard cap on paid web searches
+## Strict spend cap
 
-- **Before:** web searches were limited only per IP: the `ai` bucket allows 20 requests a minute
-  per user, with up to two searches each. The total across all users had no ceiling.
-- **Now:** `WEB_SEARCH_LIMITER` (a new rate-limit binding, namespace 1003) allows 30 searches a
-  minute, shared by all users. Every search, including the Linkup fallback, counts once.
-- **It counts per Cloudflare location, not worldwide.** Cloudflare's docs say rate limits are
-  local to the location the Worker runs in, and are permissive and eventually consistent. Traffic
-  served from N locations can make up to about 30 × N searches a minute. So this stops a burst; it
-  is not a strict global ceiling. A strict one needs a counter in a single Durable Object.
-  - Over the cap, the search is skipped and recorded as `capped`.
-  - Research then behaves as if the search failed, so the user gets the usual 「見つかりませんでした」
-    path, and nothing is cached as a miss.
-- **Without the binding** (`next dev`, tests), an in-memory cap with the same number applies per
-  isolate.
-- **Limits of the binding:** it can only count per 10 or 60 seconds, so this is a per-minute
-  limit, not a daily budget. AI Gateway's own rate limiting
-  (dashboard setting) can add a ceiling on the gateway side.
+The first version capped web searches with a rate-limit binding. Cloudflare's docs (Locality,
+Accuracy) say those count per location and only approximately, so it was not a real ceiling.
+It is replaced by one counter that every request sees.
+
+- **The counter:** `SpendCapObject`, a Durable Object (`src/worker/spend-cap-object.ts`). The app
+  uses only the instance named `global`. The counter queues calls itself, so read-add-write
+  cannot interleave. The Durable Object's input gates also protect its storage access.
+  - **Day counts:** kept in its SQLite storage, so they survive restarts.
+  - **The last 60 seconds:** kept in memory. After a restart (deploy, crash) the minute limit can
+    be exceeded once, by up to its own size per bucket. The day limit still holds.
+  - **Logic:** the counting is in `src/lib/server/spend-cap-core.ts` and has no Cloudflare
+    dependencies, so test 79 runs it directly.
+- **Buckets and limits:** each paid kind has its own limit, written 「per minute / per day (UTC)」
+  in `[vars]`:
+
+  | Bucket | Variable | Default |
+  |---|---|---|
+  | Web search (Exa, Linkup) | `SPEND_CAP_WEB_SEARCH` | `30/1000` |
+  | Gemini | `SPEND_CAP_GEMINI` | `60/3000` |
+  | Workers AI (Clef) | `SPEND_CAP_WORKERS_AI` | `120/10000` |
+
+  The defaults are starting points, not derived from a budget. Set them from the price list
+  and the numbers in the usage dataset. A missing or malformed value falls back to the default.
+- **When it applies:** `callGemini`, `runWorkersAI` and `runWebSearch` ask the counter before
+  every call.
+  - **Over the limit:** the call is not made and is recorded as `capped`. Callers already
+    handle a missing answer: fixed replies, 「見つかりませんでした」, or the chat gate's fallback.
+  - **What counts:** every attempt, including calls that then fail or hit the gateway cache.
+    The cap errs on the side of spending less.
+- **Fails closed:** if the counter can't be reached (error, or no answer within 2 seconds), the
+  call is refused.
+- **No binding:**
+  - in `next dev` and tests, a per-isolate in-memory counter with the same limits is used;
+  - **in production the call is refused.** A missing binding there is a misconfiguration, and a
+    per-isolate counter would multiply the limit by the number of isolates.
+  - Set `SPEND_CAP_ALLOW_MEMORY=true` to run a production build without the binding
+    (`next start`).
+- **Wiring:**
+  - The class must be exported from the Worker entry, so `wrangler.toml` `main` is now `worker.ts`.
+    It re-exports OpenNext's handler and Durable Objects, plus `SpendCapObject`, following OpenNext's
+    custom-worker pattern.
+  - `worker.ts` imports the generated `.open-next/worker.js`, so it is left out of `tsc` and ESLint.
+  - The binding is `SPEND_CAP`, with a `v1` migration (`new_sqlite_classes`, which the free plan
+    supports).
+  - The `WEB_SEARCH_LIMITER` rate-limit binding is removed.
+- **Cost of the check:** one Durable Object request before each paid call. That call goes to
+  wherever the object lives, so far-away users get a little more latency.
+- **Checked on `wrangler dev`** with the real Durable Object:
+  - a normal chat message is allowed and recorded;
+  - with `--var SPEND_CAP_WORKERS_AI:0/0`, the Clef call is skipped and recorded as `capped`.
 
 ## Tests
 
@@ -93,10 +127,20 @@ Test 78 covers:
   included);
 - no prompt or query text in the log or the data points;
 - `other` outside a route, and failed calls counted as `error`;
-- the binding refusing: no search is made, and the call is recorded as `capped`;
-- the in-memory cap after 30 searches.
+- the counter refusing: no web search, Gemini or Workers AI call is made, each is recorded as
+  `capped`, and the counter is asked with the right bucket and limits;
+- a counter error refuses the call;
+- the in-memory cap after 30 searches a minute.
 
-The suite resets the in-memory cap before each test, because the whole suite runs in one
+Test 79 covers:
+- the per-minute and per-day limits;
+- refused calls are not counted;
+- separate buckets, and the reset at the UTC day boundary;
+- day counts surviving a re-created object;
+- 400 for a bad request;
+- parsing `SPEND_CAP_*`.
+
+The suite resets the in-memory counter before each test, because the whole suite runs in one
 process.
 
 Also checked on `wrangler dev`: both bindings load (local simulation), and a greeting logs one
@@ -106,9 +150,6 @@ Also checked on `wrangler dev`: both bindings load (local simulation), and a gre
 
 - **Retry on 429/503** in `callGemini` (review item 5). It would change call counts, so it should
   be added with these numbers in view.
-- **A strict global or daily budget.** That needs one counter that every request sees, such as
-  a single Durable Object, which adds a round trip to every search. For now the per-location cap
-  and the per-IP limits cover the risk.
 
 ## Code review
 
@@ -116,7 +157,8 @@ Also checked on `wrangler dev`: both bindings load (local simulation), and a gre
 - **Medium:** gateway cache hits were counted with the original call's tokens. They are now
   `cache_hit` with no tokens.
 - **Medium:** the docs called the cap global. Checked against Cloudflare's rate-limit docs
-  (Locality, Accuracy): it is per location. The docs, code comment and `wrangler.toml` now say so.
+  (Locality, Accuracy): it is per location. The owner then asked for a strict cap, which
+  replaced it (above).
 - **Low:** the cap test now checks the call that crosses the limit, and resets the cap in its
   `finally`.
 
@@ -126,4 +168,26 @@ Declined:
   ends.
 - **Moving `getBindings` to its own module** to break the `cloudflare.ts` ↔ `usage.ts` cycle: both
   sides only use each other inside functions, so it is safe as is.
+
+### Review of the strict cap
+
+`code-improver` found two High issues, both fixed:
+- **Concurrent calls could pass together:**
+  - The counter read the day count, then wrote it back; two calls at once could both pass.
+  - Inside the Durable Object, input gates prevent this. The in-memory counter didn't.
+  - `SpendCounter` now queues its calls. Test 79 runs 10 at once against a limit of 3 and expects
+    exactly 3.
+- **Production fell back to the in-memory counter when the binding was missing.** It now
+  refuses, as above.
+
+Also fixed:
+- The response body is released when the Durable Object answers with an error.
+- The Durable Object logs storage failures before answering 500.
+- The docs now state the minute-limit bound after a restart.
+- Test 79 restores `SPEND_CAP_GEMINI`.
+- Limits must be safe integers.
+
+Declined:
+- **Moving `getBindings` to its own module:** the `cloudflare.ts`, `usage.ts` and `spend-cap.ts`
+  imports only meet inside functions, so the cycle is safe as is.
 

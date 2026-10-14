@@ -28,10 +28,10 @@ function clearGatewayEnv(): void {
 
 globalThis.fetch = (async () => new Response('offline in tests', { status: 503 })) as typeof fetch;
 
-// 有料の Web 検索の全体の上限（メモリ版）は、テストごとに数え直す（テスト 78 で上限そのものを確かめる）
+// 有料の呼び出しの上限（メモリ版）は、テストごとに数え直す（テスト 78・79 で上限そのものを確かめる）
 beforeEach(async () => {
-  const { resetWebSearchCap } = await import('../src/lib/server/cloudflare');
-  resetWebSearchCap();
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  resetSpendCap();
 });
 
 /** Open Beauty Facts から取得した体裁の、成分が確認済みの製品 */
@@ -3600,9 +3600,10 @@ test('77. 表示指定成分 (告示第332号): the list, label names and aliase
   assert.ok(quasi.ingredients[0].jpDesignated);
 });
 
-test('78. Cost tracking: usage records per route with token counts and no text; a global cap on paid web searches', async () => {
+test('78. Cost tracking: usage records per route with token counts and no text; paid calls stop at the spend cap', async () => {
   const { callGemini } = await import('../src/lib/services/gemini-client');
-  const { runWebSearch, runWorkersAI, WEB_SEARCH_GLOBAL_LIMIT } = await import('../src/lib/server/cloudflare');
+  const { runWebSearch, runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const { DEFAULT_LIMITS, resetSpendCap } = await import('../src/lib/server/spend-cap');
   const { withUsageRoute } = await import('../src/lib/server/usage');
 
   const points: { blobs?: string[]; doubles?: number[]; indexes?: string[] }[] = [];
@@ -3665,31 +3666,135 @@ test('78. Cost tracking: usage records per route with token counts and no text; 
     await withCloudflareEnv({ USAGE }, () => callGemini({ task: 'chat_reply', prompt: 'x' }));
     assert.deepStrictEqual(points[0].blobs?.slice(0, 5), ['other', 'gemini', 'chat_reply', 'gemini-3.8-flash', 'error']);
 
-    // 全体の上限：バインディングが断れば検索しない（記録は capped）
+    // 上限：Durable Object が断れば呼ばない（記録は capped）。数える単位は呼び出しの種類ごと
     points.length = 0;
     const before = searches.length;
-    const WEB_SEARCH_LIMITER = { async limit({ key }: { key: string }) { assert.strictEqual(key, 'global'); return { success: false }; } };
-    const capped = await withCloudflareEnv({ AI, USAGE, WEB_SEARCH_LIMITER }, () => runWebSearch('化粧水', 'exa', 5));
+    const asked: { bucket: string; limits: unknown }[] = [];
+    const SPEND_CAP = {
+      idFromName: (name: string) => {
+        assert.strictEqual(name, 'global', 'One instance for the whole service');
+        return name;
+      },
+      get: () => ({
+        async fetch(_url: string, init?: RequestInit) {
+          asked.push(JSON.parse(String(init?.body)));
+          return Response.json({ allowed: false, minuteCount: 30, dayCount: 1000 });
+        },
+      }),
+    };
+    const capped = await withCloudflareEnv({ AI, USAGE, SPEND_CAP }, () => runWebSearch('化粧水', 'exa', 5));
     assert.strictEqual(capped, null);
     assert.strictEqual(searches.length, before, 'No paid search when capped');
     assert.strictEqual(points[0].blobs?.[4], 'capped');
+    assert.deepStrictEqual(asked, [{ bucket: 'web_search', limits: DEFAULT_LIMITS.web_search }]);
+    // Gemini と Workers AI も同じ
+    let geminiCalls = 0;
+    globalThis.fetch = (async () => {
+      geminiCalls += 1;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    assert.strictEqual(await withCloudflareEnv({ USAGE, SPEND_CAP }, () => callGemini({ task: 'chat_reply', prompt: 'x' })), null);
+    assert.strictEqual(geminiCalls, 0);
+    let clefCalls = 0;
+    const countingAI = { async run() { clefCalls += 1; return {}; } };
+    assert.strictEqual(
+      await withCloudflareEnv({ AI: countingAI, USAGE, SPEND_CAP }, () => runWorkersAI('@cf/cloudflare/clef', {}, { task: 'chat_gate' })),
+      null
+    );
+    assert.strictEqual(clefCalls, 0);
+    assert.deepStrictEqual(asked.map((a) => a.bucket), ['web_search', 'gemini', 'workers_ai']);
 
-    // バインディングが無いときはメモリ版（1分あたり WEB_SEARCH_GLOBAL_LIMIT 回）
+    // 数えられない（Durable Object のエラー）ときは断る
+    const brokenCap = { idFromName: () => 'global', get: () => ({ fetch: async () => new Response('down', { status: 500 }) }) };
+    const searchesBeforeBroken = searches.length;
+    assert.strictEqual(await withCloudflareEnv({ AI, SPEND_CAP: brokenCap }, () => runWebSearch('化粧水', 'exa', 5)), null);
+    assert.strictEqual(searches.length, searchesBeforeBroken, 'Fails closed');
+
+    // バインディングが無いときはメモリ版（1分あたり DEFAULT_LIMITS.web_search.perMinute 回）
+    resetSpendCap();
     console.warn = () => {};
+    const perMinute = DEFAULT_LIMITS.web_search.perMinute;
     const results = [];
-    for (let i = 0; i <= WEB_SEARCH_GLOBAL_LIMIT; i++) {
+    for (let i = 0; i <= perMinute; i++) {
       results.push(await withCloudflareEnv({ AI }, () => runWebSearch(`化粧水 ${i}`, 'exa', 5)));
     }
-    // 上の検索（バインディング無し）で1回使っている
-    assert.ok(results.slice(0, WEB_SEARCH_GLOBAL_LIMIT - 1).every((r) => r !== null));
-    assert.ok(results.slice(WEB_SEARCH_GLOBAL_LIMIT - 1).every((r) => r === null));
+    assert.ok(results.slice(0, perMinute).every((r) => r !== null));
+    assert.strictEqual(results[perMinute], null);
   } finally {
     console.log = originalLog;
     console.error = originalError;
     console.warn = originalWarn;
     globalThis.fetch = originalFetch;
     clearGatewayEnv();
-    const { resetWebSearchCap } = await import('../src/lib/server/cloudflare');
-    resetWebSearchCap();
+    resetSpendCap();
   }
 });
+
+test('79. Strict spend cap: per-minute and per-UTC-day counts in one Durable Object, kept across restarts', async () => {
+  const { SpendCounter, MemoryDayCountStore, utcDay } = await import('../src/lib/server/spend-cap-core');
+  const { SpendCapObject } = await import('../src/worker/spend-cap-object');
+  const { spendLimits, DEFAULT_LIMITS } = await import('../src/lib/server/spend-cap');
+
+  const store = new MemoryDayCountStore();
+  const counter = new SpendCounter(store);
+  const limits = { perMinute: 2, perDay: 3 };
+  const t0 = Date.UTC(2026, 9, 14, 12, 0, 0);
+  // 1分の上限
+  assert.strictEqual((await counter.consume('gemini', limits, t0)).allowed, true);
+  assert.strictEqual((await counter.consume('gemini', limits, t0 + 1)).allowed, true);
+  const third = await counter.consume('gemini', limits, t0 + 2);
+  assert.deepStrictEqual(third, { allowed: false, minuteCount: 2, dayCount: 2 }, 'A refused call is not counted');
+  // 60秒たてば1分の上限は戻るが、1日の上限（3）は残る
+  assert.strictEqual((await counter.consume('gemini', limits, t0 + 60_000)).allowed, true);
+  assert.strictEqual((await counter.consume('gemini', limits, t0 + 61_000)).allowed, false, 'Day limit reached');
+  // 種類ごとに別に数える
+  assert.strictEqual((await counter.consume('web_search', limits, t0 + 61_000)).allowed, true);
+  // UTC の日付が変われば1日の件数は戻る
+  const nextDay = Date.UTC(2026, 9, 15, 0, 1, 0);
+  assert.strictEqual(utcDay(nextDay), '2026-10-15');
+  assert.deepStrictEqual(await counter.consume('gemini', limits, nextDay), { allowed: true, minuteCount: 1, dayCount: 1 });
+
+  // Durable Object：1日の件数はストレージに残る（作り直しても続きから数える）。不正な依頼は 400
+  const storage = new Map<string, unknown>();
+  const state = {
+    storage: {
+      async get<T>(key: string) {
+        return storage.get(key) as T | undefined;
+      },
+      async put<T>(key: string, value: T) {
+        storage.set(key, value);
+      },
+    },
+  };
+  const ask = (obj: InstanceType<typeof SpendCapObject>, body: unknown) =>
+    obj.fetch(new Request('https://spend-cap/consume', { method: 'POST', body: JSON.stringify(body) }));
+  const dayLimit = { perMinute: 100, perDay: 2 };
+  const first = new SpendCapObject(state);
+  assert.strictEqual((await (await ask(first, { bucket: 'web_search', limits: dayLimit })).json()).allowed, true);
+  assert.strictEqual((await (await ask(first, { bucket: 'web_search', limits: dayLimit })).json()).allowed, true);
+  const restarted = new SpendCapObject(state);
+  assert.strictEqual((await (await ask(restarted, { bucket: 'web_search', limits: dayLimit })).json()).allowed, false);
+  assert.strictEqual((await ask(restarted, { bucket: 'other', limits: dayLimit })).status, 400);
+  assert.strictEqual((await ask(restarted, { bucket: 'gemini', limits: { perMinute: -1, perDay: 2 } })).status, 400);
+
+  // 同時に来た呼び出しも1つずつ数える（メモリの保存先でも上限を超えない）
+  const concurrent = new SpendCounter(new MemoryDayCountStore());
+  const decisions = await Promise.all(
+    Array.from({ length: 10 }, () => concurrent.consume('gemini', { perMinute: 3, perDay: 100 }, t0))
+  );
+  assert.strictEqual(decisions.filter((d) => d.allowed).length, 3);
+  assert.strictEqual((await concurrent.consume('gemini', { perMinute: 100, perDay: 100 }, t0 + 60_000)).dayCount, 4);
+
+  // 上限の設定（「1分あたり/1日あたり」）。形が違えば既定値
+  const prev = process.env.SPEND_CAP_GEMINI;
+  try {
+    process.env.SPEND_CAP_GEMINI = '10/200';
+    assert.deepStrictEqual(spendLimits('gemini'), { perMinute: 10, perDay: 200 });
+    process.env.SPEND_CAP_GEMINI = 'lots';
+    assert.deepStrictEqual(spendLimits('gemini'), DEFAULT_LIMITS.gemini);
+  } finally {
+    if (prev === undefined) delete process.env.SPEND_CAP_GEMINI;
+    else process.env.SPEND_CAP_GEMINI = prev;
+  }
+});
+
