@@ -4,6 +4,7 @@ import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredie
 import { abbreviateIngredientName, isWheatDerivedName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
 import { findPairFindings, PairContext } from './pair-rules';
+import { designatedNote, findDesignatedEntry } from './jp-designated';
 import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
 import {
   AnalyzedIngredient,
@@ -299,6 +300,8 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     const standardEntry = product.isQuasiDrug ? undefined : findStandardEntry(norm, abbreviateIngredientName(norm));
     const jpStandard = standardEntry ? standardNote(standardEntry, useType) : undefined;
     if (standardEntry && jpStandard) standardFound.push({ rawName: raw, entry: standardEntry, note: jpStandard });
+    const designatedEntry = findDesignatedEntry(raw, product.isQuasiDrug);
+    const jpDesignated = designatedEntry ? designatedNote(designatedEntry) : undefined;
     const wheatDerived = isWheatDerivedName(raw);
     if (wheatDerived && !wheatNames.includes(raw)) wheatNames.push(raw);
 
@@ -312,6 +315,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       reasonJa: matched.reasonJa,
       ...(isActive && { isActive }),
       ...(jpStandard && { jpStandard }),
+      ...(jpDesignated && { jpDesignated }),
       ...(wheatDerived && { wheatDerived }),
     });
 
@@ -371,7 +375,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
   } else if (overallRiskLevel === 'caution') {
     summaryJa = '一部にアルコール、防腐剤、またはアクティブ成分が含まれています。肌がゆらいでいる時は様子を見ながらの使用が推奨されます。';
   } else {
-    summaryJa = '香料、精油、旧表示指定成分、または高刺激物質が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
+    summaryJa = '香料、精油、または刺激になりやすい成分が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
   }
 
   // 未評価・非表示の成分がある場合は「安全」と言い切らない

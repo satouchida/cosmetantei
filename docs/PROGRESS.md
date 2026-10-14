@@ -35,7 +35,8 @@ Last updated: 2026-10-13.
 | 2026-10-14 | `412fac6` | Japan step 2, 化粧品基準: all 130 別表 entries as data (from the MHLW 告示); ingredient cards show the limit per product type with a link to the 告示; product notes for banned ingredients and ones not allowed for the product's type (cosmetics only); test 73 ([walkthrough](walkthroughs/2026-10-14-cosmetic-standards.md)) |
 | 2026-10-14 | `e32accb` | Japan step 3, incidents: sourced entries for ロドデノール (recalled 2013) and 加水分解コムギ (the 茶のしずく石鹸 allergy cases); wheat-derived ingredients flagged on the card and the product, and 「（小麦由来）」 no longer stops a name from matching; test 74 ([walkthrough](walkthroughs/2026-10-14-japan-incidents.md)) |
 | 2026-10-14 | `86b074a` | Japan step 5, pair rules: the comparison warns when the problem products combine a retinoid with salicylic acid, exfoliants in several products (with the AHA sun note), or fragrance in several products, each with its source; test 75 ([walkthrough](walkthroughs/2026-10-14-pair-rules.md)) |
-| 2026-10-14 | *this commit* | 「今使っているコスメ」: a third list, filled from the product cards, saved only in this browser with the date each item was added; 「組み合わせをチェック」 runs the pair rules on it without AI; items added 3+ months ago get a banner asking the user to confirm or remove them; test 76 ([walkthrough](walkthroughs/2026-10-14-current-use.md)) |
+| 2026-10-14 | `6b14a2c` | 「今使っているコスメ」: a third list, filled from the product cards, saved only in this browser with the date each item was added; 「組み合わせをチェック」 runs the pair rules on it without AI; items added 3+ months ago get a banner asking the user to confirm or remove them; test 76 ([walkthrough](walkthroughs/2026-10-14-current-use.md)) |
+| 2026-10-14 | *this commit* | Japan step 6, 表示指定成分: the 1980 告示 was repealed in 2001, so the app uses the current quasi-drug list (告示第332号, 140 items, with the 2007 label aliases); ingredient cards say an ingredient is designated, with the notice; ratings unchanged; test 77 ([walkthrough](walkthroughs/2026-10-14-designated-ingredients.md)) |
 
 ## In progress
 
@@ -45,12 +46,10 @@ Nothing.
 
 In order:
 
-1. **Japanese-market data, step 6** ([plan](plans/japan-ingredient-data.md#steps)): 旧表示指定成分.
-   Steps 2, 3 and 5 are done. Step 1 (the JCIA name lists) waits for JCIA's permission.
-2. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
+1. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
    web lookups (separate rate-limit binding); per-route counters,
    and Gemini `usageMetadata` logging.
-3. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
+2. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
    (it uses only cached products and Open Beauty Facts, which has almost no Japanese data). Use the
    verified products already researched (KV), and consider a longer Open Beauty Facts timeout
    (`nivea` took 2.3 s against 2.5 s).
@@ -65,6 +64,9 @@ From [03, Product](review/03-other-upgrades.md#product):
 
 - **Ingredient database review:** due 2027-10-12; test 55 warns in CI. At the same review, check
   whether JCIA has published a newer quasi-drug name list (current: 2008-03-25 edition).
+- **表示指定成分 (告示第332号):** the list is as amended by 平成21年告示第29号, copied from
+  Kanagawa's undated checklist. Check for later amendments (MHLW cosmetics page, Tokyo notice
+  list) at the yearly ingredient review.
 - **JCIA:** the analysis card links to JCIA's quasi-drug name list and labelling policy. JCIA's
   site policy asks to be told about links; JCIA was told on 2026-10-13. If a linked URL moves,
   update `QUASI_DRUG_LABEL_REFERENCES`. Importing its name lists still needs JCIA's permission.

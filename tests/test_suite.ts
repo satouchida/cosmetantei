@@ -3492,3 +3492,104 @@ test('76. Products in use now: combination check, wording, the stored list and t
     globalThis.fetch = originalFetch;
   }
 });
+
+test('77. 表示指定成分 (告示第332号): the list, label names and aliases, quasi-drug-only names, and the card line', async () => {
+  const { DESIGNATED_INGREDIENTS } = await import('../src/lib/data/labeling-designated-jp');
+  const { findDesignatedEntry, designatedKey } = await import('../src/lib/analyzer/jp-designated');
+
+  // 140 項目、番号は 1〜140 の連番。同じ名前を2つの項目に使わない
+  assert.deepStrictEqual(DESIGNATED_INGREDIENTS.map((x) => x.no), Array.from({ length: 140 }, (_, i) => i + 1));
+  const owner = new Map<string, number>();
+  for (const entry of DESIGNATED_INGREDIENTS) {
+    for (const n of [...entry.names, ...(entry.quasiDrugNames ?? [])]) {
+      const key = designatedKey(n);
+      assert.ok(key, `${entry.no}: empty key for ${n}`);
+      const prev = owner.get(key);
+      assert.ok(prev === undefined || prev === entry.no, `${n} is used by ${prev} and ${entry.no}`);
+      owner.set(key, entry.no);
+    }
+  }
+
+  // 表示名称・別名・INCI・漢数字とアラビア数字の位置番号
+  const expected: [string, number][] = [
+    ['メチルパラベン', 90],
+    ['パラオキシ安息香酸メチル', 90],
+    ['Methylparaben', 90],
+    ['PG', 108],
+    ['プロピレングリコール', 108],
+    ['EDTA-2Na', 11],
+    ['エデト酸二ナトリウム', 11],
+    ['Disodium EDTA', 11],
+    ['BHT', 55],
+    ['ラウリル硫酸Na', 123],
+    ['ラウリル硫酸ナトリウム', 123],
+    ['ラウレス-12硫酸Na', 113],
+    ['ラウレス硫酸TEA', 113],
+    ['ステアリルアルコール', 61],
+    ['セタノール', 62],
+    ['ベヘントリモニウムクロリド', 12],
+    ['o-シメン-5-オール', 6],
+    ['赤色202号', 140],
+    ['赤202', 140],
+    ['黄4', 140],
+    ['2,4-ジアミノフェノキシエタノールHCl', 24],
+    ['塩酸二・四―ジアミノフェノキシエタノール', 24],
+    ['PEG-8', 112],
+    ['ラネス-10', 115],
+    ['PEG-75ラノリン', 114],
+    ['安息香酸Na', 4],
+    ['サリチル酸', 46],
+    ['ソルビン酸K', 66],
+    ['デヒドロ酢酸Na', 72],
+    ['DMDMヒダントイン', 56],
+    ['メチルイソチアゾリノン', 120],
+    ['水添ラノリン', 127],
+    ['チオグリコール酸アンモニウム', 67],
+    ['赤色104号(1)', 140],
+    ['黄色202号の(1)', 140],
+    ['Ext.紫201号', 140],
+    ['ポリエチレングリコール400', 112],
+    ['セチルアルコール', 62],
+    ['Sodium Laureth-3 Sulfate', 113],
+  ];
+  for (const [name, no] of expected) assert.strictEqual(findDesignatedEntry(name)?.no, no, name);
+
+  // 当てはまらない：エステル（香料のサリチル酸ベンジルなど）、600を超える PEG、PEG の誘導体、ほかの塩
+  for (const name of [
+    'サリチル酸ベンジル',
+    '安息香酸ベンジル',
+    'グリセリン',
+    'BG',
+    'PEG-10ジメチコン',
+    'PEG-100',
+    'PEG-200',
+    'PEG-400',
+    'ポリエチレングリコール1000',
+    'ラウロイルグルタミン酸Na',
+    'ココイルグルタミン酸TEA',
+    'エチルヘキシルジメチルPABA',
+    '赤ワインエキス',
+    'パラアミノ安息香酸',
+  ]) {
+    assert.strictEqual(findDesignatedEntry(name), undefined, name);
+  }
+
+  // 医薬部外品の表示でだけ当てはまる名前（化粧品の「トコフェロール」は天然の d-α 体も含む）
+  assert.strictEqual(findDesignatedEntry('トコフェロール'), undefined);
+  assert.strictEqual(findDesignatedEntry('トコフェロール', true)?.no, 75);
+  assert.strictEqual(findDesignatedEntry('酢酸トコフェロール'), undefined);
+  assert.strictEqual(findDesignatedEntry('酢酸トコフェロール', true)?.no, 42);
+
+  // カード：化粧品にも医薬部外品にも付け、通知へリンクする。評価は変えない
+  const result = analyzeProduct({ id: 'designated', name: 't', brand: 'b', country: 'JP', category: 'cream', ingredients: ['水', 'グリセリン', 'メチルパラベン', 'トコフェロール'] });
+  const paraben = result.ingredients.find((i) => i.rawName === 'メチルパラベン');
+  assert.ok(paraben?.jpDesignated?.textJa.includes('告示第332号の90'));
+  assert.deepStrictEqual(
+    paraben?.jpDesignated?.references.map((r) => r.url.split('/').pop()),
+    ['iyakubugaihin_hyouji.pdf', '200009290929.pdf']
+  );
+  assert.strictEqual(result.ingredients.find((i) => i.rawName === 'トコフェロール')?.jpDesignated, undefined);
+  assert.strictEqual(result.ingredients.find((i) => i.rawName === 'グリセリン')?.jpDesignated, undefined);
+  const quasi = analyzeProduct({ id: 'designated_q', name: 't', brand: 'b', country: 'JP', category: 'cream', isQuasiDrug: true, ingredients: ['トコフェロール'] });
+  assert.ok(quasi.ingredients[0].jpDesignated);
+});

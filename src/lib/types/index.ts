@@ -4,7 +4,7 @@ export type IngredientRiskLevel =
   | 'safe'            // 🟢 低刺激・安心成分
   | 'low_caution'     // 🟡 軽度の注意（個人差あり）
   | 'moderate_irritant'// 🟠 敏感肌には刺激になりやすい
-  | 'high_irritant'   // 🔴 高リスクアレルゲン・旧表示指定成分等
+  | 'high_irritant'   // 🔴 高リスクアレルゲン等
   | 'active_caution'  // 🟣 高濃度アクティブ成分（併用・バリア機能低下時に注意）
   | 'unknown';        // ⚪ 未評価（既知DB・推論ルールに該当せず、安全性を判断できない）
 
@@ -99,6 +99,8 @@ export interface AnalyzedIngredient {
   isActive?: boolean;
   /** 日本の化粧品基準（別表）に載っている成分の、配合の禁止・上限（化粧品のみ。医薬部外品には付けない） */
   jpStandard?: { table: string; textJa: string; notAllowedHere: boolean; referenceUrl: string };
+  /** 表示指定成分（医薬部外品で名前の表示が義務付けられている成分。平成12年厚生省告示第332号） */
+  jpDesignated?: { nameJa: string; textJa: string; references: ReferenceLink[] };
   /** 小麦由来の成分（「（小麦由来）」の注記、または名前に小麦・コムギ・wheat が入る） */
   wheatDerived?: boolean;
 }

@@ -350,6 +350,26 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               </a>
             </p>
           )}
+          {selectedIngredient.jpDesignated && (
+            <p className="text-[11px] leading-relaxed text-gray-600">
+              🏷️ {selectedIngredient.jpDesignated.textJa}
+              {selectedIngredient.jpDesignated.references.map((ref, i) => (
+                <React.Fragment key={ref.url}>
+                  {' '}
+                  <a
+                    href={ref.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={ref.title}
+                    className="underline underline-offset-2 text-sage-700 hover:text-sage-900"
+                  >
+                    {i === 0 ? '成分の一覧' : '通知'}
+                    <span className="sr-only">（{ref.title}。新しいタブで開く）</span>
+                  </a>
+                </React.Fragment>
+              ))}
+            </p>
+          )}
           {selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
             <p className="text-[10px] text-gray-500">この解説はAIが作成した参考情報です。</p>
           )}

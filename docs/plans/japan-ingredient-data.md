@@ -1,11 +1,10 @@
 # Plan: ingredient data for the Japanese market
 
-Written 2026-10-12. Status: steps 2, 3 and 5 done on 2026-10-14
+Written 2026-10-12. Status: steps 2, 3, 5 and 6 done on 2026-10-14
 ([2](../walkthroughs/2026-10-14-cosmetic-standards.md), [3](../walkthroughs/2026-10-14-japan-incidents.md),
-[5](../walkthroughs/2026-10-14-pair-rules.md)); step 4 done on 2026-10-12
+[5](../walkthroughs/2026-10-14-pair-rules.md), [6](../walkthroughs/2026-10-14-designated-ingredients.md)); step 4 done on 2026-10-12
 ([walkthrough](../walkthroughs/2026-10-12-quasi-drug-labels.md)), and its known limits fixed the same
-day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission. Step 6 not
-started.
+day. Step 1 is partly done (abbreviation rules) and otherwise blocked on JCIA's permission.
 
 ## Why
 
@@ -55,7 +54,7 @@ Not used: brand sites, blogs, and Gemini.
 | 3 | Japan-specific incidents | Sourced entries for 加水分解コムギ and ロドデノール | **done 2026-10-14** (see below) |
 | 4 | Quasi-drug labels | See below | **done 2026-10-12** |
 | 5 | Pair rules across products | E.g. a retinoid with AHA/BHA; several fragrance allergens across a routine. Each rule needs a source | **done 2026-10-14** (see below) |
-| 6 | 旧表示指定成分 | Find the 1980 告示 and add the flag back where it applies (open item from the audit) | not started |
+| 6 | 旧表示指定成分 | Find the 1980 告示 and add the flag back where it applies (open item from the audit) | **done 2026-10-14** with the current quasi-drug list (see below) |
 
 Each step gets its own walkthrough in `docs/walkthroughs/` and a row in `docs/PROGRESS.md`.
 
@@ -191,3 +190,20 @@ Not done, for lack of a source:
 - **A general "retinol with AHA" rule:** the search found no guideline. The overlap rule covers
   it, with the hedged wording above.
 - **PHAs (gluconolactone, lactobionic acid):** the FDA page covers AHAs only.
+
+## Step 6: 表示指定成分
+
+- **The 1980 告示 is gone.** 医薬発第990号 (2000-09-29) says 昭和55年厚生省告示第167号 was repealed when
+  full labelling began on 2001-04-01. For cosmetics it named 102 ingredients so that consumers
+  could avoid products that may cause allergies, based on information from their doctor. No
+  official copy of its list was found.
+- **What is used instead:** 平成12年厚生省告示第332号, the ingredients that quasi-drug labels must
+  name (人体に直接使用されるもの, 140 items after 平成21年告示第29号). The same notice says these
+  were designated for the same purpose and are 「従前指定している成分と同様のもの」.
+- **Text:** the list and the label aliases (薬食発第0307001号, 2007) come from Kanagawa's quasi-drug
+  labelling checklist, a copy of the 告示 and notice; the scanned 告示 in 医薬発第990号 matches it
+  (numbering shifted by one by the 2009 amendment). Notices are not copyrighted.
+- **What the app does:** an ingredient card line with the 告示 number and name, on cosmetics and
+  quasi-drugs. It does not change any rating. Names that mean a broader substance on cosmetic
+  labels (トコフェロール, アミノフェノール) match only on quasi-drugs.
+
