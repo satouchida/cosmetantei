@@ -4,8 +4,9 @@ import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { isValidProduct, isValidProductList } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client-products';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { withUsageRoute } from '@/lib/server/usage';
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   // 成分数×既知DBの計算をするため、回数を制限する（有料の呼び出しは無いので検索と同じ枠）
   if (await isRateLimited('search', getClientIp(request.headers))) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
@@ -50,3 +51,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '解析中にエラーが発生しました' }, { status: 500 });
   }
 }
+
+/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
+export const POST = withUsageRoute('analyze', handlePost);

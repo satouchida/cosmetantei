@@ -370,9 +370,9 @@ guess.
 - **Barcodes** must match as a whole number.
 - **The verified-product index** in KV is written after the response, and only when it changes.
 
-**Not done (decided):** a global daily cap on paid lookups. Today they are bounded by the per-IP
-`ai` rate limit, which allows 20 per minute. Add a separate rate-limit binding if spend needs a hard
-ceiling; see cost tracking in `docs/PROGRESS.md`.
+**Cap across users (added 2026-10-14):** paid web searches are also capped, shared by all users, by the
+`WEB_SEARCH_LIMITER` binding, 30 per minute per Cloudflare location ([cost tracking](../walkthroughs/2026-10-14-cost-tracking.md)).
+Rate-limit bindings only count per 10 or 60 seconds, so there is no daily cap.
 
 **Left for later phases:**
 - Chat replies used the grounded `generateGeminiChatResponse` until phases 5 and 6 replaced it.

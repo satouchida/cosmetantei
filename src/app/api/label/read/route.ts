@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { parseLabelImage, readLabelImage, MAX_LABEL_IMAGE_BYTES } from '@/lib/services/label-reader';
+import { withUsageRoute } from '@/lib/server/usage';
 
 /** base64 は元の 4/3 倍。JSON の枠の分を足した上限 */
 const MAX_LABEL_REQUEST_BYTES = Math.ceil((MAX_LABEL_IMAGE_BYTES * 4) / 3) + 1024;
@@ -9,7 +10,7 @@ const MAX_LABEL_REQUEST_BYTES = Math.ceil((MAX_LABEL_IMAGE_BYTES * 4) / 3) + 102
  * 成分表示の写真を文字に起こす。結果はブラウザでユーザーが確認・修正してから分析する。
  * 写真と結果は保存しない
  */
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   // Gemini を呼ぶため、AI 系と同じ上限を適用
   if (await isRateLimited('ai', getClientIp(request.headers))) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
@@ -42,3 +43,6 @@ export async function POST(request: NextRequest) {
     { status: 503 }
   );
 }
+
+/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
+export const POST = withUsageRoute('label_read', handlePost);

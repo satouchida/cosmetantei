@@ -199,6 +199,7 @@ export async function readPagesWithSources(
 ): Promise<{ item: Record<string, unknown>; sourceUrl: string }[] | null> {
   if (urls.length === 0) return [];
   const result = await callGemini({
+    task: 'page_read',
     prompt,
     urlContext: true,
     generationConfig: { temperature: 0, maxOutputTokens },

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lookupByBarcode, BARCODE_PATTERN } from '@/lib/services/search-barcode-service';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { withUsageRoute } from '@/lib/server/usage';
 
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   // 未登録バーコードは Gemini 検索に到達するため、AI系と同じ上限を適用
   if (await isRateLimited('ai', getClientIp(request.headers))) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
@@ -29,3 +30,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ product });
 }
+
+/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
+export const GET = withUsageRoute('barcode', handleGet);

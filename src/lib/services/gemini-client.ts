@@ -8,6 +8,8 @@ import 'server-only';
  * - JSON 出力は responseSchema で構造化
  */
 
+import { geminiTokenCounts, recordUsage, UsageOutcome } from '../server/usage';
+
 const AI_GATEWAY_BASE = 'https://gateway.ai.cloudflare.com/v1';
 const DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -83,6 +85,8 @@ export interface GeminiImage {
 }
 
 export interface GeminiRequest {
+  /** 何のための呼び出しか（利用量の記録に使う。chat_reply・page_read・ingredient_explain・label_read） */
+  task: string;
   prompt: string;
   /** プロンプトの前に添える画像（成分表示の写真の読み取り等） */
   images?: GeminiImage[];
@@ -188,6 +192,9 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     body.tools = [{ urlContext: {} }];
   }
 
+  const started = Date.now();
+  let data: unknown;
+  let outcome: UsageOutcome = 'error';
   try {
     const response = await fetch(geminiEndpoint(gateway, model), {
       method: 'POST',
@@ -210,7 +217,9 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
       return null;
     }
 
-    const data = await response.json();
+    data = await response.json();
+    // AI Gateway のキャッシュから返った応答の usageMetadata は、元の呼び出しの値（今回は課金されない）
+    outcome = response.headers.get('cf-aig-cache-status')?.toUpperCase() === 'HIT' ? 'cache_hit' : 'ok';
     const text = extractResponseText(data);
     if (!text) return null;
 
@@ -221,6 +230,17 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   } catch (err) {
     console.error('Gemini API request failed:', err);
     return null;
+  } finally {
+    // 失敗した呼び出しも件数に数える（トークン数は応答があったときだけ）
+    await recordUsage({
+      kind: 'gemini',
+      task: req.task,
+      model,
+      outcome,
+      ...(outcome === 'ok' && geminiTokenCounts(data)),
+      urlContext: req.urlContext,
+      ms: Date.now() - started,
+    });
   }
 }
 

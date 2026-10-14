@@ -100,7 +100,7 @@ async function judgeCandidates(query: string, products: Product[]): Promise<Cand
       questions,
     },
     // 検索語は利用者の入力。本文をログに残してよいゲートウェイでのみ経由する
-    { containsUserText: true }
+    { containsUserText: true, task: 'search_filter' }
   );
   if (!response) return null;
 

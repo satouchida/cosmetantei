@@ -129,7 +129,7 @@ async function judgeWithClef(
       candidates: items.map(({ id, candidate }) => ({ id, brand: candidate.brand, productName: candidate.productName })),
     },
     questions,
-  });
+  }, { task: 'brand_check' });
   if (!response) return null;
 
   const answers = (response as { answers?: Record<string, ClefChoiceAnswer> }).answers;

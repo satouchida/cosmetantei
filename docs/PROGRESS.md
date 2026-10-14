@@ -36,7 +36,8 @@ Last updated: 2026-10-13.
 | 2026-10-14 | `e32accb` | Japan step 3, incidents: sourced entries for ロドデノール (recalled 2013) and 加水分解コムギ (the 茶のしずく石鹸 allergy cases); wheat-derived ingredients flagged on the card and the product, and 「（小麦由来）」 no longer stops a name from matching; test 74 ([walkthrough](walkthroughs/2026-10-14-japan-incidents.md)) |
 | 2026-10-14 | `86b074a` | Japan step 5, pair rules: the comparison warns when the problem products combine a retinoid with salicylic acid, exfoliants in several products (with the AHA sun note), or fragrance in several products, each with its source; test 75 ([walkthrough](walkthroughs/2026-10-14-pair-rules.md)) |
 | 2026-10-14 | `6b14a2c` | 「今使っているコスメ」: a third list, filled from the product cards, saved only in this browser with the date each item was added; 「組み合わせをチェック」 runs the pair rules on it without AI; items added 3+ months ago get a banner asking the user to confirm or remove them; test 76 ([walkthrough](walkthroughs/2026-10-14-current-use.md)) |
-| 2026-10-14 | *this commit* | Japan step 6, 表示指定成分: the 1980 告示 was repealed in 2001, so the app uses the current quasi-drug list (告示第332号, 140 items, with the 2007 label aliases); ingredient cards say an ingredient is designated, with the notice; ratings unchanged; test 77 ([walkthrough](walkthroughs/2026-10-14-designated-ingredients.md)) |
+| 2026-10-14 | `e7dfca2` | Japan step 6, 表示指定成分: the 1980 告示 was repealed in 2001, so the app uses the current quasi-drug list (告示第332号, 140 items, with the 2007 label aliases); ingredient cards say an ingredient is designated, with the notice; ratings unchanged; test 77 ([walkthrough](walkthroughs/2026-10-14-designated-ingredients.md)) |
+| 2026-10-14 | *this commit* | Cost tracking: every Gemini, Workers AI and web-search call writes a usage record (route, task, model, outcome, tokens, time; no text) to the log and Workers Analytics Engine; paid web searches capped at 30 per minute per Cloudflare location; test 78 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md)) |
 
 ## In progress
 
@@ -46,10 +47,7 @@ Nothing.
 
 In order:
 
-1. **Cost tracking** ([02 #7](review/02-cost-and-model.md#7-measure-first)): a hard cap on paid
-   web lookups (separate rate-limit binding); per-route counters,
-   and Gemini `usageMetadata` logging.
-2. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
+1. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
    (it uses only cached products and Open Beauty Facts, which has almost no Japanese data). Use the
    verified products already researched (KV), and consider a longer Open Beauty Facts timeout
    (`nivea` took 2.3 s against 2.5 s).

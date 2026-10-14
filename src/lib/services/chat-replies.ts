@@ -156,9 +156,10 @@ export function summarizeProductAnalysis(analysis: ProductAnalysisResult, barcod
 }
 
 /** ツールなしの短い Gemini 呼び出し。失敗・途中終了・長すぎる応答は null */
-async function generateShortReply(systemInstruction: string, prompt: string): Promise<string | null> {
+async function generateShortReply(task: string, systemInstruction: string, prompt: string): Promise<string | null> {
   if (!isGeminiConfigured()) return null;
   const result = await callGemini({
+    task,
     systemInstruction,
     prompt,
     thinkingLevel: 'low',
@@ -199,7 +200,8 @@ async function cachedShortReply(
   const cacheKey = await hashedCacheKey(keyPrefix, `${getGeminiModel()}\n${systemInstruction}\n${prompt}`);
   const cached = await cacheGetJSON<string>(cacheKey);
   if (cached) return cached;
-  const reply = await generateShortReply(systemInstruction, prompt);
+  // キャッシュのキーの種類（cause-reply 等）を、利用量の記録の task にも使う
+  const reply = await generateShortReply(keyPrefix.replace(/:v\d+$/, '').replace(/-/g, '_'), systemInstruction, prompt);
   if (!reply) return fallback;
   await cachePutJSON(cacheKey, reply, ttlSeconds);
   return reply;

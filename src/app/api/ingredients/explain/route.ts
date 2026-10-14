@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { explainIngredientWithAI } from '@/lib/services/dynamic-ingredient-service';
 import { findMatchingKnownIngredient } from '@/lib/analyzer/ingredient-analyzer';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { withUsageRoute } from '@/lib/server/usage';
 
 const MAX_INGREDIENT_NAME_LENGTH = 100;
 /** 成分名に入らない文字（改行などの制御文字・ゼロ幅文字・書字方向の制御）・URL */
@@ -40,7 +41,7 @@ async function readJsonBody(req: NextRequest): Promise<unknown | typeof TOO_LARG
   }
 }
 
-export async function POST(req: NextRequest) {
+async function handlePost(req: NextRequest) {
   if (await isRateLimited('ai', getClientIp(req.headers))) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
   }
@@ -79,3 +80,6 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
+export const POST = withUsageRoute('ingredient_explain', handlePost);

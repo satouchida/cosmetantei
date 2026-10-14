@@ -686,6 +686,7 @@ export async function explainIngredientWithAI(rawName: string, known?: KnownIngr
 
   const parsed = await callGeminiJSON<Record<string, unknown>>({
     systemInstruction: AI_SYSTEM_INSTRUCTION,
+    task: 'ingredient_explain',
     prompt: JSON.stringify(appEvaluation ? { ingredientName: rawName, appEvaluation } : { ingredientName: rawName }),
     responseSchema: {
       type: 'OBJECT',

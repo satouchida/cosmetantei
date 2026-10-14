@@ -74,6 +74,7 @@ export type LabelImageResult = { text: string } | { error: 'not_found' | 'unavai
 export async function readLabelImage(image: GeminiImage): Promise<LabelImageResult> {
   if (!isGeminiConfigured()) return { error: 'unavailable' };
   const parsed = await callGeminiJSON<{ found?: unknown; text?: unknown }>({
+    task: 'label_read',
     prompt: READ_PROMPT,
     images: [image],
     responseSchema: {

@@ -9,6 +9,7 @@ import {
   RATE_LIMIT_MESSAGE_JA,
 } from '@/lib/server/cloudflare';
 import { Product } from '@/lib/types';
+import { withUsageRoute } from '@/lib/server/usage';
 
 const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 10;
@@ -18,7 +19,7 @@ const MAX_QUERY_LENGTH = 100;
 const RESULTS_TTL_SECONDS = 60 * 60;
 const EMPTY_RESULTS_TTL_SECONDS = 60 * 5;
 
-export async function GET(request: NextRequest) {
+async function handleGet(request: NextRequest) {
   if (await isRateLimited('search', getClientIp(request.headers))) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA, results: [] }, { status: 429 });
   }
@@ -40,3 +41,6 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ query: q, results });
 }
+
+/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
+export const GET = withUsageRoute('product_search', handleGet);

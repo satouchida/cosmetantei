@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { searchCosmetics } from '../src/lib/services/search-barcode-service';
 import {
@@ -27,6 +27,12 @@ function clearGatewayEnv(): void {
 }
 
 globalThis.fetch = (async () => new Response('offline in tests', { status: 503 })) as typeof fetch;
+
+// 有料の Web 検索の全体の上限（メモリ版）は、テストごとに数え直す（テスト 78 で上限そのものを確かめる）
+beforeEach(async () => {
+  const { resetWebSearchCap } = await import('../src/lib/server/cloudflare');
+  resetWebSearchCap();
+});
 
 /** Open Beauty Facts から取得した体裁の、成分が確認済みの製品 */
 function verifiedProduct(overrides: Partial<Product>): Product {
@@ -1048,9 +1054,9 @@ test('34. Clef calls go through the AI Gateway when AI_GATEWAY_ID is set', async
 
   await withCloudflareEnv({ AI }, async () => {
     process.env.AI_GATEWAY_ID = 'cosmetantei-dev';
-    await runWorkersAI('@cf/cloudflare/clef', { model: 'clef' });
+    await runWorkersAI('@cf/cloudflare/clef', { model: 'clef' }, { task: 'test' });
     delete process.env.AI_GATEWAY_ID;
-    await runWorkersAI('@cf/cloudflare/clef', { model: 'clef' });
+    await runWorkersAI('@cf/cloudflare/clef', { model: 'clef' }, { task: 'test' });
   });
   assert.deepStrictEqual(seen, [{ gateway: { id: 'cosmetantei-dev' } }, undefined]);
 });
@@ -1065,9 +1071,9 @@ test('35. Gateway errors are logged by kind without the response body in product
   globalThis.fetch = (async () => new Response(body, { status: 402 })) as typeof fetch;
   setGatewayEnv();
   try {
-    assert.strictEqual(await callGemini({ prompt: 'テスト' }), null);
+    assert.strictEqual(await callGemini({ task: 'test', prompt: 'テスト' }), null);
     process.env.AI_GATEWAY_LOG_PAYLOAD = 'true';
-    await callGemini({ prompt: 'テスト' });
+    await callGemini({ task: 'test', prompt: 'テスト' });
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;
@@ -1092,17 +1098,17 @@ test('36. Gemini thinking level: low by default, overridable, Gemini 3 only, nev
   try {
     delete process.env.GEMINI_THINKING_LEVEL;
     assert.strictEqual(getDefaultThinkingLevel(), 'low');
-    await callGemini({ prompt: 'a', generationConfig: { temperature: 0.2 } });
+    await callGemini({ task: 'test', prompt: 'a', generationConfig: { temperature: 0.2 } });
 
     process.env.GEMINI_THINKING_LEVEL = 'MEDIUM';
     assert.strictEqual(getDefaultThinkingLevel(), 'medium', 'Env override is case-insensitive');
     process.env.GEMINI_THINKING_LEVEL = 'budget-1024';
     assert.strictEqual(getDefaultThinkingLevel(), 'low', 'Invalid values fall back to low');
 
-    await callGemini({ prompt: 'b', thinkingLevel: 'high' });
+    await callGemini({ task: 'test', prompt: 'b', thinkingLevel: 'high' });
 
     process.env.GEMINI_MODEL = 'gemini-2.5-flash';
-    await callGemini({ prompt: 'c' });
+    await callGemini({ task: 'test', prompt: 'c' });
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.GEMINI_THINKING_LEVEL;
@@ -1446,11 +1452,11 @@ test('44. Chat gate: user messages only go through the gateway when payload logg
   process.env.AI_GATEWAY_ID = 'cosmetantei-prod';
   try {
     await withCloudflareEnv({ AI }, async () => {
-      await runWorkersAI('@cf/cloudflare/clef', {}, { containsUserText: true });
+      await runWorkersAI('@cf/cloudflare/clef', {}, { containsUserText: true, task: 'test' });
       process.env.AI_GATEWAY_LOG_PAYLOAD = 'true';
-      await runWorkersAI('@cf/cloudflare/clef', {}, { containsUserText: true });
+      await runWorkersAI('@cf/cloudflare/clef', {}, { containsUserText: true, task: 'test' });
       delete process.env.AI_GATEWAY_LOG_PAYLOAD;
-      await runWorkersAI('@cf/cloudflare/clef', {});
+      await runWorkersAI('@cf/cloudflare/clef', {}, { task: 'test' });
     });
   } finally {
     delete process.env.AI_GATEWAY_ID;
@@ -3592,4 +3598,98 @@ test('77. 表示指定成分 (告示第332号): the list, label names and aliase
   assert.strictEqual(result.ingredients.find((i) => i.rawName === 'グリセリン')?.jpDesignated, undefined);
   const quasi = analyzeProduct({ id: 'designated_q', name: 't', brand: 'b', country: 'JP', category: 'cream', isQuasiDrug: true, ingredients: ['トコフェロール'] });
   assert.ok(quasi.ingredients[0].jpDesignated);
+});
+
+test('78. Cost tracking: usage records per route with token counts and no text; a global cap on paid web searches', async () => {
+  const { callGemini } = await import('../src/lib/services/gemini-client');
+  const { runWebSearch, runWorkersAI, WEB_SEARCH_GLOBAL_LIMIT } = await import('../src/lib/server/cloudflare');
+  const { withUsageRoute } = await import('../src/lib/server/usage');
+
+  const points: { blobs?: string[]; doubles?: number[]; indexes?: string[] }[] = [];
+  const USAGE = { writeDataPoint: (p: (typeof points)[number]) => void points.push(p) };
+  const logged: string[] = [];
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const originalFetch = globalThis.fetch;
+  console.log = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+  const secret = '私の頬が赤くなった化粧水';
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        candidates: [{ finishReason: 'STOP', content: { parts: [{ text: '回答' }] } }],
+        usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 30, thoughtsTokenCount: 5, toolUsePromptTokenCount: 800, cachedContentTokenCount: 64 },
+      }),
+      { status: 200 }
+    )) as typeof fetch;
+  setGatewayEnv();
+  try {
+    const { AI, searches } = fakeWebSearchAI(() => [{ url: 'https://example.com/p' }]);
+    await withCloudflareEnv({ AI, USAGE }, () =>
+      withUsageRoute('chat', async () => {
+        await callGemini({ task: 'page_read', prompt: secret, urlContext: true });
+        await runWorkersAI('@cf/cloudflare/clef', { questions: {} }, { task: 'chat_gate' });
+        await runWebSearch(secret, 'exa', 5);
+      })()
+    );
+
+    // ルートと種類ごとに1件。Gemini はトークン数（URL context のページ分を入力に含める）
+    assert.deepStrictEqual(points.map((p) => p.blobs?.slice(0, 5)), [
+      ['chat', 'gemini', 'page_read', 'gemini-3.8-flash', 'ok'],
+      ['chat', 'workers_ai', 'chat_gate', '@cf/cloudflare/clef', 'ok'],
+      ['chat', 'web_search', 'web_search', 'exa', 'ok'],
+    ]);
+    assert.deepStrictEqual(points[0].doubles?.slice(0, 5), [1, 920, 30, 5, 64]);
+    assert.strictEqual(points[0].blobs?.[5], 'url_context');
+    assert.deepStrictEqual(points[1].doubles?.slice(0, 3), [1, 100, 3], 'Clef usage comes from its response');
+    // 本文（プロンプト・検索語）はログにも Analytics Engine にも書かない
+    const usageLines = logged.filter((l) => l.startsWith('[usage]'));
+    assert.strictEqual(usageLines.length, 3);
+    for (const text of [...usageLines, JSON.stringify(points)]) assert.ok(!text.includes(secret));
+
+    // AI Gateway のキャッシュから返った応答は、件数だけ数えてトークン数は数えない
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '回答' }] } }], usageMetadata: { promptTokenCount: 120 } }), {
+        status: 200,
+        headers: { 'cf-aig-cache-status': 'HIT' },
+      })) as typeof fetch;
+    points.length = 0;
+    await withCloudflareEnv({ USAGE }, () => callGemini({ task: 'chat_reply', prompt: 'x' }));
+    assert.strictEqual(points[0].blobs?.[4], 'cache_hit');
+    assert.deepStrictEqual(points[0].doubles?.slice(0, 2), [1, 0]);
+
+    // ルートの外の呼び出しは other。失敗した呼び出しも数える
+    globalThis.fetch = (async () => new Response('{}', { status: 500 })) as typeof fetch;
+    points.length = 0;
+    console.error = () => {};
+    await withCloudflareEnv({ USAGE }, () => callGemini({ task: 'chat_reply', prompt: 'x' }));
+    assert.deepStrictEqual(points[0].blobs?.slice(0, 5), ['other', 'gemini', 'chat_reply', 'gemini-3.8-flash', 'error']);
+
+    // 全体の上限：バインディングが断れば検索しない（記録は capped）
+    points.length = 0;
+    const before = searches.length;
+    const WEB_SEARCH_LIMITER = { async limit({ key }: { key: string }) { assert.strictEqual(key, 'global'); return { success: false }; } };
+    const capped = await withCloudflareEnv({ AI, USAGE, WEB_SEARCH_LIMITER }, () => runWebSearch('化粧水', 'exa', 5));
+    assert.strictEqual(capped, null);
+    assert.strictEqual(searches.length, before, 'No paid search when capped');
+    assert.strictEqual(points[0].blobs?.[4], 'capped');
+
+    // バインディングが無いときはメモリ版（1分あたり WEB_SEARCH_GLOBAL_LIMIT 回）
+    console.warn = () => {};
+    const results = [];
+    for (let i = 0; i <= WEB_SEARCH_GLOBAL_LIMIT; i++) {
+      results.push(await withCloudflareEnv({ AI }, () => runWebSearch(`化粧水 ${i}`, 'exa', 5)));
+    }
+    // 上の検索（バインディング無し）で1回使っている
+    assert.ok(results.slice(0, WEB_SEARCH_GLOBAL_LIMIT - 1).every((r) => r !== null));
+    assert.ok(results.slice(WEB_SEARCH_GLOBAL_LIMIT - 1).every((r) => r === null));
+  } finally {
+    console.log = originalLog;
+    console.error = originalError;
+    console.warn = originalWarn;
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+    const { resetWebSearchCap } = await import('../src/lib/server/cloudflare');
+    resetWebSearchCap();
+  }
 });

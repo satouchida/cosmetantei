@@ -242,7 +242,7 @@ async function classifyWithClef(message: string): Promise<ClefVerdict | null> {
         },
       },
     },
-  }, { containsUserText: true });
+  }, { containsUserText: true, task: 'chat_gate' });
   if (!response) return null;
 
   const answers = (response as { answers?: Record<string, ClefChoiceAnswer> }).answers;

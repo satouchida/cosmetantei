@@ -119,6 +119,11 @@ context caching if traffic grows. Cache final answers in KV keyed by
 
 ## 7. Measure first
 
-- [ ] Add per-route counters (calls, grounded calls, tokens) to logs or Workers Analytics Engine
+- [x] Add per-route counters (calls, grounded calls, tokens) to logs or Workers Analytics Engine
+
+*Done (2026-10-14):* every Gemini, Workers AI and web-search call writes one usage record (route,
+task, model, outcome, tokens, time) to the log and to Workers Analytics Engine, and paid web
+searches have a global cap ([walkthrough](../walkthroughs/2026-10-14-cost-tracking.md)). Grounded
+calls no longer exist; URL-context page reads are marked instead.
 
 Without this you can't tell which of the changes above matter most. Do it together with item 5.

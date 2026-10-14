@@ -24,6 +24,20 @@ name = "SEARCH_RATE_LIMITER"
 namespace_id = "1002"
 simple = { limit = 60, period = 60 }
 
+# 有料の Web 検索の、利用者をまたいだ上限（key は "global" のみ）。利用者ごとの上限だけでは合計に上限が無いため。
+# 数えるのは Cloudflare の拠点ごと（全世界での厳密な上限ではない）。
+# 値を変えるときは src/lib/server/cloudflare.ts の WEB_SEARCH_GLOBAL_LIMIT（バインディングが無いときのメモリ版）も合わせる
+[[ratelimits]]
+name = "WEB_SEARCH_LIMITER"
+namespace_id = "1003"
+simple = { limit = 30, period = 60 }
+
+# 有料の呼び出し（Gemini・Workers AI・Web 検索）の利用量（src/lib/server/usage.ts）。
+# 件数・トークン数・所要時間だけを書く。集計の SQL は docs/walkthroughs/2026-10-14-cost-tracking.md
+[[analytics_engine_datasets]]
+binding = "USAGE"
+dataset = "cosmetantei_usage"
+
 # Workers AI（ブランド名チェックで Clef モデル @cf/cloudflare/clef を使用。src/lib/services/brand-check.ts）
 # 注意: wrangler dev でも AI バインディングは Cloudflare 上のモデルを呼び出すため、利用料金が発生します
 [ai]

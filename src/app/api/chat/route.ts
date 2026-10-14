@@ -23,6 +23,7 @@ import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server
 import { resolveClientProduct, resolveClientRoutine } from '@/lib/server/client-products';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '@/lib/services/label-reader';
+import { withUsageRoute } from '@/lib/server/usage';
 
 /** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
 function isValidLabelInput(label: unknown): boolean {
@@ -56,7 +57,7 @@ const SINGLE_ANALYSIS_REPLIES = [
 
 const INVALID_REQUEST_REPLY = 'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。';
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   try {
     // レート制限チェック（Cloudflare Rate Limiting バインディング、無ければインメモリ）
     if (await isRateLimited('ai', getClientIp(request.headers))) {
@@ -319,3 +320,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
+export const POST = withUsageRoute('chat', handlePost);
