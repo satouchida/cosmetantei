@@ -177,7 +177,9 @@ Sources, all primary:
 
 The rules apply to the products the user marked as having caused trouble, in the comparison
 (`performDifferentialAnalysis`). Those are the products most likely used together.
-`currentlyUsing` exists in the routine type, but the UI never fills it.
+The same rules also run on the 「今使っているコスメ」 list (`currentlyUsing`) through the
+「組み合わせをチェック」 button, with present-tense wording
+([walkthrough](../walkthroughs/2026-10-14-current-use.md)).
 
 | Rule | When | Source, and what it supports |
 |---|---|---|

@@ -5,7 +5,7 @@ import {
   getServicePurposeExplanation,
   BARCODE_PATTERN,
 } from '@/lib/services/search-barcode-service';
-import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
+import { analyzeProduct, checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
 import { Product, UserRoutineState } from '@/lib/types';
 import {
   answerIngredientQuestion,
@@ -74,7 +74,14 @@ export async function POST(request: NextRequest) {
     } = body as {
       message: string;
       routine: UserRoutineState;
-      action?: 'analyze_single' | 'differential' | 'barcode_lookup' | 'search' | 'analyze_label' | 'price_lookup';
+      action?:
+        | 'analyze_single'
+        | 'differential'
+        | 'barcode_lookup'
+        | 'search'
+        | 'analyze_label'
+        | 'price_lookup'
+        | 'check_current_use';
       selectedProduct?: Product;
       barcode?: string;
       label?: { text?: unknown; name?: unknown; brand?: unknown };
@@ -168,6 +175,25 @@ export async function POST(request: NextRequest) {
     // 2b. 分析した商品の価格（ボタン操作）。検索語はブランド名と商品名だけ
     if (action === 'price_lookup' && selectedProduct) {
       return priceReply(productSearchQuery(selectedProduct));
+    }
+
+    // 2c. 今使っているコスメの組み合わせチェック（ボタン操作。ルールだけで判定し、Gemini は呼ばない）
+    if (action === 'check_current_use') {
+      const products = routine?.currentlyUsing ?? [];
+      if (new Set(products.map((p) => p.id)).size < 2) {
+        return NextResponse.json({
+          reply: '組み合わせを調べるには、「今使っているコスメ」を2点以上追加してください。',
+          quickReplies: ['🔍 商品名で検索する', '📸 バーコードをスキャン'],
+        });
+      }
+      const check = checkCurrentUse(products);
+      return NextResponse.json({
+        reply:
+          check.findings.length > 0
+            ? `今使っている${check.productNames.length}点のコスメに、一緒に使うときに注意したい組み合わせが${check.findings.length}件ありました。`
+            : `今使っている${check.productNames.length}点のコスメに、このアプリが調べている組み合わせ（レチノール類とサリチル酸など、角質に働く成分の重なり、香料の重なり）は見つかりませんでした。`,
+        currentUseCheck: check,
+      });
     }
 
     // 3. 自由入力メッセージの判定（チャットゲート）。雑談・指示の書き換え・本人の医療相談は、

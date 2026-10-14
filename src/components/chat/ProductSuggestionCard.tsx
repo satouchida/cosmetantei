@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Product } from '@/lib/types';
-import { AlertTriangle, ShieldCheck, Search } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Layers, Search } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 import { productSourceInfo } from '@/lib/product-source';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
@@ -12,6 +12,7 @@ interface ProductSuggestionCardProps {
   onSelectToAnalyze: (product: Product) => void;
   onAddToBad: (product: Product) => void;
   onAddToSafe: (product: Product) => void;
+  onAddToCurrent: (product: Product) => void;
   /** 原因成分を含まない代わりの商品（見出しと注意書きを変える） */
   isAlternatives?: boolean;
 }
@@ -21,6 +22,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
   onSelectToAnalyze,
   onAddToBad,
   onAddToSafe,
+  onAddToCurrent,
   isAlternatives = false,
 }) => {
   if (!products || products.length === 0) return null;
@@ -115,7 +117,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <Search className="w-3.5 h-3.5" />
                   <span>成分を詳しくチェック</span>
                 </button>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     type="button"
                     onClick={() => onAddToBad(p)}
@@ -131,6 +133,14 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   >
                     <ShieldCheck className="w-3 h-3 text-emerald-600" />
                     <span>普段使えている</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAddToCurrent(p)}
+                    className="flex items-center justify-center gap-1 py-1 px-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-[11px] font-medium transition-colors"
+                  >
+                    <Layers className="w-3 h-3 text-sky-600" />
+                    <span>今使っている</span>
                   </button>
                 </div>
               </div>

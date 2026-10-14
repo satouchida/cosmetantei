@@ -3387,3 +3387,108 @@ test('75. Pair rules across products: retinoid with salicylic acid, overlapping 
   assert.deepStrictEqual(ids([p('I', ['レチノール', 'サリチル酸', '香料'])]), []);
   assert.deepStrictEqual(ids([p('J', ['レチノール', '香料']), p('K', ['水', 'グリセリン'])]), []);
 });
+
+test('76. Products in use now: combination check, wording, the stored list and the 3-month check', async () => {
+  const { checkCurrentUse } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const {
+    isStale,
+    parseCurrentUse,
+    serializeCurrentUse,
+    setCurrentUse,
+    updateCurrentUse,
+    getCurrentUseSnapshot,
+    MAX_CURRENT_USE,
+  } = await import('../src/lib/current-use');
+  const p = (id: string, ingredients: string[], extra: Partial<Product> = {}): Product => ({
+    id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients, ...extra,
+  });
+
+  // 今使っている製品：同じルールで、今の使い方に合う書き方
+  const now = checkCurrentUse([p('A', ['水', 'レチノール']), p('B', ['水', 'サリチル酸']), p('A', ['水', 'レチノール'])]);
+  assert.deepStrictEqual(now.productNames, ['製品A', '製品B'], 'The same product counts once');
+  const retinoid = now.findings.find((f) => f.id === 'retinoid_with_salicylic');
+  assert.ok(retinoid && retinoid.textJa.includes('一緒に使うと') && !retinoid.textJa.includes('肌荒れが落ち着くまで'));
+  const fragrance = checkCurrentUse([p('C', ['香料']), p('D', ['リナロール'])]).findings.find((f) => f.id === 'fragrance_overlap');
+  assert.ok(fragrance && !fragrance.textJa.includes('比べやすく'));
+  // 差分分析（肌荒れした製品）の書き方は変わらない
+  const trouble = performDifferentialAnalysis([p('A', ['レチノール']), p('B', ['サリチル酸'])], []).pairFindings?.[0];
+  assert.ok(trouble && trouble.textJa.includes('一緒に使っていた場合') && trouble.textJa.includes('肌荒れが落ち着くまで'));
+
+  // 3か月：追加した日から3か月たった時点で確かめてもらう
+  const added = new Date(2026, 6, 14).getTime();
+  assert.strictEqual(isStale(added, new Date(2026, 9, 13).getTime()), false);
+  assert.strictEqual(isStale(added, new Date(2026, 9, 14).getTime()), true);
+  // 月末：11月30日の3か月後は2月28日（3月2日まで延びない）
+  const monthEnd = new Date(2026, 10, 30).getTime();
+  assert.strictEqual(isStale(monthEnd, new Date(2027, 1, 27).getTime()), false);
+  assert.strictEqual(isStale(monthEnd, new Date(2027, 1, 28).getTime()), true);
+
+  // 保存した値の読み込み：壊れた値・形の違う項目・重複・入力した成分表示・上限を超えた分は捨てる
+  assert.deepStrictEqual(parseCurrentUse('not json'), []);
+  assert.deepStrictEqual(parseCurrentUse('{"a":1}'), []);
+  const label = p('L', ['水'], { ingredientSource: 'user_label' });
+  const stored = JSON.stringify([
+    { product: p('E', ['水']), addedAt: added },
+    { product: p('E', ['水']), addedAt: added },
+    { product: { id: 'F', name: 'x' }, addedAt: added },
+    { product: p('G', ['水']), addedAt: 'yesterday' },
+    { product: label, addedAt: added },
+    // サーバーが受け付けない製品（種類が無い語・長すぎる名前）も捨てる。送るたびに失敗しないように
+    { product: p('X', ['水'], { category: 'perfume' as Product['category'] }), addedAt: added },
+    { product: p('Y', ['水'], { name: 'あ'.repeat(201) }), addedAt: added },
+    // ID が label_ で始まる製品は、入力した成分表示として扱う
+    { product: p('label_123', ['水']), addedAt: added },
+  ]);
+  assert.deepStrictEqual(parseCurrentUse(stored).map((e) => e.product.id), ['E']);
+  const many = JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ product: p(`M${i}`, ['水']), addedAt: added })));
+  assert.strictEqual(parseCurrentUse(many).length, MAX_CURRENT_USE);
+  // 入力した成分表示は保存しない
+  const saved = serializeCurrentUse([{ product: p('H', ['水']), addedAt: added }, { product: label, addedAt: added }]);
+  assert.deepStrictEqual(parseCurrentUse(saved).map((e) => e.product.id), ['H']);
+  assert.ok(!saved.includes('"L"'));
+  // 保存できない環境（ここでは window が無い）でも、メモリの値で動く
+  setCurrentUse([{ product: label, addedAt: added }]);
+  assert.deepStrictEqual(getCurrentUseSnapshot().map((e) => e.product.id), ['L']);
+  // 続けて変えても、先の変更が消えない
+  updateCurrentUse((prev) => [...prev, { product: p('N1', ['水']), addedAt: added }]);
+  updateCurrentUse((prev) => [...prev, { product: p('N2', ['水']), addedAt: added }]);
+  assert.deepStrictEqual(getCurrentUseSnapshot().map((e) => e.product.id), ['L', 'N1', 'N2']);
+  setCurrentUse([]);
+
+  // チャットのボタン：ルールだけで判定し、Gemini も Workers AI も呼ばない
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+  let aiCalls = 0;
+  const AI = { async run() { aiCalls += 1; throw new Error('not used'); } };
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => { fetchCalls += 1; return new Response('offline', { status: 503 }); }) as typeof fetch;
+  const call = async (body: unknown) =>
+    (await withCloudflareEnv({ AI }, () =>
+      POST(
+        new NextRequest('http://localhost/api/chat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.76' },
+          body: JSON.stringify(body),
+        })
+      )
+    )).json();
+  try {
+    const one = await call({ action: 'check_current_use', routine: { badProducts: [], safeProducts: [], currentlyUsing: [p('A', ['レチノール'])] } });
+    assert.ok(!one.currentUseCheck && one.reply.includes('2点以上'));
+    const two = await call({
+      action: 'check_current_use',
+      routine: { badProducts: [], safeProducts: [], currentlyUsing: [p('A', ['レチノール']), p('B', ['サリチル酸'])] },
+    });
+    assert.deepStrictEqual(two.currentUseCheck.findings.map((f: { id: string }) => f.id), ['retinoid_with_salicylic']);
+    const none = await call({
+      action: 'check_current_use',
+      routine: { badProducts: [], safeProducts: [], currentlyUsing: [p('A', ['水']), p('B', ['グリセリン'])] },
+    });
+    assert.deepStrictEqual(none.currentUseCheck.findings, []);
+    assert.ok(none.reply.includes('見つかりませんでした'));
+    assert.strictEqual(aiCalls + fetchCalls, 0, 'The check calls no AI');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

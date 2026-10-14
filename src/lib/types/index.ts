@@ -149,6 +149,15 @@ export interface PairFinding {
   sources: ReferenceLink[];
 }
 
+/** 今使っている製品の組み合わせチェックの結果 */
+export interface CurrentUseCheckResult {
+  /** 調べた製品名 */
+  productNames: string[];
+  findings: PairFinding[];
+  /** 3か月以上前に追加した製品の名前（ブラウザが付ける。サーバーは追加した日を知らない） */
+  staleProductNames?: string[];
+}
+
 export interface DifferentialAnalysisResult {
   badProducts: Product[];
   safeProducts: Product[];
@@ -205,12 +214,14 @@ export interface ChatMessage {
   suggestionKind?: 'alternatives';
   singleAnalysis?: ProductAnalysisResult;
   differentialAnalysis?: DifferentialAnalysisResult;
+  currentUseCheck?: CurrentUseCheckResult;
   safeAlternatives?: Product[];
   priceResult?: PriceResult;
   quickReplies?: string[];
 }
 
 export interface UserRoutineState {
+  /** 今使っているコスメ（組み合わせチェックに使う。ブラウザにだけ保存し、追加した日もブラウザが持つ） */
   currentlyUsing: Product[];
   badProducts: Product[];    // 肌荒れしたコスメ
   safeProducts: Product[];   // 問題なく使えている安全なコスメ

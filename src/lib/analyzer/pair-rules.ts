@@ -3,9 +3,13 @@ import { normalizeIngredientName } from '../utils/ingredient-name';
 
 /**
  * 製品をまたぐ組み合わせの注意（docs/plans/japan-ingredient-data.md の Step 5）。
- * 肌荒れした製品を一緒に使っていた場合に、成分の重なりで刺激やアレルギーが起こりやすくなる組み合わせを知らせる。
+ * 肌荒れした製品を一緒に使っていた場合（trouble）と、今使っている製品（current）に、
+ * 成分の重なりで刺激やアレルギーが起こりやすくなる組み合わせを知らせる。
  * どのルールも出典の書き方をこえない（医薬品の注意は医薬品の注意として書く）
  */
+
+/** trouble: 肌荒れした製品（差分分析）。current: 今使っている製品（組み合わせチェック） */
+export type PairContext = 'trouble' | 'current';
 
 const SOURCES = {
   retinA: {
@@ -65,8 +69,10 @@ interface ProductProfile {
 export function findPairFindings(
   products: Product[],
   ingredientsOf: (p: Product) => string[],
-  resolve: (raw: string) => KnownIngredient
+  resolve: (raw: string) => KnownIngredient,
+  context: PairContext = 'trouble'
 ): PairFinding[] {
+  const trouble = context === 'trouble';
   // 同じ製品が2回入っていても1つと数える
   const unique = [...new Map(products.map((p) => [p.id, p])).values()];
   const profiles: ProductProfile[] = unique.map((p) => {
@@ -94,7 +100,13 @@ export function findPairFindings(
       id: 'retinoid_with_salicylic',
       titleJa: 'レチノール類とサリチル酸などの重ね使い',
       textJa:
-        'レチノール類を含む製品と、サリチル酸・イオウ・レゾルシンを含む製品を一緒に使っていた場合、刺激や乾燥が出ることがあります。米国の医薬品（トレチノイン）の添付文書には、サリチル酸・イオウ・レゾルシンを含む製品との併用に特に注意するよう書かれています。化粧品のレチノールは医薬品のトレチノインとは別の成分で、この注意がそのまま当てはまるとは限りません。肌荒れが落ち着くまでは、どちらか一方にすると原因を確かめやすくなります。',
+        (trouble
+          ? 'レチノール類を含む製品と、サリチル酸・イオウ・レゾルシンを含む製品を一緒に使っていた場合、刺激や乾燥が出ることがあります。'
+          : 'レチノール類を含む製品と、サリチル酸・イオウ・レゾルシンを含む製品を一緒に使うと、刺激や乾燥が出ることがあります。') +
+        '米国の医薬品（トレチノイン）の添付文書には、サリチル酸・イオウ・レゾルシンを含む製品との併用に特に注意するよう書かれています。化粧品のレチノールは医薬品のトレチノインとは別の成分で、この注意がそのまま当てはまるとは限りません。' +
+        (trouble
+          ? '肌荒れが落ち着くまでは、どちらか一方にすると原因を確かめやすくなります。'
+          : '赤みやヒリつきが出たら、どちらか一方にして様子をみてください。'),
       products: involved.map((p) => p.name),
       ingredients: uniqueIngredients(involved, ['retinoid', 'salicylic', 'sulfur_resorcinol']),
       sources: [SOURCES.retinA],
@@ -132,7 +144,7 @@ export function findPairFindings(
     findings.push({
       id: 'fragrance_overlap',
       titleJa: '香料成分の重なり',
-      textJa: `香料成分が${withFragrance.length}つの製品に入っています。香料によるかぶれの起こりやすさは、製品ごとではなく、肌の同じ場所に触れる量の合計に左右されるとされています（欧州委員会の科学委員会）。香料でかぶれたことがある場合は、無香料の製品に置き換えると比べやすくなります。`,
+      textJa: `香料成分が${withFragrance.length}つの製品に入っています。香料によるかぶれの起こりやすさは、製品ごとではなく、肌の同じ場所に触れる量の合計に左右されるとされています（欧州委員会の科学委員会）。香料でかぶれたことがある場合は、${trouble ? '無香料の製品に置き換えると比べやすくなります' : '香料を含む製品を無香料のものに置き換えると、肌に触れる香料を減らせます'}。`,
       products: withFragrance.map((p) => p.name),
       ingredients: [...new Set(withFragrance.flatMap((p) => p.fragrances))],
       sources: [SOURCES.sccsFragranceExposure],

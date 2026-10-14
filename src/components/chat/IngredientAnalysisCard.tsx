@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
+import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
 
@@ -10,12 +10,14 @@ interface IngredientAnalysisCardProps {
   analysis: ProductAnalysisResult;
   onAddToBadRoutine?: () => void;
   onAddToSafeRoutine?: () => void;
+  onAddToCurrentRoutine?: () => void;
 }
 
 export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   analysis,
   onAddToBadRoutine,
   onAddToSafeRoutine,
+  onAddToCurrentRoutine,
 }) => {
   const [selectedIngredient, setSelectedIngredient] = useState<AnalyzedIngredient | null>(null);
   const [isExplainingWithAI, setIsExplainingWithAI] = useState<boolean>(false);
@@ -400,6 +402,16 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           >
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
             <span>「安全なコスメ」に登録</span>
+          </button>
+        )}
+        {onAddToCurrentRoutine && (
+          <button
+            type="button"
+            onClick={onAddToCurrentRoutine}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs font-semibold transition-colors"
+          >
+            <Layers className="w-3.5 h-3.5 text-sky-600" />
+            <span>「今使っている」に登録</span>
           </button>
         )}
       </div>

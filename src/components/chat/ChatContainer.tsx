@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import {
   ChatMessage,
   Product,
@@ -9,6 +9,7 @@ import {
 import { ProductSuggestionCard } from './ProductSuggestionCard';
 import { IngredientAnalysisCard } from './IngredientAnalysisCard';
 import { DifferentialResultCard } from './DifferentialResultCard';
+import { CurrentUseResultCard } from './CurrentUseResultCard';
 import { PriceResultCard } from './PriceResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
 import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
@@ -22,9 +23,20 @@ import {
   CheckCircle2,
   Search,
   FileText,
+  CalendarClock,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
+import {
+  getCurrentUseServerSnapshot,
+  getCurrentUseSnapshot,
+  isPersistable,
+  isStale,
+  MAX_CURRENT_USE,
+  STALE_AFTER_MONTHS,
+  subscribeCurrentUse,
+  updateCurrentUse,
+} from '@/lib/current-use';
 
 let messageSequence = 0;
 
@@ -98,11 +110,17 @@ export const ChatContainer: React.FC = () => {
     };
   }, [input]);
 
-  const [routine, setRoutine] = useState<UserRoutineState>({
-    currentlyUsing: [],
+  // 比較リスト（このページを開いている間だけ）。今使っているコスメは currentUse に、追加した日つきで持つ
+  const [comparison, setRoutine] = useState<Omit<UserRoutineState, 'currentlyUsing'>>({
     badProducts: [],
     safeProducts: [],
   });
+  // 今使っているコスメはこの端末のブラウザに保存する（src/lib/current-use.ts）
+  const currentUse = useSyncExternalStore(subscribeCurrentUse, getCurrentUseSnapshot, getCurrentUseServerSnapshot);
+  const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
+  // 3か月以上前に追加した製品（今も使っているか確かめてもらう）
+  const staleEntries = currentUse.filter((e) => isStale(e.addedAt, currentTime()));
+  const staleIds = new Set(staleEntries.map((e) => e.product.id));
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -379,6 +397,38 @@ export const ChatContainer: React.FC = () => {
     return true;
   };
 
+  /** 今使っているコスメに追加する。追加した場合は true */
+  const handleAddToCurrent = (product: Product): boolean => {
+    // 再描画の前に続けて押されても正しく数えるよう、最新のリストで確かめる
+    const latest = getCurrentUseSnapshot();
+    if (latest.some((e) => e.product.id === product.id)) {
+      showToast('すでに今使っているコスメに登録されています');
+      return false;
+    }
+    if (latest.length >= MAX_CURRENT_USE) {
+      showToast(`今使っているコスメは${MAX_CURRENT_USE}点まで登録できます`);
+      return false;
+    }
+    const addedAt = currentTime();
+    updateCurrentUse((prev) => [...prev, { product, addedAt }]);
+    showToast(
+      isPersistable(product)
+        ? `「${product.name}」を【今使っているコスメ】に追加しました`
+        : `「${product.name}」を【今使っているコスメ】に追加しました（入力した成分表示は保存しません）`
+    );
+    return true;
+  };
+
+  const handleRemoveCurrent = (id: string) => {
+    updateCurrentUse((prev) => prev.filter((e) => e.product.id !== id));
+  };
+
+  /** 「今も使っている」：追加した日を今日にする */
+  const handleConfirmCurrent = (id: string) => {
+    const now = currentTime();
+    updateCurrentUse((prev) => prev.map((e) => (e.product.id === id ? { ...e, addedAt: now } : e)));
+  };
+
   const handleRemoveBad = (id: string) => {
     setRoutine((prev) => ({
       ...prev,
@@ -512,10 +562,74 @@ export const ChatContainer: React.FC = () => {
     }
   };
 
+  /** 今使っているコスメの組み合わせを調べる（サーバーはルールだけで判定する） */
+  const handleCheckCurrentUse = async () => {
+    if (currentUse.length < 2 || isLoading) return;
+    // 送った時点の、3か月以上前に追加した製品（結果のカードで確かめてもらう）
+    const staleProductNames = staleEntries.map((e) => e.product.name);
+    setIsLoading(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        ...messageMeta('user-current'),
+        role: 'user',
+        content: `🧴 今使っているコスメ（${currentUse.map((e) => e.product.name).join('、')}）の組み合わせを調べてください`,
+      },
+    ]);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 比較リストは使わないので送らない
+        body: JSON.stringify({
+          action: 'check_current_use',
+          routine: { badProducts: [], safeProducts: [], currentlyUsing: routine.currentlyUsing },
+        }),
+      });
+      if (res.status === 400) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            ...messageMeta('bot-current-invalid'),
+            role: 'assistant',
+            content:
+              '「今使っているコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
+          },
+        ]);
+        return;
+      }
+      if (!res.ok && res.status !== 429) throw new Error('API Error');
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...messageMeta('bot-current'),
+          role: 'assistant',
+          content: data.reply,
+          currentUseCheck: data.currentUseCheck && {
+            ...data.currentUseCheck,
+            ...(staleProductNames.length > 0 && { staleProductNames }),
+          },
+          quickReplies: data.quickReplies,
+        },
+      ]);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => [
+        ...prev,
+        { ...messageMeta('err'), role: 'assistant', content: '通信中にエラーが発生しました。もう一度お試しください。' },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleLoadPreset = (presetType: 'sample_irritation' | 'clear') => {
     if (presetType === 'clear') {
-      setRoutine({ currentlyUsing: [], badProducts: [], safeProducts: [] });
-      showToast('ルーティンをリセットしました');
+      // 今使っているコスメは別に管理するため、比較リストだけを空にする
+      setRoutine({ badProducts: [], safeProducts: [] });
+      showToast('比較リストをリセットしました');
       return;
     }
 
@@ -556,7 +670,6 @@ export const ChatContainer: React.FC = () => {
     };
 
     setRoutine({
-      currentlyUsing: [],
       badProducts: [sampleMelano],
       safeProducts: [sampleCurel, sampleIhada],
     });
@@ -615,10 +728,15 @@ export const ChatContainer: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            aria-label={
+              staleIds.size > 0
+                ? `マイルーティンを開く（${STALE_AFTER_MONTHS}か月以上前に追加したコスメが${staleIds.size}点あります）`
+                : 'マイルーティンを開く'
+            }
             className="lg:hidden p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-sand-100 relative"
           >
             <Menu className="w-5 h-5" />
-            {(routine.badProducts.length > 0 || routine.safeProducts.length > 0) && (
+            {(routine.badProducts.length > 0 || routine.safeProducts.length > 0 || staleIds.size > 0) && (
               <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full" />
             )}
           </button>
@@ -629,6 +747,29 @@ export const ChatContainer: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Stream Section */}
         <main className="flex-1 flex flex-col min-w-0 bg-white">
+          {/* 3か月以上前に追加した「今使っているコスメ」の確認（今も使っている・削除で消える） */}
+          {staleEntries.length > 0 && (
+            <div
+              role="status"
+              className="px-4 sm:px-6 py-2.5 bg-orange-50 border-b border-orange-200 text-xs text-orange-900 flex items-start gap-2"
+            >
+              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600 mt-0.5" />
+              <p className="flex-1 min-w-0 break-words">
+                「今使っているコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加したものがあります（
+                {staleEntries.slice(0, 3).map((e) => e.product.name).join('、')}
+                {staleEntries.length > 3 && ` ほか${staleEntries.length - 3}点`}
+                ）。今も使っているか確かめてください。
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="lg:hidden shrink-0 px-2 py-0.5 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg font-semibold"
+              >
+                確認する
+              </button>
+            </div>
+          )}
+
           {/* Messages Scroll Area */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
             {messages.map((msg) => (
@@ -658,6 +799,7 @@ export const ChatContainer: React.FC = () => {
                       onSelectToAnalyze={handleSelectProductToAnalyze}
                       onAddToBad={handleAddToBad}
                       onAddToSafe={handleAddToSafe}
+                      onAddToCurrent={handleAddToCurrent}
                       isAlternatives={msg.suggestionKind === 'alternatives'}
                     />
                   )}
@@ -668,6 +810,7 @@ export const ChatContainer: React.FC = () => {
                       analysis={msg.singleAnalysis}
                       onAddToBadRoutine={() => handleAddToBad(msg.singleAnalysis!.product)}
                       onAddToSafeRoutine={() => handleAddToSafe(msg.singleAnalysis!.product)}
+                      onAddToCurrentRoutine={() => handleAddToCurrent(msg.singleAnalysis!.product)}
                     />
                   )}
 
@@ -675,6 +818,8 @@ export const ChatContainer: React.FC = () => {
                   {msg.differentialAnalysis && (
                     <DifferentialResultCard result={msg.differentialAnalysis} />
                   )}
+
+                  {msg.currentUseCheck && <CurrentUseResultCard result={msg.currentUseCheck} />}
 
                   {msg.priceResult && <PriceResultCard result={msg.priceResult} />}
 
@@ -738,6 +883,9 @@ export const ChatContainer: React.FC = () => {
                 }}
                 onAddToSafe={(product) => {
                   handleAddToSafe(product);
+                }}
+                onAddToCurrent={(product) => {
+                  handleAddToCurrent(product);
                 }}
               />
 
@@ -803,8 +951,16 @@ export const ChatContainer: React.FC = () => {
             <div className="relative z-10 w-full lg:w-80 h-full">
               <RoutineSidebar
                 routine={routine}
+                currentUse={currentUse}
+                staleIds={staleIds}
                 onRemoveBad={handleRemoveBad}
                 onRemoveSafe={handleRemoveSafe}
+                onRemoveCurrent={handleRemoveCurrent}
+                onConfirmCurrent={handleConfirmCurrent}
+                onCheckCurrentUse={() => {
+                  setIsSidebarOpen(false);
+                  handleCheckCurrentUse();
+                }}
                 onRunDifferential={() => {
                   setIsSidebarOpen(false);
                   handleRunDifferential();

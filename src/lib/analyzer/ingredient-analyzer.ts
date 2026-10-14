@@ -3,13 +3,15 @@ import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, isWheatDerivedName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
-import { findPairFindings } from './pair-rules';
+import { findPairFindings, PairContext } from './pair-rules';
 import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
 import {
   AnalyzedIngredient,
   CulpritIngredient,
+  CurrentUseCheckResult,
   DifferentialAnalysisResult,
   KnownIngredient,
+  PairFinding,
   Product,
   ProductAnalysisResult,
 } from '../types';
@@ -551,12 +553,8 @@ export function performDifferentialAnalysis(
     adviceJa.push('成分そのものではなく、使用量・摩擦・肌のバリア状態の低下・または併用による刺激の可能性があります。');
   }
 
-  // 肌荒れした製品を一緒に使っていた場合の組み合わせの注意（成分DB、無ければルールで成分を判定）
-  const pairFindings = findPairFindings(
-    badProducts,
-    (p) => labelIngredients(p).map(({ raw }) => raw).filter((raw) => !isPlaceholderIngredient(raw)),
-    (raw) => findMatchingKnownIngredient(raw) ?? getOrGenerateIngredientExplanation(raw)
-  );
+  // 肌荒れした製品を一緒に使っていた場合の組み合わせの注意
+  const pairFindings = pairFindingsFor(badProducts, 'trouble');
 
   // あぶり出された疑わしい成分を含まない安全な代替コスメ（Amazonアフィリエイト付き）を検索
   const badProductIds = badProducts.map((p) => p.id);
@@ -573,3 +571,23 @@ export function performDifferentialAnalysis(
     safeAlternatives,
   };
 }
+
+/** 製品をまたぐ組み合わせの注意（成分DB、無ければルールで成分を判定） */
+function pairFindingsFor(products: Product[], context: PairContext): PairFinding[] {
+  return findPairFindings(
+    products,
+    (p) => labelIngredients(p).map(({ raw }) => raw).filter((raw) => !isPlaceholderIngredient(raw)),
+    (raw) => findMatchingKnownIngredient(raw) ?? getOrGenerateIngredientExplanation(raw),
+    context
+  );
+}
+
+/** 今使っている製品の組み合わせチェック（「今使っているコスメ」のボタン） */
+export function checkCurrentUse(products: Product[]): CurrentUseCheckResult {
+  const unique = [...new Map(products.map((p) => [p.id, p])).values()];
+  return {
+    productNames: unique.map((p) => p.name.trim() || '名前のない製品'),
+    findings: pairFindingsFor(unique, 'current'),
+  };
+}
+
