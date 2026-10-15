@@ -77,6 +77,7 @@ export const ChatContainer: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [liveCandidates, setLiveCandidates] = useState<Product[]>([]);
+  const [liveBrands, setLiveBrands] = useState<{ name: string; kana?: string }[]>([]);
   const [isTrayOpen, setIsTrayOpen] = useState(false);
 
   useEffect(() => {
@@ -96,8 +97,10 @@ export const ChatContainer: React.FC = () => {
           const data = await res.json();
           if (Array.isArray(data.results)) {
             // 0件のときも入れ替える（前の入力の候補を残さない）
+            const brands = Array.isArray(data.brands) ? data.brands : [];
             setLiveCandidates(data.results);
-            if (data.results.length > 0) setIsTrayOpen(true);
+            setLiveBrands(brands);
+            if (data.results.length > 0 || brands.length > 0) setIsTrayOpen(true);
           }
         }
       } catch {
@@ -872,7 +875,13 @@ export const ChatContainer: React.FC = () => {
               <LiveSearchCandidateTray
                 query={input}
                 candidates={liveCandidates}
-                isOpen={isTrayOpen && liveCandidates.length > 0 && input.trim() !== ''}
+                brands={liveBrands}
+                onSelectBrand={(brand) => {
+                  // ブランド名を入れて続けて入力できるようにする（候補はそのブランドの製品に絞り込まれる）
+                  setInput(`${brand} `);
+                  inputRef.current?.focus();
+                }}
+                isOpen={isTrayOpen && (liveCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== ''}
                 onClose={() => setIsTrayOpen(false)}
                 onSelectProduct={(product) => {
                   setIsTrayOpen(false);

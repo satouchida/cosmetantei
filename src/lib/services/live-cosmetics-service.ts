@@ -394,13 +394,14 @@ export async function fetchDynamicTrendingCosmetics(
  * 4. 実在するコスメ候補のみを検索・特定して返却するメインエンジン
  * 固定カタログを持たず、動的キャッシュ・Open Beauty Facts・Web リサーチから実在商品のみを返却
  *
+ * openBeautyFacts: false なら Open Beauty Facts に問い合わせない（ブランド名を入力している途中など）
  * webResearch: 見つからない場合に Web 検索と出典ページの読み取り（有料）まで行うか。
  * 入力途中の候補表示（/api/products/search）では使わず、チャットで商品名が送られたときだけ使う
  */
 export async function searchCosmeticsLive(
   query: string,
   limit = 6,
-  options: { webResearch?: boolean } = {}
+  options: { webResearch?: boolean; openBeautyFacts?: boolean } = {}
 ): Promise<Product[]> {
   const clean = query ? query.replace(/\u3000/g, ' ').trim() : '';
 
@@ -428,7 +429,7 @@ export async function searchCosmeticsLive(
   }
 
   // B. Open Beauty Facts API（世界規模の実在コスメデータベース。無料）。1文字の入力では問い合わせない
-  if (collected.length < limit && searchKey(clean).length >= 2) {
+  if (collected.length < limit && searchKey(clean).length >= 2 && options.openBeautyFacts !== false) {
     const obfResults = await searchOpenBeautyFacts(clean, limit);
     for (const o of obfResults) {
       if (isActualCosmeticProduct(o) && !collected.some((c) => c.id === o.id || c.name === o.name)) {

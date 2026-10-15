@@ -3989,3 +3989,137 @@ test('80. Type-ahead: Japanese matching (kana, half-width, accents, several word
     globalThis.fetch = originalFetch;
   }
 });
+
+test('81. Brand type-ahead: brands by name, reading or spelling; products narrowed within a brand', async () => {
+  const { BRANDS_JP } = await import('../src/lib/data/brands-jp');
+  const { searchKey } = await import('../src/lib/search/product-match');
+  const { suggestBrands, resolveBrand, brandProducts, buildBrandIndex, SEED_INDEX } = await import('../src/lib/services/brand-suggest');
+
+  // 一覧：同じキーが2つのブランドに無い。読みは仮名だけ
+  const owner = new Map<string, string>();
+  for (const b of SEED_INDEX) {
+    for (const k of b.keys) {
+      assert.ok(!owner.has(k) || owner.get(k) === b.entry.name, `${k}: ${owner.get(k)} and ${b.entry.name}`);
+      owner.set(k, b.entry.name);
+    }
+  }
+  for (const b of BRANDS_JP) {
+    if (b.kana) assert.match(searchKey(b.kana), /^[ァ-ヴー]+$/, `${b.name}: the reading is kana`);
+  }
+  assert.ok(!owner.has('honey') && !owner.has('デコルテ'), 'No common words as keys');
+
+  const seed = buildBrandIndex([]);
+  const names = (q: string) => suggestBrands(q, seed).map((b) => b.name);
+  // 読み・英字・半角カナ
+  assert.deepStrictEqual(names('しせ'), ['資生堂']);
+  assert.deepStrictEqual(names('せっき'), ['雪肌精']);
+  assert.deepStrictEqual(names('けあなで'), ['毛穴撫子']);
+  assert.ok(names('きゅ').includes('キュレル'));
+  assert.ok(names('curel').includes('キュレル'));
+  assert.ok(names('ｷｭﾚ').includes('キュレル'));
+  for (const n of ['SK-II', 'SKIN1004']) assert.ok(names('sk').includes(n), `English spellings: ${n}`);
+  assert.strictEqual(names('エスト')[0], 'エスト', 'An exact name comes first');
+  assert.deepStrictEqual(names(''), []);
+
+  // 先頭のブランドと残りの語
+  const resolved = (q: string) => {
+    const r = resolveBrand(q, seed);
+    return r && [r.brand.entry.name, r.rest];
+  };
+  assert.deepStrictEqual(resolved('しせいどう 化粧水'), ['資生堂', searchKey('化粧水')]);
+  assert.deepStrictEqual(resolved('キュレル化粧水'), ['キュレル', searchKey('化粧水')]);
+  assert.deepStrictEqual(resolved('キュレル　'), ['キュレル', ''], 'A full-width or trailing space');
+  assert.deepStrictEqual(resolved('エスティ ローダー 化粧水'), ['エスティ ローダー', searchKey('化粧水')], 'A brand written as two words (a tapped chip)');
+  assert.deepStrictEqual(resolved('Bobbi Brown リップ'), ['ボビイ ブラウン', searchKey('リップ')]);
+  assert.deepStrictEqual(resolved('・ キュレル'), ['キュレル', ''], 'A first word of only punctuation');
+  assert.strictEqual(resolved('エスティローダー')?.[0], 'エスティ ローダー', 'The longest brand wins');
+  assert.notStrictEqual(resolved('estee')?.[0], 'エスト', 'An English brand is not cut in the middle of a word');
+  assert.strictEqual(resolved('スリーピングマスク'), null, 'A short katakana brand is not cut before katakana');
+  assert.deepStrictEqual(resolved('ちふれ化粧水'), ['ちふれ', searchKey('化粧水')], 'A short brand before kanji');
+  assert.strictEqual(resolved('エスティ'), null, 'The start of a two-word brand is not yet a brand');
+  assert.strictEqual(resolved('化粧水'), null);
+
+  // ブランドの製品を残りの語で絞り込む
+  const make = (id: string, brand: string, name: string, category: Product['category'] = 'other', verified = false): Product => ({
+    id,
+    brand,
+    name,
+    country: 'JP',
+    category,
+    ingredients: verified ? ['水'] : [],
+    descriptionJa: '',
+    ...(verified && { ingredientSource: 'web_page' as const }),
+  });
+  const products = [
+    make('b1', 'Curel キュレル', '潤浸保湿 化粧水 II', 'toner'),
+    make('b2', 'キュレル', '潤浸保湿 フェイスクリーム', 'cream', true),
+    make('b3', '花王', 'キュレル 泡洗顔料', 'cleanser'),
+    make('b4', 'SHISEIDO', 'アルティミューン', 'serum'),
+    make('b5', 'ちふれ', '保湿クリーム', 'cream'),
+    make('b6', 'Estée Lauder', 'アドバンス ナイト リペア', 'serum'),
+    make('b7', 'Repair Lab', 'バーム', 'other'),
+    make('b8', 'Nivea,Beiersdorf', 'ニベアクリーム', 'cream'),
+  ];
+  const index = buildBrandIndex(products);
+  const ids = (q: string) =>
+    brandProducts(q, products, index, (p) => p.ingredientSource === 'web_page')?.products.map((p) => p.id);
+  assert.deepStrictEqual(ids('きゅれる'), ['b2', 'b1'], 'All of the brand, verified first');
+  assert.deepStrictEqual(ids('きゅれる 化粧水'), ['b1']);
+  assert.deepStrictEqual(ids('キュレル クリーム'), ['b2']);
+  assert.deepStrictEqual(ids('しせいどう'), ['b4'], 'The brand field may be in English');
+  assert.deepStrictEqual(ids('エスティ ローダー'), ['b6']);
+  assert.deepStrictEqual(ids('エスト'), [], 'est does not match inside Estée Lauder');
+  assert.deepStrictEqual(ids('ペア'), [], 'PAIR does not match inside Repair');
+  assert.deepStrictEqual(ids('ニベア'), ['b8'], 'A comma list in the brand field');
+  assert.strictEqual(ids('化粧水'), undefined, 'No brand at the start');
+
+  // 一覧に無いブランドも、調べた製品のブランド名から候補に出る（並びなら最初のもの）
+  const unlisted = [make('u1', 'ミツバチテスト', '化粧水'), make('u2', 'ハチドリテスト, Some Maker', '乳液')];
+  const unlistedIndex = buildBrandIndex(unlisted);
+  assert.deepStrictEqual(suggestBrands('みつば', unlistedIndex).map((b) => b.name), ['ミツバチテスト']);
+  assert.deepStrictEqual(suggestBrands('はちど', unlistedIndex).map((b) => b.name), ['ハチドリテスト']);
+  assert.deepStrictEqual(brandProducts('ミツバチテスト 化粧水', unlisted, unlistedIndex)?.products.map((p) => p.id), ['u1']);
+});
+
+test('82. Search route: brands in the response, saved brand products first, no Open Beauty Facts while typing a brand', async () => {
+  const { GET } = await import('../src/app/api/products/search/route');
+  const { NextRequest } = await import('next/server');
+  const { addProductToDynamicCache } = await import('../src/lib/data/cosmetics-db');
+  const originalFetch = globalThis.fetch;
+  let obfCalls = 0;
+  globalThis.fetch = (async () => {
+    obfCalls += 1;
+    return new Response('{}', { status: 500 });
+  }) as typeof fetch;
+  const ask = async (q: string) =>
+    (await (await GET(new NextRequest(`http://localhost/api/products/search?q=${encodeURIComponent(q)}`))).json()) as {
+      results: Product[];
+      brands: { name: string }[];
+    };
+  try {
+    // ブランド名の入力途中：ブランドの候補だけ。Open Beauty Facts は使わない
+    const typing = await ask('せっき');
+    assert.deepStrictEqual(typing.brands.map((b) => b.name), ['雪肌精']);
+    assert.strictEqual(obfCalls, 0);
+    // 空の検索はブランドを出さない
+    assert.deepStrictEqual((await ask('')).brands, []);
+
+    // 保存したブランドの製品は、キャッシュがあってもすぐ出る
+    const first = await ask('ハチミツテスト 化粧水');
+    assert.deepStrictEqual(first.results.map((p) => p.id), []);
+    addProductToDynamicCache({
+      id: 't82_lotion',
+      brand: 'ハチミツテスト',
+      name: 'しっとり化粧水',
+      country: 'JP',
+      category: 'toner',
+      ingredients: ['水'],
+      descriptionJa: '',
+      ingredientSource: 'web_page',
+    });
+    const again = await ask('ハチミツテスト 化粧水');
+    assert.strictEqual(again.results[0]?.id, 't82_lotion');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
