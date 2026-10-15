@@ -3916,3 +3916,76 @@ test('79. Strict spend cap: a dollar budget per UTC day and month in one Durable
   assert.strictEqual(geminiCostMicros({}, price), undefined, 'No usage: keep the estimate');
 });
 
+
+test('80. Type-ahead: Japanese matching (kana, half-width, accents, several words) ranks products on file', async () => {
+  const { searchKey, rankProducts } = await import('../src/lib/search/product-match');
+  const { addProductToDynamicCache } = await import('../src/lib/data/cosmetics-db');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+
+  // 揺れの吸収
+  assert.strictEqual(searchKey('きゅれる'), searchKey('キュレル'));
+  assert.strictEqual(searchKey('ｷｭﾚﾙ'), searchKey('キュレル'));
+  assert.strictEqual(searchKey('ｶﾞ'), searchKey('が'));
+  assert.strictEqual(searchKey('ゔ'), 'ヴ');
+  assert.strictEqual(searchKey('Curél'), 'curel');
+  assert.strictEqual(searchKey('ＮＩＶＥＡ　クリーム'), 'niveaクリーム');
+  assert.strictEqual(searchKey('「潤浸保湿」・フェイス（40g）'), '潤浸保湿フェイス40g');
+  assert.strictEqual(searchKey('A−B·C'), 'abc');
+  assert.strictEqual(searchKey('ガ'), 'ガ', 'Dakuten survive');
+  assert.notStrictEqual(searchKey('ミルク'), searchKey('ミルクー'), 'The long vowel mark is kept');
+
+  // 他のテストがキャッシュに入れた製品と混ざらないよう、ここだけのブランド名を使う
+  const make = (id: string, brand: string, name: string, category: Product['category'] = 'other', verified = false): Product => ({
+    id,
+    brand,
+    name,
+    country: 'JP',
+    category,
+    ingredients: verified ? ['水', 'グリセリン'] : [],
+    descriptionJa: '',
+    ...(verified && { ingredientSource: 'web_page' as const }),
+  });
+  const cream = make('t80_cream', 'ミツバチテスト', '潤浸保湿 フェイスクリーム', 'cream', true);
+  const lotion = make('t80_lotion', 'ミツバチテスト', '潤浸保湿 化粧水 III とてもしっとり', 'toner');
+  const other = make('t80_other', 'つばきてすと', '保湿クリーム', 'cream');
+  const short = make('t80_short', 'AB', 'ハンドジェル', 'other');
+  const coded = { ...make('t80_coded', 'コードテスト', '洗顔フォーム', 'cleanser'), barcode: '04901234567890' };
+  const all = [lotion, cream, other, short, coded];
+  const ids = (q: string) => rankProducts(all, q, (p) => p.ingredientSource === 'web_page').map((p) => p.id);
+
+  assert.deepStrictEqual(ids('みつばちてすと'), ['t80_cream', 't80_lotion'], 'Brand prefix; the verified product first');
+  assert.deepStrictEqual(ids('じゅんしん'), [], 'Kanji is not read from kana');
+  assert.deepStrictEqual(ids('潤浸保湿'), ['t80_cream', 't80_lotion']);
+  assert.deepStrictEqual(ids('ミツバチテスト 化粧水'), ['t80_lotion'], 'Every word must match; the brand fallback is dropped');
+  assert.deepStrictEqual(ids('ミツバチテスト潤浸保湿化粧水')[0], 't80_lotion');
+  assert.deepStrictEqual(ids('つばきてすと 乳液'), ['t80_other'], 'A category word matches the category');
+  assert.deepStrictEqual(ids('ミツバチテスト ボディ'), ['t80_cream', 't80_lotion'], 'Same brand as a fallback');
+  assert.deepStrictEqual(ids('保湿クリーム'), ['t80_other', 't80_cream']);
+  assert.deepStrictEqual(ids('ミツバチテストの潤浸保湿 化粧水 IIIとてもしっとりを調べて'), ['t80_lotion'], 'A product name inside a chat sentence');
+  assert.deepStrictEqual(ids('lab test'), [], 'A two-letter ASCII brand does not match inside other words');
+  assert.deepStrictEqual(ids('4901234567890'), ['t80_coded'], 'Barcode, leading zeros ignored');
+  assert.deepStrictEqual(ids(''), []);
+  assert.deepStrictEqual(ids('ほ'), [], 'One character matches only the start of a name');
+  assert.deepStrictEqual(ids('み'), ['t80_cream', 't80_lotion']);
+
+  // 検索：保存済みの製品をひらがなで見つける
+  const originalFetch = globalThis.fetch;
+  let obfCalls = 0;
+  globalThis.fetch = (async () => {
+    obfCalls += 1;
+    return new Response('{}', { status: 500 });
+  }) as typeof fetch;
+  try {
+    addProductToDynamicCache(lotion);
+    addProductToDynamicCache(cream);
+    const hits = await searchCosmeticsLive('みつばちてすと じゅんしんほしつ', 6);
+    assert.deepStrictEqual(hits.map((p) => p.id), ['t80_cream', 't80_lotion'], 'Kana does not match kanji, so only the brand matches');
+    const found = await searchCosmeticsLive('みつばちてすと', 2);
+    assert.deepStrictEqual(found.map((p) => p.id), ['t80_cream', 't80_lotion']);
+    assert.strictEqual(obfCalls, 1, 'Only the query with fewer results than the limit asked Open Beauty Facts');
+    await searchCosmeticsLive('み', 6);
+    assert.strictEqual(obfCalls, 1, 'One character does not ask Open Beauty Facts');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

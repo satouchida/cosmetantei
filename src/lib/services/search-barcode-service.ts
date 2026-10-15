@@ -4,6 +4,7 @@ import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { researchBarcode } from './web-research';
+import { CATEGORY_SYNONYMS } from '../search/product-match';
 import { ETHANOL_IN_LABEL } from './label-reader';
 import {
   searchCosmeticsLive,
@@ -27,16 +28,6 @@ export {
   isNonCosmeticSearchQuery,
   isGenericCosmeticTerm,
   getDisplayBrand,
-};
-
-const CATEGORY_SYNONYMS: Record<string, string[]> = {
-  lip: ['リップ', '口紅', 'ルージュ', 'ティント', 'リップクリーム', 'リップバーム', 'リップジェル'],
-  cleanser: ['洗顔', 'クレンジング', 'ウォッシュ', '石鹸', 'せっけん', 'メイク落とし'],
-  toner: ['化粧水', 'ローション', 'トナー', 'スキン'],
-  cream: ['クリーム', '乳液', 'ミルク', '保湿クリーム', 'ジェルクリーム'],
-  serum: ['美容液', 'セラム', 'エッセンス', 'アンプル'],
-  sunscreen: ['日焼け止め', '日やけ止め', 'サンプロテクト', 'uvカット', 'uv'],
-  mask: ['パック', 'マスク', 'シートマスク'],
 };
 
 /**

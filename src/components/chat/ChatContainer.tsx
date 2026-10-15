@@ -94,9 +94,10 @@ export const ChatContainer: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data.results) && data.results.length > 0) {
+          if (Array.isArray(data.results)) {
+            // 0件のときも入れ替える（前の入力の候補を残さない）
             setLiveCandidates(data.results);
-            setIsTrayOpen(true);
+            if (data.results.length > 0) setIsTrayOpen(true);
           }
         }
       } catch {

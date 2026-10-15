@@ -39,7 +39,8 @@ Last updated: 2026-10-13.
 | 2026-10-14 | `e7dfca2` | Japan step 6, 表示指定成分: the 1980 告示 was repealed in 2001, so the app uses the current quasi-drug list (告示第332号, 140 items, with the 2007 label aliases); ingredient cards say an ingredient is designated, with the notice; ratings unchanged; test 77 ([walkthrough](walkthroughs/2026-10-14-designated-ingredients.md)) |
 | 2026-10-14 | `4db6592` | Cost tracking: every Gemini, Workers AI and web-search call writes a usage record (route, task, model, outcome, tokens, time; no text) to the log and Workers Analytics Engine; paid web searches capped at 30 per minute per Cloudflare location; test 78 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md)) |
 | 2026-10-14 | `26312f7` | Strict spend cap: one Durable Object counts every web search, Gemini and Workers AI call across all users, per minute and per UTC day (`SPEND_CAP_*` in `[vars]`); over the cap the call is skipped and recorded as `capped`; it fails closed; replaces the per-location `WEB_SEARCH_LIMITER`; the Worker entry is now `worker.ts`; test 79 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md#strict-spend-cap)) |
-| 2026-10-15 | *this commit* | Spend budget: the cap now counts dollars, $30 per UTC day and $100 per UTC month for Gemini, Workers AI and web search together (`SPEND_BUDGET_USD`); each call reserves a high estimate from the price list (`prices.ts`) and Gemini calls are settled to the real cost from their token counts; per-minute counts stay per kind (`SPEND_PER_MINUTE_*`); test 79 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md#budget)) |
+| 2026-10-15 | `ad73ef3` | Spend budget: the cap now counts dollars, $30 per UTC day and $100 per UTC month for Gemini, Workers AI and web search together (`SPEND_BUDGET_USD`); each call reserves a high estimate from the price list (`prices.ts`) and Gemini calls are settled to the real cost from their token counts; per-minute counts stay per kind (`SPEND_PER_MINUTE_*`); test 79 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md#budget)) |
+| 2026-10-15 | *this commit* | Type-ahead for Japanese products: the search route now loads the products saved in KV; matching handles hiragana/katakana, half-width kana, accents and several words, with a ranked order (`src/lib/search/product-match.ts`, also used by the chat search); Open Beauty Facts only when short of results, with a 4 s timeout; in chat, web research results now come first and a hiragana question about a saved product skips the paid research; the tray no longer keeps old candidates; test 80 ([walkthrough](walkthroughs/2026-10-15-typeahead.md)) |
 
 ## In progress
 
@@ -49,10 +50,9 @@ Nothing.
 
 In order:
 
-1. **Type-ahead for Japanese products:** `/api/products/search` returned 1 product for 30 queries
-   (it uses only cached products and Open Beauty Facts, which has almost no Japanese data). Use the
-   verified products already researched (KV), and consider a longer Open Beauty Facts timeout
-   (`nivea` took 2.3 s against 2.5 s).
+1. **More products for type-ahead:** it finds only products already researched (up to 300 in KV).
+   Raise the limit or keep a name index; add the shopping APIs once the keys arrive
+   ([walkthrough](walkthroughs/2026-10-15-typeahead.md#not-done)).
 
 ## Later (product)
 

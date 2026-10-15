@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchCosmeticsLive, normalizeSearchString } from '@/lib/services/search-barcode-service';
+import { searchCosmeticsLive } from '@/lib/services/search-barcode-service';
+import { searchKey } from '@/lib/search/product-match';
 import {
   cacheGetJSON,
   cachePutJSON,
@@ -10,6 +11,7 @@ import {
 } from '@/lib/server/cloudflare';
 import { Product } from '@/lib/types';
 import { withUsageRoute } from '@/lib/server/usage';
+import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 
 const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 10;
@@ -29,12 +31,17 @@ async function handleGet(request: NextRequest) {
   const requested = parseInt(searchParams.get('limit') || '', 10);
   const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), MAX_LIMIT) : DEFAULT_LIMIT;
 
-  const cacheKey = await hashedCacheKey('search:v2', `${normalizeSearchString(q)}|${limit}`);
+  // 照合のしかたを変えたら版を上げる（v3: ひらがな・カタカナ等の揺れを吸収する照合）
+  // 記号だけの検索語は空の検索（人気の製品）と分ける
+  const key = searchKey(q) || (q ? `raw:${q}` : '');
+  const cacheKey = await hashedCacheKey('search:v3', `${key}|${limit}`);
   const cached = await cacheGetJSON<Product[]>(cacheKey);
   if (cached) {
     return NextResponse.json({ query: q, results: cached });
   }
 
+  // KV に保存された成分確認済みの製品（チャットの Web リサーチ等で調べたもの）をメモリへ読み込んでから探す
+  await hydrateVerifiedProducts();
   // キャッシュ済みの製品 ＋ Open Beauty Facts による探索
   const results = await searchCosmeticsLive(q, limit);
   await cachePutJSON(cacheKey, results, results.length > 0 ? RESULTS_TTL_SECONDS : EMPTY_RESULTS_TTL_SECONDS);

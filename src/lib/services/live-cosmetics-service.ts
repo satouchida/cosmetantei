@@ -11,6 +11,7 @@ import { isKnownGenericTerm } from './brand-check';
 import { researchProducts, toProductSearchQuery } from './web-research';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
+import { rankProducts, searchKey } from '../search/product-match';
 
 /**
  * 検索文字列の正規化（全角半角・大文字小文字・不要記号の統一）
@@ -258,6 +259,9 @@ export function detectQueryIntent(query: string): {
   return { type: 'general', expandedQuery: `${clean} コスメ` };
 }
 
+/** Open Beauty Facts の応答待ち（2026-10-13 の評価で nivea が 2.3 秒かかった。結果は検索 API で1時間キャッシュする） */
+const OBF_TIMEOUT_MS = 4_000;
+
 /**
  * 1. Open Beauty Facts API から実在コスメを検索
  */
@@ -265,9 +269,9 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
   const clean = query.replace(/\u3000/g, ' ').trim();
   if (!clean || isGreetingOrConsultation(clean) || isNonCosmeticSearchQuery(clean)) return [];
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OBF_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
 
     const url = `https://world.openbeautyfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(
       clean
@@ -281,9 +285,9 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
     if (!res.ok) return [];
 
+    // 本文の読み込みもタイムアウトの対象にする（clearTimeout は finally）
     const data = await res.json();
     if (!data.products || !Array.isArray(data.products) || data.products.length === 0) {
       return [];
@@ -332,6 +336,8 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
     return results;
   } catch {
     return [];
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -342,8 +348,9 @@ function hasVerifiedIngredientList(p: Product): boolean {
 
 /** 製品名（ブランド名つきも含む）が検索語を含むか。ブランド名だけの一致は数えない */
 function namesProduct(p: Product, query: string): boolean {
-  const q = normalizeSearchString(query);
-  return !!q && (normalizeSearchString(p.name).includes(q) || normalizeSearchString(`${p.brand}${p.name}`).includes(q));
+  // 候補の照合（rankProducts）と同じキーで比べる。ひらがなで聞かれても、確認済みの製品があれば有料の Web リサーチをしない
+  const q = searchKey(query);
+  return !!q && (searchKey(p.name).includes(q) || searchKey(`${p.brand}${p.name}`).includes(q));
 }
 
 /**
@@ -410,20 +417,9 @@ export async function searchCosmeticsLive(
   }
 
   // 2. 通常の検索語の場合
-  const cacheNorm = normalizeSearchString(clean);
-  const intent = detectQueryIntent(clean);
-
-  // A. 動的ランタイムキャッシュ（過去に取得した実在データ）から探索
-  const cachedMatches = COSMETICS_DATABASE.filter((p) => {
-    if (!isActualCosmeticProduct(p)) return false;
-    // カテゴリ指定（例: 「リップ」「洗顔」等）の場合は別カテゴリの混入を厳格排除
-    if (intent.type === 'category' && intent.key && p.category !== intent.key) {
-      return false;
-    }
-    const b = normalizeSearchString(p.brand);
-    const n = normalizeSearchString(p.name);
-    return (b && b.includes(cacheNorm)) || (n && n.includes(cacheNorm)) || (b && cacheNorm.includes(b));
-  });
+  // A. 動的ランタイムキャッシュ（過去に取得した実在データ。KV の成分確認済み製品を含む）から、よく合う順に探索。
+  //    ひらがな・カタカナ・半角カナの揺れと、空白で区切った複数の語に対応（src/lib/search/product-match.ts）
+  const cachedMatches = rankProducts(COSMETICS_DATABASE.filter(isActualCosmeticProduct), clean, hasVerifiedIngredientList);
 
   for (const m of cachedMatches) {
     if (!collected.some((c) => c.id === m.id || c.name === m.name)) {
@@ -431,8 +427,8 @@ export async function searchCosmeticsLive(
     }
   }
 
-  // B. Open Beauty Facts API（世界規模の実在コスメデータベース。無料）
-  if (collected.length < limit) {
+  // B. Open Beauty Facts API（世界規模の実在コスメデータベース。無料）。1文字の入力では問い合わせない
+  if (collected.length < limit && searchKey(clean).length >= 2) {
     const obfResults = await searchOpenBeautyFacts(clean, limit);
     for (const o of obfResults) {
       if (isActualCosmeticProduct(o) && !collected.some((c) => c.id === o.id || c.name === o.name)) {
@@ -450,11 +446,12 @@ export async function searchCosmeticsLive(
     !isNonCosmeticSearchQuery(clean)
   ) {
     const webResults = await researchProducts(productQuery, Math.min(limit, 4));
-    for (const w of webResults) {
-      if (isActualCosmeticProduct(w) && !collected.some((c) => c.id === w.id || c.name === w.name)) {
-        collected.push(w);
-      }
-    }
+    // 調べた製品を先に置く（Web リサーチは、検索語を名前に含む確認済みの候補が無いときだけ行うので、
+    // ここまでの候補より合っている。後ろに置くと、同じブランドの候補で件数が埋まり切り捨てられる）
+    const found = webResults.filter(
+      (w) => isActualCosmeticProduct(w) && !collected.some((c) => c.id === w.id || c.name === w.name)
+    );
+    collected.unshift(...found);
   }
 
   // 件数が足りなくても架空の候補は合成しない（0件ならUI側で再検索・バーコードを案内）
