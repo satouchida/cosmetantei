@@ -1,7 +1,8 @@
 import 'server-only';
 import { BoundedCache } from '../utils/bounded-cache';
 import { recordUsage } from './usage';
-import { consumeSpend } from './spend-cap';
+import { reserveSpend } from './spend-cap';
+import { WEB_SEARCH_COST_MICROS, workersAiCostMicros } from './prices';
 
 /**
  * Cloudflare バインディング（KV・Rate Limiting）へのアクセスヘルパー
@@ -107,7 +108,8 @@ export async function runWorkersAI(
   // （バインディング経由ではリクエストごとに本文ログを止められないため）
   const allowGateway = !options.containsUserText || process.env.AI_GATEWAY_LOG_PAYLOAD === 'true';
   const gatewayId = allowGateway ? (process.env.AI_GATEWAY_ID || '').trim() : '';
-  if (!(await consumeSpend('workers_ai'))) {
+  // 見積もり：入力の JSON の文字数をトークン数とみなす（Clef は入力だけ課金。1回 0.001 ドル未満）
+  if (!(await reserveSpend('workers_ai', workersAiCostMicros(model, JSON.stringify(input).length)))) {
     console.warn(`Workers AI ${model} skipped: spend cap reached`);
     await recordUsage({ kind: 'workers_ai', task: options.task, model, outcome: 'capped' });
     return null;
@@ -167,7 +169,7 @@ export async function runWebSearch(
     return null;
   }
 
-  if (!(await consumeSpend('web_search'))) {
+  if (!(await reserveSpend('web_search', WEB_SEARCH_COST_MICROS[provider]))) {
     console.warn('Web search skipped: spend cap reached');
     await recordUsage({ kind: 'web_search', task: 'web_search', model: provider, outcome: 'capped' });
     return null;

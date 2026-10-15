@@ -76,28 +76,19 @@ It is replaced by one counter that every request sees.
 - **The counter:** `SpendCapObject`, a Durable Object (`src/worker/spend-cap-object.ts`). The app
   uses only the instance named `global`. The counter queues calls itself, so read-add-write
   cannot interleave. The Durable Object's input gates also protect its storage access.
-  - **Day counts:** kept in its SQLite storage, so they survive restarts.
+  - **Day and month totals:** kept in its SQLite storage, so they survive restarts.
   - **The last 60 seconds:** kept in memory. After a restart (deploy, crash) the minute limit can
-    be exceeded once, by up to its own size per bucket. The day limit still holds.
+    be exceeded once, by up to its own size per kind. The budget still holds.
   - **Logic:** the counting is in `src/lib/server/spend-cap-core.ts` and has no Cloudflare
     dependencies, so test 79 runs it directly.
-- **Buckets and limits:** each paid kind has its own limit, written 「per minute / per day (UTC)」
-  in `[vars]`:
-
-  | Bucket | Variable | Default |
-  |---|---|---|
-  | Web search (Exa, Linkup) | `SPEND_CAP_WEB_SEARCH` | `30/1000` |
-  | Gemini | `SPEND_CAP_GEMINI` | `60/3000` |
-  | Workers AI (Clef) | `SPEND_CAP_WORKERS_AI` | `120/10000` |
-
-  The defaults are starting points, not derived from a budget. Set them from the price list
-  and the numbers in the usage dataset. A missing or malformed value falls back to the default.
+- **Limits:** a dollar budget for all paid calls together, plus a per-minute count for each kind.
+  See [Budget](#budget) below. (The first version counted calls per day; the budget replaced it.)
 - **When it applies:** `callGemini`, `runWorkersAI` and `runWebSearch` ask the counter before
-  every call.
+  every call (`reserveSpend`).
   - **Over the limit:** the call is not made and is recorded as `capped`. Callers already
     handle a missing answer: fixed replies, 「見つかりませんでした」, or the chat gate's fallback.
-  - **What counts:** every attempt, including calls that then fail or hit the gateway cache.
-    The cap errs on the side of spending less.
+  - **What counts:** every attempt reserves its estimate. Gemini calls are then settled to
+    their real cost (below); other calls keep the estimate.
 - **Fails closed:** if the counter can't be reached (error, or no answer within 2 seconds), the
   call is refused.
 - **No binding:**
@@ -118,7 +109,119 @@ It is replaced by one counter that every request sees.
   wherever the object lives, so far-away users get a little more latency.
 - **Checked on `wrangler dev`** with the real Durable Object:
   - a normal chat message is allowed and recorded;
-  - with `--var SPEND_CAP_WORKERS_AI:0/0`, the Clef call is skipped and recorded as `capped`.
+  - with a zero limit, the Clef call is skipped and recorded as `capped` (rechecked with the
+    budget below).
+
+## Budget
+
+The owner's budget is about **$30 a day and $100 a month**. The cap counts dollars, not calls, so
+the same limit holds whatever mix of calls users make.
+
+- **Setting:** `SPEND_BUDGET_USD = "30/100"` in `[vars]`: per UTC day / per UTC calendar month,
+  for Gemini, Workers AI and web search together. Decimals are allowed (`"2.5/40"`).
+- **Both limits apply.** At the full daily rate, the month's $100 is used up in a little over three
+  days; paid calls then stop until the 1st (UTC) and users get the usual fallbacks.
+- **Per-minute counts**, per kind, stop sudden bursts: `SPEND_PER_MINUTE_WEB_SEARCH = "30"`,
+  `SPEND_PER_MINUTE_GEMINI = "60"`, `SPEND_PER_MINUTE_WORKERS_AI = "120"`.
+- **Not in the budget:** fixed fees, such as the Workers Paid plan, and Durable Object, KV and
+  Analytics Engine use. Lower the budget by those if they should come out of the same $100.
+
+### Reserve, then settle
+
+1. **Before the call,** the caller reserves a high estimate. If today's or this month's total plus
+   the estimate would pass the limit, the call is not made.
+2. **After the call,** Gemini calls are settled to the real cost from `usageMetadata`. The
+   difference is added to or taken from the totals of the day and month the call was reserved
+   in. If the day has changed by then, only the month total is corrected.
+
+| Kind | Estimate | Settled |
+|---|---|---|
+| Gemini | characters of prompt, system text, history and schema counted as tokens (Japanese is about one token per character or less), 2,000 tokens per image, 20,000 tokens per page read with URL context, and the full `maxOutputTokens` (thinking counts toward it) | yes: input (page text included) − cached at the input price, cached at the cache price, output + thinking at the output price. A gateway cache hit or a 4xx reply (including 429) costs 0. A 5xx reply, a network error or a timeout keeps the estimate, because it may have been billed. |
+| Workers AI (Clef) | characters of the input JSON counted as tokens, input price only | no (less than $0.001 a call) |
+| Web search | the provider's list price + 5% | no |
+
+**A page can be longer than its 20,000-token estimate.** Then the settlement takes the total past
+the limit, by at most the overrun of the calls already running; the next calls are refused, and
+the log says `Spend estimate was low`. All other estimates are upper bounds.
+
+An unknown Gemini model is logged once (`No price for Gemini model`), and an estimate that is
+not a number refuses the call.
+
+A failed settlement is logged and the estimate stays.
+
+### Prices
+
+`src/lib/server/prices.ts`, checked 2026-10-15 (USD per million tokens):
+
+| | Input | Cached input | Output | Source |
+|---|---|---|---|---|
+| `gemini-3.8-flash` to 2026-12-31 | 0.75 | 0.075 | 3.75 | [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing), Standard, paid tier |
+| `gemini-3.8-flash` from 2027-01-01 | 1.50 | 0.15 | 7.50 | same page; the table switches on the date |
+| Other Gemini models | 5 | 5 | 30 | high on purpose; add the model to the table |
+| `@cf/cloudflare/clef` | 0.24 | | none | [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) |
+| `@cf/cloudflare/clef-flash` | 0.038 | | none | same |
+| Other Workers AI models | 2 | | 10, for 1,000 tokens | high on purpose; they may bill output |
+
+Web search, per call: Exa $0.00735 and Linkup $0.00525. These are the list prices ($7 and
+$5 per 1,000, [Gemini redesign plan](../plans/gemini-role-redesign.md)) plus the 5% fee on AI
+Gateway credits ([Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/)).
+Gemini is billed by Google through the stored provider key, so it has no credit fee.
+
+### What the budget buys
+
+Estimates per call at 2026 prices (2027: Gemini about twice):
+
+| Call | Reserved | Notes |
+|---|---|---|
+| Chat reply (`maxOutputTokens` 1,024) | about $0.005 | a real `ingredient_reply` on `wrangler dev` cost $0.0008 (306 in, 141 out) |
+| Product page read (3 pages, 8,192 out) | about $0.08 | |
+| Price page (1 page, 2,048 out) | about $0.02 | |
+| Label photo (4,096 out) | about $0.02 | |
+| Clef check | under $0.001 | |
+| Web search | $0.005–0.007 | |
+
+So even at the reserved prices, $30 a day covers about 350 product lookups (search + page read),
+or about 5,000 chat replies. Real costs are lower, and settlement returns the difference.
+
+### Checks
+
+- Test 79: the per-minute count per kind; the day and month limits on the total; settlement,
+  including after the day changes; the totals surviving a re-created Durable Object; 400 for bad
+  requests; reading `SPEND_BUDGET_USD` and `SPEND_PER_MINUTE_*`; the price table's 2027 step; the
+  Gemini estimate and real cost.
+- Test 78: a Gemini call reserves, then settles with a negative difference; a network error
+  keeps the estimate; the web search reserves $0.00735.
+- `wrangler dev` with the real Durable Object:
+  - normal budget: Clef and Gemini calls are made and settled, with no settlement errors;
+  - `--var SPEND_BUDGET_USD:0/0`: the Clef gate and the Gemini reply are skipped and recorded as
+    `capped`, and the reply falls back to the ingredient database.
+
+### Review of the budget
+
+`code-improver` found nothing Critical or High, and confirmed the unit maths. Fixed:
+- **Medium:** every non-OK Gemini reply settled to 0. A 5xx or gateway timeout can come after
+  Google has billed the answer, so only 4xx replies are settled to 0 now (test 78).
+- **Medium:** an estimate that was too low passed silently. It is now logged.
+- **Low:** a cost that is not a number refuses the call, instead of turning the in-memory totals
+  into NaN.
+- **Low:** an unknown Workers AI model now also reserves 1,000 output tokens.
+- **Low:** an unknown Gemini model is logged once.
+- **Low:** a stale comment in `wrangler.toml`.
+- **Tests:** settlement for a cache hit, a 429 and a 503; a cost equal to what is left of the
+  budget is allowed.
+
+Declined:
+- **A longer timeout for `/consume`, or a request id to retry it:** a timeout refuses the call and
+  may leave its reservation counted, which errs on the side of spending less. A longer timeout
+  would make users wait longer when the Durable Object is slow.
+- **Refusing at 95% of the budget:** an overrun only comes from pages longer than their
+  estimate, in calls that are already running, so it is small next to $30. Holding back 5% would
+  cost $1.50 every day. The log line shows when the page estimate should be raised.
+
+### Also possible
+
+AI Gateway has its own [spend limits](https://developers.cloudflare.com/ai-gateway/features/spend-limits/)
+per gateway. They could be a second guard for Gemini and Workers AI. They are not set up here.
 
 ## Tests
 

@@ -26,7 +26,7 @@ namespace_id = "1002"
 simple = { limit = 60, period = 60 }
 
 # 有料の呼び出し（Gemini・Workers AI・Web 検索）の上限を、全世界で1つの Durable Object で厳密に数える
-# （src/lib/server/spend-cap.ts）。クラスは worker.ts から export している。上限は [vars] の SPEND_CAP_*
+# （src/lib/server/spend-cap.ts）。クラスは worker.ts から export している。上限は [vars] の SPEND_BUDGET_USD・SPEND_PER_MINUTE_*
 [[durable_objects.bindings]]
 name = "SPEND_CAP"
 class_name = "SpendCapObject"
@@ -62,11 +62,14 @@ AI_GATEWAY_ID = "cosmetantei-prod"
 # チャットゲート（Clef）: enforce | shadow | off。雑談・指示の書き換え・本人の医療相談を Gemini の前で止める
 # この判定はキーワードでは代替できないため enforce で運用する（docs/plans/gemini-role-redesign.md）
 CHAT_GATE_MODE = "enforce"
-# 有料の呼び出しの上限（全体で厳密に数える。「1分あたり/1日あたり（UTC）」）。上限に達した呼び出しはせず、
-# 利用量の記録に capped と残す。値は docs/walkthroughs/2026-10-14-cost-tracking.md
-SPEND_CAP_WEB_SEARCH = "30/1000"
-SPEND_CAP_GEMINI = "60/3000"
-SPEND_CAP_WORKERS_AI = "120/10000"
+# 有料の呼び出しの予算（全体で厳密に数える）。Gemini・Workers AI・Web 検索の合計金額で「1日あたり/1か月あたり」の USD（UTC）。
+# 超える呼び出しはせず、利用量の記録に capped と残す。単価は src/lib/server/prices.ts、詳細は
+# docs/walkthroughs/2026-10-14-cost-tracking.md の「Budget」
+SPEND_BUDGET_USD = "30/100"
+# 急増を止める、種類ごとの1分あたりの件数
+SPEND_PER_MINUTE_WEB_SEARCH = "30"
+SPEND_PER_MINUTE_GEMINI = "60"
+SPEND_PER_MINUTE_WORKERS_AI = "120"
 # 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）
 # docs/plans/clef-chat-gate-and-search-filter.md の Phase 2
 SEARCH_FILTER_MODE = "off"

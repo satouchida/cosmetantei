@@ -9,7 +9,8 @@ import 'server-only';
  */
 
 import { geminiTokenCounts, recordUsage, UsageOutcome } from '../server/usage';
-import { consumeSpend } from '../server/spend-cap';
+import { reserveSpend, settleSpend } from '../server/spend-cap';
+import { geminiPrice, tokenCostMicros } from '../server/prices';
 
 const AI_GATEWAY_BASE = 'https://gateway.ai.cloudflare.com/v1';
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -193,8 +194,10 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     body.tools = [{ urlContext: {} }];
   }
 
-  // 有料の呼び出しの上限（全体で数える）。上限に達していれば呼ばない
-  if (!(await consumeSpend('gemini'))) {
+  // 有料の呼び出しの上限（全体で数える）。見積もり金額を確保し、予算を超えるなら呼ばない
+  const price = geminiPrice(model, Date.now());
+  const ticket = await reserveSpend('gemini', estimateGeminiCostMicros(req, price));
+  if (!ticket) {
     console.warn('Gemini call skipped: spend cap reached');
     await recordUsage({ kind: 'gemini', task: req.task, model, outcome: 'capped' });
     return null;
@@ -203,6 +206,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   const started = Date.now();
   let data: unknown;
   let outcome: UsageOutcome = 'error';
+  // 実際の金額。undefined は分からない（通信エラー・タイムアウトは課金されたかもしれないので、見積もりを残す）
+  let actualMicros: number | undefined;
   try {
     const response = await fetch(geminiEndpoint(gateway, model), {
       method: 'POST',
@@ -221,6 +226,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     });
 
     if (!response.ok) {
+      // 4xx（レート制限を含む）は課金されない。5xx・ゲートウェイのタイムアウトは生成の後に起きうるので見積もりを残す
+      if (response.status < 500) actualMicros = 0;
       console.error(await describeGatewayError(response));
       return null;
     }
@@ -228,6 +235,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     data = await response.json();
     // AI Gateway のキャッシュから返った応答の usageMetadata は、元の呼び出しの値（今回は課金されない）
     outcome = response.headers.get('cf-aig-cache-status')?.toUpperCase() === 'HIT' ? 'cache_hit' : 'ok';
+    actualMicros = outcome === 'cache_hit' ? 0 : geminiCostMicros(data, price);
     const text = extractResponseText(data);
     if (!text) return null;
 
@@ -249,7 +257,50 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
       urlContext: req.urlContext,
       ms: Date.now() - started,
     });
+    if (actualMicros !== undefined) await settleSpend(ticket, actualMicros);
   }
+}
+
+/** 見積もりの前提（実際の金額は呼び出しの後に usageMetadata で直す） */
+const IMAGE_TOKENS = 2_000;
+/** URL context で読む1ページあたり（ページの文章は入力として課金される） */
+const URL_PAGE_TOKENS = 20_000;
+/** maxOutputTokens が無い呼び出し（今は無い）の出力の見積もり */
+const DEFAULT_OUTPUT_TOKENS = 8_192;
+
+/**
+ * 呼び出しの前の見積もり金額（マイクロドル）。高めに見積もる：
+ * - 文字数をトークン数とみなす（日本語は1文字1トークン以下、英語はもっと少ない）
+ * - 出力は maxOutputTokens いっぱい（思考トークンも maxOutputTokens に含まれる）
+ * - URL context はプロンプト内の URL 1件につき URL_PAGE_TOKENS
+ */
+export function estimateGeminiCostMicros(req: GeminiRequest, price: { input: number; output: number }): number {
+  const textChars =
+    req.prompt.length +
+    (req.systemInstruction?.length ?? 0) +
+    (req.history ?? []).reduce((n, c) => n + c.parts.reduce((m, p) => m + p.text.length, 0), 0) +
+    (req.responseSchema ? JSON.stringify(req.responseSchema).length : 0);
+  const pages = req.urlContext ? Math.max(1, req.prompt.match(/https?:\/\/\S+/g)?.length ?? 0) : 0;
+  const inputTokens = textChars + (req.images?.length ?? 0) * IMAGE_TOKENS + pages * URL_PAGE_TOKENS;
+  const maxOutput = Number(req.generationConfig?.maxOutputTokens);
+  const outputTokens = Number.isFinite(maxOutput) && maxOutput > 0 ? maxOutput : DEFAULT_OUTPUT_TOKENS;
+  return tokenCostMicros(inputTokens, price.input) + tokenCostMicros(outputTokens, price.output);
+}
+
+/** 応答の usageMetadata からの実際の金額（マイクロドル）。usageMetadata が無ければ undefined（見積もりを残す） */
+export function geminiCostMicros(
+  data: unknown,
+  price: { input: number; cachedInput: number; output: number }
+): number | undefined {
+  if (!(data as { usageMetadata?: unknown })?.usageMetadata) return undefined;
+  const t = geminiTokenCounts(data);
+  const prompt = t.promptTokens ?? 0;
+  const cached = Math.min(prompt, t.cachedTokens ?? 0);
+  return (
+    tokenCostMicros(prompt - cached, price.input) +
+    tokenCostMicros(cached, price.cachedInput) +
+    tokenCostMicros((t.outputTokens ?? 0) + (t.thoughtTokens ?? 0), price.output)
+  );
 }
 
 /**
