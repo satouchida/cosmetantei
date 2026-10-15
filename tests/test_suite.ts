@@ -3817,6 +3817,9 @@ test('79. Strict spend cap: a dollar budget per UTC day and month in one Durable
   // 前の日の呼び出しの精算は、今日の合計を動かさない（月が同じなら月の合計は直す）
   const settled = await counter.settle(-100, { day: '2026-10-14', month: '2026-10' }, nextDay + 60_000);
   assert.deepStrictEqual([settled.dayMicros, settled.monthMicros], [60, 60]);
+  // 金額 0 の呼び出し（お店の API）は、予算を使い切っていても件数だけで決める
+  assert.strictEqual((await counter.consume('yahoo_api', { ...limits, dayMicros: 0, monthMicros: 0 }, 0, nextDay + 60_000)).allowed, true);
+
   // 月が変われば1か月の金額も戻る
   const nextMonth = Date.UTC(2026, 10, 1, 0, 0, 0);
   assert.strictEqual(utcMonth(nextMonth), '2026-11');
@@ -4121,5 +4124,190 @@ test('82. Search route: brands in the response, saved brand products first, no O
     assert.strictEqual(again.results[0]?.id, 't82_lotion');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored, looked up when picked', async () => {
+  const { rakutenItemSearch, yahooItemSearch } = await import('../src/lib/services/shop-apis');
+  const { brandLineup, shopProductQuery } = await import('../src/lib/services/shop-lineup');
+  const { buildBrandIndex, findBrand } = await import('../src/lib/services/brand-suggest');
+  const { GET } = await import('../src/app/api/products/lineup/route');
+  const { POST } = await import('../src/app/api/chat/route');
+  const { addProductToDynamicCache, COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { NextRequest } = await import('next/server');
+
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'SPEND_PER_MINUTE_YAHOO_API'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  const requests: { url: URL; headers: Headers }[] = [];
+  // ドキュメントのレスポンスの形（楽天 formatVersion=2、Yahoo! v3）
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    requests.push({ url, headers: new Headers(init?.headers) });
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({
+        items: [
+          { itemName: '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml 送料無料', itemCode: 'kao:1', itemUrl: 'https://item.rakuten.co.jp/kao/1/', availability: 1, itemPrice: 1980, taxFlag: 0, mediumImageUrls: ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/1.jpg?_ex=128x128'] },
+          { itemName: 'キュレル 化粧水 2個セット', itemCode: 'kao:2', itemUrl: 'https://item.rakuten.co.jp/kao/2/', availability: 1 },
+          { itemName: '別ブランド ハンドクリーム', itemCode: 'x:3', itemUrl: 'https://item.rakuten.co.jp/x/3/', availability: 1 },
+          { itemName: 'キュレル 泡洗顔料', itemCode: 'kao:4', itemUrl: 'https://item.rakuten.co.jp/kao/4/', availability: 0 },
+          // formatVersion=1 の写真の形・税別
+          { itemName: 'キュレル 皮脂トラブルケア 化粧水 150ml', itemCode: 'kao:5', itemUrl: 'https://item.rakuten.co.jp/kao/5/', availability: 1, itemPrice: 1800, taxFlag: 1, mediumImageUrls: [{ imageUrl: 'https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/5.jpg' }] },
+          // 楽天に似た別のサイトの写真・価格が整数でない
+          { itemName: 'キュレル UVローション 60ml', itemCode: 'kao:6', itemUrl: 'https://item.rakuten.co.jp/kao/6/', availability: 1, itemPrice: '1980', mediumImageUrls: ['https://evilrakuten.co.jp/6.jpg'] },
+        ],
+      });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') {
+      return Response.json({
+        hits: [
+          { name: 'キュレル 潤浸保湿 フェイスクリーム 40g', code: 'store_1', url: 'https://store.shopping.yahoo.co.jp/store/1.html', inStock: true, condition: 'new', brand: { id: 1, name: 'キュレル' }, parentBrands: [{ id: 2, name: '花王' }], janCode: '4901301000001', price: 2420, priceLabel: { taxable: true }, image: { small: 'https://item-shopping.c.yimg.jp/i/c/store_1', medium: 'http://evil.example/track.gif' } },
+          { name: '潤浸保湿 フェイスクリーム 40g 別ストア', code: 'store_2', url: 'https://store.shopping.yahoo.co.jp/store/2.html', inStock: true, condition: 'new', brand: { name: 'Curel' }, janCode: '4901301000001' },
+          { name: 'キュレル 潤浸保湿 美容液 40g', code: 'store_3', url: 'https://store.shopping.yahoo.co.jp/store/3.html', inStock: true, condition: 'new', brand: { name: 'キュレル' }, janCode: '4901301000003', price: 980, priceLabel: { taxable: false }, image: { medium: 'https://item-shopping.c.yimg.jp/i/g/store_3' } },
+          { name: 'キュレル 潤浸保湿 乳液 120ml', code: 'store_4', url: 'https://store.shopping.yahoo.co.jp/store/4.html', inStock: true, condition: 'new', brand: { name: 'キュレル' }, janCode: '4901301000004', image: { medium: 'https://user:pw@item-shopping.c.yimg.jp:8443/i/g/store_4' } },
+          { name: 'ノンブランド クリーム', code: 'store_3', url: 'https://store.shopping.yahoo.co.jp/store/3.html', inStock: true, condition: 'new', brand: { name: 'Other' } },
+        ],
+      });
+    }
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    // キーが無ければ呼ばない
+    for (const k of SHOP_ENV) delete process.env[k];
+    assert.strictEqual(await rakutenItemSearch('キュレル'), undefined);
+    assert.strictEqual(await yahooItemSearch('キュレル'), undefined);
+    assert.strictEqual(requests.length, 0);
+
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    resetSpendCap();
+
+    // ドキュメントどおりのリクエスト。アクセスキーは URL ではなくヘッダー
+    const curel = findBrand('キュレル', buildBrandIndex([]))!;
+    const lineup = await brandLineup(curel);
+    const rakutenReq = requests.find((r) => r.url.hostname === 'openapi.rakuten.co.jp')!;
+    assert.strictEqual(rakutenReq.url.pathname, '/ichibams/api/IchibaItem/Search/20260701');
+    assert.strictEqual(rakutenReq.url.searchParams.get('applicationId'), 'test-rakuten-app');
+    assert.strictEqual(rakutenReq.url.searchParams.get('keyword'), 'キュレル', 'Only the brand name is sent');
+    assert.strictEqual(rakutenReq.url.searchParams.get('formatVersion'), '2');
+    assert.strictEqual(rakutenReq.headers.get('accessKey'), 'test-rakuten-secret');
+    assert.ok(!rakutenReq.url.search.includes('test-rakuten-secret'));
+    const yahooReq = requests.find((r) => r.url.hostname === 'shopping.yahooapis.jp')!;
+    assert.strictEqual(yahooReq.url.pathname, '/ShoppingWebService/V3/itemSearch');
+    assert.strictEqual(yahooReq.url.searchParams.get('appid'), 'test-yahoo-client');
+    assert.strictEqual(yahooReq.url.searchParams.get('query'), 'キュレル');
+
+    // Yahoo! が先（JAN コードつき）。別ブランド・セット・在庫なし・同じ JAN コードは除く。名前は API のまま
+    assert.deepStrictEqual(
+      lineup.products.map((p) => [p.id, p.name, p.barcode]),
+      [
+        ['shop_yahoo_store_1', 'キュレル 潤浸保湿 フェイスクリーム 40g', '4901301000001'],
+        ['shop_yahoo_store_3', 'キュレル 潤浸保湿 美容液 40g', '4901301000003'],
+        ['shop_yahoo_store_4', 'キュレル 潤浸保湿 乳液 120ml', '4901301000004'],
+        ['shop_rakuten_kao:1', '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml 送料無料', undefined],
+        ['shop_rakuten_kao:5', 'キュレル 皮脂トラブルケア 化粧水 150ml', undefined],
+        ['shop_rakuten_kao:6', 'キュレル UVローション 60ml', undefined],
+      ]
+    );
+    assert.ok(lineup.products.every((p) => p.brand === 'キュレル' && p.ingredients.length === 0 && !p.sourceUrl));
+    // 写真と価格（写真は、お店の画像サーバーの https の URL だけ）。お店の名前は付けない
+    assert.ok(rakutenReq.url.searchParams.get('elements')!.split(',').includes('mediumImageUrls'));
+    assert.deepStrictEqual(
+      lineup.products.map((p) => [p.imageUrl, p.shopPrice, p.descriptionJa]),
+      [
+        [undefined, { yen: 2420, taxIncluded: true }, undefined],
+        ['https://item-shopping.c.yimg.jp/i/g/store_3', { yen: 980, taxIncluded: false }, undefined],
+        [undefined, undefined, undefined],
+        ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/1.jpg?_ex=128x128', { yen: 1980, taxIncluded: true }, undefined],
+        ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/5.jpg', { yen: 1800, taxIncluded: false }, undefined],
+        [undefined, undefined, undefined],
+      ]
+    );
+    assert.deepStrictEqual(lineup.credits, ['yahoo', 'rakuten']);
+
+    // 呼び出しの回数は全体で数える（1分あたりの上限に達したら呼ばない）
+    resetSpendCap();
+    process.env.SPEND_PER_MINUTE_YAHOO_API = '1';
+    requests.length = 0;
+    const warn = console.warn;
+    console.warn = () => {};
+    await yahooItemSearch('キュレル');
+    assert.strictEqual(await yahooItemSearch('キュレル'), null, 'Over the per-minute count');
+    console.warn = warn;
+    assert.strictEqual(requests.filter((r) => r.url.hostname === 'shopping.yahooapis.jp').length, 1);
+    delete process.env.SPEND_PER_MINUTE_YAHOO_API;
+    resetSpendCap();
+
+    // エンドポイント：候補に出したブランドだけ。結果は KV にも共有の製品キャッシュにも入れない
+    const puts: string[] = [];
+    const APP_CACHE = { async get() { return null; }, async put(key: string) { puts.push(key); } };
+    const ask = (brand: string) =>
+      withCloudflareEnv({ APP_CACHE }, () => GET(new NextRequest(`http://localhost/api/products/lineup?brand=${encodeURIComponent(brand)}`)));
+    assert.strictEqual((await ask('私の頬が赤くなった')).status, 400, 'Not a brand: nothing is sent to the shops');
+    const ok = await ask('きゅれる');
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(((await ok.json()) as { products: unknown[] }).products.length, 6);
+    assert.strictEqual(puts.length, 0, 'No KV write');
+    assert.ok(!COSMETICS_DATABASE.some((p) => p.id.startsWith('shop_')), 'Not in the shared product cache');
+
+    // 選んだ製品（JAN コードなし）の成分は、飾りを外した商品名で調べる
+    assert.strictEqual(
+      shopProductQuery({ brand: 'キュレル', name: '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml 送料無料' }),
+      shopProductQuery({ brand: 'キュレル', name: 'キュレル 潤浸保湿 化粧水 III とてもしっとり' })
+    );
+    addProductToDynamicCache({
+      id: 't83_lotion',
+      brand: 'キュレル',
+      name: '潤浸保湿 化粧水 III とてもしっとり',
+      country: 'JP',
+      category: 'toner',
+      ingredients: ['水', 'グリセリン'],
+      descriptionJa: '',
+      ingredientSource: 'web_page',
+    });
+    const res = await POST(
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'lookup_product', selectedProduct: lineup.products[1] }),
+      })
+    );
+    const data = (await res.json()) as { productSuggestions?: Product[] };
+    assert.strictEqual(data.productSuggestions?.[0]?.id, 't83_lotion', 'A saved product: no paid research');
+
+    // ブラウザから届いた名前は使わない：お店が返さない製品は調べない（Web 検索に送らない）
+    requests.length = 0;
+    const forged = await POST(
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'lookup_product',
+          selectedProduct: { ...lineup.products[1], id: 'shop_rakuten_forged', name: '私の頬が赤くなった化粧水' },
+        }),
+      })
+    );
+    const forgedData = (await forged.json()) as { productSuggestions?: Product[]; reply: string };
+    assert.strictEqual(forgedData.productSuggestions, undefined);
+    assert.ok(
+      requests.every((r) => r.url.hostname === 'openapi.rakuten.co.jp' || r.url.hostname === 'shopping.yahooapis.jp'),
+      'Only the shops were asked, with the brand name'
+    );
+
+    // お店の API が両方失敗したら 503（空の一覧として覚えさせない）
+    globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+    const errorLog = console.error;
+    console.error = () => {};
+    assert.strictEqual((await ask('キュレル')).status, 503);
+    console.error = errorLog;
+  } finally {
+    globalThis.fetch = originalFetch;
+    const saved = COSMETICS_DATABASE.findIndex((p) => p.id === 't83_lotion');
+    if (saved >= 0) COSMETICS_DATABASE.splice(saved, 1);
+    for (const k of SHOP_ENV) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    resetSpendCap();
   }
 });

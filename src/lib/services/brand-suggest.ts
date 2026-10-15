@@ -74,6 +74,12 @@ function fieldHasKey(field: BrandField, k: string): boolean {
   return false;
 }
 
+/** 文字列（お店の商品のブランド名・商品名）がこのブランドのものか。照らし方は brand 欄と同じ */
+export function textHasBrand(text: string, brand: IndexedBrand): boolean {
+  const field: BrandField = { key: searchKey(text), words: text.split(/[\s\u3000,，、/／・]+/).map(searchKey).filter(Boolean) };
+  return !!field.key && brand.keys.some((k) => fieldHasKey(field, k));
+}
+
 function productIsOfBrand(product: Product, brand: IndexedBrand): boolean {
   const field = brandField(product);
   return !!field.key && brand.keys.some((k) => fieldHasKey(field, k));
@@ -184,4 +190,10 @@ export function brandProducts(
     ? rankProducts(ofBrand, resolved.rest, isVerified)
     : [...ofBrand].sort((a, b) => Number(isVerified(b)) - Number(isVerified(a)));
   return { brand: toSuggestion(resolved.brand), products: ranked };
+}
+
+/** 名前（候補のチップに出した名前）からブランドを探す */
+export function findBrand(name: string, brands: IndexedBrand[]): IndexedBrand | null {
+  const key = searchKey(name);
+  return (key && brands.find((b) => searchKey(b.entry.name) === key)) || null;
 }

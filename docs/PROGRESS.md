@@ -41,7 +41,8 @@ Last updated: 2026-10-13.
 | 2026-10-14 | `26312f7` | Strict spend cap: one Durable Object counts every web search, Gemini and Workers AI call across all users, per minute and per UTC day (`SPEND_CAP_*` in `[vars]`); over the cap the call is skipped and recorded as `capped`; it fails closed; replaces the per-location `WEB_SEARCH_LIMITER`; the Worker entry is now `worker.ts`; test 79 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md#strict-spend-cap)) |
 | 2026-10-15 | `ad73ef3` | Spend budget: the cap now counts dollars, $30 per UTC day and $100 per UTC month for Gemini, Workers AI and web search together (`SPEND_BUDGET_USD`); each call reserves a high estimate from the price list (`prices.ts`) and Gemini calls are settled to the real cost from their token counts; per-minute counts stay per kind (`SPEND_PER_MINUTE_*`); test 79 ([walkthrough](walkthroughs/2026-10-14-cost-tracking.md#budget)) |
 | 2026-10-15 | `265d992` | Type-ahead for Japanese products: the search route now loads the products saved in KV; matching handles hiragana/katakana, half-width kana, accents and several words, with a ranked order (`src/lib/search/product-match.ts`, also used by the chat search); Open Beauty Facts only when short of results, with a 4 s timeout; in chat, web research results now come first and a hiragana question about a saved product skips the paid research; the tray no longer keeps old candidates; test 80 ([walkthrough](walkthroughs/2026-10-15-typeahead.md)) |
-| 2026-10-15 | *this commit* | Brand-first type-ahead: a seed list of 155 brands sold in Japan with kana readings and English spellings (`brands-jp.ts`); the tray shows brand chips (しせ → 資生堂), and a query that starts with a brand shows that brand's saved products narrowed by the rest (「きゅれる 化粧水」); brands of researched products are added automatically; no Open Beauty Facts call while a brand is being typed; test 81 ([walkthrough](walkthroughs/2026-10-15-brand-typeahead.md)) |
+| 2026-10-15 | `4c467c1` | Brand-first type-ahead: a seed list of 155 brands sold in Japan with kana readings and English spellings (`brands-jp.ts`); the tray shows brand chips (しせ → 資生堂), and a query that starts with a brand shows that brand's saved products narrowed by the rest (「きゅれる 化粧水」); brands of researched products are added automatically; no Open Beauty Facts call while a brand is being typed; test 81 ([walkthrough](walkthroughs/2026-10-15-brand-typeahead.md)) |
+| 2026-10-15 | *this commit* | Shop lineups: Rakuten Ichiba Item Search (2026-07-01) and Yahoo!ショッピング itemSearch v3, from their docs; when a query starts with a brand, the browser fetches that brand's products once (`/api/products/lineup`, brand name only) and narrows them as the user types; nothing stored on the server (Rakuten terms Art. 10 (7)(9)), cards show the photo, brand and price (no listing name or shop name; names kept unaltered for labels and matching), credits shown, no shop links until affiliate IDs; picking one looks up ingredients by JAN code or by name (`lookup_product`); shop calls counted per minute across users; test 83 ([walkthrough](walkthroughs/2026-10-15-shop-lineups.md)) |
 
 ## In progress
 
@@ -51,9 +52,9 @@ Nothing.
 
 In order:
 
-1. **Brand lineups from the shopping APIs** once the Rakuten / Yahoo! keys arrive: fetch a brand's
-   products after the brand is resolved, cached per brand, within one call per second
-   ([walkthrough](walkthroughs/2026-10-15-brand-typeahead.md#where-the-shopping-apis-go)).
+1. **Shop API keys:** set `RAKUTEN_APPLICATION_ID`, `RAKUTEN_ACCESS_KEY` and `YAHOO_CLIENT_ID`
+   (`wrangler secret put`), then check one brand's lineup on `wrangler dev` against the live APIs.
+   Affiliate links follow when the IDs arrive ([walkthrough](walkthroughs/2026-10-15-shop-lineups.md#not-done)).
 
 ## Later (product)
 

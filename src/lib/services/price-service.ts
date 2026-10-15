@@ -26,7 +26,7 @@ const MAX_PAGES_PER_SHOP = 2;
 const MAX_SHOP_LENGTH = 60;
 const MAX_PRODUCT_NAME_LENGTH = 150;
 /** 商品名にある、まとめ売り・中古など、1個の価格ではないもの */
-const NOT_SINGLE_ITEM =
+export const NOT_SINGLE_ITEM =
   /\d+\s*(?:個|本|点|箱|袋|パック)\s*(?:セット|組|パック)|[x×]\s*\d+\s*(?:個|本|点|箱|袋|セット)|まとめ買い|まとめ売り|セット品|福袋|中古|訳あり|サンプル|試供品/i;
 
 /** 価格を尋ねる言い回し。商品名の前後から取り除いてから toProductSearchQuery に渡す */

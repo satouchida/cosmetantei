@@ -22,12 +22,17 @@ export const DEFAULT_PER_MINUTE: Record<SpendBucket, number> = {
   web_search: 30,
   gemini: 60,
   workers_ai: 120,
+  // 楽天・Yahoo! の API は、アプリ ID ごとに1秒に1回まで。全体で1分あたり 50 回にして余裕をもたせる
+  rakuten_api: 50,
+  yahoo_api: 50,
 };
 
 const PER_MINUTE_ENV: Record<SpendBucket, string> = {
   web_search: 'SPEND_PER_MINUTE_WEB_SEARCH',
   gemini: 'SPEND_PER_MINUTE_GEMINI',
   workers_ai: 'SPEND_PER_MINUTE_WORKERS_AI',
+  rakuten_api: 'SPEND_PER_MINUTE_RAKUTEN_API',
+  yahoo_api: 'SPEND_PER_MINUTE_YAHOO_API',
 };
 
 const DO_TIMEOUT_MS = 2_000;

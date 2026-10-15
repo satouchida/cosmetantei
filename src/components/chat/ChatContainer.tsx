@@ -26,6 +26,7 @@ import {
   CalendarClock,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
+import { rankProducts } from '@/lib/search/product-match';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
 import {
   getCurrentUseServerSnapshot,
@@ -78,7 +79,39 @@ export const ChatContainer: React.FC = () => {
 
   const [liveCandidates, setLiveCandidates] = useState<Product[]>([]);
   const [liveBrands, setLiveBrands] = useState<{ name: string; kana?: string }[]>([]);
+  // 検索語の先頭のブランドと残りの語（サーバーが判定）
+  const [liveBrand, setLiveBrand] = useState<{ name: string; rest: string } | null>(null);
+  // お店の商品検索で作ったブランドの製品一覧。このページを開いている間だけ持つ（サーバーには保存しない。楽天の規約）
+  const [lineups, setLineups] = useState<Record<string, { products: Product[]; credits: ('rakuten' | 'yahoo')[] }>>({});
+  const lineupRequested = useRef(new Set<string>());
+  // 取れなかったブランドは、この時刻まで取り直さない（入力のたびに呼ばない）
+  const lineupRetryAt = useRef(new Map<string, number>());
+  // お店の製品の成分を調べている間は、もう一度押されても調べない（有料の Web リサーチを2回しない）
+  const lookupRef = useRef(false);
   const [isTrayOpen, setIsTrayOpen] = useState(false);
+
+  /** ブランドの製品一覧をお店の商品検索から1回だけ取る（同じブランドはこのページを開いている間は取り直さない） */
+  const requestLineup = (brand: string) => {
+    if (lineupRequested.current.has(brand)) return;
+    if ((lineupRetryAt.current.get(brand) ?? 0) > Date.now()) return;
+    lineupRequested.current.add(brand);
+    const fail = () => {
+      // 30秒たってから、このブランドが入力されたときにもう一度取る
+      lineupRequested.current.delete(brand);
+      lineupRetryAt.current.set(brand, Date.now() + 30_000);
+    };
+    fetch(`/api/products/lineup?brand=${encodeURIComponent(brand)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !Array.isArray(data.products)) {
+          fail();
+          return;
+        }
+        const credits = Array.isArray(data.credits) ? data.credits.filter((c: unknown) => c === 'rakuten' || c === 'yahoo') : [];
+        setLineups((prev) => ({ ...prev, [brand]: { products: data.products, credits } }));
+      })
+      .catch(fail);
+  };
 
   useEffect(() => {
     const trimmed = input.trim();
@@ -95,12 +128,18 @@ export const ChatContainer: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
+          // 入力が変わった後に届いた古い応答は使わない（古いブランドの一覧を取りに行かない）
+          if (controller.signal.aborted) return;
           if (Array.isArray(data.results)) {
             // 0件のときも入れ替える（前の入力の候補を残さない）
             const brands = Array.isArray(data.brands) ? data.brands : [];
             setLiveCandidates(data.results);
             setLiveBrands(brands);
-            if (data.results.length > 0 || brands.length > 0) setIsTrayOpen(true);
+            const brand =
+              data.brand && typeof data.brand.name === 'string' && typeof data.brand.rest === 'string' ? data.brand : null;
+            setLiveBrand(brand);
+            if (brand) requestLineup(brand.name);
+            if (data.results.length > 0 || brands.length > 0 || brand) setIsTrayOpen(true);
           }
         }
       } catch {
@@ -113,6 +152,17 @@ export const ChatContainer: React.FC = () => {
       controller.abort();
     };
   }, [input]);
+
+  // 候補：保存済みの製品（サーバーの結果）の後に、お店の製品一覧を残りの語で絞り込んだもの
+  const MAX_LINEUP_CANDIDATES = 12;
+  const lineup = liveBrand ? lineups[liveBrand.name] : undefined;
+  const lineupMatches = lineup
+    ? (liveBrand!.rest ? rankProducts(lineup.products, liveBrand!.rest) : lineup.products)
+        .filter((p) => !liveCandidates.some((c) => c.id === p.id))
+        .slice(0, MAX_LINEUP_CANDIDATES)
+    : [];
+  const trayCandidates = [...liveCandidates, ...lineupMatches];
+  const trayCredits = lineupMatches.length > 0 && lineup ? lineup.credits : [];
 
   // 比較リスト（このページを開いている間だけ）。今使っているコスメは currentUse に、追加した日つきで持つ
   const [comparison, setRoutine] = useState<Omit<UserRoutineState, 'currentlyUsing'>>({
@@ -204,14 +254,14 @@ export const ChatContainer: React.FC = () => {
     }
   };
 
-  const handleBarcodeScanned = async (barcode: string) => {
+  const handleBarcodeScanned = async (barcode: string, label?: string) => {
     setIsScannerOpen(false);
     setIsLoading(true);
 
     const userMsg: ChatMessage = {
       ...messageMeta('user-barcode'),
       role: 'user',
-      content: `📷 バーコード（${barcode}）をスキャンしました`,
+      content: label ?? `📷 バーコード（${barcode}）をスキャンしました`,
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -241,6 +291,45 @@ export const ChatContainer: React.FC = () => {
     } catch (err) {
       console.error(err);
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /** お店の商品検索の製品（JAN コードなし）の成分を、商品名で調べる。見つかった製品を候補として出す */
+  const lookupShopProduct = async (product: Product) => {
+    if (lookupRef.current) return;
+    lookupRef.current = true;
+    setIsLoading(true);
+    setMessages((prev) => [
+      ...prev,
+      { ...messageMeta('user-select'), role: 'user', content: `「${product.name}」の成分を詳しく知りたい` },
+    ]);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'lookup_product', selectedProduct: product }),
+      });
+      if (!res.ok && res.status !== 429) throw new Error('API Error');
+      const data = await res.json();
+      setMessages((prev) => [
+        ...prev,
+        {
+          ...messageMeta('bot-lookup'),
+          role: 'assistant',
+          content: data.reply,
+          productSuggestions: data.productSuggestions,
+          quickReplies: data.quickReplies,
+        },
+      ]);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => [
+        ...prev,
+        { ...messageMeta('bot-lookup'), role: 'assistant', content: '通信中にエラーが発生しました。もう一度お試しください。' },
+      ]);
+    } finally {
+      lookupRef.current = false;
       setIsLoading(false);
     }
   };
@@ -334,6 +423,21 @@ export const ChatContainer: React.FC = () => {
   };
 
   const handleSelectProductToAnalyze = async (product: Product) => {
+    // お店の商品検索の製品は成分が分からない。JAN コードがあればバーコードで、無ければ名前で調べる
+    if (product.id.startsWith('shop_')) {
+      if (lookupRef.current) return;
+      if (product.barcode) {
+        lookupRef.current = true;
+        try {
+          await handleBarcodeScanned(product.barcode, `「${product.name}」の成分を詳しく知りたい`);
+        } finally {
+          lookupRef.current = false;
+        }
+        return;
+      }
+      await lookupShopProduct(product);
+      return;
+    }
     setIsLoading(true);
 
     const userMsg: ChatMessage = {
@@ -874,14 +978,15 @@ export const ChatContainer: React.FC = () => {
             <div className="max-w-4xl mx-auto">
               <LiveSearchCandidateTray
                 query={input}
-                candidates={liveCandidates}
+                candidates={trayCandidates}
                 brands={liveBrands}
+                credits={trayCredits}
                 onSelectBrand={(brand) => {
                   // ブランド名を入れて続けて入力できるようにする（候補はそのブランドの製品に絞り込まれる）
                   setInput(`${brand} `);
                   inputRef.current?.focus();
                 }}
-                isOpen={isTrayOpen && (liveCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== ''}
+                isOpen={isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== ''}
                 onClose={() => setIsTrayOpen(false)}
                 onSelectProduct={(product) => {
                   setIsTrayOpen(false);

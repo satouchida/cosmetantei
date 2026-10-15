@@ -21,8 +21,10 @@ import { productSearchQuery } from '@/lib/services/web-research';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientRoutine } from '@/lib/server/client-products';
-import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
+import { COSMETICS_DATABASE, hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '@/lib/services/label-reader';
+import { brandLineup, shopProductQuery } from '@/lib/services/shop-lineup';
+import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';
 import { withUsageRoute } from '@/lib/server/usage';
 
 /** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
@@ -82,7 +84,8 @@ async function handlePost(request: NextRequest) {
         | 'search'
         | 'analyze_label'
         | 'price_lookup'
-        | 'check_current_use';
+        | 'check_current_use'
+        | 'lookup_product';
       selectedProduct?: Product;
       barcode?: string;
       label?: { text?: unknown; name?: unknown; brand?: unknown };
@@ -170,6 +173,37 @@ async function handlePost(request: NextRequest) {
         reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
         quickReplies: [...SINGLE_ANALYSIS_REPLIES, '🔍 別のコスメを調べる'],
+      });
+    }
+
+    // 2a. お店の商品検索の製品（入力途中の候補。JAN コードなし）の成分を調べる（ボタン操作）。
+    //     検索語はブランド名と、飾りを外した商品名だけ。保存済みの製品に無ければ Web リサーチ（有料・予算内）
+    if (action === 'lookup_product' && selectedProduct && selectedProduct.id.startsWith('shop_')) {
+      // ブラウザから届いた名前は使わない。一覧のブランドの製品として、お店がいま返す製品だけを認め、
+      // その名前（サーバーが取り直したもの）で調べる。お店の API は無料（呼び出しは全体で数える）
+      const brand = findBrand(selectedProduct.brand, buildBrandIndex(COSMETICS_DATABASE));
+      const lineup = brand ? await brandLineup(brand) : null;
+      const listed = lineup?.products.find((p) => p.id === selectedProduct.id);
+      if (!listed) {
+        return NextResponse.json({
+          reply: lineup?.incomplete
+            ? 'お店の商品情報を確認できませんでした。少し時間をおいて、もう一度お試しください。'
+            : 'この商品の情報を確認できませんでした。もう一度候補から選ぶか、商品名で検索してください。',
+          quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
+        });
+      }
+      const query = shopProductQuery(listed);
+      const found = query ? await searchCosmeticsLive(query, 6, { webResearch: true }) : [];
+      if (found.length === 0) {
+        return NextResponse.json({
+          reply: 'この商品の成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
+          quickReplies: ['📸 バーコードをスキャンする', '📝 成分表示を入力する', '🔍 別のコスメを調べる'],
+        });
+      }
+      return NextResponse.json({
+        reply: summarizeProductResults(found),
+        productSuggestions: found,
+        quickReplies: ['🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは安全に使えた', '🔍 別のキーワードで調べる'],
       });
     }
 

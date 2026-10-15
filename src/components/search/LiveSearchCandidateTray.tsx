@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Product } from '@/lib/types';
-import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag } from 'lucide-react';
+import { Product, SHOP_ID_PREFIX } from '@/lib/types';
+import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 
 interface LiveSearchCandidateTrayProps {
@@ -11,6 +11,8 @@ interface LiveSearchCandidateTrayProps {
   /** 検索語で始まるブランド（タップでブランド名を入力し、そのブランドの製品に絞り込む） */
   brands?: { name: string; kana?: string }[];
   onSelectBrand?: (brand: string) => void;
+  /** お店の商品検索の製品を出しているときのクレジット（楽天・Yahoo! の規約で表示が必要） */
+  credits?: ('rakuten' | 'yahoo')[];
   isOpen: boolean;
   onClose: () => void;
   onSelectProduct: (product: Product) => void;
@@ -19,11 +21,64 @@ interface LiveSearchCandidateTrayProps {
   onAddToCurrent: (product: Product) => void;
 }
 
+/** お店の商品検索の製品（src/lib/services/shop-lineup.ts）。成分はまだ分からない */
+const isShopProduct = (p: Product) => p.id.startsWith(SHOP_ID_PREFIX);
+
+const formatYen = (yen: number) => `¥${yen.toLocaleString('ja-JP')}`;
+
+/**
+ * お店の商品検索の製品のカード上部：写真・ブランド・価格。
+ * 商品名には【公式】・送料無料などが付くので出さない（変えずに、写真に重ねたときの説明と、ボタンの読み上げにだけ使う）。
+ * お店の名前も出さない
+ */
+const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
+  // 写真が読めなければ代わりの絵にする（alt の文字が出ると商品名が見えてしまうので、alt は空）
+  const [failed, setFailed] = React.useState(false);
+  return (
+  <div className="flex items-center gap-2.5">
+    {product.imageUrl && !failed ? (
+      // お店の画像サーバーの写真をそのまま表示する（next/image の変換は通さない）
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={product.imageUrl}
+        alt=""
+        title={product.name}
+        width={64}
+        height={64}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        className="w-16 h-16 shrink-0 rounded-lg object-contain bg-white border border-sand-100"
+      />
+    ) : (
+      <div
+        aria-hidden="true"
+        title={product.name}
+        className="w-16 h-16 shrink-0 rounded-lg bg-sand-50 border border-sand-100 flex items-center justify-center"
+      >
+        <Package className="w-6 h-6 text-sand-400" />
+      </div>
+    )}
+    <div className="min-w-0">
+      <div className="text-[11px] font-bold text-sage-700 truncate">{product.brand}</div>
+      {product.shopPrice && (
+        <div className="text-sm font-bold text-gray-900 mt-0.5">
+          {formatYen(product.shopPrice.yen)}
+          {product.shopPrice.taxIncluded === false && <span className="text-[10px] font-normal text-gray-500">（税別）</span>}
+        </div>
+      )}
+      <div className="mt-0.5 text-[10px] text-gray-500">成分は選ぶと調べます</div>
+    </div>
+  </div>
+  );
+};
+
 export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = ({
   query,
   candidates,
   brands = [],
   onSelectBrand,
+  credits = [],
   isOpen,
   onClose,
   onSelectProduct,
@@ -56,7 +111,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
           <div className="w-6 h-6 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center">
             <Search className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs font-bold text-gray-800">
+          <span className="text-xs font-bold text-gray-800" aria-live="polite">
             {candidates.length > 0
               ? `${query ? `「${query}」に関連するコスメ候補` : 'おすすめの低刺激コスメ候補'} (${candidates.length}件)`
               : 'ブランドを選ぶと、そのブランドの製品に絞り込めます'}
@@ -110,86 +165,117 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                   key={product.id}
                   className="bg-white rounded-xl p-3 border border-sand-200 hover:border-sage-400 hover:shadow-md transition-all flex flex-col justify-between group"
                 >
-                  <div>
-                    <div className="flex items-center justify-between gap-1 mb-1">
-                      <span
-                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${countryBadge.color}`}
-                      >
-                        {countryBadge.label}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        {product.isQuasiDrug && (
-                          <span className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-sm font-medium">
-                            医薬部外品
-                          </span>
-                        )}
-                        {product.fragranceFree && (
-                          <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded-sm">
-                            無香料
-                          </span>
-                        )}
+                  {isShopProduct(product) ? (
+                    <ShopProductSummary product={product} />
+                  ) : (
+                    <div>
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span
+                          className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${countryBadge.color}`}
+                        >
+                          {countryBadge.label}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {product.isQuasiDrug && (
+                            <span className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-sm font-medium">
+                              医薬部外品
+                            </span>
+                          )}
+                          {product.fragranceFree && (
+                            <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded-sm">
+                              無香料
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="text-[11px] font-bold text-sage-700 truncate">
-                      {getDisplayBrand(product.brand, product.name)}
-                    </div>
-                    <h4 className="text-xs font-bold text-gray-900 line-clamp-2 leading-snug mt-0.5 group-hover:text-sage-800">
-                      {product.name}
-                    </h4>
+                      <div className="text-[11px] font-bold text-sage-700 truncate">
+                        {getDisplayBrand(product.brand, product.name)}
+                      </div>
+                      <h4 className="text-xs font-bold text-gray-900 line-clamp-2 leading-snug mt-0.5 group-hover:text-sage-800">
+                        {product.name}
+                      </h4>
 
-                    {product.activeIngredientsJa && product.activeIngredientsJa.length > 0 ? (
-                      <div className="mt-1 text-[10px] text-emerald-700 truncate bg-emerald-50 px-1.5 py-0.5 rounded-sm">
-                        有効成分: {product.activeIngredientsJa.join(', ')}
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-[10px] text-gray-500 truncate">
-                        主成分: {product.ingredients.slice(0, 3).join(', ')}
-                      </div>
-                    )}
-                  </div>
+                      {product.activeIngredientsJa && product.activeIngredientsJa.length > 0 ? (
+                        <div className="mt-1 text-[10px] text-emerald-700 truncate bg-emerald-50 px-1.5 py-0.5 rounded-sm">
+                          有効成分: {product.activeIngredientsJa.join(', ')}
+                        </div>
+                      ) : product.ingredients.length > 0 ? (
+                        <div className="mt-1 text-[10px] text-gray-500 truncate">
+                          主成分: {product.ingredients.slice(0, 3).join(', ')}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
 
                   {/* Card Actions */}
                   <div className="mt-2.5 pt-2 border-t border-sand-100 space-y-1.5">
                     <button
                       type="button"
                       onClick={() => onSelectProduct(product)}
+                      aria-label={`${product.name}の成分を詳しくチェック`}
                       className="w-full flex items-center justify-center gap-1 py-1.5 px-2 bg-sage-600 hover:bg-sage-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs"
                     >
                       <Sparkles className="w-3 h-3" />
                       <span>成分を詳しくチェック</span>
                     </button>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => onAddToBad(product)}
-                        className="flex items-center justify-center gap-1 py-1 px-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-medium transition-colors"
-                      >
-                        <AlertTriangle className="w-3 h-3 text-rose-500" />
-                        <span>肌荒れした</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onAddToSafe(product)}
-                        className="flex items-center justify-center gap-1 py-1 px-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-medium transition-colors"
-                      >
-                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                        <span>普段使えている</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onAddToCurrent(product)}
-                        className="flex items-center justify-center gap-1 py-1 px-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-[10px] font-medium transition-colors"
-                      >
-                        <Layers className="w-3 h-3 text-sky-600" />
-                        <span>今使っている</span>
-                      </button>
-                    </div>
+                    {/* 成分の分からない製品はリストに入れない（比較・組み合わせのチェックに使えない） */}
+                    {product.ingredients.length > 0 && (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onAddToBad(product)}
+                          className="flex items-center justify-center gap-1 py-1 px-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-medium transition-colors"
+                        >
+                          <AlertTriangle className="w-3 h-3 text-rose-500" />
+                          <span>肌荒れした</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onAddToSafe(product)}
+                          className="flex items-center justify-center gap-1 py-1 px-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-medium transition-colors"
+                        >
+                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          <span>普段使えている</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onAddToCurrent(product)}
+                          className="flex items-center justify-center gap-1 py-1 px-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-[10px] font-medium transition-colors"
+                        >
+                          <Layers className="w-3 h-3 text-sky-600" />
+                          <span>今使っている</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+        </div>
+      )}
+
+      {credits.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pb-2 text-[10px] text-gray-500">
+          {credits.includes('rakuten') && (
+            <>
+              {/* Rakuten Web Services Attribution Snippet FROM HERE */}
+              <a href="https://developers.rakuten.com/" target="_blank">
+                Supported by Rakuten Developers
+              </a>
+              {/* Rakuten Web Services Attribution Snippet TO HERE */}
+            </>
+          )}
+          {credits.includes('yahoo') && (
+            <>
+              {/* Begin Yahoo! JAPAN Web Services Attribution Snippet */}
+              <span style={{ margin: '15px 15px 15px 15px' }}>
+                <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
+              </span>
+              {/* End Yahoo! JAPAN Web Services Attribution Snippet */}
+            </>
+          )}
         </div>
       )}
     </div>

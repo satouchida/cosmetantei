@@ -6,7 +6,8 @@
  * docs/walkthroughs/2026-10-14-cost-tracking.md の「Strict cap」と「Budget」
  */
 
-export const SPEND_BUCKETS = ['web_search', 'gemini', 'workers_ai'] as const;
+// rakuten_api・yahoo_api はお店の API（無料）。金額は 0 で、1分あたりの件数だけを全体で数える（1秒に1回までの規約）
+export const SPEND_BUCKETS = ['web_search', 'gemini', 'workers_ai', 'rakuten_api', 'yahoo_api'] as const;
 export type SpendBucket = (typeof SPEND_BUCKETS)[number];
 
 export interface SpendLimits {
@@ -124,12 +125,14 @@ export class SpendCounter {
     this.recent.set(bucket, recent);
     const t = await this.totals(now);
     const period = { day: t.day, month: t.month };
+    // 金額 0 の呼び出し（お店の API）は件数だけを数え、予算には関係させない
+    const paid = costMicros > 0;
     const reason =
       recent.length >= limits.perMinute
         ? 'minute'
-        : t.dayMicros + costMicros > limits.dayMicros
+        : paid && t.dayMicros + costMicros > limits.dayMicros
         ? 'day'
-        : t.monthMicros + costMicros > limits.monthMicros
+        : paid && t.monthMicros + costMicros > limits.monthMicros
         ? 'month'
         : undefined;
     if (reason) {
@@ -137,7 +140,8 @@ export class SpendCounter {
     }
     recent.push(now);
     const next = { ...t, dayMicros: t.dayMicros + costMicros, monthMicros: t.monthMicros + costMicros };
-    await this.store.put(TOTALS_KEY, next);
+    // 金額が変わらなければ書き込まない
+    if (paid) await this.store.put(TOTALS_KEY, next);
     return { allowed: true, minuteCount: recent.length, dayMicros: next.dayMicros, monthMicros: next.monthMicros, period };
   }
 

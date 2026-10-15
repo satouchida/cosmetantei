@@ -1,5 +1,6 @@
 import 'server-only';
 import { isRakuten24, readShopConfig, ShopId, shopOfUrl } from './shops';
+import { reserveSpend } from '../server/spend-cap';
 
 /**
  * お店の公式 API で価格を調べる（楽天市場・Yahoo!ショッピング）。手順: docs/plans/shop-prices.md
@@ -40,13 +41,26 @@ const API_INTERVAL_MS = 1_100;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function getJson(url: string, headers: Record<string, string>, label: string, retried = false): Promise<unknown | null> {
+type ShopApi = 'rakuten_api' | 'yahoo_api';
+
+async function getJson(
+  url: string,
+  headers: Record<string, string>,
+  label: string,
+  api: ShopApi,
+  retried = false
+): Promise<unknown | null> {
+  // 呼び出しの回数を全体で数える（1秒に1回までの規約。金額は 0）。上限なら呼ばない
+  if (!(await reserveSpend(api, 0))) {
+    console.warn(`${label} skipped: rate limit reached`);
+    return null;
+  }
   try {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(API_TIMEOUT_MS) });
     // 回数の上限に当たったら、1回だけ間をおいてやり直す（他の利用者と同じアプリ ID を使うため）
     if (res.status === 429 && !retried) {
       await wait(API_INTERVAL_MS);
-      return getJson(url, headers, label, true);
+      return getJson(url, headers, label, api, true);
     }
     if (!res.ok) {
       // 404 は「該当なし」（楽天）
@@ -90,7 +104,8 @@ async function rakutenSearch(query: string, shopCode?: string): Promise<ShopOffe
   const body = await getJson(
     `${RAKUTEN_ENDPOINT}?${params}`,
     { accessKey: readShopConfig('RAKUTEN_ACCESS_KEY') },
-    'Rakuten item search'
+    'Rakuten item search',
+    'rakuten_api'
   );
   if (body === null) return null;
   const offers: ShopOfferCandidate[] = [];
@@ -137,7 +152,7 @@ export async function yahooOffers(query: string): Promise<ShopOfferCandidate[] |
     condition: 'new',
     sort: '-score',
   });
-  const body = await getJson(`${YAHOO_ENDPOINT}?${params}`, {}, 'Yahoo item search');
+  const body = await getJson(`${YAHOO_ENDPOINT}?${params}`, {}, 'Yahoo item search', 'yahoo_api');
   if (body === null) return null;
   const hits = (body as { hits?: unknown })?.hits;
   if (!Array.isArray(hits)) return [];
@@ -169,4 +184,138 @@ export async function yahooOffers(query: string): Promise<ShopOfferCandidate[] |
     });
   }
   return offers;
+}
+
+// ---------- ブランドの製品一覧（入力途中の候補。docs/walkthroughs/2026-10-15-shop-lineups.md） ----------
+
+/** お店の API の商品（名前は API が返したまま。楽天の規約で、取得した商品情報は改変しない） */
+export interface ShopItem {
+  shopId: 'rakuten' | 'yahoo';
+  /** お店の商品コード（楽天 itemCode、Yahoo! code） */
+  code: string;
+  name: string;
+  /** Yahoo! のブランド名（親ブランドを含む）。楽天には無い */
+  brands: string[];
+  /** Yahoo! の JAN コード */
+  janCode?: string;
+  url: string;
+  /** 商品の写真（楽天 128×128、Yahoo! 146×146）。お店の画像サーバーの https の URL だけ */
+  imageUrl?: string;
+  /** 価格（円、API が返したまま）と、税込か（分からなければ null） */
+  priceYen?: number;
+  taxIncluded: boolean | null;
+}
+
+/** 写真の URL：https で、楽天・Yahoo! の画像サーバーのものだけを使う（ほかのサイトを利用者のブラウザから読ませない） */
+const SHOP_IMAGE_HOSTS: Record<ShopItem['shopId'], RegExp> = {
+  rakuten: /(^|\.)rakuten\.co\.jp$/,
+  yahoo: /(^|\.)yimg\.jp$/,
+};
+
+function shopImageUrl(raw: unknown, shopId: ShopItem['shopId']): string | undefined {
+  try {
+    const u = new URL(str(raw));
+    const plain = u.protocol === 'https:' && !u.username && !u.password && !u.port;
+    return plain && SHOP_IMAGE_HOSTS[shopId].test(u.hostname) ? u.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const yen = (v: unknown) => (Number.isSafeInteger(v) && (v as number) > 0 ? (v as number) : undefined);
+
+const LINEUP_HITS = 30;
+
+/**
+ * 楽天市場の商品検索（https://webservice.rakuten.co.jp/documentation/ichiba-item-search）。
+ * 検索語はブランド名だけ（利用者が入力した文は送らない）。キー未設定なら undefined、失敗は null
+ */
+export async function rakutenItemSearch(keyword: string): Promise<ShopItem[] | null | undefined> {
+  if (!isRakutenApiConfigured()) return undefined;
+  const params = new URLSearchParams({
+    applicationId: readShopConfig('RAKUTEN_APPLICATION_ID'),
+    keyword,
+    hits: String(LINEUP_HITS),
+    availability: '1',
+    formatVersion: '2',
+    // 必要な項目だけを返させる
+    elements: 'itemName,itemCode,itemUrl,availability,itemPrice,taxFlag,mediumImageUrls',
+  });
+  const body = await getJson(
+    `${RAKUTEN_ENDPOINT}?${params}`,
+    { accessKey: readShopConfig('RAKUTEN_ACCESS_KEY') },
+    'Rakuten item search',
+    'rakuten_api'
+  );
+  if (body === null) return null;
+  const items: ShopItem[] = [];
+  for (const item of rakutenItems(body)) {
+    const url = str(item.itemUrl);
+    const code = str(item.itemCode);
+    const name = str(item.itemName);
+    if (!code || !name || shopOfUrl(url) !== 'rakuten' || item.availability === 0) continue;
+    // formatVersion=2 は URL の配列、1 は {imageUrl} の配列
+    const images = Array.isArray(item.mediumImageUrls) ? item.mediumImageUrls : [];
+    const first = images[0] as unknown;
+    const imageUrl = shopImageUrl(typeof first === 'string' ? first : (first as { imageUrl?: unknown } | undefined)?.imageUrl, 'rakuten');
+    items.push({
+      shopId: 'rakuten',
+      code,
+      name,
+      brands: [],
+      url,
+      ...(imageUrl && { imageUrl }),
+      ...(yen(item.itemPrice) && { priceYen: yen(item.itemPrice) }),
+      // taxFlag 0: 税込、1: 税別
+      taxIncluded: item.taxFlag === 0 ? true : item.taxFlag === 1 ? false : null,
+    });
+  }
+  return items;
+}
+
+/**
+ * Yahoo!ショッピングの商品検索 v3（https://developer.yahoo.co.jp/webapi/shopping/v3/itemsearch.html）。
+ * 検索語はブランド名だけ。キー未設定なら undefined、失敗は null
+ */
+export async function yahooItemSearch(query: string): Promise<ShopItem[] | null | undefined> {
+  if (!isYahooApiConfigured()) return undefined;
+  const params = new URLSearchParams({
+    appid: readShopConfig('YAHOO_CLIENT_ID'),
+    query,
+    results: String(LINEUP_HITS),
+    in_stock: 'true',
+    condition: 'new',
+    sort: '-score',
+  });
+  const body = await getJson(`${YAHOO_ENDPOINT}?${params}`, {}, 'Yahoo item search', 'yahoo_api');
+  if (body === null) return null;
+  const hits = (body as { hits?: unknown })?.hits;
+  if (!Array.isArray(hits)) return [];
+  const items: ShopItem[] = [];
+  for (const raw of hits) {
+    if (!raw || typeof raw !== 'object') continue;
+    const hit = raw as Record<string, unknown>;
+    const url = str(hit.url);
+    const code = str(hit.code);
+    const name = str(hit.name);
+    if (!code || !name || shopOfUrl(url) !== 'yahoo' || hit.inStock === false || hit.condition === 'used') continue;
+    const brandNames = [hit.brand, ...(Array.isArray(hit.parentBrands) ? hit.parentBrands : [])]
+      .map((b) => str((b as { name?: unknown } | undefined)?.name))
+      .filter(Boolean);
+    const jan = str(hit.janCode);
+    const imageUrl = shopImageUrl((hit.image as { medium?: unknown } | undefined)?.medium, 'yahoo');
+    const taxable = (hit.priceLabel as { taxable?: unknown } | undefined)?.taxable;
+    items.push({
+      shopId: 'yahoo',
+      code,
+      name,
+      brands: brandNames,
+      ...(/^[0-9]{8,14}$/.test(jan) && { janCode: jan }),
+      url,
+      ...(imageUrl && { imageUrl }),
+      ...(yen(hit.price) && { priceYen: yen(hit.price) }),
+      taxIncluded: typeof taxable === 'boolean' ? taxable : null,
+    });
+  }
+  return items;
 }

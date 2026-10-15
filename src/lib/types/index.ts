@@ -60,6 +60,9 @@ export interface ReferenceLink {
  */
 export type IngredientSource = 'open_beauty_facts' | 'user_label' | 'web_page' | 'ai_estimate';
 
+/** お店の商品検索の製品の id の頭（src/lib/services/shop-lineup.ts が付け、候補のカードが見分ける） */
+export const SHOP_ID_PREFIX = 'shop_';
+
 export interface Product {
   id: string;
   name: string;
@@ -85,6 +88,8 @@ export interface Product {
   ingredientSource?: IngredientSource;
   /** 製品情報・成分表示の出典ページ（ingredientSource が web_page のとき） */
   sourceUrl?: string;
+  /** お店の商品検索の製品の価格（API が返したまま。保存しない） */
+  shopPrice?: { yen: number; taxIncluded: boolean | null };
 }
 
 export interface AnalyzedIngredient {

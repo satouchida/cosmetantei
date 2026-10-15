@@ -43,7 +43,10 @@ async function handleGet(request: NextRequest) {
   const brandIndex = buildBrandIndex(onFile);
   // brands: 検索語で始まるブランド（タップすると「ブランド名 」が入力され、そのブランドの製品に絞り込む）。毎回作る
   const brands: BrandSuggestion[] = suggestBrands(q, brandIndex);
+  const resolved = resolveBrand(q, brandIndex);
   const byBrand = brandProducts(q, onFile, brandIndex, isVerified)?.products ?? [];
+  // brand: 検索語の先頭のブランドと残りの語。ブラウザはこれで、お店の製品一覧（/api/products/lineup）を取って絞り込む
+  const brand = resolved ? { name: resolved.brand.entry.name, rest: resolved.rest } : null;
   // 保存済みの製品は毎回読み直す（キャッシュには外部の結果だけを入れ、新しく調べた製品がすぐ出るように）
   const withBrandFirst = (external: Product[]) => {
     const out = byBrand.slice(0, limit);
@@ -55,7 +58,7 @@ async function handleGet(request: NextRequest) {
   };
   // 保存済みのブランドの製品だけで足りるなら、外部に問い合わせない
   if (byBrand.length >= limit) {
-    return NextResponse.json({ query: q, results: withBrandFirst([]), brands });
+    return NextResponse.json({ query: q, results: withBrandFirst([]), brands, brand });
   }
 
   // 照合のしかたを変えたら版を上げる（v5: キャッシュは searchCosmeticsLive の結果だけ。ブランドの製品は入れない）
@@ -64,16 +67,16 @@ async function handleGet(request: NextRequest) {
   const cacheKey = await hashedCacheKey('search:v5', `${key}|${limit}`);
   const cached = await cacheGetJSON<Product[]>(cacheKey);
   if (cached) {
-    return NextResponse.json({ query: q, results: withBrandFirst(cached), brands });
+    return NextResponse.json({ query: q, results: withBrandFirst(cached), brands, brand });
   }
 
   // キャッシュ済みの製品 ＋ Open Beauty Facts による探索。
   // ブランド名を入力している途中（「しせ」）は Open Beauty Facts に問い合わせない（ブランドの候補を出せば足り、待たせない）
-  const typingBrand = brands.length > 0 && !resolveBrand(q, brandIndex);
+  const typingBrand = brands.length > 0 && !resolved;
   const external = await searchCosmeticsLive(q, limit, { openBeautyFacts: !typingBrand });
   await cachePutJSON(cacheKey, external, external.length > 0 ? RESULTS_TTL_SECONDS : EMPTY_RESULTS_TTL_SECONDS);
 
-  return NextResponse.json({ query: q, results: withBrandFirst(external), brands });
+  return NextResponse.json({ query: q, results: withBrandFirst(external), brands, brand });
 }
 
 /** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
