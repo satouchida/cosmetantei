@@ -2886,7 +2886,15 @@ test('70. Search filter: off by default; enforce drops only sure irrelevants and
     const partial = { async run() { return { answers: { c0: answers.c0 } }; } };
     assert.deepStrictEqual(ids(await withCloudflareEnv({ AI: partial }, () => filterSearchResults('部分的な応答', products))), ids(products));
     const slow = { async run() { await new Promise((r) => setTimeout(r, 2000)); return { answers }; } };
-    assert.deepStrictEqual(ids(await withCloudflareEnv({ AI: slow }, () => filterSearchResults('遅い応答', products))), ids(products));
+    // 時間切れでも、遅れて届いた判定は応答の後でキャッシュに入る。その書き込みまでこのテストの環境で待つ
+    // （待たないと、遅い CI では後のテストの環境に書き込まれる。テスト 72 が CI だけで失敗していた原因）
+    const latePuts: string[] = [];
+    const slowCache = { async get() { return null; }, async put(key: string) { latePuts.push(key); } };
+    await withCloudflareEnv({ AI: slow, APP_CACHE: slowCache }, async () => {
+      assert.deepStrictEqual(ids(await filterSearchResults('遅い応答', products)), ids(products));
+      for (let waited = 0; latePuts.length === 0 && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+    });
+    assert.ok(latePuts.length === 1 && latePuts[0].startsWith('sfilter:'), 'The late verdict is cached for the next search');
 
     // shadow：結果は変えず、件数だけをログに出す（検索語・商品名は出さない）
     process.env.SEARCH_FILTER_MODE = 'shadow';
