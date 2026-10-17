@@ -6,6 +6,7 @@ import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { withUsageRoute } from '@/lib/server/usage';
 import { analyzeProductWithAI } from '@/lib/services/ai-analysis';
+import { isUserLabelProduct } from '@/lib/product-source';
 
 async function handlePost(request: NextRequest) {
   // 成分数×既知DBの計算をするため、回数を制限する（有料の呼び出しは無いので検索と同じ枠）
@@ -36,12 +37,19 @@ async function handlePost(request: NextRequest) {
 
     // サーバーが持っている製品は、ブラウザから送られた内容ではなくサーバーの内容を使う
     if (product && aiEvaluate === true) {
-      if (await isRateLimited('ai', getClientIp(request.headers))) {
+      // サーバーが持っている製品なら、送られたものとは別のオブジェクトが返る
+      let resolved = await resolveClientProduct(product);
+      // 別のアイソレートで見つけたばかりの製品は、このアイソレートのメモリにまだ無い。KV を早めに読み直して探す
+      if (resolved === product && !isUserLabelProduct(product)) {
+        await hydrateVerifiedProducts({ recheck: true });
+        resolved = await resolveClientProduct(product);
+      }
+      const fromServer = resolved !== product;
+      // Gemini を呼ぶのはサーバーが持っている製品だけなので、AI の回数制限もそのときだけ使う
+      if (fromServer && (await isRateLimited('ai', getClientIp(request.headers)))) {
         return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
       }
-      // サーバーが持っている製品なら、送られたものとは別のオブジェクトが返る
-      const resolved = await resolveClientProduct(product);
-      const result = await analyzeProductWithAI(resolved, { fromServer: resolved !== product });
+      const result = await analyzeProductWithAI(resolved, { fromServer });
       return NextResponse.json({ type: 'single', result });
     }
 

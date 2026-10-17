@@ -70,6 +70,8 @@ SPEND_BUDGET_USD = "30/100"
 SPEND_PER_MINUTE_WEB_SEARCH = "30"
 SPEND_PER_MINUTE_GEMINI = "60"
 SPEND_PER_MINUTE_WORKERS_AI = "120"
+# 急がない仕事（成分の AI 評価・成分表示の翻訳）が使える、1分あたりの件数の割合。残りはチャットの返事などのために空けておく
+SPEND_BACKGROUND_SHARE = "0.5"
 # 楽天・Yahoo! の API（無料）。アプリ ID ごとに1秒に1回までの規約に合わせ、全体で1分あたりの件数を数える
 SPEND_PER_MINUTE_RAKUTEN_API = "50"
 SPEND_PER_MINUTE_YAHOO_API = "50"

@@ -229,8 +229,12 @@ export async function hashedCacheKey(prefix: string, raw: string): Promise<strin
 /** KV の最小 TTL は 60 秒 */
 const MIN_KV_TTL_SECONDS = 60;
 
-export async function cacheGetJSON<T>(key: string): Promise<T | null> {
-  const local = memoryKv.get(key);
+/**
+ * KV から JSON を読む（同じアイソレートのメモリに 60 秒の写しを持つ）。
+ * fresh: メモリの写しを使わず KV を読む（ほかのアイソレートが書いたばかりの値を探すとき）
+ */
+export async function cacheGetJSON<T>(key: string, { fresh = false }: { fresh?: boolean } = {}): Promise<T | null> {
+  const local = fresh ? undefined : memoryKv.get(key);
   if (local !== undefined) return local as T;
 
   const { APP_CACHE } = await getBindings();

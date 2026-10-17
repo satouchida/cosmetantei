@@ -1,4 +1,5 @@
 import { Product } from './types';
+import { isUserLabelProduct } from './product-source';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 
 /**
@@ -36,8 +37,7 @@ export function isStale(addedAt: number, now: number): boolean {
 
 /** 保存してよい製品（入力した成分表示は保存しない） */
 export function isPersistable(product: Product): boolean {
-  // サーバーの isShareable（cosmetics-db.ts）と同じ見分け方
-  return product.ingredientSource !== 'user_label' && !product.id.startsWith('label_');
+  return !isUserLabelProduct(product);
 }
 
 /**

@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
+import { ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
 import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
+import { isUserLabelProduct } from '@/lib/product-source';
 import {
   badge as badgeClass,
   buttonSecondary,
@@ -25,27 +26,55 @@ interface IngredientAnalysisCardProps {
   onAddToCurrentRoutine?: () => void;
 }
 
-/** 成分DBとルールで評価できない成分があり、まだ AI に評価を頼んでいない分析か */
+/**
+ * 成分DBとルールで評価できない成分があり、まだ AI に評価を頼んでいない分析か。
+ * 入力・撮影した成分表示は AI にまとめて送らないので頼まない（1成分ずつ「AIでさらに詳しく調べる」で調べられる）
+ */
 function needsAIEvaluation(a: ProductAnalysisResult): boolean {
-  return a.riskCounts.unknown > 0 && !a.aiEvaluation && !a.isEstimatedFromMarketplaces;
+  return a.riskCounts.unknown > 0 && !a.aiEvaluation && !a.isEstimatedFromMarketplaces && !isUserLabelProduct(a.product);
+}
+
+/** 成分DB（出典と照合済み）で評価した成分か。ルールの推論（dyn_）・AI（ai_）は含めない */
+function isDatabaseRated(ing: AnalyzedIngredient): boolean {
+  const id = ing.matchedKnown?.id;
+  return !!id && !id.startsWith('dyn_') && !id.startsWith('ai_');
+}
+
+/** 1回目で評価できなかったとき、もう1回頼むまでの時間（見つけたばかりの製品が、ほかのサーバーに届くのを待つ） */
+const AI_RETRY_DELAY_MS = 4_000;
+
+/** 評価の結果。retry: 頼み直す意味がある失敗か（回数制限などの 4xx は頼み直しても同じ） */
+type AIFetch = { result: ProductAnalysisResult | null; retry: boolean };
+
+async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
+  try {
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: a.product, aiEvaluate: true }),
+    });
+    if (res.status >= 400 && res.status < 500) return { result: null, retry: false };
+    const result = res.ok ? ((await res.json())?.result as ProductAnalysisResult | undefined) : undefined;
+    return result?.aiEvaluation ? { result, retry: false } : { result: null, retry: true };
+  } catch {
+    return { result: null, retry: true };
+  }
 }
 
 /**
  * 分析ごとに1回だけ AI の評価を頼む（StrictMode で effect が2回動いても、同じ分析なら同じ要求を使う）。
- * 評価できなかったら null
+ * 評価できなかったら（5xx・通信の失敗・評価の無い応答）、少し待ってもう1回だけ頼む。それでもだめなら null
  */
 const aiRequests = new WeakMap<ProductAnalysisResult, Promise<ProductAnalysisResult | null>>();
 function requestAIAnalysis(a: ProductAnalysisResult): Promise<ProductAnalysisResult | null> {
   let request = aiRequests.get(a);
   if (!request) {
-    request = fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product: a.product, aiEvaluate: true }),
-    })
-      .then(async (res) => (res.ok ? ((await res.json())?.result as ProductAnalysisResult | undefined) : undefined))
-      .then((result) => (result?.aiEvaluation ? result : null))
-      .catch(() => null);
+    request = (async () => {
+      const first = await fetchAIAnalysis(a);
+      if (first.result || !first.retry) return first.result;
+      await new Promise((resolve) => setTimeout(resolve, AI_RETRY_DELAY_MS));
+      return (await fetchAIAnalysis(a)).result;
+    })();
     aiRequests.set(a, request);
   }
   return request;
@@ -81,7 +110,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 
   // 開いている成分の解説は、AI の評価が届いたら新しい分析のものにする（「AIでさらに詳しく調べる」の結果はそのまま）
   const selectedIngredient =
-    pickedIngredient && !pickedIngredient.matchedKnown?.id.startsWith('ai_')
+    pickedIngredient && !pickedIngredient.aiExplained && !pickedIngredient.matchedKnown?.id.startsWith('ai_')
       ? (analysis.ingredients.find((i) => i.rawName === pickedIngredient.rawName) ?? pickedIngredient)
       : pickedIngredient;
 
@@ -103,18 +132,36 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       if (res.ok) {
         const data = await res.json();
         if (data.ingredient) {
+          const explained: KnownIngredient = data.ingredient;
           // 調べている間に別の成分を選んでいたら、その成分には書き込まない
-          setPickedIngredient((current) =>
-            current && current.rawName === ingredientName
-              ? {
-                  ...current,
-                  matchedKnown: data.ingredient,
-                  riskLevel: data.ingredient.riskLevel,
-                  category: data.ingredient.category,
-                  reasonJa: data.ingredient.reasonJa,
-                }
-              : current
-          );
+          setPickedIngredient((current) => {
+            if (!current || current.rawName !== ingredientName) return current;
+            if (isDatabaseRated(current)) {
+              // 成分DBの成分は評価と名前は DB のまま。AI が書くのは解説だけ
+              return {
+                ...current,
+                matchedKnown: {
+                  ...current.matchedKnown!,
+                  reasonJa: explained.reasonJa,
+                  sensitiveSkinAdviceJa: explained.sensitiveSkinAdviceJa,
+                  evidenceJa: explained.evidenceJa,
+                },
+                reasonJa: explained.reasonJa,
+                aiExplained: true,
+              };
+            }
+            // ルールの評価が AI より厳しければ、サーバーはルールの評価を返す。AI の評価が使われたときだけ「AIの評価」と書く
+            const aiRated = explained.riskLevel !== 'unknown' && explained.riskLevel !== current.riskLevel;
+            return {
+              ...current,
+              matchedKnown: explained,
+              riskLevel: explained.riskLevel,
+              category: explained.category,
+              reasonJa: explained.reasonJa,
+              aiEvaluated: aiRated,
+              aiExplained: true,
+            };
+          });
         }
       } else {
         const data = await res.json().catch(() => null);
@@ -209,7 +256,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。
           </p>
         )}
-        {analysis.aiEvaluation?.userSupplied && (
+        {isUserLabelProduct(analysis.product) && analysis.riskCounts.unknown > 0 && (
           <p className={panel('neutral', 'small')}>
             入力した成分表示は、まとめてAIに送りません。未評価の成分は、タップすると1つずつAIで調べられます。
           </p>
@@ -296,8 +343,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             成分データに無い成分を、AIが皮膚科学の知見や公的な安全性評価をもとに評価しました。AIが作成したもので、誤りを含む可能性があります。気になる成分は、医師・薬剤師にご相談ください。
           </p>
           <ul className="mt-2 space-y-2">
-            {aiIngredients.map((ing) => (
-              <li key={ing.rawName} className="pt-2 border-t border-sand-200">
+            {aiIngredients.map((ing, i) => (
+              <li key={i} className="pt-2 border-t border-sand-200">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold">{ing.rawName}</span>
                   <span className={riskBadge(ing.riskLevel)}>{riskOf(ing.riskLevel).label}</span>
@@ -355,7 +402,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           </button>
           <div className="flex items-center gap-2 flex-wrap pr-10">
             {/* AI が書いた成分名は推測を含むので出さず、成分表示の名前を出す */}
-            {selectedIngredient.matchedKnown?.id.startsWith('ai_') ? (
+            {selectedIngredient.aiEvaluated || selectedIngredient.matchedKnown?.id.startsWith('ai_') ? (
               <span className="font-semibold text-ink text-base">{selectedIngredient.rawName}</span>
             ) : (
               <>
@@ -420,10 +467,21 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               📚 根拠（AIによる）: {selectedIngredient.matchedKnown.evidenceJa}
             </p>
           )}
-          {selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
+          {selectedIngredient.aiEvaluated ? (
             <p className="text-xs text-ink-muted">この評価と解説はAIが作成したもので、誤りを含む可能性があります。</p>
+          ) : (
+            (selectedIngredient.aiExplained || selectedIngredient.matchedKnown?.id.startsWith('ai_')) && (
+              <p className="text-xs text-ink-muted">
+                この解説はAIが作成したもので、誤りを含む可能性があります。
+                {selectedIngredient.riskLevel === 'unknown'
+                  ? 'AIも刺激性を判断できませんでした。'
+                  : isDatabaseRated(selectedIngredient)
+                    ? '刺激性の評価はコスメ探偵の成分データによるものです。'
+                    : '刺激性の評価はコスメ探偵の判定ルールによるものです。'}
+              </p>
+            )
           )}
-          {!selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
+          {!selectedIngredient.aiExplained && !selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
             <div className="pt-2 border-t border-sand-200">
               <button
                 type="button"

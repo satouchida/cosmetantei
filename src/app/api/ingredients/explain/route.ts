@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { explainIngredientWithAI } from '@/lib/services/dynamic-ingredient-service';
+import { explainIngredientWithAI, NOT_AN_INGREDIENT_NAME } from '@/lib/services/dynamic-ingredient-service';
 import { findMatchingKnownIngredient } from '@/lib/analyzer/ingredient-analyzer';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { withUsageRoute } from '@/lib/server/usage';
 
 const MAX_INGREDIENT_NAME_LENGTH = 100;
-/** 成分名に入らない文字（改行などの制御文字・ゼロ幅文字・書字方向の制御）・URL */
-const NOT_AN_INGREDIENT_NAME = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]|https?:|www\./i;
 /** 成分名1つの要求としては大きすぎる本文 */
 const MAX_BODY_BYTES = 2048;
 

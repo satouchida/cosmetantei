@@ -9,6 +9,8 @@ import { MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod }
  *   呼び出しの前に見積もり金額（src/lib/server/prices.ts の単価）を確保し、予算を超えるなら呼ばない。
  *   後で実際の金額（Gemini は usageMetadata のトークン数）に直す
  * - 急増を止める1分あたりの件数は SPEND_PER_MINUTE_WEB_SEARCH・_GEMINI・_WORKERS_AI
+ * - 急がない仕事（background。成分の評価・翻訳）は、その1分の件数が上限 × SPEND_BACKGROUND_SHARE（既定 0.5）に
+ *   達していたら断る。数えるのは同じ件数なので、全体の上限は変わらず、残りは利用者が待っている呼び出しが使える
  * - 未設定・形が違うときは DEFAULT_BUDGET_USD・DEFAULT_PER_MINUTE
  * - Durable Object に届かない・エラーのときは断る（上限を守れない状態で有料の呼び出しをしない）
  * - バインディングが無い環境（next dev・テスト）は、アイソレートごとのメモリ版。本番でバインディングが無いのは
@@ -34,6 +36,16 @@ const PER_MINUTE_ENV: Record<SpendBucket, string> = {
   rakuten_api: 'SPEND_PER_MINUTE_RAKUTEN_API',
   yahoo_api: 'SPEND_PER_MINUTE_YAHOO_API',
 };
+
+/** 急がない仕事が使える、1分あたりの上限の割合（SPEND_BACKGROUND_SHARE が無い・形が違うとき） */
+export const DEFAULT_BACKGROUND_SHARE = 0.5;
+
+/** 急がない仕事が使える割合（0〜1） */
+export function backgroundShare(): number {
+  const raw = (process.env.SPEND_BACKGROUND_SHARE || '').trim();
+  const share = /^(0(\.\d+)?|1(\.0+)?)$/.test(raw) ? Number(raw) : DEFAULT_BACKGROUND_SHARE;
+  return share;
+}
 
 const DO_TIMEOUT_MS = 2_000;
 
@@ -98,8 +110,17 @@ async function capTarget(what: string): Promise<CapTarget> {
 /**
  * 見積もり金額を確保する。予算・1分の件数の上限内なら SpendTicket、上限に達している・数えられないときは null（呼び出さない）
  */
-export async function reserveSpend(bucket: SpendBucket, costMicros: number): Promise<SpendTicket | null> {
-  const limits = spendLimits(bucket);
+export async function reserveSpend(
+  bucket: SpendBucket,
+  costMicros: number,
+  { background = false }: { background?: boolean } = {}
+): Promise<SpendTicket | null> {
+  const full = spendLimits(bucket);
+  // 急がない仕事は、1分の件数（全員の呼び出しを数えた同じ件数）を小さい上限と比べる。
+  // 割合が 0 なら急がない仕事はしない。0 より大きければ、切り捨てても1分に1回は使える
+  const share = backgroundShare();
+  const backgroundPerMinute = share > 0 && full.perMinute > 0 ? Math.max(1, Math.floor(full.perMinute * share)) : 0;
+  const limits = background ? { ...full, perMinute: backgroundPerMinute } : full;
   if (!Number.isFinite(costMicros)) {
     console.error(`Spend estimate for ${bucket} is not a number; refusing the call.`);
     return null;

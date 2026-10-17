@@ -115,6 +115,8 @@ export interface AnalyzedIngredient {
   wheatDerived?: boolean;
   /** 成分DBとルールで評価できず、AI が評価した（誤りを含みうる） */
   aiEvaluated?: boolean;
+  /** 「AIでさらに詳しく調べる」で AI の解説を付けた（ブラウザだけで付ける） */
+  aiExplained?: boolean;
 }
 
 export interface ProductAnalysisResult {
@@ -139,11 +141,8 @@ export interface ProductAnalysisResult {
   labelReferences?: ReferenceLink[];
   isEstimatedFromMarketplaces?: boolean;
   dataSourceDisclaimer?: string;
-  /**
-   * 未評価の成分を AI で評価し直した結果（もう一度 AI に頼まない）。
-   * userSupplied: サーバーが持っていない製品（入力した成分表示など）なので、まとめては評価しなかった
-   */
-  aiEvaluation?: { evaluatedCount: number; userSupplied?: boolean };
+  /** 未評価の成分を AI で評価し直した結果（もう一度 AI に頼まない） */
+  aiEvaluation?: { evaluatedCount: number };
 }
 
 export interface CulpritIngredient {

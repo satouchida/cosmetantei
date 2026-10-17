@@ -1,4 +1,5 @@
 import { Product } from '../types';
+import { isUserLabelProduct } from '../product-source';
 import { buildAmazonAffiliateUrl } from '../services/amazon-affiliate';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { hasStaleLabel } from '../analyzer/label-parser';
@@ -29,7 +30,7 @@ export function isVerifiedSource(p: Product): boolean {
  * （他の人の検索結果・代替品候補にしない）
  */
 export function isShareable(p: Product): boolean {
-  return p.ingredientSource !== 'user_label' && !p.id.startsWith('label_');
+  return !isUserLabelProduct(p);
 }
 
 /**
@@ -100,14 +101,26 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
   await cachePutJSON(VERIFIED_INDEX_KEY, merged, VERIFIED_TTL_SECONDS);
 }
 
+/** 製品が見つからないときに KV を読み直す最短の間隔（読み直しが続いても KV を読みすぎない） */
+const RECHECK_INTERVAL_MS = 10_000;
+let lastRecheckedAt = 0;
+
 /**
- * KV に保存された成分確認済みの製品をメモリのキャッシュへ読み込む（アイソレートごとに一定間隔で実行）
+ * KV に保存された成分確認済みの製品をメモリのキャッシュへ読み込む（アイソレートごとに一定間隔で実行）。
+ * recheck: 送られた製品が見つからないとき（別のアイソレートで見つけたばかりの製品）。いつもの間隔を待たず、
+ * 前回の読み直しから RECHECK_INTERVAL_MS 経っていれば読む
  */
-export async function hydrateVerifiedProducts(): Promise<void> {
-  if (Date.now() - lastHydratedAt < HYDRATE_INTERVAL_MS) return;
+export async function hydrateVerifiedProducts({ recheck = false }: { recheck?: boolean } = {}): Promise<void> {
+  if (recheck) {
+    if (Date.now() - lastRecheckedAt < RECHECK_INTERVAL_MS) return;
+    lastRecheckedAt = Date.now();
+  } else if (Date.now() - lastHydratedAt < HYDRATE_INTERVAL_MS) {
+    return;
+  }
 
   // 読み込みが終わってから印を付ける（読み込み中に来た別のリクエストが、空のまま進まないように）
-  const stored = await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY);
+  // 読み直しは、このアイソレートのメモリの写し（60 秒）ではなく KV を読む
+  const stored = await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY, { fresh: recheck });
   lastHydratedAt = Date.now();
   if (!stored) return;
   // 古い順に追加し、新しいものがキャッシュの先頭に来るようにする

@@ -52,3 +52,12 @@ export function productSourceInfo(p: Product): ProductSourceInfo | null {
       return null;
   }
 }
+
+/**
+ * ユーザーが入力・撮影した成分表示の製品か。この見分け方はここだけに書く：
+ * 共有のキャッシュに入れない（cosmetics-db の isShareable）・ブラウザに保存しない（current-use の isPersistable）・
+ * 成分を AI にまとめて送らない（ai-analysis・分析カード）
+ */
+export function isUserLabelProduct(p: Product): boolean {
+  return p.ingredientSource === 'user_label' || p.id.startsWith('label_');
+}

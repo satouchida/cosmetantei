@@ -68,6 +68,8 @@ async function translateNames(names: string[]): Promise<string[] | null> {
     },
     generationConfig: { temperature: 0, maxOutputTokens: 8192 },
     timeoutMs: TRANSLATE_TIMEOUT_MS,
+    // 訳せなくても英語のまま使える。1分あたりの上限の一部だけを使う
+    background: true,
   });
   return parsed ? acceptTranslations(names, parsed.names) : null;
 }

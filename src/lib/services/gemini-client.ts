@@ -107,6 +107,11 @@ export interface GeminiRequest {
   timeoutMs?: number;
   /** AI Gateway のキャッシュを使わない（価格など、古い応答を返してはいけないもの）。画像付きは常に使わない */
   skipCache?: boolean;
+  /**
+   * 急がない仕事（成分の評価・翻訳）。1分あたりの上限の一部（SPEND_BACKGROUND_SHARE）だけを使い、
+   * 残りをチャットの返事など利用者が待っている呼び出しのために空けておく
+   */
+  background?: boolean;
 }
 
 export interface GeminiResult {
@@ -201,7 +206,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
 
   // 有料の呼び出しの上限（全体で数える）。見積もり金額を確保し、予算を超えるなら呼ばない
   const price = geminiPrice(model, Date.now());
-  const ticket = await reserveSpend('gemini', estimateGeminiCostMicros(req, price));
+  const ticket = await reserveSpend('gemini', estimateGeminiCostMicros(req, price), { background: req.background });
   if (!ticket) {
     console.warn('Gemini call skipped: spend cap reached');
     await recordUsage({ kind: 'gemini', task: req.task, model, outcome: 'capped' });
