@@ -5,6 +5,7 @@ import { isValidProduct, isValidProductList } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client-products';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { withUsageRoute } from '@/lib/server/usage';
+import { analyzeProductWithAI } from '@/lib/services/ai-analysis';
 
 async function handlePost(request: NextRequest) {
   // 成分数×既知DBの計算をするため、回数を制限する（有料の呼び出しは無いので検索と同じ枠）
@@ -13,10 +14,12 @@ async function handlePost(request: NextRequest) {
   }
   try {
     const body = await request.json();
-    const { product, badProducts, safeProducts } = body as {
+    const { product, badProducts, safeProducts, aiEvaluate } = body as {
       product?: unknown;
       badProducts?: unknown;
       safeProducts?: unknown;
+      /** 未評価の成分を AI で評価する（Gemini を呼ぶので AI の回数制限も使う） */
+      aiEvaluate?: unknown;
     };
 
     // 入力の形式・サイズを検証（成分数×既知DBの計算量になるため上限を設ける）
@@ -32,6 +35,16 @@ async function handlePost(request: NextRequest) {
     await hydrateVerifiedProducts();
 
     // サーバーが持っている製品は、ブラウザから送られた内容ではなくサーバーの内容を使う
+    if (product && aiEvaluate === true) {
+      if (await isRateLimited('ai', getClientIp(request.headers))) {
+        return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
+      }
+      // サーバーが持っている製品なら、送られたものとは別のオブジェクトが返る
+      const resolved = await resolveClientProduct(product);
+      const result = await analyzeProductWithAI(resolved, { fromServer: resolved !== product });
+      return NextResponse.json({ type: 'single', result });
+    }
+
     if (product) {
       const result = analyzeProduct(await resolveClientProduct(product));
       return NextResponse.json({ type: 'single', result });

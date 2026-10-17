@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
 import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
@@ -25,18 +25,68 @@ interface IngredientAnalysisCardProps {
   onAddToCurrentRoutine?: () => void;
 }
 
+/** 成分DBとルールで評価できない成分があり、まだ AI に評価を頼んでいない分析か */
+function needsAIEvaluation(a: ProductAnalysisResult): boolean {
+  return a.riskCounts.unknown > 0 && !a.aiEvaluation && !a.isEstimatedFromMarketplaces;
+}
+
+/**
+ * 分析ごとに1回だけ AI の評価を頼む（StrictMode で effect が2回動いても、同じ分析なら同じ要求を使う）。
+ * 評価できなかったら null
+ */
+const aiRequests = new WeakMap<ProductAnalysisResult, Promise<ProductAnalysisResult | null>>();
+function requestAIAnalysis(a: ProductAnalysisResult): Promise<ProductAnalysisResult | null> {
+  let request = aiRequests.get(a);
+  if (!request) {
+    request = fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: a.product, aiEvaluate: true }),
+    })
+      .then(async (res) => (res.ok ? ((await res.json())?.result as ProductAnalysisResult | undefined) : undefined))
+      .then((result) => (result?.aiEvaluation ? result : null))
+      .catch(() => null);
+    aiRequests.set(a, request);
+  }
+  return request;
+}
+
 export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
-  analysis,
+  analysis: initialAnalysis,
   onAddToBadRoutine,
   onAddToSafeRoutine,
   onAddToCurrentRoutine,
 }) => {
-  const [selectedIngredient, setSelectedIngredient] = useState<AnalyzedIngredient | null>(null);
+  const [pickedIngredient, setPickedIngredient] = useState<AnalyzedIngredient | null>(null);
   const [isExplainingWithAI, setIsExplainingWithAI] = useState<boolean>(false);
   const [explainError, setExplainError] = useState<string | null>(null);
+  // 未評価の成分の AI の評価（表示のあとで頼み、届いたら分析を差し替える）。
+  // 結果は頼んだときの分析とひも付け、別の分析が渡されたら古い結果は使わない
+  const [ai, setAi] = useState<{ source: ProductAnalysisResult; result: ProductAnalysisResult | null } | null>(null);
+  const settled = ai?.source === initialAnalysis ? ai : null;
+  const analysis = settled?.result ?? initialAnalysis;
+  const aiStatus: 'idle' | 'loading' | 'failed' =
+    !needsAIEvaluation(initialAnalysis) || settled?.result ? 'idle' : settled ? 'failed' : 'loading';
+
+  useEffect(() => {
+    if (!needsAIEvaluation(initialAnalysis)) return;
+    let cancelled = false;
+    requestAIAnalysis(initialAnalysis).then((result) => {
+      if (!cancelled) setAi({ source: initialAnalysis, result });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialAnalysis]);
+
+  // 開いている成分の解説は、AI の評価が届いたら新しい分析のものにする（「AIでさらに詳しく調べる」の結果はそのまま）
+  const selectedIngredient =
+    pickedIngredient && !pickedIngredient.matchedKnown?.id.startsWith('ai_')
+      ? (analysis.ingredients.find((i) => i.rawName === pickedIngredient.rawName) ?? pickedIngredient)
+      : pickedIngredient;
 
   const selectIngredient = (ing: AnalyzedIngredient | null) => {
-    setSelectedIngredient(ing);
+    setPickedIngredient(ing);
     setExplainError(null);
   };
 
@@ -54,7 +104,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         const data = await res.json();
         if (data.ingredient) {
           // 調べている間に別の成分を選んでいたら、その成分には書き込まない
-          setSelectedIngredient((current) =>
+          setPickedIngredient((current) =>
             current && current.rawName === ingredientName
               ? {
                   ...current,
@@ -104,6 +154,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     }
   };
 
+  const aiIngredients = ingredients.filter((i) => i.aiEvaluated);
+
   const badge = getOverallBadge();
   const IconComponent = badge.icon;
 
@@ -142,6 +194,27 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 
       {/* Summary Box */}
       <p className="text-sm leading-relaxed">{summaryJa}</p>
+
+      {/* 成分データに無い成分の AI の評価（読み上げで知らせる枠は先に置いておく） */}
+      {/* 空のときは間隔を取らない（親の space-y の下余白を消す） */}
+      <div role="status" className="empty:mb-0">
+        {aiStatus === 'loading' && (
+          <p className={`flex items-center gap-2 ${panel('neutral', 'small')}`}>
+            <Loader2 className="w-4 h-4 shrink-0 animate-spin text-ink-muted" aria-hidden />
+            <span>成分データに無い{analysis.riskCounts.unknown}成分を、AIで調べています…</span>
+          </p>
+        )}
+        {aiStatus === 'failed' && (
+          <p className={panel('neutral', 'small')}>
+            成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。
+          </p>
+        )}
+        {analysis.aiEvaluation?.userSupplied && (
+          <p className={panel('neutral', 'small')}>
+            入力した成分表示は、まとめてAIに送りません。未評価の成分は、タップすると1つずつAIで調べられます。
+          </p>
+        )}
+      </div>
 
       {/* 医薬部外品の成分表示の読み方（記載順・名称が表示されていない成分） */}
       {labelNotesJa && labelNotesJa.length > 0 && (
@@ -213,6 +286,29 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         </section>
       )}
 
+      {aiIngredients.length > 0 && (
+        <details className={panel('neutral')}>
+          <summary className="min-h-12 -my-3 flex items-center gap-1.5 cursor-pointer font-semibold">
+            <Sparkles className="w-4 h-4 shrink-0" aria-hidden />
+            <span>AIが評価した成分（{aiIngredients.length}成分）</span>
+          </summary>
+          <p className="mt-2 text-xs text-ink-muted">
+            成分データに無い成分を、AIが皮膚科学の知見や公的な安全性評価をもとに評価しました。AIが作成したもので、誤りを含む可能性があります。気になる成分は、医師・薬剤師にご相談ください。
+          </p>
+          <ul className="mt-2 space-y-2">
+            {aiIngredients.map((ing) => (
+              <li key={ing.rawName} className="pt-2 border-t border-sand-200">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-semibold">{ing.rawName}</span>
+                  <span className={riskBadge(ing.riskLevel)}>{riskOf(ing.riskLevel).label}</span>
+                </div>
+                <p className="mt-0.5 leading-relaxed">{ing.reasonJa}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {/* Full Ingredients Cloud */}
       <section>
         <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -230,7 +326,13 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             >
               {ing.isActive && <span className="mr-1 text-xs font-semibold text-sage-700">有効成分</span>}
               {ing.rawName}
+              {ing.aiEvaluated && (
+                <span className="ml-1 text-xs font-semibold text-ink-muted" aria-hidden>
+                  AI
+                </span>
+              )}
               {ing.riskLevel !== 'safe' && <span className="sr-only">（{riskOf(ing.riskLevel).label}）</span>}
+              {ing.aiEvaluated && <span className="sr-only">（AIによる評価）</span>}
             </button>
           ))}
         </div>
@@ -252,12 +354,19 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             <X className="w-5 h-5" aria-hidden />
           </button>
           <div className="flex items-center gap-2 flex-wrap pr-10">
-            <span className="font-semibold text-ink text-base">
-              {selectedIngredient.matchedKnown?.nameJa || selectedIngredient.rawName}
-            </span>
-            <span className="text-xs text-ink-muted">
-              ({selectedIngredient.matchedKnown?.nameEn || selectedIngredient.rawName})
-            </span>
+            {/* AI が書いた成分名は推測を含むので出さず、成分表示の名前を出す */}
+            {selectedIngredient.matchedKnown?.id.startsWith('ai_') ? (
+              <span className="font-semibold text-ink text-base">{selectedIngredient.rawName}</span>
+            ) : (
+              <>
+                <span className="font-semibold text-ink text-base">
+                  {selectedIngredient.matchedKnown?.nameJa || selectedIngredient.rawName}
+                </span>
+                <span className="text-xs text-ink-muted">
+                  ({selectedIngredient.matchedKnown?.nameEn || selectedIngredient.rawName})
+                </span>
+              </>
+            )}
             {selectedIngredient.isActive && <span className={badgeClass('neutral')}>医薬部外品の有効成分</span>}
             <span className={riskBadge(selectedIngredient.riskLevel)}>{riskOf(selectedIngredient.riskLevel).label}</span>
           </div>
@@ -306,29 +415,36 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               ))}
             </p>
           )}
-          {selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
-            <p className="text-xs text-ink-muted">この解説はAIが作成した参考情報です。</p>
+          {selectedIngredient.matchedKnown?.evidenceJa && (
+            <p className="text-xs leading-relaxed text-ink-muted">
+              📚 根拠（AIによる）: {selectedIngredient.matchedKnown.evidenceJa}
+            </p>
           )}
-          <div className="pt-2 border-t border-sand-200">
-            <button
-              type="button"
-              disabled={isExplainingWithAI}
-              onClick={() => handleExplainWithAI(selectedIngredient.rawName)}
-              className={buttonSecondary}
-            >
-              {isExplainingWithAI ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                  <span>AIで解析中...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" aria-hidden />
-                  <span>AIでさらに詳しく調べる</span>
-                </>
-              )}
-            </button>
-          </div>
+          {selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
+            <p className="text-xs text-ink-muted">この評価と解説はAIが作成したもので、誤りを含む可能性があります。</p>
+          )}
+          {!selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
+            <div className="pt-2 border-t border-sand-200">
+              <button
+                type="button"
+                disabled={isExplainingWithAI}
+                onClick={() => handleExplainWithAI(selectedIngredient.rawName)}
+                className={buttonSecondary}
+              >
+                {isExplainingWithAI ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                    <span>AIで解析中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" aria-hidden />
+                    <span>AIでさらに詳しく調べる</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
           {explainError && (
             <p role="alert" className="text-xs text-rose-800">
               {explainError}

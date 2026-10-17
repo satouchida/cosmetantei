@@ -87,7 +87,7 @@ export interface GeminiImage {
 }
 
 export interface GeminiRequest {
-  /** 何のための呼び出しか（利用量の記録に使う。chat_reply・page_read・ingredient_explain・ingredient_translate・label_read） */
+  /** 何のための呼び出しか（利用量の記録に使う。chat_reply・page_read・ingredient_explain・ingredient_evaluate・ingredient_translate・label_read） */
   task: string;
   prompt: string;
   /** プロンプトの前に添える画像（成分表示の写真の読み取り等） */

@@ -254,10 +254,19 @@ export function findSafeAlternatives(
     .slice(0, limit);
 }
 
+/** 成分DBとルールで評価できなかった成分（AI の評価の対象） */
+export function unratedIngredientNames(analysis: ProductAnalysisResult): string[] {
+  return analysis.ingredients.filter((i) => i.riskLevel === 'unknown').map((i) => i.rawName);
+}
+
 /**
  * 単一製品の全成分を解析し、リスク度・注意成分・鎮静成分を抽出する
+ * aiEvaluations（正規化した成分名 → AI の評価）があれば、成分DBとルールで「未評価」の成分にだけ使う
  */
-export function analyzeProduct(product: Product): ProductAnalysisResult {
+export function analyzeProduct(
+  product: Product,
+  aiEvaluations?: Map<string, KnownIngredient>
+): ProductAnalysisResult {
   const analyzedIngredients: AnalyzedIngredient[] = [];
   const riskCounts = {
     safe: 0,
@@ -275,6 +284,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
   const standardFound: { rawName: string; entry: StandardEntry; note: ReturnType<typeof standardNote> }[] = [];
   // 小麦由来の成分（加水分解コムギの事例。小麦アレルギーの人に知らせる）
   const wheatNames: string[] = [];
+  let aiEvaluatedCount = 0;
 
   const isEstimatedFromMarketplaces =
     product.isEstimatedFromMarketplaces ||
@@ -287,7 +297,18 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     if (isPlaceholderIngredient(raw)) continue;
 
     // 既知DBまたは動的推論・キャッシュから成分解説を取得（該当しない成分は「未評価」）
-    const matched = findMatchingKnownIngredient(raw) || getOrGenerateIngredientExplanation(raw);
+    const known = findMatchingKnownIngredient(raw);
+    let matched = known || getOrGenerateIngredientExplanation(raw);
+    // 成分DBとルールで評価できない成分だけ、AI の評価を使う（AI も判断できなければ「未評価」のまま、解説だけ使う）
+    const ai = !known && matched.riskLevel === 'unknown' ? aiEvaluations?.get(normalizeIngredientName(raw)) : undefined;
+    if (ai) {
+      // 名前は成分表示のまま（AI の書いた名前は推測を含む）
+      matched = { ...ai, nameJa: raw, aliases: [raw] };
+    }
+    // AI も判断できなかった成分は「未評価」のまま（解説だけ使う）
+    const aiRated = !!ai && ai.riskLevel !== 'unknown';
+    if (aiRated) aiEvaluatedCount++;
+    const aiLabel = aiRated ? '（AIによる評価）' : '';
 
     riskCounts[matched.riskLevel]++;
 
@@ -317,14 +338,15 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
       ...(jpStandard && { jpStandard }),
       ...(jpDesignated && { jpDesignated }),
       ...(wheatDerived && { wheatDerived }),
+      ...(aiRated && { aiEvaluated: true }),
     });
 
     if (matched.riskLevel === 'high_irritant' || matched.riskLevel === 'moderate_irritant') {
-      warningsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
+      warningsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
     } else if (matched.riskLevel === 'active_caution') {
-      warningsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
+      warningsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
     } else if (matched.category === 'soothing' || matched.category === 'barrier_support') {
-      soothingHighlightsJa.push(`【${matched.nameJa}】: ${matched.reasonJa}`);
+      soothingHighlightsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
     }
   }
 
@@ -390,6 +412,11 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
         : `${summaryJa} なお、${unknownNote}`;
   }
 
+  // AI の評価を使ったときは、そのことと誤りを含みうることを書く
+  if (aiEvaluatedCount > 0) {
+    summaryJa += ` ${aiEvaluatedCount}成分は成分データに無いため、AIが評価しました（誤りを含む可能性があります）。`;
+  }
+
   // 高リスク時は代替品を提示
   const suspectItems = analyzedIngredients.filter((i) => i.isSuspect).map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
   const safeAlternatives =
@@ -410,6 +437,7 @@ export function analyzeProduct(product: Product): ProductAnalysisResult {
     ...(labelReferences.length > 0 && { labelReferences }),
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer: isEstimatedFromMarketplaces ? MARKETPLACE_DISCLAIMER_JA : undefined,
+    ...(aiEvaluations && { aiEvaluation: { evaluatedCount: aiEvaluatedCount } }),
   };
 }
 

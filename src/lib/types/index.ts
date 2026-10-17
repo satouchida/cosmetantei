@@ -43,6 +43,8 @@ export interface KnownIngredient {
   sources?: ReferenceLink[];
   /** 記述を出典と照合した日（YYYY-MM-DD）。成分DBの項目では必須 */
   reviewedAt?: string;
+  /** AI の評価・解説の根拠の種類（AI が書いたもの。id が ai_ の項目だけ） */
+  evidenceJa?: string;
 }
 
 export interface ReferenceLink {
@@ -111,6 +113,8 @@ export interface AnalyzedIngredient {
   jpDesignated?: { nameJa: string; textJa: string; references: ReferenceLink[] };
   /** 小麦由来の成分（「（小麦由来）」の注記、または名前に小麦・コムギ・wheat が入る） */
   wheatDerived?: boolean;
+  /** 成分DBとルールで評価できず、AI が評価した（誤りを含みうる） */
+  aiEvaluated?: boolean;
 }
 
 export interface ProductAnalysisResult {
@@ -135,6 +139,11 @@ export interface ProductAnalysisResult {
   labelReferences?: ReferenceLink[];
   isEstimatedFromMarketplaces?: boolean;
   dataSourceDisclaimer?: string;
+  /**
+   * 未評価の成分を AI で評価し直した結果（もう一度 AI に頼まない）。
+   * userSupplied: サーバーが持っていない製品（入力した成分表示など）なので、まとめては評価しなかった
+   */
+  aiEvaluation?: { evaluatedCount: number; userSupplied?: boolean };
 }
 
 export interface CulpritIngredient {
