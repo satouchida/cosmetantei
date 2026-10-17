@@ -2,6 +2,8 @@
 
 import React, { useRef, useState } from 'react';
 import { Camera, FileText, ImagePlus, Loader2, X, AlertCircle } from 'lucide-react';
+import { ModalDialog } from '../ui/ModalDialog';
+import { buttonPrimary, buttonPrimaryCompact, buttonSecondaryCompact, iconButton, panel } from '../ui/design';
 
 export interface LabelInput {
   text: string;
@@ -118,22 +120,21 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
-      <form
-        onSubmit={submit}
-        className="w-full sm:max-w-lg max-h-[92vh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-4 sm:p-5 space-y-3"
-      >
+    <ModalDialog labelledBy="label-input-title" onClose={close} sheet>
+      <form onSubmit={submit} className="p-4 sm:p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-sage-700" />
-            <h2 className="font-bold text-gray-900 text-sm sm:text-base">成分表示を入力</h2>
+            <FileText className="w-5 h-5 text-primary" aria-hidden />
+            <h2 id="label-input-title" className="font-semibold text-ink text-lg">
+              成分表示を入力
+            </h2>
           </div>
-          <button type="button" onClick={close} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-lg" aria-label="閉じる">
-            <X className="w-5 h-5" />
+          <button type="button" onClick={close} className={`-mr-2 ${iconButton}`} aria-label="閉じる">
+            <X className="w-6 h-6" aria-hidden />
           </button>
         </div>
 
-        <p className="text-[11px] text-gray-500 leading-relaxed">
+        <p className="text-sm text-ink-muted leading-relaxed">
           パッケージの「全成分」を貼り付けるか、写真を撮ってください。写真は成分の読み取りだけに使い、保存しません。
         </p>
 
@@ -142,18 +143,18 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
             type="button"
             disabled={isReading}
             onClick={() => cameraInputRef.current?.click()}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-sage-50 hover:bg-sage-100 text-sage-800 border border-sage-300 rounded-xl text-xs font-semibold disabled:opacity-50"
+            className={buttonPrimaryCompact}
           >
-            <Camera className="w-4 h-4" />
+            <Camera className="w-5 h-5" aria-hidden />
             写真を撮る
           </button>
           <button
             type="button"
             disabled={isReading}
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-sand-50 text-gray-700 border border-sand-300 rounded-xl text-xs font-semibold disabled:opacity-50"
+            className={buttonSecondaryCompact}
           >
-            <ImagePlus className="w-4 h-4" />
+            <ImagePlus className="w-5 h-5" aria-hidden />
             画像を選ぶ
           </button>
           <input
@@ -180,26 +181,23 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         </div>
 
         {isReading && (
-          <div className="flex items-center gap-2 text-xs text-sage-800">
-            <Loader2 className="w-4 h-4 animate-spin" />
+          <div role="status" className="flex items-center gap-2 text-sm text-sage-800">
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
             写真から成分表示を読み取っています…
           </div>
         )}
         {notice && (
           <div
-            className={`flex items-start gap-2 p-2.5 rounded-lg border text-[11px] leading-relaxed ${
-              notice.kind === 'error'
-                ? 'bg-rose-50 border-rose-200 text-rose-900'
-                : 'bg-amber-50 border-amber-200 text-amber-900'
-            }`}
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+            className={`flex items-start gap-2 ${panel(notice.kind === 'error' ? 'warning' : 'caution')}`}
           >
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
             <span>{notice.text}</span>
           </div>
         )}
 
         <label className="block space-y-1">
-          <span className="text-xs font-semibold text-gray-700">成分表示</span>
+          <span className="text-sm font-semibold text-ink">成分表示</span>
           <textarea
             value={text}
             // 写真の読み取り中は、結果で入力途中の文章を消さないよう編集を止める
@@ -208,27 +206,27 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
             maxLength={MAX_TEXT_LENGTH}
             rows={7}
             placeholder={'例）水、BG、グリセリン、ナイアシンアミド、フェノキシエタノール\n医薬部外品は「有効成分：…」「その他の成分：…」のまま貼り付けられます'}
-            className="w-full px-3 py-2 text-xs sm:text-sm bg-sand-50/60 border border-sand-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-sage-400 text-gray-800 placeholder:text-gray-400"
+            className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-ink placeholder:text-gray-500 disabled:bg-surface-container-low"
           />
         </label>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label className="block space-y-1">
-            <span className="text-xs font-semibold text-gray-700">商品名（任意）</span>
+            <span className="text-sm font-semibold text-ink">商品名（任意）</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={MAX_NAME_LENGTH}
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-sand-50/60 border border-sand-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-sage-400"
+              className="w-full h-12 px-3 text-sm bg-white border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-ink"
             />
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-semibold text-gray-700">ブランド（任意）</span>
+            <span className="text-sm font-semibold text-ink">ブランド（任意）</span>
             <input
               value={brand}
               onChange={(e) => setBrand(e.target.value)}
               maxLength={MAX_NAME_LENGTH}
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-sand-50/60 border border-sand-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-sage-400"
+              className="w-full h-12 px-3 text-sm bg-white border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-ink"
             />
           </label>
         </div>
@@ -236,11 +234,11 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         <button
           type="submit"
           disabled={!text.trim() || isReading}
-          className="w-full py-2.5 bg-sage-600 hover:bg-sage-700 disabled:opacity-40 text-white rounded-xl text-sm font-semibold shadow-xs"
+          className={`w-full ${buttonPrimary}`}
         >
           分析する
         </button>
       </form>
-    </div>
+    </ModalDialog>
   );
 };

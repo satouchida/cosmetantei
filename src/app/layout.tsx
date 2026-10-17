@@ -1,5 +1,18 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
+import { Noto_Sans_JP } from 'next/font/google';
 import './globals.css';
+
+// デザインシステムの書体。日本語の字形はページで使う分だけ読み込まれるため、先読みはしない
+const notoSansJp = Noto_Sans_JP({
+  subsets: ['latin'],
+  variable: '--font-noto-sans-jp',
+  display: 'swap',
+  preload: false,
+});
+
+export const viewport: Viewport = {
+  themeColor: '#006a4e',
+};
 
 export const metadata: Metadata = {
   title: 'コスメ探偵 (CosmeTantei) - 敏感肌向け化粧品成分チェッカー＆AIスキンケア相談',
@@ -25,8 +38,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ja">
-      <body className="antialiased min-h-screen selection:bg-sage-200 selection:text-sage-900">
+    <html lang="ja" className={notoSansJp.variable}>
+      <body className="antialiased min-h-screen selection:bg-sage-200 selection:text-sage-950">
         {children}
       </body>
     </html>

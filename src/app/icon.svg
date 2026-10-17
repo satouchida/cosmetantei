@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Soft background squircle gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f5faf7"/>
+    </linearGradient>
+
+    <!-- Emerald Teal for Magnifying Glass -->
+    <linearGradient id="glassGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#007a5a"/>
+      <stop offset="100%" stop-color="#005a3f"/>
+    </linearGradient>
+
+    <!-- Fresh Botanical Leaf Gradient -->
+    <linearGradient id="leafGrad" x1="10%" y1="90%" x2="90%" y2="10%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="50%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+
+    <!-- Clean Skincare Water Droplet Gradient -->
+    <linearGradient id="dropletGrad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#a7f3d0"/>
+      <stop offset="50%" stop-color="#5eead4"/>
+      <stop offset="100%" stop-color="#2dd4bf"/>
+    </linearGradient>
+
+    <!-- Subtle drop shadow for depth -->
+    <filter id="subtleShadow" x="-10%" y="-10%" width="125%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#006a4e" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle App Icon Container -->
+  <rect width="496" height="496" x="8" y="8" rx="112" ry="112" fill="url(#bgGrad)" stroke="#e1eee6" stroke-width="2"/>
+
+  <!-- Icon Symbol Group with Shadow -->
+  <g filter="url(#subtleShadow)">
+    <!-- Magnifying Glass Handle (extending to bottom-left) -->
+    <line x1="192" y1="288" x2="128" y2="352" stroke="url(#glassGrad)" stroke-width="34" stroke-linecap="round"/>
+    <!-- Handle Connector Ring / Accent -->
+    <circle cx="188" cy="292" r="14" fill="#007a5a"/>
+
+    <!-- Magnifying Glass Lens Outer Rim & Inner Tint -->
+    <circle cx="260" cy="220" r="100" fill="#f0faf4" stroke="url(#glassGrad)" stroke-width="26"/>
+
+    <!-- Gentle Skincare Water Droplet inside the Lens -->
+    <!-- Teardrop shape tilted harmoniously -->
+    <path d="M 252 148 C 252 148 210 200 210 232 A 42 42 0 0 0 294 232 C 294 200 252 148 252 148 Z" 
+          fill="url(#dropletGrad)"/>
+    
+    <!-- Droplet Moisture Specular Highlights -->
+    <path d="M 228 222 C 226 205 236 182 248 170" 
+          fill="none" 
+          stroke="#ffffff" 
+          stroke-width="7" 
+          stroke-linecap="round" 
+          opacity="0.88"/>
+    <circle cx="233" cy="242" r="4.5" fill="#ffffff" opacity="0.75"/>
+
+    <!-- Botanical Leaf (wrapping gracefully across bottom-right of lens) -->
+    <!-- Leaf Body -->
+    <path d="M 218 308 C 265 336 332 330 376 288 C 402 262 408 214 394 162 C 354 185 308 230 286 272 C 262 298 236 304 218 308 Z" 
+          fill="url(#leafGrad)"/>
+
+    <!-- Dynamic Leaf Swirl Accent under the lens -->
+    <path d="M 186 284 C 210 316 260 338 308 326" 
+          fill="none" 
+          stroke="#007a5a" 
+          stroke-width="12" 
+          stroke-linecap="round"/>
+
+    <!-- Leaf Center Vein / Clean White Ridge -->
+    <path d="M 230 306 C 280 292 334 246 394 162" 
+          fill="none" 
+          stroke="#ffffff" 
+          stroke-width="6.5" 
+          stroke-linecap="round" 
+          opacity="0.92"/>
+
+    <!-- Secondary subtle leaf veinlet -->
+    <path d="M 302 268 C 322 272 344 266 360 254" 
+          fill="none" 
+          stroke="#ffffff" 
+          stroke-width="4" 
+          stroke-linecap="round" 
+          opacity="0.75"/>
+  </g>
+</svg>

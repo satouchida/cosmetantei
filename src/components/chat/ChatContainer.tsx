@@ -21,9 +21,10 @@ import {
   User,
   Menu,
   CheckCircle2,
-  Search,
   FileText,
   CalendarClock,
+  ScanBarcode,
+  ClipboardList,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
@@ -52,6 +53,9 @@ function messageMeta(prefix: string): { id: string; timestamp: number } {
   const timestamp = currentTime();
   return { id: `${prefix}-${timestamp}-${messageSequence}`, timestamp };
 }
+
+/** Tailwind の lg（64rem）未満。rem で書き、ブラウザの文字サイズ設定が違っても CSS のブレークポイントと一致させる */
+const MOBILE_QUERY = '(max-width: 63.999rem)';
 
 export const ChatContainer: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -179,6 +183,18 @@ export const ChatContainer: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const priceLookupRef = useRef(false);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  // スマホの幅（Tailwind の lg = 64rem 未満）か。引き出しをモーダルとして扱うかどうかに使う
+  const isMobileViewport = useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia(MOBILE_QUERY);
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    },
+    () => window.matchMedia(MOBILE_QUERY).matches,
+    () => false
+  );
+  const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -187,6 +203,25 @@ export const ChatContainer: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  // スマホのルーティン引き出し：開いたら閉じるボタンにフォーカスし、Escape で閉じてメニューボタンに戻す
+  const isDrawerModal = isSidebarOpen && isMobileViewport;
+  // 閉じたらメニューボタンにフォーカスを戻す。ヘッダーの inert が外れて（再描画されて）からでないと移せない
+  const closeSidebar = () => {
+    setIsSidebarOpen(false);
+    requestAnimationFrame(() => menuButtonRef.current?.focus());
+  };
+  useEffect(() => {
+    if (!isDrawerModal) return;
+    drawerCloseRef.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      closeSidebar();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isDrawerModal]);
+
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -784,68 +819,85 @@ export const ChatContainer: React.FC = () => {
     showToast('テストデータを読み込みました！「差分分析」を実行できます');
   };
 
+  const routineCount = routine.badProducts.length + routine.safeProducts.length + currentUse.length;
+
   return (
-    <div className="flex flex-col h-screen bg-sand-50/40 text-gray-800 font-sans">
-      {/* Toast Notification */}
+    <div className="flex flex-col h-dvh bg-surface text-ink font-sans">
+      {/* Snackbar（Material 3：画面下、入力欄の上） */}
+      {/* 読み上げ用のライブリージョンは常に置いておく（中身ごと追加すると読み上げられないことがある） */}
+      <div role="status" className="sr-only">
+        {toastMessage}
+      </div>
       {toastMessage && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-gray-900/90 text-white px-4 py-2 rounded-xl text-xs sm:text-sm shadow-xl flex items-center gap-2 animate-fade-in border border-white/10">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div
+          aria-hidden
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] w-max max-w-[calc(100%-2rem)] bg-[#2c322f] text-[#ecf2ed] px-4 py-3 rounded-lg text-sm shadow-lg flex items-center gap-2 animate-fade-in"
+        >
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-300" aria-hidden />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Top Navbar */}
-      <header className="bg-white border-b border-sand-200 px-4 sm:px-6 py-3 flex items-center justify-between shadow-2xs z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-linear-to-tr from-sage-600 via-emerald-600 to-amber-500 text-white flex items-center justify-center shadow-xs">
-            <Search className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold text-gray-900 text-base tracking-tight">コスメ探偵</h1>
-              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full border border-amber-200">
-                CosmeTantei
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-500 hidden sm:block">
+      {/* Top App Bar */}
+      <header inert={isDrawerModal} className="h-14 shrink-0 bg-white border-b border-sand-200 pl-3 pr-1 sm:px-4 flex items-center justify-between gap-2 z-10">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 小さな SVG のロゴ。画像最適化は不要 */}
+          <img src="/icon.svg" alt="" width={36} height={36} className="w-9 h-9 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="font-bold text-ink text-lg leading-tight tracking-tight truncate">コスメ探偵</h1>
+            <p className="text-xs text-ink-muted hidden md:block truncate">
               敏感肌の肌荒れ原因成分を特定・あぶり出すAIスキンケア相談
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={() => setIsScannerOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-sage-50 hover:bg-sage-100 text-sage-800 border border-sage-300 rounded-xl text-xs font-semibold transition-colors"
+            aria-label="バーコード読取"
+            className="min-h-12 min-w-12 flex items-center justify-center gap-2 sm:px-4 rounded-full text-ink hover:bg-surface-container sm:border sm:border-sage-600 sm:text-sage-700 sm:hover:bg-sage-50 text-sm font-semibold transition-colors"
           >
-            <Camera className="w-3.5 h-3.5 text-sage-700" />
+            <ScanBarcode className="w-6 h-6 sm:w-5 sm:h-5" aria-hidden />
             <span className="hidden sm:inline">バーコード読取</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsLabelInputOpen(true)}
+            aria-label="成分表示を入力"
             title="パッケージの成分表示を入力・撮影"
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-sand-50 text-gray-700 border border-sand-300 rounded-xl text-xs font-semibold transition-colors"
+            className="min-h-12 min-w-12 flex items-center justify-center gap-2 sm:px-4 rounded-full text-ink hover:bg-surface-container sm:border sm:border-sand-300 text-sm font-semibold transition-colors"
           >
-            <FileText className="w-3.5 h-3.5 text-sage-700" />
+            <FileText className="w-6 h-6 sm:w-5 sm:h-5" aria-hidden />
             <span className="hidden sm:inline">成分表示を入力</span>
           </button>
 
           <button
+            ref={menuButtonRef}
             type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            aria-expanded={isSidebarOpen}
+            aria-controls="routine-drawer"
             aria-label={
-              staleIds.size > 0
+              isSidebarOpen
+                ? 'マイルーティンを閉じる'
+                : staleIds.size > 0
                 ? `マイルーティンを開く（${STALE_AFTER_MONTHS}か月以上前に追加したコスメが${staleIds.size}点あります）`
                 : 'マイルーティンを開く'
             }
-            className="lg:hidden p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-sand-100 relative"
+            className="lg:hidden min-h-12 min-w-12 flex items-center justify-center text-ink rounded-full hover:bg-surface-container relative"
           >
-            <Menu className="w-5 h-5" />
-            {(routine.badProducts.length > 0 || routine.safeProducts.length > 0 || staleIds.size > 0) && (
-              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full" />
+            <Menu className="w-6 h-6" aria-hidden />
+            {routineCount > 0 && (
+              <span
+                aria-hidden
+                className={`absolute top-1.5 right-1.5 min-w-5 h-5 px-1 rounded-full text-xs font-semibold text-white flex items-center justify-center ${
+                  staleIds.size > 0 ? 'bg-orange-700' : 'bg-rose-600'
+                }`}
+              >
+                {routineCount}
+              </span>
             )}
           </button>
         </div>
@@ -854,14 +906,37 @@ export const ChatContainer: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Stream Section */}
-        <main className="flex-1 flex flex-col min-w-0 bg-white">
+        <main inert={isDrawerModal} className="flex-1 flex flex-col min-w-0 bg-surface">
+          {/* スマホ：登録状況とカルテ（ルーティン引き出し）を開くボタン */}
+          <div className="lg:hidden px-3 pt-3">
+            <div className="max-w-[720px] mx-auto bg-white rounded-xl border border-sand-200 shadow-xs pl-3 pr-1 py-1 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-tint-safe text-emerald-700 flex items-center justify-center shrink-0">
+                  <ClipboardList className="w-[18px] h-[18px]" aria-hidden />
+                </div>
+                <p className="text-xs text-ink-muted truncate">
+                  肌荒れ {routine.badProducts.length}点 / 安全 {routine.safeProducts.length}点 / 使用中 {currentUse.length}点
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                aria-controls="routine-drawer"
+                aria-expanded={isSidebarOpen}
+                className="min-h-12 px-3 rounded-lg text-sage-700 hover:bg-surface-container text-sm font-semibold flex items-center gap-1 shrink-0"
+              >
+                カルテを開く
+              </button>
+            </div>
+          </div>
+
           {/* 3か月以上前に追加した「今使っているコスメ」の確認（今も使っている・削除で消える） */}
           {staleEntries.length > 0 && (
             <div
               role="status"
-              className="px-4 sm:px-6 py-2.5 bg-orange-50 border-b border-orange-200 text-xs text-orange-900 flex items-start gap-2"
+              className="mx-3 sm:mx-6 mt-3 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex items-center gap-2"
             >
-              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600 mt-0.5" />
+              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" />
               <p className="flex-1 min-w-0 break-words">
                 「今使っているコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加したものがあります（
                 {staleEntries.slice(0, 3).map((e) => e.product.name).join('、')}
@@ -871,7 +946,7 @@ export const ChatContainer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
-                className="lg:hidden shrink-0 px-2 py-0.5 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg font-semibold"
+                className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg text-sm font-semibold"
               >
                 確認する
               </button>
@@ -879,23 +954,32 @@ export const ChatContainer: React.FC = () => {
           )}
 
           {/* Messages Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+          <div className="flex-1 overflow-y-auto px-3 py-4 sm:p-6 space-y-4">
             {messages.map((msg) => (
               <div
                 key={msg.id}
                 className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {msg.role === 'assistant' && (
-                  <div className="w-8 h-8 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                    <Bot className="w-[18px] h-[18px]" aria-hidden />
                   </div>
                 )}
 
                 <div
-                  className={`max-w-[85%] sm:max-w-[75%] rounded-2xl p-4 text-xs sm:text-sm leading-relaxed shadow-2xs ${
+                  className={`${
+                    // 結果のカードを含む返信は幅いっぱいに使う（スマホでカードが細くならないように）
+                    msg.productSuggestions ||
+                    msg.singleAnalysis ||
+                    msg.differentialAnalysis ||
+                    msg.currentUseCheck ||
+                    msg.priceResult
+                      ? 'min-w-0 flex-1 max-w-[720px]'
+                      : 'max-w-[88%] sm:max-w-[75%]'
+                  } rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-xs ${
                     msg.role === 'user'
-                      ? 'bg-sage-600 text-white rounded-tr-xs'
-                      : 'bg-sand-50/90 text-gray-800 rounded-tl-xs border border-sand-200'
+                      ? 'bg-primary text-on-primary rounded-tr-sm'
+                      : 'bg-white text-ink rounded-tl-sm border border-sand-200'
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{msg.content}</div>
@@ -933,13 +1017,13 @@ export const ChatContainer: React.FC = () => {
 
                   {/* Quick Replies */}
                   {msg.quickReplies && msg.quickReplies.length > 0 && (
-                    <div className="mt-3 pt-2.5 border-t border-sand-200/60 flex flex-wrap gap-1.5">
+                    <div className="mt-3 pt-3 border-t border-sand-200 -mx-4 px-4 pb-1 flex gap-2 overflow-x-auto sm:mx-0 sm:px-0 sm:flex-wrap">
                       {msg.quickReplies.map((qr, i) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => handleQuickReply(qr, msg)}
-                          className="text-[11px] bg-white hover:bg-sage-50 text-sage-800 border border-sage-200 px-2.5 py-1 rounded-full font-medium transition-colors shadow-2xs"
+                          className="shrink-0 whitespace-nowrap min-h-12 text-[13px] bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 rounded-full font-semibold transition-colors"
                         >
                           {qr}
                         </button>
@@ -949,23 +1033,23 @@ export const ChatContainer: React.FC = () => {
                 </div>
 
                 {msg.role === 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-sand-200 text-gray-600 flex items-center justify-center shrink-0 mt-0.5">
-                    <User className="w-4 h-4" />
+                  <div className="w-8 h-8 rounded-full bg-surface-container-high text-ink-muted flex items-center justify-center shrink-0 mt-0.5">
+                    <User className="w-[18px] h-[18px]" aria-hidden />
                   </div>
                 )}
               </div>
             ))}
 
             {isLoading && (
-              <div className="flex gap-3 items-center text-xs text-gray-400 italic">
-                <div className="w-8 h-8 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center shrink-0 animate-pulse">
-                  <Bot className="w-4 h-4" />
+              <div className="flex gap-3 items-center text-sm text-ink-muted">
+                <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 animate-pulse">
+                  <Bot className="w-[18px] h-[18px]" aria-hidden />
                 </div>
-                <div className="flex items-center gap-1.5 bg-sand-50 p-3 rounded-2xl border border-sand-200">
+                <div className="flex items-center gap-1.5 bg-white px-4 py-3 rounded-2xl rounded-tl-sm border border-sand-200 shadow-xs">
                   <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce" />
                   <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce [animation-delay:0.2s]" />
                   <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-                  <span className="ml-1 text-gray-500 font-medium">成分データベースを解析中...</span>
+                  <span className="ml-1 font-medium">成分データベースを解析中...</span>
                 </div>
               </div>
             )}
@@ -974,8 +1058,8 @@ export const ChatContainer: React.FC = () => {
           </div>
 
           {/* Input Form Bar */}
-          <div className="p-3 sm:p-4 bg-white border-t border-sand-200">
-            <div className="max-w-4xl mx-auto">
+          <div className="px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 bg-surface">
+            <div className="max-w-[720px] mx-auto">
               <LiveSearchCandidateTray
                 query={input}
                 candidates={trayCandidates}
@@ -1009,15 +1093,16 @@ export const ChatContainer: React.FC = () => {
                   e.preventDefault();
                   handleSendMessage();
                 }}
-                className="flex items-center gap-2"
+                className="min-h-[52px] p-0.5 flex items-center gap-1 bg-white border-[1.5px] border-outline rounded-full shadow-sm focus-within:border-primary focus-within:outline focus-within:outline-1 focus-within:outline-primary"
               >
                 <button
                   type="button"
                   onClick={() => setIsScannerOpen(true)}
+                  aria-label="バーコードをカメラでスキャン"
                   title="バーコードをカメラでスキャン"
-                  className="p-2.5 text-sage-700 bg-sage-50 hover:bg-sage-100 rounded-xl border border-sage-200 transition-colors shrink-0"
+                  className="w-12 h-12 flex items-center justify-center text-sage-700 bg-surface-container-low hover:bg-surface-container-high rounded-full transition-colors shrink-0"
                 >
-                  <Camera className="w-5 h-5" />
+                  <Camera className="w-6 h-6" aria-hidden />
                 </button>
 
                 <input
@@ -1033,61 +1118,62 @@ export const ChatContainer: React.FC = () => {
                       setLiveCandidates([]);
                     }
                   }}
+                  aria-label="コスメ名を入力"
                   placeholder="コスメ名を入力 (例: ちふれ リップ, キュレル泡洗顔, アヌア, メラノCC...)"
-                  className="flex-1 px-4 py-2.5 text-xs sm:text-sm bg-sand-50/60 border border-sand-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-sage-400 text-gray-800 placeholder:text-gray-400"
+                  className="flex-1 min-w-0 h-12 px-2 text-sm bg-transparent focus:outline-hidden text-ink placeholder:text-gray-500 truncate"
                 />
 
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading}
-                  className="p-2.5 bg-sage-600 hover:bg-sage-700 disabled:opacity-40 text-white rounded-xl transition-colors shadow-xs shrink-0"
+                  aria-label="送信"
+                  className="w-12 h-12 flex items-center justify-center bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed text-on-primary rounded-full transition-colors shrink-0"
                 >
-                  <Send className="w-5 h-5" />
+                  <Send className="w-5 h-5" aria-hidden />
                 </button>
               </form>
             </div>
           </div>
         </main>
 
-        {/* Routine Sidebar */}
+        {/* スマホ：モーダルの引き出し（不透明な面 + 40% のスクリム）。デスクトップ：右の固定サイドバー */}
+        {isSidebarOpen && (
+          <div aria-hidden className="fixed inset-0 z-40 bg-gray-900/40 lg:hidden" onClick={closeSidebar} />
+        )}
         <div
-          className={`fixed lg:static inset-0 z-40 lg:z-auto transition-transform ${
-            isSidebarOpen ? 'translate-x-0' : 'max-lg:translate-x-full'
+          id="routine-drawer"
+          role={isDrawerModal ? 'dialog' : undefined}
+          aria-modal={isDrawerModal || undefined}
+          aria-labelledby={isDrawerModal ? 'routine-drawer-title' : undefined}
+          // 開くときは即座に表示（閉じるボタンにフォーカスできるように）、閉じるときはスライドし終えてから隠す
+          className={`fixed inset-y-0 right-0 z-50 w-full max-w-[420px] shadow-2xl duration-300 lg:static lg:z-auto lg:w-80 lg:max-w-none lg:shadow-none lg:translate-x-0 lg:visible motion-reduce:transition-none ${
+            isSidebarOpen ? 'translate-x-0 transition-[translate]' : 'translate-x-full invisible transition-[translate,visibility]'
           }`}
         >
-          <div className="h-full relative flex">
-            {/* Backdrop for mobile */}
-            {isSidebarOpen && (
-              <div
-                className="fixed inset-0 bg-black/40 lg:hidden"
-                onClick={() => setIsSidebarOpen(false)}
-              />
-            )}
-            <div className="relative z-10 w-full lg:w-80 h-full">
-              <RoutineSidebar
-                routine={routine}
-                currentUse={currentUse}
-                staleIds={staleIds}
-                onRemoveBad={handleRemoveBad}
-                onRemoveSafe={handleRemoveSafe}
-                onRemoveCurrent={handleRemoveCurrent}
-                onConfirmCurrent={handleConfirmCurrent}
-                onCheckCurrentUse={() => {
-                  setIsSidebarOpen(false);
-                  handleCheckCurrentUse();
-                }}
-                onRunDifferential={() => {
-                  setIsSidebarOpen(false);
-                  handleRunDifferential();
-                }}
-                onOpenScanner={() => {
-                  setIsSidebarOpen(false);
-                  setIsScannerOpen(true);
-                }}
-                onLoadPreset={handleLoadPreset}
-              />
-            </div>
-          </div>
+          <RoutineSidebar
+            routine={routine}
+            onClose={closeSidebar}
+            closeButtonRef={drawerCloseRef}
+            currentUse={currentUse}
+            staleIds={staleIds}
+            onRemoveBad={handleRemoveBad}
+            onRemoveSafe={handleRemoveSafe}
+            onRemoveCurrent={handleRemoveCurrent}
+            onConfirmCurrent={handleConfirmCurrent}
+            onCheckCurrentUse={() => {
+              closeSidebar();
+              handleCheckCurrentUse();
+            }}
+            onRunDifferential={() => {
+              closeSidebar();
+              handleRunDifferential();
+            }}
+            onOpenScanner={() => {
+              setIsSidebarOpen(false);
+              setIsScannerOpen(true);
+            }}
+            onLoadPreset={handleLoadPreset}
+          />
         </div>
       </div>
 

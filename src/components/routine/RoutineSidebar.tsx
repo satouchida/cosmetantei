@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { type RefObject } from 'react';
 import { UserRoutineState } from '@/lib/types';
 import { CurrentUseEntry, isPersistable, STALE_AFTER_MONTHS } from '@/lib/current-use';
-import { AlertTriangle, ShieldCheck, Trash2, Sparkles, RefreshCw, Barcode, Layers, CalendarClock } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Trash2, Sparkles, RefreshCw, Barcode, Layers, CalendarClock, ClipboardList, X } from 'lucide-react';
+import type { Product } from '@/lib/types';
 
 interface RoutineSidebarProps {
   routine: UserRoutineState;
@@ -20,6 +21,9 @@ interface RoutineSidebarProps {
   onRunDifferential: () => void;
   onOpenScanner: () => void;
   onLoadPreset: (presetType: 'sample_irritation' | 'clear') => void;
+  /** スマホの引き出しを閉じる（デスクトップでは閉じるボタンを出さない） */
+  onClose: () => void;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
 }
 
 export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
@@ -34,43 +38,62 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
   onRunDifferential,
   onOpenScanner,
   onLoadPreset,
+  onClose,
+  closeButtonRef,
 }) => {
   const { badProducts, safeProducts } = routine;
 
   return (
-    <aside className="w-full lg:w-80 bg-sand-50/70 border-b lg:border-b-0 lg:border-l border-sand-200 p-4 sm:p-5 flex flex-col justify-between overflow-y-auto max-h-[85vh] lg:max-h-none">
-      <div className="space-y-5">
-        {/* Header */}
-        <div>
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-gray-900 text-sm flex items-center gap-1.5">
-              <span>🧴 マイルーティン管理</span>
-            </h3>
-            <button
-              type="button"
-              onClick={() => onLoadPreset('clear')}
-              title="肌荒れしたコスメ・安全なコスメのリストを空にする（今使っているコスメはそのまま）"
-              className="text-[11px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>クリア</span>
-            </button>
+    <aside
+      aria-labelledby="routine-drawer-title"
+      className="h-full w-full bg-white lg:border-l border-sand-200 flex flex-col"
+    >
+      {/* Header（Material 3 の引き出し：56px、タイトル・クリア・閉じる） */}
+      <div className="min-h-14 shrink-0 pl-4 pr-1 border-b border-sand-200 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <ClipboardList className="w-[22px] h-[22px] shrink-0 text-primary" aria-hidden />
+          <div className="min-w-0">
+            <h2 id="routine-drawer-title" className="font-semibold text-ink text-lg leading-tight truncate">
+              マイルーティン管理
+            </h2>
+            <p className="text-xs text-ink-muted truncate">コスメを登録して刺激成分を比較・あぶり出し</p>
           </div>
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            コスメを登録して刺激成分を比較・あぶり出し
-          </p>
         </div>
+        <div className="flex items-center shrink-0">
+          <button
+            type="button"
+            onClick={() => onLoadPreset('clear')}
+            title="肌荒れしたコスメ・安全なコスメのリストを空にする（今使っているコスメはそのまま）"
+            className="min-h-12 px-3 rounded-lg text-sm font-semibold text-ink-muted hover:text-rose-700 hover:bg-tint-warning flex items-center gap-1 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" aria-hidden />
+            <span>クリア</span>
+          </button>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="マイルーティン管理を閉じる"
+            className="lg:hidden w-12 h-12 flex items-center justify-center rounded-full text-ink hover:bg-surface-container transition-colors"
+          >
+            <X className="w-6 h-6" aria-hidden />
+          </button>
+        </div>
+      </div>
 
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* 今使っているコスメ（組み合わせチェック） */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-sky-800">
-            <Layers className="w-3.5 h-3.5 text-sky-600" />
-            <span>今使っているコスメ ({currentUse.length})</span>
-          </div>
+        <section className="space-y-2">
+          <SectionHeading
+            icon={<Layers className="w-4 h-4 text-sky-700" aria-hidden />}
+            title="今使っているコスメ"
+            count={currentUse.length}
+            countClassName="bg-sky-50 text-sky-800"
+          />
 
           {staleIds.size > 0 && (
-            <div role="status" className="p-2.5 bg-orange-50 rounded-xl border border-orange-200 text-[11px] text-orange-900 flex gap-1.5">
-              <CalendarClock className="w-3.5 h-3.5 shrink-0 text-orange-600 mt-0.5" />
+            <div role="status" className="p-3 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex gap-1.5">
+              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" aria-hidden />
               <span>
                 {STALE_AFTER_MONTHS}か月以上前に追加したコスメがあります。今も使っているか確かめて、使っていないものは削除してください。
               </span>
@@ -78,49 +101,42 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           )}
 
           {currentUse.length === 0 ? (
-            <div className="p-3 bg-white rounded-xl border border-dashed border-sand-300 text-center text-xs text-gray-400">
+            <EmptyState>
               毎日使っているコスメを「今使っている」で追加すると、一緒に使うときに注意したい組み合わせを調べられます
-            </div>
+            </EmptyState>
           ) : (
-            <div className="space-y-1.5">
+            <ul className="space-y-2">
               {currentUse.map(({ product: p, addedAt }) => {
                 const stale = staleIds.has(p.id);
                 return (
-                  <div
-                    key={p.id}
-                    className={`bg-white p-2.5 rounded-xl border shadow-2xs space-y-1.5 ${stale ? 'border-orange-300' : 'border-sky-200/80'}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[10px] font-bold text-sky-700 truncate">{p.brand}</div>
-                        <div className="text-xs font-semibold text-gray-800 truncate">{p.name}</div>
-                        <div className={`text-[10px] ${stale ? 'text-orange-700 font-semibold' : 'text-gray-400'}`}>
+                  <li key={p.id}>
+                    <ProductRow
+                      product={p}
+                      accentClassName={stale ? 'border-l-orange-600' : 'border-l-sky-600'}
+                      brandClassName="text-sky-800"
+                      onRemove={() => onRemoveCurrent(p.id)}
+                      removeLabel={`「${p.name}」を今使っているコスメから削除`}
+                      note={
+                        <p className={`text-xs ${stale ? 'text-orange-800 font-semibold' : 'text-ink-muted'}`}>
                           {formatAddedDate(addedAt)}に追加{stale && `（${STALE_AFTER_MONTHS}か月以上前）`}
                           {!isPersistable(p) && '・入力した成分表示は保存しません'}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onRemoveCurrent(p.id)}
-                        aria-label={`「${p.name}」を今使っているコスメから削除`}
-                        className="text-gray-300 hover:text-rose-600 p-1 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    {stale && (
-                      <button
-                        type="button"
-                        onClick={() => onConfirmCurrent(p.id)}
-                        className="w-full py-1 px-2 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 rounded-lg text-[11px] font-medium transition-colors"
-                      >
-                        今も使っている
-                      </button>
-                    )}
-                  </div>
+                        </p>
+                      }
+                    >
+                      {stale && (
+                        <button
+                          type="button"
+                          onClick={() => onConfirmCurrent(p.id)}
+                          className="mt-2 w-full min-h-12 px-3 bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-200 rounded-xl text-sm font-semibold transition-colors"
+                        >
+                          今も使っている
+                        </button>
+                      )}
+                    </ProductRow>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
 
           {currentUse.length > 0 && (
@@ -129,129 +145,189 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                 type="button"
                 onClick={onCheckCurrentUse}
                 disabled={currentUse.length < 2}
-                className="w-full py-2 px-3 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-2 transition-colors"
+                className="w-full min-h-12 px-5 border-[1.5px] border-primary text-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors"
               >
-                <Layers className="w-4 h-4" />
+                <Layers className="w-5 h-5" aria-hidden />
                 <span>組み合わせをチェック</span>
               </button>
-              <p className="text-[10px] text-gray-400">
+              <p className="text-xs text-ink-muted">
                 {currentUse.length < 2 && '2点以上追加すると調べられます。'}
                 このリストはこの端末のブラウザにだけ保存されます。
               </p>
             </>
           )}
-        </div>
+        </section>
 
         {/* 🚨 Bad Products Section */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700">
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
-              <span>肌荒れしたコスメ ({badProducts.length})</span>
-            </div>
-          </div>
+        <section className="space-y-2">
+          <SectionHeading
+            icon={<AlertTriangle className="w-4 h-4 text-rose-600" aria-hidden />}
+            title="肌荒れしたコスメ"
+            count={badProducts.length}
+            countClassName="bg-tint-warning text-rose-700"
+          />
 
           {badProducts.length === 0 ? (
-            <div className="p-3 bg-white rounded-xl border border-dashed border-sand-300 text-center text-xs text-gray-400">
-              チャットでコスメを検索、またはバーコードをスキャンして追加
-            </div>
+            <EmptyState>チャットでコスメを検索、またはバーコードをスキャンして追加</EmptyState>
           ) : (
-            <div className="space-y-1.5">
+            <ul className="space-y-2">
               {badProducts.map((p) => (
-                <div
-                  key={p.id}
-                  className="bg-white p-2.5 rounded-xl border border-rose-200/80 shadow-2xs flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold text-rose-600 truncate">{p.brand}</div>
-                    <div className="text-xs font-semibold text-gray-800 truncate">{p.name}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveBad(p.id)}
-                    className="text-gray-300 hover:text-rose-600 p-1 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <li key={p.id}>
+                  <ProductRow
+                    product={p}
+                    accentClassName="border-l-rose-600"
+                    brandClassName="text-rose-700"
+                    onRemove={() => onRemoveBad(p.id)}
+                    removeLabel={`「${p.name}」を肌荒れしたコスメから削除`}
+                  />
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-        </div>
+        </section>
 
         {/* ✅ Safe Products Section */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>安全に使えているコスメ ({safeProducts.length})</span>
-            </div>
-          </div>
+        <section className="space-y-2">
+          <SectionHeading
+            icon={<ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden />}
+            title="安全に使えているコスメ"
+            count={safeProducts.length}
+            countClassName="bg-tint-safe text-emerald-800"
+          />
 
           {safeProducts.length === 0 ? (
-            <div className="p-3 bg-white rounded-xl border border-dashed border-sand-300 text-center text-xs text-gray-400">
-              普段問題なく使えているコスメを追加すると、除外照合で原因特定が高精度になります
-            </div>
+            <EmptyState>普段問題なく使えているコスメを追加すると、除外照合で原因特定が高精度になります</EmptyState>
           ) : (
-            <div className="space-y-1.5">
+            <ul className="space-y-2">
               {safeProducts.map((p) => (
-                <div
-                  key={p.id}
-                  className="bg-white p-2.5 rounded-xl border border-emerald-200/80 shadow-2xs flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold text-emerald-600 truncate">{p.brand}</div>
-                    <div className="text-xs font-semibold text-gray-800 truncate">{p.name}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onRemoveSafe(p.id)}
-                    className="text-gray-300 hover:text-rose-600 p-1 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <li key={p.id}>
+                  <ProductRow
+                    product={p}
+                    accentClassName="border-l-emerald-600"
+                    brandClassName="text-emerald-800"
+                    onRemove={() => onRemoveSafe(p.id)}
+                    removeLabel={`「${p.name}」を安全に使えているコスメから削除`}
+                  />
+                </li>
               ))}
-            </div>
+            </ul>
           )}
-        </div>
+        </section>
 
-        {/* Differential Action Trigger */}
-        <div className="pt-2">
+        <div className="space-y-2">
           <button
             type="button"
-            onClick={onRunDifferential}
-            disabled={badProducts.length === 0}
-            className="w-full py-2.5 px-3 bg-linear-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 disabled:opacity-40 text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-2 transition-all"
+            onClick={onOpenScanner}
+            className="w-full min-h-12 px-5 bg-white hover:bg-tint-safe text-primary border-[1.5px] border-primary rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors"
           >
-            <Sparkles className="w-4 h-4" />
-            <span>⚡️ 原因成分をあぶり出す (差分分析)</span>
+            <Barcode className="w-5 h-5" aria-hidden />
+            <span>JANバーコードをスキャン</span>
           </button>
+
+          {/* 開発用：本番のビルドには出さない */}
+          {process.env.NODE_ENV !== 'production' && (
+            <button
+              type="button"
+              onClick={() => onLoadPreset('sample_irritation')}
+              className="w-full min-h-12 px-3 bg-surface-container-low hover:bg-surface-container text-ink-muted rounded-xl text-sm font-medium transition-colors text-center"
+            >
+              🧪 テスト用比較データを自動セット（開発用）
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Bottom Presets */}
-      <div className="mt-6 pt-4 border-t border-sand-200 space-y-2">
+      {/* Differential Action Trigger（画面下に固定） */}
+      <div className="shrink-0 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-sand-200 bg-white space-y-1.5">
         <button
           type="button"
-          onClick={onOpenScanner}
-          className="w-full py-2 px-3 bg-white hover:bg-sage-50 text-sage-800 border border-sand-300 rounded-xl text-xs font-medium flex items-center justify-center gap-2 transition-colors"
+          onClick={onRunDifferential}
+          disabled={badProducts.length === 0}
+          className="w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors"
         >
-          <Barcode className="w-4 h-4 text-sage-600" />
-          <span>JANバーコードをスキャン</span>
+          <Sparkles className="w-5 h-5" aria-hidden />
+          <span>原因成分をあぶり出す (差分分析)</span>
         </button>
-
-        <button
-          type="button"
-          onClick={() => onLoadPreset('sample_irritation')}
-          className="w-full py-1.5 px-2 bg-sand-100/70 hover:bg-sand-200/70 text-gray-600 rounded-lg text-[11px] font-medium transition-colors text-center"
-        >
-          🧪 テスト用比較データを自動セット
-        </button>
+        <p className="text-xs text-ink-muted text-center">
+          {badProducts.length === 0
+            ? '肌荒れしたコスメを1点以上登録すると実行できます'
+            : `登録した${badProducts.length + safeProducts.length}点のコスメから共通点・除外成分を解析します`}
+        </p>
       </div>
     </aside>
   );
 };
+
+function SectionHeading({
+  icon,
+  title,
+  count,
+  countClassName,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  count: number;
+  countClassName: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
+        {icon}
+        <span>{title}</span>
+      </h3>
+      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${countClassName}`}>{count}点</span>
+    </div>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="p-3 bg-surface rounded-xl border border-dashed border-sand-300 text-center text-sm text-ink-muted">
+      {children}
+    </p>
+  );
+}
+
+function ProductRow({
+  product,
+  accentClassName,
+  brandClassName,
+  onRemove,
+  removeLabel,
+  note,
+  children,
+}: {
+  product: Product;
+  accentClassName: string;
+  brandClassName: string;
+  onRemove: () => void;
+  removeLabel: string;
+  note?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={`bg-white pl-3 pr-1 py-2 rounded-xl border border-sand-200 border-l-[3px] shadow-xs ${accentClassName}`}>
+      <div className="flex items-start justify-between gap-1">
+        <div className="min-w-0 flex-1 py-1">
+          <div className={`text-xs font-semibold truncate ${brandClassName}`}>{product.brand}</div>
+          <div className="text-sm font-semibold text-ink break-keep [overflow-wrap:anywhere] line-clamp-2">
+            {product.name}
+          </div>
+          {note}
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={removeLabel}
+          className="w-12 h-12 shrink-0 flex items-center justify-center rounded-full text-gray-500 hover:text-rose-700 hover:bg-tint-warning transition-colors"
+        >
+          <Trash2 className="w-5 h-5" aria-hidden />
+        </button>
+      </div>
+      {children && <div className="pr-2">{children}</div>}
+    </div>
+  );
+}
 
 /** 追加した日（例：2026年7月14日） */
 function formatAddedDate(ms: number): string {

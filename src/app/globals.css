@@ -1,24 +1,46 @@
 @import "tailwindcss";
 
-/* テーマ（Tailwind v3 の tailwind.config.js から移行） */
+/*
+  テーマ：Stitch プロジェクト「cosmetantei」のデザインシステム（Clinical Mint & Botanical Care / Material 3）
+  - primary #006A4E（深いエメラルド）、安全は emerald、警告は rose（Tailwind の emerald・rose・gray がそのまま設計値）
+  - sage はブランドの緑（600 = primary）、sand は無彩色に近い面と境界線に置き換えている
+*/
 @theme {
-  --color-sage-50: #f4f7f4;
-  --color-sage-100: #e6ede6;
-  --color-sage-200: #cfddcf;
-  --color-sage-300: #abc4ab;
-  --color-sage-400: #81a581;
-  --color-sage-500: #618861;
-  --color-sage-600: #4c6e4c;
-  --color-sage-700: #3e583e;
-  --color-sage-800: #344734;
-  --color-sage-900: #2b3b2b;
+  --color-primary: #006a4e;
+  /* 押下・ホバー時の primary。Stitch の #059669 は白文字とのコントラストが 3.8:1 しかないため、より濃い緑にする */
+  --color-primary-active: #005a42;
+  --color-on-primary: #ffffff;
+  --color-ink: #1a2e26;
+  --color-ink-muted: #4b5563;
+  /* 入力欄の枠線（Material 3 の outline。白地に 4.4:1 で、部品の境界線に必要な 3:1 を満たす） */
+  --color-outline: #6f7a73;
+  --color-surface: #f8faf9;
+  --color-surface-container-low: #eff5f0;
+  --color-surface-container: #eaefea;
+  --color-surface-container-high: #e4eae5;
+  --color-tint-safe: #ecfdf5;
+  --color-tint-warning: #fff1f2;
+  --color-brand-badge: #fef3c7;
+  --color-on-brand-badge: #92400e;
 
-  --color-sand-50: #fbf9f6;
-  --color-sand-100: #f6f1eb;
-  --color-sand-200: #ede2d5;
-  --color-sand-300: #dfcdb7;
-  --color-sand-400: #ccb194;
-  --color-sand-500: #bd9a77;
+  --color-sage-50: #ecf7f2;
+  --color-sage-100: #d3ede2;
+  --color-sage-200: #a8dcc6;
+  --color-sage-300: #74c4a4;
+  --color-sage-400: #3fa680;
+  --color-sage-500: #128763;
+  --color-sage-600: #006a4e;
+  --color-sage-700: #005a42;
+  --color-sage-800: #004a37;
+  --color-sage-900: #003a2b;
+  --color-sage-950: #00261c;
+
+  --color-sand-50: #f8faf9;
+  --color-sand-100: #eff5f0;
+  --color-sand-200: #e5e7eb;
+  --color-sand-300: #d1d5db;
+  --color-sand-400: #9ca3af;
+  --color-sand-500: #6b7280;
 
   --color-blush-50: #fff5f5;
   --color-blush-100: #feebe8;
@@ -27,14 +49,14 @@
   --color-blush-400: #fa8579;
   --color-blush-500: #f15a4b;
 
-  --font-sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, sans-serif;
+  --font-sans: var(--font-noto-sans-jp), "Noto Sans JP", "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
 }
 
 /*
   Tailwind v4 で変わった既定値を v3 と同じ見た目に戻す（公式アップグレードガイドの互換スタイル）
   - 色を指定しない border は currentColor ではなく gray-200
   - ボタンのカーソルは pointer
-  - プレースホルダーの色は gray-400
+  - プレースホルダーの色は gray-500（デザインシステムのコントラスト基準 4.5:1 を満たす色）
 */
 @layer base {
   *,
@@ -52,19 +74,19 @@
 
   input::placeholder,
   textarea::placeholder {
-    color: var(--color-gray-400);
+    color: var(--color-gray-500);
+  }
+
+  /* キーボード操作のフォーカスを primary の輪郭線で示す */
+  :where(a, button, [role='button'], summary):focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
 
-:root {
-  --foreground-rgb: 33, 37, 41;
-  --background-start-rgb: 251, 249, 246;
-  --background-end-rgb: 255, 255, 255;
-}
-
 body {
-  color: rgb(var(--foreground-rgb));
-  background: rgb(var(--background-start-rgb));
+  color: var(--color-ink);
+  background: var(--color-surface);
   font-feature-settings: "palt";
   -webkit-font-smoothing: antialiased;
 }
@@ -95,10 +117,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--color-sand-300);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: var(--color-sand-400);
 }

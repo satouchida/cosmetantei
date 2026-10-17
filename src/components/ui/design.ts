@@ -1,0 +1,152 @@
+/**
+ * Stitch「cosmetantei」デザインシステム（Clinical Mint & Botanical Care / Material 3）の部品のクラス。
+ * 色の値は src/app/globals.css の @theme にある。カード・ボタン・注意書き・バッジはここの組み合わせだけを使う
+ * - タップできるものは高さ 48px 以上、文字は 12px 以上
+ * - 赤（rose）は刺激・肌荒れの警告だけに使う。緑（emerald）は安全、水色（sky）は「今使っている」
+ */
+import type { IngredientRiskLevel } from '@/lib/types';
+
+/** チャットの中の結果カード（Level 1：白い面 + 細い境界線） */
+export const card = 'bg-white rounded-2xl border border-sand-200 shadow-xs';
+
+/** カード内の小さなカード（商品・成分の 1 件） */
+export const innerCard = 'bg-white rounded-xl border border-sand-200';
+
+// 余白などはクラスを後から足して上書きしない（Tailwind はクラスの書き順でなく CSS の順で決まる）。違う大きさは別の定数にする
+const buttonBase =
+  'min-h-12 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed';
+const primaryLook =
+  'rounded-2xl bg-primary text-on-primary shadow-xs hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none';
+const secondaryLook =
+  'rounded-2xl bg-white text-primary border-[1.5px] border-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500';
+
+/** 主な操作：塗りつぶしの primary */
+export const buttonPrimary = `${buttonBase} px-5 ${primaryLook}`;
+/** 主な操作（2 つ並べるなど幅の狭いところ） */
+export const buttonPrimaryCompact = `${buttonBase} px-3 ${primaryLook}`;
+
+/** 補助の操作：primary の枠線 */
+export const buttonSecondary = `${buttonBase} px-5 ${secondaryLook}`;
+/** 補助の操作（幅の狭いところ） */
+export const buttonSecondaryCompact = `${buttonBase} px-3 ${secondaryLook}`;
+
+/** 目立たせない操作：薄い面 */
+export const buttonTonal = `${buttonBase} px-4 rounded-xl bg-surface-container-low text-ink hover:bg-surface-container disabled:text-gray-500`;
+
+/** アイコンだけのボタン（48px の円） */
+export const iconButton =
+  'w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-full text-ink hover:bg-surface-container transition-colors';
+
+/** 文中のリンク */
+export const textLink = 'underline underline-offset-2 text-sage-700 hover:text-sage-900';
+
+export type Tone = 'safe' | 'warning' | 'caution' | 'notice' | 'current' | 'neutral' | 'brand';
+
+const panelTones: Record<Tone, string> = {
+  safe: 'bg-tint-safe border-emerald-200 border-l-emerald-600 text-emerald-950',
+  warning: 'bg-tint-warning border-rose-200 border-l-rose-600 text-rose-950',
+  caution: 'bg-amber-50 border-amber-200 border-l-amber-600 text-amber-950',
+  notice: 'bg-orange-50 border-orange-200 border-l-orange-600 text-orange-950',
+  current: 'bg-sky-50 border-sky-200 border-l-sky-600 text-sky-950',
+  neutral: 'bg-surface-container-low border-sand-200 border-l-sand-400 text-ink',
+  brand: 'bg-brand-badge border-amber-200 border-l-amber-600 text-on-brand-badge',
+};
+
+/** 注意書き・結果の囲み（左に 3px の色の線）。small は補足の注意書き（12px）、roomy はカードを並べる囲み */
+export function panel(tone: Tone, size: 'regular' | 'small' | 'roomy' = 'regular'): string {
+  const sizing = size === 'small' ? 'p-3 text-xs' : size === 'roomy' ? 'p-4 text-sm' : 'p-3 text-sm';
+  return `rounded-xl border border-l-[3px] leading-relaxed ${sizing} ${panelTones[tone]}`;
+}
+
+const badgeTones: Record<Tone, string> = {
+  safe: 'bg-tint-safe text-emerald-800 border-emerald-200',
+  warning: 'bg-tint-warning text-rose-800 border-rose-200',
+  caution: 'bg-amber-50 text-amber-900 border-amber-200',
+  notice: 'bg-orange-50 text-orange-900 border-orange-200',
+  current: 'bg-sky-50 text-sky-800 border-sky-200',
+  neutral: 'bg-surface-container-low text-ink-muted border-sand-200',
+  brand: 'bg-brand-badge text-on-brand-badge border-amber-200',
+};
+
+const badgeBase = 'inline-flex items-center gap-1 shrink-0 whitespace-nowrap rounded-full border font-semibold';
+
+/** 小さなラベル（丸いバッジ）。large は結果の判定など目立たせるもの */
+export function badge(tone: Tone, size: 'regular' | 'large' = 'regular'): string {
+  const sizing = size === 'large' ? 'px-3 py-1 text-sm' : 'px-2 py-0.5 text-xs';
+  return `${badgeBase} ${sizing} ${badgeTones[tone]}`;
+}
+
+/** 成分の刺激の段階（色だけでなく文字でも示す） */
+export const RISK_SCALE: Record<IngredientRiskLevel, { label: string; badge: string; pill: string }> = {
+  high_irritant: {
+    label: '高刺激・アレルゲン',
+    badge: 'bg-tint-warning text-rose-800 border-rose-300',
+    pill: 'bg-tint-warning text-rose-900 border-rose-300 hover:bg-rose-100',
+  },
+  moderate_irritant: {
+    label: '乾燥・刺激リスク',
+    badge: 'bg-orange-50 text-orange-900 border-orange-300',
+    pill: 'bg-orange-50 text-orange-900 border-orange-300 hover:bg-orange-100',
+  },
+  active_caution: {
+    label: '高濃度アクティブ',
+    badge: 'bg-violet-50 text-violet-800 border-violet-300',
+    pill: 'bg-violet-50 text-violet-900 border-violet-300 hover:bg-violet-100',
+  },
+  low_caution: {
+    label: '軽度の注意',
+    badge: 'bg-amber-50 text-amber-900 border-amber-300',
+    pill: 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100',
+  },
+  unknown: {
+    label: '未評価',
+    badge: 'bg-white text-ink-muted border-sand-300 border-dashed',
+    pill: 'bg-white text-ink-muted border-sand-300 border-dashed hover:bg-surface-container-low',
+  },
+  safe: {
+    label: '低刺激・安心',
+    badge: 'bg-tint-safe text-emerald-800 border-emerald-300',
+    pill: 'bg-white text-ink border-sand-200 hover:bg-surface-container-low',
+  },
+};
+
+/** 段階の分からない値（AI の返した値など）は「未評価」として扱う */
+export function riskOf(level: IngredientRiskLevel | undefined) {
+  return (level && RISK_SCALE[level]) || RISK_SCALE.unknown;
+}
+
+/** 成分の刺激の段階のバッジ */
+export function riskBadge(level: IngredientRiskLevel | undefined): string {
+  return `${badgeBase} px-2 py-0.5 text-xs ${riskOf(level).badge}`;
+}
+
+/** 「肌荒れした・普段使えている・今使っている」に登録するボタン */
+export const routineAction = {
+  bad: 'bg-tint-warning hover:bg-rose-100 text-rose-800 border-rose-200',
+  safe: 'bg-tint-safe hover:bg-emerald-100 text-emerald-800 border-emerald-200',
+  current: 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200',
+} as const;
+
+/** 登録ボタン 3 つを並べるとき（アイコンの下にラベル） */
+export const routineActionCompact =
+  'flex flex-col items-center justify-center gap-0.5 min-h-12 py-1.5 px-1 whitespace-nowrap border rounded-xl text-xs font-semibold transition-colors';
+
+/** 登録ボタンを横長で並べるとき */
+export const routineActionWide =
+  'min-h-12 inline-flex items-center justify-center gap-1.5 px-3 border rounded-xl text-sm font-semibold transition-colors';
+
+/** 国のバッジ（旗と文字で示し、色は付けない） */
+export function countryLabel(country: string, long = false): string {
+  switch (country) {
+    case 'JP':
+      return long ? '🇯🇵 日本 (J-Beauty)' : '🇯🇵 日本';
+    case 'KR':
+      return long ? '🇰🇷 韓国 (K-Beauty)' : '🇰🇷 韓国';
+    case 'US':
+      return long ? '🇺🇸 アメリカ (US)' : '🇺🇸 アメリカ';
+    case 'EU':
+      return long ? '🇪🇺 欧州 (EU)' : '🇪🇺 欧州';
+    default:
+      return '🌐 コスメ';
+  }
+}

@@ -5,6 +5,7 @@ import { DifferentialAnalysisResult } from '@/lib/types';
 import { AlertCircle, CheckCircle2, Flame, ShieldAlert, Sparkles } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { PairFindingList } from './PairFindingList';
+import { card, panel, RISK_SCALE, riskBadge } from '../ui/design';
 
 interface DifferentialResultCardProps {
   result: DifferentialAnalysisResult;
@@ -14,133 +15,102 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
   const { badProducts, safeProducts, culprits, summaryJa, adviceJa, safeAlternatives, pairFindings } = result;
 
   return (
-    <div className="my-3 bg-white rounded-2xl p-4 sm:p-5 border-2 border-rose-200/80 shadow-md space-y-4">
+    <div className={`my-3 p-4 sm:p-5 space-y-4 text-ink ${card}`}>
       {/* Header Badge */}
-      <div className="flex items-center gap-2 pb-3 border-b border-rose-100">
-        <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center">
-          <Flame className="w-4 h-4 text-rose-600" />
+      <div className="flex items-center gap-2 pb-3 border-b border-sand-200">
+        <div className="w-8 h-8 shrink-0 rounded-full bg-tint-warning text-rose-700 flex items-center justify-center">
+          <Flame className="w-[18px] h-[18px]" aria-hidden />
         </div>
-        <div>
-          <h3 className="text-sm sm:text-base font-bold text-gray-900">
-            肌荒れ成分の差分あぶり出し結果
-          </h3>
-          <p className="text-xs text-gray-500">
-            安全なコスメに含まれる成分を除外し、原因成分を特定
-          </p>
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold text-ink leading-snug">肌荒れ成分の差分あぶり出し結果</h2>
+          <p className="text-xs text-ink-muted">安全なコスメに含まれる成分を除外し、原因成分を特定</p>
         </div>
       </div>
 
-      {/* Comparison Overview Chips */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-        <div className="bg-rose-50/70 p-2.5 rounded-xl border border-rose-200">
-          <div className="font-bold text-rose-800 flex items-center gap-1 mb-1">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
-            <span>肌荒れしたコスメ ({badProducts.length}品):</span>
-          </div>
-          <ul className="list-disc list-inside text-gray-700 space-y-0.5">
+      {/* Comparison Overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className={panel('warning')}>
+          <h3 className="font-semibold text-rose-800 flex items-center gap-1 mb-1">
+            <AlertCircle className="w-4 h-4" aria-hidden />
+            <span>肌荒れしたコスメ ({badProducts.length}品)</span>
+          </h3>
+          <ul className="list-disc pl-5 text-ink space-y-0.5">
             {badProducts.map((p) => (
-              <li key={p.id} className="truncate">
+              <li key={p.id} className="break-keep [overflow-wrap:anywhere]">
                 {p.brand} {p.name}
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-200">
-          <div className="font-bold text-emerald-800 flex items-center gap-1 mb-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>安全に使えているコスメ ({safeProducts.length}品):</span>
-          </div>
+        <div className={panel('safe')}>
+          <h3 className="font-semibold text-emerald-800 flex items-center gap-1 mb-1">
+            <CheckCircle2 className="w-4 h-4" aria-hidden />
+            <span>安全に使えているコスメ ({safeProducts.length}品)</span>
+          </h3>
           {safeProducts.length > 0 ? (
-            <ul className="list-disc list-inside text-gray-700 space-y-0.5">
+            <ul className="list-disc pl-5 text-ink space-y-0.5">
               {safeProducts.map((p) => (
-                <li key={p.id} className="truncate">
+                <li key={p.id} className="break-keep [overflow-wrap:anywhere]">
                   {p.brand} {p.name}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-gray-500 italic">安全なコスメが未登録（登録するとより精度向上）</p>
+            <p className="text-ink-muted">安全なコスメが未登録（登録するとより精度向上）</p>
           )}
         </div>
       </div>
 
       {/* Summary */}
-      <div className="bg-sand-50 p-3.5 rounded-xl border border-sand-200 text-xs sm:text-sm text-gray-800 leading-relaxed font-medium">
-        {summaryJa}
-      </div>
+      <p className="text-sm leading-relaxed font-medium">{summaryJa}</p>
 
       {/* Culprit Ingredients Ranking */}
-      <div>
-        <h4 className="text-xs font-bold text-gray-800 mb-2 flex items-center gap-1.5">
-          <ShieldAlert className="w-4 h-4 text-rose-600" />
-          <span>あぶり出された疑わしい成分一覧:</span>
-        </h4>
+      <section>
+        <h3 className="text-[15px] font-semibold mb-2 flex items-center gap-1.5">
+          <ShieldAlert className="w-4 h-4 text-rose-700" aria-hidden />
+          <span>あぶり出された疑わしい成分</span>
+        </h3>
 
         {culprits.length === 0 ? (
-          <div className="text-xs text-gray-500 p-3 bg-gray-50 rounded-lg">
-            明確な特有刺激成分は検出されませんでした。
-          </div>
+          <p className={panel('neutral')}>明確な特有刺激成分は検出されませんでした。</p>
         ) : (
-          <div className="space-y-2">
+          <ol className="space-y-2">
             {culprits.map((c, i) => {
-              const isHigh = c.riskLevel === 'high_irritant';
-              const isMod = c.riskLevel === 'moderate_irritant';
-              const isActive = c.riskLevel === 'active_caution';
-              const isUnknown = c.riskLevel === 'unknown';
-
-              const badgeColor = isHigh
-                ? 'bg-rose-100 text-rose-800 border-rose-300'
-                : isMod
-                ? 'bg-orange-100 text-orange-800 border-orange-300'
-                : isActive
-                ? 'bg-purple-100 text-purple-800 border-purple-300'
-                : isUnknown
-                ? 'bg-white text-gray-600 border-gray-300 border-dashed'
-                : 'bg-amber-100 text-amber-800 border-amber-300';
-
-              const riskLabel = isHigh
-                ? '高刺激・アレルゲン'
-                : isMod
-                ? '乾燥・刺激リスク'
-                : isActive
-                ? '高濃度アクティブ'
-                : isUnknown
-                ? '未評価成分'
-                : '注意成分';
+              // 高・中・アクティブはそのままの段階、未評価は「未評価成分」、それ以外は「注意成分」
+              const level =
+                c.riskLevel === 'high_irritant' || c.riskLevel === 'moderate_irritant' || c.riskLevel === 'active_caution' || c.riskLevel === 'unknown'
+                  ? c.riskLevel
+                  : 'low_caution';
+              const riskLabel = level === 'unknown' ? '未評価成分' : level === 'low_caution' ? '注意成分' : RISK_SCALE[level].label;
 
               return (
-                <div
-                  key={i}
-                  className="p-3 bg-white rounded-xl border border-sand-200 shadow-2xs space-y-1.5"
-                >
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-sand-200 text-gray-700 font-bold text-[11px] flex items-center justify-center">
+                <li key={i} className="p-3 bg-white rounded-xl border border-sand-200 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        aria-hidden
+                        className="w-6 h-6 shrink-0 rounded-full bg-surface-container text-ink font-semibold text-xs flex items-center justify-center"
+                      >
                         {i + 1}
                       </span>
-                      <span className="font-bold text-sm text-gray-900">{c.nameJa}</span>
-                      {c.nameEn && c.nameEn !== c.nameJa && (
-                        <span className="text-[11px] text-gray-500">({c.nameEn})</span>
-                      )}
+                      <span className="font-semibold text-[15px]">{c.nameJa}</span>
+                      {c.nameEn && c.nameEn !== c.nameJa && <span className="text-xs text-ink-muted">({c.nameEn})</span>}
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badgeColor}`}>
-                      {riskLabel}
-                    </span>
+                    <span className={riskBadge(level)}>{riskLabel}</span>
                   </div>
 
-                  <p className="text-xs text-gray-600 leading-relaxed">{c.reasonJa}</p>
+                  <p className="text-sm text-ink-muted leading-relaxed">{c.reasonJa}</p>
 
-                  <div className="text-[11px] text-gray-500 bg-sand-50 px-2 py-1 rounded-md">
-                    <span className="font-semibold text-gray-700">含まれる肌荒れ製品:</span>{' '}
-                    {c.foundInProducts.join(', ')}
-                  </div>
-                </div>
+                  <p className="text-xs text-ink-muted bg-surface-container-low px-2 py-1.5 rounded-lg">
+                    <span className="font-semibold text-ink">含まれる肌荒れ製品:</span> {c.foundInProducts.join(', ')}
+                  </p>
+                </li>
               );
             })}
-          </div>
+          </ol>
         )}
-      </div>
+      </section>
 
       {/* 製品をまたぐ組み合わせの注意 */}
       {pairFindings && pairFindings.length > 0 && (
@@ -157,17 +127,17 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
 
       {/* Dermatological Advice */}
       {adviceJa.length > 0 && (
-        <div className="p-3.5 bg-sage-50/80 rounded-xl border border-sage-200 space-y-1.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-sage-900">
-            <Sparkles className="w-4 h-4 text-sage-700" />
-            <span>スキンケア改善アドバイス:</span>
-          </div>
-          <ul className="text-xs text-sage-800 space-y-1 list-disc list-inside leading-relaxed">
+        <section className={`${panel('safe')} space-y-1.5`}>
+          <h3 className="flex items-center gap-1.5 font-semibold text-emerald-900">
+            <Sparkles className="w-4 h-4" aria-hidden />
+            <span>スキンケア改善アドバイス</span>
+          </h3>
+          <ul className="space-y-1 list-disc pl-5">
             {adviceJa.map((adv, idx) => (
               <li key={idx}>{adv}</li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
     </div>
   );

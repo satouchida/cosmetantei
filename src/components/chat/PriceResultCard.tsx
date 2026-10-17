@@ -3,6 +3,7 @@
 import React from 'react';
 import { PriceResult } from '@/lib/types';
 import { ExternalLink, Tag } from 'lucide-react';
+import { badge, buttonPrimary, buttonSecondaryCompact, card, innerCard } from '../ui/design';
 
 interface PriceResultCardProps {
   result: PriceResult;
@@ -31,21 +32,19 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
   const credits = result.credits ?? [];
 
   return (
-    <div className="my-3 p-4 bg-sand-50 rounded-2xl border border-sand-200 shadow-xs space-y-3">
+    <div className={`my-3 p-4 space-y-3 text-ink ${card}`}>
       <div className="flex items-center gap-2">
-        <div className="w-7 h-7 rounded-lg bg-sage-600 text-white flex items-center justify-center shadow-xs">
-          <Tag className="w-4 h-4" />
+        <div className="w-8 h-8 shrink-0 rounded-full bg-primary text-on-primary flex items-center justify-center">
+          <Tag className="w-4 h-4" aria-hidden />
         </div>
         <div>
-          <h4 className="text-xs sm:text-sm font-bold text-gray-900">
+          <h2 className="text-[15px] font-semibold">
             販売価格（{checkedAt}時点）
             {sponsored && (
-              <span className="ml-1.5 align-middle text-[10px] font-bold text-gray-500 border border-gray-300 rounded px-1">
-                PR
-              </span>
+              <span className={`ml-1.5 align-middle ${badge('neutral')}`}>PR</span>
             )}
-          </h4>
-          <p className="text-[11px] text-gray-500">
+          </h2>
+          <p className="text-xs text-ink-muted">
             {result.offers.length > 0
               ? '販売ページに書かれていた価格です。購入前にページでご確認ください。'
               : '販売ページで確認できた価格はありません。'}
@@ -60,17 +59,17 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
             return (
               <li
                 key={`${offer.sourceUrl}-${i}`}
-                className="bg-white rounded-xl p-3 border border-sand-200 flex items-center justify-between gap-3"
+                className={`${innerCard} p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3`}
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-gray-900">
+                  <div className="text-base font-semibold">
                     {offer.priceYen.toLocaleString('ja-JP')}円
-                    <span className="ml-1 text-[10px] font-medium text-gray-500">
+                    <span className="ml-1 text-xs font-normal text-ink-muted">
                       {offer.taxIncluded === true ? '税込' : offer.taxIncluded === false ? '税抜' : '税表示なし'}
                     </span>
                   </div>
-                  <div className="text-[11px] text-gray-600 truncate">{offer.productName}</div>
-                  <div className="text-[10px] text-gray-400 truncate">
+                  <div className="text-xs text-ink truncate">{offer.productName}</div>
+                  <div className="text-xs text-ink-muted truncate">
                     {offer.marketplace && offer.marketplace !== offer.shop
                       ? `${offer.marketplace}・${offer.shop}`
                       : offer.shop}
@@ -81,10 +80,11 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
                     href={href}
                     target="_blank"
                     rel={offer.sponsored ? 'noopener noreferrer sponsored nofollow' : 'noopener noreferrer nofollow'}
-                    className="shrink-0 flex items-center gap-1 text-[11px] text-sage-700 hover:text-sage-900 border border-sage-200 rounded-lg px-2 py-1"
+                    className={`shrink-0 w-full sm:w-auto ${buttonSecondaryCompact}`}
                   >
                     <span>{offer.marketplace || 'お店'}で見る</span>
-                    <ExternalLink className="w-3 h-3" />
+                    <ExternalLink className="w-4 h-4" aria-hidden />
+                    <span className="sr-only">（新しいタブで開く）</span>
                   </a>
                 )}
               </li>
@@ -98,21 +98,22 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
           href={result.amazonUrl}
           target="_blank"
           rel="noopener noreferrer sponsored nofollow"
-          className="w-full py-2 px-3 bg-linear-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+          className={`w-full ${buttonPrimary}`}
         >
           <span>Amazonで探す</span>
-          <ExternalLink className="w-3.5 h-3.5" />
+          <ExternalLink className="w-4 h-4" aria-hidden />
+          <span className="sr-only">（新しいタブで開く）</span>
         </a>
       )}
 
       {sponsored && (
-        <p className="text-[10px] text-gray-500">
+        <p className="text-xs text-ink-muted">
           PR：このカードのリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格や表示の順番は紹介料に関係ありません。
         </p>
       )}
 
       {credits.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-500">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
           {credits.includes('rakuten') && (
             <>
               {/* Rakuten Web Services Attribution Snippet FROM HERE */}

@@ -4,6 +4,15 @@ import React from 'react';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
+import {
+  badge,
+  buttonPrimary,
+  countryLabel,
+  iconButton,
+  innerCard,
+  routineAction,
+  routineActionCompact,
+} from '../ui/design';
 
 interface LiveSearchCandidateTrayProps {
   query: string;
@@ -61,36 +70,36 @@ const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={() => setFailed(true)}
-        className="w-16 h-16 shrink-0 rounded-lg object-contain bg-white border border-sand-100"
+        className="w-16 h-16 shrink-0 rounded-lg object-contain bg-white border border-sand-200"
       />
     ) : (
       <div
         aria-hidden="true"
         title={product.name}
-        className="w-16 h-16 shrink-0 rounded-lg bg-sand-50 border border-sand-100 flex items-center justify-center"
+        className="w-16 h-16 shrink-0 rounded-lg bg-surface-container-low border border-sand-200 flex items-center justify-center"
       >
-        <Package className="w-6 h-6 text-sand-400" />
+        <Package className="w-6 h-6 text-ink-muted" />
       </div>
     )}
     <div className="min-w-0">
-      <div className="text-[11px] font-bold text-sage-700 truncate">{product.brand}</div>
+      <div className="text-xs font-semibold text-sage-700 truncate">{product.brand}</div>
       {product.shopPrice && (
-        <div className="text-sm font-bold text-gray-900 mt-0.5">
+        <div className="text-base font-semibold text-ink mt-0.5">
           {formatYen(product.shopPrice.yen)}
-          {product.shopPrice.taxIncluded === false && <span className="text-[10px] font-normal text-gray-500">（税別）</span>}
+          {product.shopPrice.taxIncluded === false && <span className="text-xs font-normal text-ink-muted">（税別）</span>}
         </div>
       )}
-      <div className="mt-0.5 text-[10px] text-gray-500">成分は選ぶと調べます</div>
+      <div className="mt-0.5 text-xs text-ink-muted">成分は選ぶと調べます</div>
       {product.shopLink && isShowableLink(product.shopLink) && (
         // 見えている文字（PR 商品ページ）を読み上げの頭に残し、商品名と新しいタブで開くことを後に足す
         <a
           href={product.shopLink.href}
           target="_blank"
           rel={product.shopLink.sponsored ? 'noopener noreferrer sponsored nofollow' : 'noopener noreferrer nofollow'}
-          className="mt-1 inline-flex items-center gap-1 min-h-8 py-1.5 pr-2 text-[10px] text-sage-700 hover:text-sage-900 focus-visible:underline"
+          className="mt-1 inline-flex items-center gap-1 min-h-12 pr-2 text-sm font-semibold text-sage-700 hover:text-sage-900 underline underline-offset-2"
         >
           {product.shopLink.sponsored && (
-            <span className="font-bold text-gray-500 border border-gray-300 rounded px-1">PR</span>
+            <span className={badge('neutral')}>PR</span>
           )}
           <span>商品ページ</span>
           <ExternalLink aria-hidden="true" className="w-3 h-3" />
@@ -117,36 +126,21 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
 }) => {
   if (!isOpen || (candidates.length === 0 && brands.length === 0)) return null;
 
-  const getCountryBadge = (country: string) => {
-    switch (country) {
-      case 'JP':
-        return { label: '🇯🇵 日本', color: 'bg-red-50 text-red-700 border-red-200' };
-      case 'KR':
-        return { label: '🇰🇷 韓国', color: 'bg-blue-50 text-blue-700 border-blue-200' };
-      case 'US':
-        return { label: '🇺🇸 アメリカ', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
-      case 'EU':
-        return { label: '🇪🇺 欧州', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
-      default:
-        return { label: '🌐 コスメ', color: 'bg-gray-50 text-gray-700 border-gray-200' };
-    }
-  };
-
   return (
-    <div className="mb-2 bg-white/95 backdrop-blur-md rounded-2xl border border-sage-300 shadow-xl overflow-hidden animate-fade-in transition-all">
+    <div className="mb-2 bg-white rounded-2xl border border-sand-200 shadow-lg overflow-hidden animate-fade-in transition-all">
       {/* Tray Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-sand-50/90 border-b border-sand-200">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-sage-100 text-sage-700 flex items-center justify-center">
-            <Search className="w-3.5 h-3.5" />
+      <div className="flex items-center justify-between gap-2 pl-4 pr-1 py-1 bg-surface-container-low border-b border-sand-200">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 shrink-0 rounded-full bg-tint-safe text-primary flex items-center justify-center">
+            <Search className="w-4 h-4" aria-hidden />
           </div>
-          <span className="text-xs font-bold text-gray-800" aria-live="polite">
+          <span className="text-sm font-semibold text-ink" aria-live="polite">
             {candidates.length > 0
               ? `${query ? `「${query}」に関連するコスメ候補` : 'おすすめの低刺激コスメ候補'} (${candidates.length}件)`
               : 'ブランドを選ぶと、そのブランドの製品に絞り込めます'}
           </span>
           {candidates.length > 0 && (
-            <span className="text-[10px] text-gray-500 hidden sm:inline">
+            <span className="text-xs text-ink-muted hidden sm:inline">
               — タップして成分解析やリスト追加が可能です
             </span>
           )}
@@ -154,16 +148,17 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
         <button
           type="button"
           onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-sand-200/60 transition-colors"
+          className={iconButton}
           title="閉じる"
+          aria-label="候補を閉じる"
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5" aria-hidden />
         </button>
       </div>
 
       {/* Brand chips */}
       {brands.length > 0 && onSelectBrand && (
-        <div role="group" aria-label="ブランドの候補" className="flex flex-wrap items-center gap-1.5 px-3 pt-3">
+        <div role="group" aria-label="ブランドの候補" className="flex flex-wrap items-center gap-2 px-3 pt-3">
           {brands.map((brand) => (
             <button
               key={brand.name}
@@ -172,12 +167,12 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onSelectBrand(brand.name)}
               aria-label={`${brand.name}の製品から探す`}
-              className="flex items-center gap-1 min-h-8 py-1.5 px-3 bg-sand-50 hover:bg-sage-50 text-gray-800 border border-sand-300 hover:border-sage-400 rounded-full text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 min-h-12 px-4 bg-white hover:bg-tint-safe text-ink border border-sand-300 hover:border-emerald-500 rounded-full text-[13px] font-semibold transition-colors"
               title={`${brand.name}の製品から探す`}
             >
-              <Tag className="w-3 h-3 text-sage-600" />
+              <Tag className="w-4 h-4 text-primary" aria-hidden />
               <span>{brand.name}</span>
-              {brand.kana && <span className="text-[10px] text-gray-500">{brand.kana}</span>}
+              {brand.kana && <span className="text-xs font-normal text-ink-muted">{brand.kana}</span>}
             </button>
           ))}
         </div>
@@ -185,52 +180,43 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
 
       {/* Candidates List / Cards Grid */}
       {candidates.length > 0 && (
-        <div className="p-3 max-h-[340px] overflow-y-auto">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+        <div className="p-3 max-h-[min(420px,50dvh)] overflow-y-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {candidates.map((product) => {
-              const countryBadge = getCountryBadge(product.country);
               return (
                 <div
                   key={product.id}
-                  className="bg-white rounded-xl p-3 border border-sand-200 hover:border-sage-400 hover:shadow-md transition-all flex flex-col justify-between group"
+                  className={`${innerCard} p-3 text-ink flex flex-col justify-between`}
                 >
                   {isShopProduct(product) ? (
                     <ShopProductSummary product={product} />
                   ) : (
                     <div>
                       <div className="flex items-center justify-between gap-1 mb-1">
-                        <span
-                          className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-sm border ${countryBadge.color}`}
-                        >
-                          {countryBadge.label}
-                        </span>
+                        <span className={badge('neutral')}>{countryLabel(product.country)}</span>
                         <div className="flex items-center gap-1">
                           {product.isQuasiDrug && (
-                            <span className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded-sm font-medium">
-                              医薬部外品
-                            </span>
+                            <span className={badge('brand')}>医薬部外品</span>
                           )}
                           {product.fragranceFree && (
-                            <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded-sm">
-                              無香料
-                            </span>
+                            <span className={badge('neutral')}>無香料</span>
                           )}
                         </div>
                       </div>
 
-                      <div className="text-[11px] font-bold text-sage-700 truncate">
+                      <div className="text-xs font-semibold text-sage-700 truncate">
                         {getDisplayBrand(product.brand, product.name)}
                       </div>
-                      <h4 className="text-xs font-bold text-gray-900 line-clamp-2 leading-snug mt-0.5 group-hover:text-sage-800">
+                      <h2 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
                         {product.name}
-                      </h4>
+                      </h2>
 
                       {product.activeIngredientsJa && product.activeIngredientsJa.length > 0 ? (
-                        <div className="mt-1 text-[10px] text-emerald-700 truncate bg-emerald-50 px-1.5 py-0.5 rounded-sm">
+                        <div className="mt-1 text-xs text-emerald-900 truncate bg-tint-safe px-2 py-1 rounded-lg">
                           有効成分: {product.activeIngredientsJa.join(', ')}
                         </div>
                       ) : product.ingredients.length > 0 ? (
-                        <div className="mt-1 text-[10px] text-gray-500 truncate">
+                        <div className="mt-1 text-xs text-ink-muted truncate">
                           主成分: {product.ingredients.slice(0, 3).join(', ')}
                         </div>
                       ) : null}
@@ -238,41 +224,41 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                   )}
 
                   {/* Card Actions */}
-                  <div className="mt-2.5 pt-2 border-t border-sand-100 space-y-1.5">
+                  <div className="mt-3 pt-3 border-t border-sand-200 space-y-2">
                     <button
                       type="button"
                       onClick={() => onSelectProduct(product)}
                       aria-label={`${product.name}の成分を詳しくチェック`}
-                      className="w-full flex items-center justify-center gap-1 py-1.5 px-2 bg-sage-600 hover:bg-sage-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs"
+                      className={`w-full ${buttonPrimary}`}
                     >
-                      <Sparkles className="w-3 h-3" />
+                      <Sparkles className="w-4 h-4" aria-hidden />
                       <span>成分を詳しくチェック</span>
                     </button>
                     {/* 成分の分からない製品はリストに入れない（比較・組み合わせのチェックに使えない） */}
                     {product.ingredients.length > 0 && (
-                      <div className="grid grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => onAddToBad(product)}
-                          className="flex items-center justify-center gap-1 py-1 px-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[10px] font-medium transition-colors"
+                          className={`${routineActionCompact} ${routineAction.bad}`}
                         >
-                          <AlertTriangle className="w-3 h-3 text-rose-500" />
+                          <AlertTriangle className="w-4 h-4" aria-hidden />
                           <span>肌荒れした</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onAddToSafe(product)}
-                          className="flex items-center justify-center gap-1 py-1 px-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-medium transition-colors"
+                          className={`${routineActionCompact} ${routineAction.safe}`}
                         >
-                          <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                          <ShieldCheck className="w-4 h-4" aria-hidden />
                           <span>普段使えている</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => onAddToCurrent(product)}
-                          className="flex items-center justify-center gap-1 py-1 px-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-[10px] font-medium transition-colors"
+                          className={`${routineActionCompact} ${routineAction.current}`}
                         >
-                          <Layers className="w-3 h-3 text-sky-600" />
+                          <Layers className="w-4 h-4" aria-hidden />
                           <span>今使っている</span>
                         </button>
                       </div>
@@ -286,13 +272,13 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
       )}
 
       {candidates.some((p) => p.shopLink?.sponsored) && (
-        <p className="px-4 pb-1 text-[10px] text-gray-500">
+        <p className="px-4 pb-1 text-xs text-ink-muted">
           PR：「PR」と書かれた「商品ページ」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
         </p>
       )}
 
       {credits.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pb-2 text-[10px] text-gray-500">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pb-2 text-xs text-ink-muted">
           {credits.includes('rakuten') && (
             <>
               {/* Rakuten Web Services Attribution Snippet FROM HERE */}
