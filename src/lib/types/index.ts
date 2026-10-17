@@ -78,7 +78,8 @@ export interface Product {
   undisclosedIngredientCount?: number;
   /** 成分表示を読み取った方式の版（label-parser の LABEL_FORMAT）。古い分け方で保存された製品を見分ける */
   labelFormat?: number;
-  ingredientsEn?: string[]; // INCI英語名リスト
+  /** 英語（INCI 名）の全成分表示を日本語の名前に訳したときの元の一覧（ingredient-translate） */
+  ingredientsEn?: string[];
   fullIngredientsRaw?: string;
   descriptionJa?: string;
   fragranceFree?: boolean;

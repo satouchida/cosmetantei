@@ -15,7 +15,8 @@ export type UsageKind = 'gemini' | 'workers_ai' | 'web_search';
  * ok: 成功 / error: 失敗（タイムアウトを含む） / capped: 上限に達して呼ばなかった /
  * cache_hit: AI Gateway のキャッシュから返った（モデルの提供元への有料の呼び出しは無いので、トークン数は数えない）
  */
-export type UsageOutcome = 'ok' | 'error' | 'capped' | 'cache_hit';
+// recitation: Gemini が著作物の引用に似ているとして出力を止めた（ページの成分表示の書き写しで起きる）
+export type UsageOutcome = 'ok' | 'error' | 'capped' | 'cache_hit' | 'recitation';
 
 export interface UsageEvent {
   kind: UsageKind;

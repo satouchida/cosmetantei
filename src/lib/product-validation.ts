@@ -45,6 +45,10 @@ export function isValidProduct(p: unknown): p is Product {
       (Number.isInteger(product.undisclosedIngredientCount) &&
         (product.undisclosedIngredientCount as number) >= 0 &&
         (product.undisclosedIngredientCount as number) <= MAX_UNDISCLOSED_INGREDIENTS)) &&
+    (product.ingredientsEn === undefined ||
+      (Array.isArray(product.ingredientsEn) &&
+        product.ingredientsEn.length <= MAX_INGREDIENTS &&
+        product.ingredientsEn.every((i) => isShortString(i, MAX_INGREDIENT_LENGTH)))) &&
     (product.ingredientSource === undefined ||
       (typeof product.ingredientSource === 'string' && INGREDIENT_SOURCES.includes(product.ingredientSource))) &&
     (product.sourceUrl === undefined ||

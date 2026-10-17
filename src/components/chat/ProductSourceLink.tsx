@@ -10,26 +10,30 @@ import { badge } from '../ui/design';
 export const ProductSourceLink: React.FC<{ product: Product; className?: string }> = ({ product, className = '' }) => {
   const source = productSourceInfo(product);
   if (!source) return null;
+  const translated = (product.ingredientsEn?.length ?? 0) > 0;
   return (
-    <div className={`flex items-center gap-1 text-xs text-ink-muted min-w-0 ${className}`}>
-      <span className="shrink-0">出典:</span>
-      {source.href ? (
-        <a
-          href={source.href}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          title={source.label}
-          className="flex items-center gap-0.5 min-w-0 min-h-12 -my-2 text-sage-700 hover:text-sage-900 underline underline-offset-2"
-        >
-          <span className="truncate">{source.label}</span>
-          <span className="sr-only">（新しいタブで開く）</span>
-          <ExternalLink className="w-3 h-3 shrink-0" aria-hidden="true" />
-        </a>
-      ) : (
-        <span className="truncate" title={source.label}>
-          {source.label}
-        </span>
-      )}
+    <div className={className}>
+      <div className="flex items-center gap-1 text-xs text-ink-muted min-w-0">
+        <span className="shrink-0">出典:</span>
+        {source.href ? (
+          <a
+            href={source.href}
+            target="_blank"
+            rel="noopener noreferrer nofollow"
+            title={source.label}
+            className="flex items-center gap-0.5 min-w-0 min-h-12 -my-2 text-sage-700 hover:text-sage-900 underline underline-offset-2"
+          >
+            <span className="truncate">{source.label}</span>
+            <span className="sr-only">（新しいタブで開く）</span>
+            <ExternalLink className="w-3 h-3 shrink-0" aria-hidden="true" />
+          </a>
+        ) : (
+          <span className="truncate" title={source.label}>
+            {source.label}
+          </span>
+        )}
+      </div>
+      {translated && <p className="text-xs text-ink-muted">英語の成分表示を、AIで日本語の成分名に置き換えています。</p>}
     </div>
   );
 };

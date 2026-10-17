@@ -156,7 +156,7 @@ export function isActualCosmeticProduct(p: Product | string): boolean {
     }
 
     // ブランド名と商品名が同一で、かつ単なる一般カテゴリ名の場合
-    if (p.brand === p.name && /^(洗顔|化粧水|乳液|クリーム|美容液|リップ|日焼け止め)$/i.test(p.name)) {
+    if (p.brand === p.name && (/^(洗顔|化粧水|乳液|クリーム|美容液|リップ|日焼け止め)$/i.test(p.name) || ENGLISH_BARE.test(p.name.trim()))) {
       return false;
     }
   }
@@ -175,11 +175,28 @@ export function isActualCosmeticProduct(p: Product | string): boolean {
   const cosmeticSignature =
     /(化粧水|ローション|トナー|スキン|乳液|ミルク|エマルジョン|クリーム|フェイスクリーム|バーム|美容液|セラム|エッセンス|アンプル|オイル|パック|マスク|シートマスク|ジェル|洗顔|泡洗顔|洗顔料|洗顔フォーム|クレンジング|メイク落とし|石鹸|せっけん|スクラブ|日焼け止め|日やけ止め|uv|サンプロテクト|サンクリーム|下地|化粧下地|ファンデーション|ファンデ|bbクリーム|ccクリーム|コンシーラー|パウダー|おしろい|リップ|口紅|ルージュ|ティント|リップバーム|リップクリーム|リップグロス|リッププランパー|アイシャドウ|マスカラ|アイライナー|アイブロウ|眉マスカラ|チーク|ハイライト|シェーディング|ネイル|モンスター|メラノcc|シカプラスト|パーフェクトホイップ|クリアフル|白潤|極潤|オバジc|ダイブイン|リードルショット)/i;
 
-  if (cosmeticSignature.test(text)) {
+  // 英語の製品名（海外・ブランドのグローバルサイトのページ。例: 「Moisturizing Lip Creator (TINT)」）
+  if (cosmeticSignature.test(text) || isEnglishCosmeticName(text)) {
     return true;
   }
 
   return false;
+}
+
+/** 英語で化粧品とはっきり分かる語 */
+const ENGLISH_STRONG =
+  /\b(lip(?:s|stick|\s*balm|\s*gloss)?|baume|lotions?|serums?|ampoules?|moisturi[sz](?:ers?|ing)|cleansers?|cleansing|face\s*wash|sunscreens?|sunblock|spf\s*\d*|mascara|eye\s*liner|eyeliner|eye\s*shadow|eyeshadow|eyebrow|concealer|highlighter|blush)\b/i;
+/** 化粧品以外にも使う語（印刷のトナー・食品のパウダー・工具のネイル等）。肌・美容の語と一緒のときだけ数える */
+const ENGLISH_WEAK =
+  /\b(tint|balm|toner|essence|cream|emulsion|foam|primer|foundation|cushion|powder|mask|gel|mist|oil|nail|brow)s?\b/i;
+const ENGLISH_BEAUTY_CONTEXT =
+  /\b(skin|face|facial|hair|beauty|cosmetics?|make-?up|hydrating|moisturi[sz]\w*|anti-?aging|whitening|brightening|cica|sheet)\b/i;
+/** カテゴリ名の単語だけ（商品名が無い） */
+const ENGLISH_BARE = /^(lip|lips|serum|toner|cream|lotion|mask|gel|oil|essence|mist|foam|balm|tint)s?$/i;
+
+function isEnglishCosmeticName(text: string): boolean {
+  if (ENGLISH_BARE.test(text.trim())) return false;
+  return ENGLISH_STRONG.test(text) || (ENGLISH_WEAK.test(text) && ENGLISH_BEAUTY_CONTEXT.test(text));
 }
 
 /**

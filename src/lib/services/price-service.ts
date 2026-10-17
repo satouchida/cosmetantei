@@ -87,10 +87,10 @@ async function pageOffers(productQuery: string, shop: ShopId): Promise<ShopOffer
   const urls = pickPagesToRead(search.items, MAX_PAGES_PER_SHOP);
   // 1ページずつ読む（あるページに書かれた指示で、別の店のページの価格として出力させないため）
   const reads = await Promise.all(
-    urls.map((u) => readPagesWithSources([u], buildPricePrompt([u], productQuery), 2048, { skipCache: true }))
+    urls.map((u) => readPagesWithSources([u], (one) => buildPricePrompt(one, productQuery), 2048, { skipCache: true }))
   );
   if (urls.length > 0 && reads.every((r) => r === null)) return null;
-  return reads.flatMap((r) => r ?? []).map(({ item, sourceUrl }) => ({
+  return reads.flatMap((r) => r?.items ?? []).map(({ item, sourceUrl }) => ({
     shopId: shop,
     shop: typeof item.shop === 'string' ? item.shop.trim() : '',
     brand: typeof item.brand === 'string' ? item.brand : '',

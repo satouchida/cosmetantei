@@ -14,6 +14,7 @@ import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 import { isAcceptedBrand, judgeBrands } from './brand-check';
+import { translateEnglishLabels } from './ingredient-translate';
 
 /**
  * Web リサーチ（docs/plans/gemini-role-redesign.md の Phase 2）
@@ -106,10 +107,11 @@ export function toProductSearchQuery(text: string): string | null {
 export async function webSearch(
   query: string,
   limit = SEARCH_RESULT_LIMIT,
-  accept?: (url: string) => boolean
+  accept?: (url: string) => boolean,
+  providers: WebSearchProvider[] = SEARCH_PROVIDERS
 ): Promise<{ provider: WebSearchProvider; items: WebSearchItem[] } | null> {
   let searched = false;
-  for (const provider of SEARCH_PROVIDERS) {
+  for (const provider of providers) {
     const found = await runWebSearch(query, provider, limit);
     if (found) searched = true;
     const items = found && accept ? found.filter((i) => accept(i.url)) : found;
@@ -117,7 +119,7 @@ export async function webSearch(
     if (items && pickPagesToRead(items).length > 0) return { provider, items };
   }
   // accept に合うページが無かっただけなら、検索の失敗ではない
-  return accept && searched ? { provider: SEARCH_PROVIDERS[0], items: [] } : null;
+  return accept && searched ? { provider: providers[0], items: [] } : null;
 }
 
 /** 検索結果一覧のページ（複数の店・商品が混ざり、店名・商品名を取り違えやすい） */
@@ -187,17 +189,55 @@ JSON配列のみを出力（1ページにつき最大2製品）:
 [{"sourceUrl": "読んだページのURL（上の一覧のいずれか）", "brand": "ブランド名・メーカー名", "name": "製品名", "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other", "ingredients": ["ページの全成分表示の順番どおり。有効成分として分けて書かれた成分は除く。「他3成分」のような記載もそのまま1項目にする。全成分表示が無ければ空配列"], "activeIngredients": ["「有効成分」として分けて書かれた成分、または※印などで有効成分と示された成分。無ければ空配列"], "quasiDrug": ページに「医薬部外品」と書かれていれば true、無ければ false, "ingredientsFoundOnPage": true または false, "barcode": "ページに書かれたJAN/EANコード（数字のみ）。無ければ空文字"}]`;
 }
 
+type ConfirmedItem = { item: Record<string, unknown>; sourceUrl: string };
+
+/**
+ * ページの読み取りの結果
+ * - blockedUrls: 成分表示などの書き写しが著作物の引用に似ているとして Gemini に止められたページ
+ * - failedUrls: 読み直しで失敗したページ（エラー・予算超過など一時的なもの。「該当なし」とは言えない）
+ */
+export interface PageReadResult {
+  items: ConfirmedItem[];
+  blockedUrls: string[];
+  failedUrls: string[];
+}
+
 /**
  * Gemini の URL context でページを読み、出典を確かめた項目だけを返す。Gemini の呼び出しに失敗したら null
  * 出典 URL（各項目の sourceUrl）が「読むよう指示したページ」かつ「読み込みに成功したページ」でない項目は捨てる
+ *
+ * 複数ページをまとめて読んだ応答が RECITATION（著作物の引用に似ている）で止められたら、1ページずつ読み直す。
+ * 止められるのはページ単位のことが多く、1ページのせいで他のページの成分表示まで失わないように。
+ * 読み直しは AI Gateway のキャッシュを使わない（止められた空の応答がキャッシュから返らないように）
  */
 export async function readPagesWithSources(
   urls: string[],
-  prompt: string,
+  buildPrompt: (urls: string[]) => string,
   maxOutputTokens: number,
   { skipCache = false } = {}
-): Promise<{ item: Record<string, unknown>; sourceUrl: string }[] | null> {
-  if (urls.length === 0) return [];
+): Promise<PageReadResult | null> {
+  if (urls.length === 0) return { items: [], blockedUrls: [], failedUrls: [] };
+  const together = await readPagesOnce(urls, buildPrompt(urls), maxOutputTokens, skipCache);
+  if (together !== 'recitation') return together && { items: together, blockedUrls: [], failedUrls: [] };
+  if (urls.length === 1) return { items: [], blockedUrls: urls, failedUrls: [] };
+
+  const one = await Promise.all(urls.map((u) => readPagesOnce([u], buildPrompt([u]), maxOutputTokens, true)));
+  // どのページも読めなかった（一時的な失敗）なら null。止められたページは「該当なし」と区別して返す
+  if (one.every((r) => r === null)) return null;
+  return {
+    items: one.flatMap((r) => (Array.isArray(r) ? r : [])),
+    blockedUrls: urls.filter((_, i) => one[i] === 'recitation'),
+    failedUrls: urls.filter((_, i) => one[i] === null),
+  };
+}
+
+/** 1回の Gemini 呼び出しでページを読む。RECITATION で止められたら 'recitation' */
+async function readPagesOnce(
+  urls: string[],
+  prompt: string,
+  maxOutputTokens: number,
+  skipCache: boolean
+): Promise<ConfirmedItem[] | 'recitation' | null> {
   const result = await callGemini({
     task: 'page_read',
     prompt,
@@ -206,6 +246,7 @@ export async function readPagesWithSources(
     timeoutMs: READ_TIMEOUT_MS,
     skipCache,
   });
+  if (result?.recitation) return 'recitation';
   if (!result || result.truncated) return null;
 
   const parsed = parseJsonLoose<unknown>(result.text);
@@ -220,7 +261,7 @@ export async function readPagesWithSources(
   // どのページも読み込めなかった（一時的な失敗の可能性）。「該当なし」とは区別する
   if (retrieved.size === 0) return null;
 
-  const confirmed: { item: Record<string, unknown>; sourceUrl: string }[] = [];
+  const confirmed: ConfirmedItem[] = [];
   for (const raw of parsed) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
@@ -235,14 +276,21 @@ export async function readPagesWithSources(
 
 /**
  * Gemini の URL context でページを読み、出典を確かめた製品情報を返す。Gemini の呼び出しに失敗したら null
+ * allBlocked: 読んだ全ページで、書き写しが Gemini に止められた（別の検索結果のページなら読めることがある）
+ * incomplete: 一部のページの読み直しが一時的に失敗した（製品が無くても「該当なし」とは言えない）
  */
-export async function readProductPages(urls: string[], target: string): Promise<PageProduct[] | null> {
+export async function readProductPages(
+  urls: string[],
+  target: string
+): Promise<{ products: PageProduct[]; allBlocked: boolean; incomplete: boolean } | null> {
   // 3ページ×2製品の全成分が入るよう余裕を持たせる（思考は既定の low）
-  const confirmed = await readPagesWithSources(urls, buildReadPrompt(urls, target), 8192);
-  if (!confirmed) return null;
+  const read = await readPagesWithSources(urls, (u) => buildReadPrompt(u, target), 8192);
+  if (!read) return null;
+  const allBlocked = urls.length > 0 && read.blockedUrls.length === urls.length;
+  const incomplete = read.failedUrls.length > 0;
 
   const products: PageProduct[] = [];
-  for (const { item, sourceUrl } of confirmed) {
+  for (const { item, sourceUrl } of read.items) {
     if (typeof item.name !== 'string' || typeof item.brand !== 'string') continue;
 
     const name = item.name.trim();
@@ -283,7 +331,44 @@ export async function readProductPages(urls: string[], target: string): Promise<
       barcode,
     });
   }
-  return products;
+  return { products, allBlocked, incomplete };
+}
+
+/** 探し直しで読むページ数の上限（止められたときの Gemini の呼び出し回数を抑える） */
+const MAX_RETRY_PAGES = 2;
+
+/**
+ * Web で検索し、上位のページを読む。全ページが RECITATION で止められたら、まだ使っていない検索サービス
+ * （Exa で見つけたなら Linkup）で探し直し、まだ読んでいないページを読む（別のお店のページなら止められないことがある）。
+ * - 戻り値の [] は確定した「該当なし」（ページを読んで該当製品が無い、または読めるページが全て止められた）
+ * - 検索・読み取りの一時的な失敗は null（呼び出し側は「見つからない」として保存しない）
+ */
+async function searchAndReadProducts(query: string, target: string): Promise<PageProduct[] | null> {
+  const search = await webSearch(query);
+  if (!search) return null;
+  const urls = pickPagesToRead(search.items);
+  const read = await readProductPages(urls, target);
+  if (!read) return null;
+  if (!read.allBlocked) return conclusive(read);
+
+  // webSearch は前から順に試すので、見つけたサービスより後ろのものだけがまだ使われていない
+  const untried = SEARCH_PROVIDERS.slice(SEARCH_PROVIDERS.indexOf(search.provider) + 1);
+  if (untried.length === 0) return [];
+  const retry = await webSearch(query, undefined, undefined, untried);
+  if (!retry) return null;
+  const tried = new Set(urls.map(normalizeUrl));
+  const fresh = pickPagesToRead(
+    retry.items.filter((i) => !tried.has(normalizeUrl(i.url))),
+    MAX_RETRY_PAGES
+  );
+  if (fresh.length === 0) return [];
+  const reread = await readProductPages(fresh, target);
+  return reread ? conclusive(reread) : null;
+}
+
+/** 一部のページを読めずに製品が無いときは、確定した「該当なし」ではない */
+function conclusive(read: { products: PageProduct[]; incomplete: boolean }): PageProduct[] | null {
+  return read.incomplete && read.products.length === 0 ? null : read.products;
 }
 
 // ---------- 製品への変換 ----------
@@ -387,16 +472,15 @@ export async function researchProducts(productQuery: string, limit = 4): Promise
   // v2: 医薬部外品の有効成分・「他 n成分」を読み取るようにした
   const cacheKey = await hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
   const cached = await cacheGetJSON<Product[]>(cacheKey);
-  if (cached) return registerProducts(cached.slice(0, limit), { fresh: false });
+  // 前回訳せなかった英語の全成分表示は、ここで訳し直す（訳せても KV は書き直さない）
+  if (cached) return registerProducts(await translateEnglishLabels(cached.slice(0, limit)), { fresh: false });
 
-  const search = await webSearch(`${productQuery} 全成分`);
-  if (!search) return [];
-
-  const pages = await readProductPages(pickPagesToRead(search.items), productQuery);
-  // 一時的な失敗（Gemini のエラー等）は「見つからなかった」としてキャッシュしない
+  const pages = await searchAndReadProducts(`${productQuery} 全成分`, productQuery);
+  // 一時的な失敗（検索・Gemini のエラー等）は「見つからなかった」としてキャッシュしない
   if (!pages) return [];
   const candidates = await Promise.all(pages.map(toProduct));
-  const unique = uniqueProducts(await keepRealBrands(candidates, productQuery));
+  // 英語の全成分表示は、ブランドを確かめた製品だけ日本語の名前にする（訳した結果をキャッシュする）
+  const unique = await translateEnglishLabels(uniqueProducts(await keepRealBrands(candidates, productQuery)));
 
   if (unique.length > 0) {
     await cachePutJSON(cacheKey, unique, FACTS_TTL_SECONDS);
@@ -421,15 +505,13 @@ export async function researchAlternativeCandidates(query: string, target: strin
   // ページから読み取った製品情報だけをキャッシュする（検索結果そのものは保存しない）
   const cacheKey = await hashedCacheKey('altfacts:v1', query.normalize('NFKC'));
   const cached = await cacheGetJSON<Product[]>(cacheKey);
-  if (cached) return registerProducts(cached, { fresh: false });
+  if (cached) return registerProducts(await translateEnglishLabels(cached), { fresh: false });
 
-  const search = await webSearch(query);
-  if (!search) return [];
-  const pages = await readProductPages(pickPagesToRead(search.items), target);
+  const pages = await searchAndReadProducts(query, target);
   if (!pages) return [];
 
   const candidates = await Promise.all(pages.filter((p) => p.ingredients.length > 0).map(toProduct));
-  const products = uniqueProducts(await keepRealBrands(candidates, target));
+  const products = await translateEnglishLabels(uniqueProducts(await keepRealBrands(candidates, target)));
   if (products.length > 0) {
     await cachePutJSON(cacheKey, products, FACTS_TTL_SECONDS);
   } else if (candidates.length === 0) {
@@ -471,22 +553,25 @@ export async function researchBarcode(barcode: string): Promise<Product | null |
   if (!items) return undefined;
   if (items.length === 0) return null;
 
-  const pages = await readProductPages(pickPagesToRead(items), `JAN/EANコード ${barcode} の製品`);
-  if (!pages) return undefined;
+  const read = await readProductPages(pickPagesToRead(items), `JAN/EANコード ${barcode} の製品`);
+  if (!read) return undefined;
+  const pages = read.products;
   const sameCode = (code?: string) => !!code && code.replace(/^0+/, '') === barcode.replace(/^0+/, '');
   const matches = pages.filter((p) => sameCode(p.barcode));
   if (matches.length === 0) return null;
 
   // 全成分が取れたページを優先
   matches.sort((a, b) => b.ingredients.length - a.ingredients.length);
-  const [product] = await keepRealBrands([await toProduct({ ...matches[0], barcode })], barcode);
-  if (!product) return null;
+  const [real] = await keepRealBrands([await toProduct({ ...matches[0], barcode })], barcode);
+  if (!real) return null;
+  const [product] = await translateEnglishLabels([real]);
 
   // バーコードのページに全成分が無ければ、特定できた商品名で調べ、同じ製品の成分表示を使う
   if (!product.ingredientSource) {
     const withLabel = await findLabelByName(product);
     if (withLabel) {
       product.ingredients = withLabel.ingredients;
+      product.ingredientsEn = withLabel.ingredientsEn;
       product.activeIngredientsJa = withLabel.activeIngredientsJa;
       product.isQuasiDrug = product.isQuasiDrug || withLabel.isQuasiDrug;
       product.undisclosedIngredientCount = withLabel.undisclosedIngredientCount;

@@ -87,7 +87,7 @@ export interface GeminiImage {
 }
 
 export interface GeminiRequest {
-  /** 何のための呼び出しか（利用量の記録に使う。chat_reply・page_read・ingredient_explain・label_read） */
+  /** 何のための呼び出しか（利用量の記録に使う。chat_reply・page_read・ingredient_explain・ingredient_translate・label_read） */
   task: string;
   prompt: string;
   /** プロンプトの前に添える画像（成分表示の写真の読み取り等） */
@@ -115,6 +115,11 @@ export interface GeminiResult {
   truncated: boolean;
   /** URL context で読み込みに成功した URL（urlContext 指定時のみ） */
   retrievedUrls?: string[];
+  /**
+   * 著作物の引用に似ているとして Gemini が出力を止めた（finishReason: RECITATION）。text は空。
+   * urlContext 指定時だけこの形で返す（ページを分けて読み直せるように）。それ以外は null
+   */
+  recitation?: boolean;
 }
 
 interface UrlMetadata {
@@ -237,9 +242,15 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     outcome = response.headers.get('cf-aig-cache-status')?.toUpperCase() === 'HIT' ? 'cache_hit' : 'ok';
     actualMicros = outcome === 'cache_hit' ? 0 : geminiCostMicros(data, price);
     const text = extractResponseText(data);
-    if (!text) return null;
-
     const finishReason = (data as { candidates?: { finishReason?: string }[] })?.candidates?.[0]?.finishReason;
+    if (!text) {
+      if (finishReason !== 'RECITATION') return null;
+      // 入力は課金済み（キャッシュから返ったものを除く）。理由を使用量の記録に残す
+      if (outcome === 'ok') outcome = 'recitation';
+      console.warn(`Gemini output blocked (RECITATION) for task ${req.task}`);
+      return req.urlContext ? { text: '', truncated: false, retrievedUrls: extractRetrievedUrls(data), recitation: true } : null;
+    }
+
     const truncated = finishReason === 'MAX_TOKENS';
     if (truncated) console.warn('Gemini output truncated (MAX_TOKENS)');
     return req.urlContext ? { text, truncated, retrievedUrls: extractRetrievedUrls(data) } : { text, truncated };
@@ -253,7 +264,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
       task: req.task,
       model,
       outcome,
-      ...(outcome === 'ok' && geminiTokenCounts(data)),
+      ...((outcome === 'ok' || outcome === 'recitation') && geminiTokenCounts(data)),
       urlContext: req.urlContext,
       ms: Date.now() - started,
     });
