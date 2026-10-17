@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
-import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package } from 'lucide-react';
+import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 
 interface LiveSearchCandidateTrayProps {
@@ -23,6 +23,19 @@ interface LiveSearchCandidateTrayProps {
 
 /** お店の商品検索の製品（src/lib/services/shop-lineup.ts）。成分はまだ分からない */
 const isShopProduct = (p: Product) => p.id.startsWith(SHOP_ID_PREFIX);
+
+/**
+ * 出してよいリンク：https だけ。楽天のページは楽天アフィリエイトのリンクのときだけ（楽天ウェブサービスの規約。
+ * サーバー側の shop-lineup.ts でも外しているが、ここでも確かめる）
+ */
+function isShowableLink({ href, sponsored }: NonNullable<Product['shopLink']>): boolean {
+  try {
+    const u = new URL(href);
+    return u.protocol === 'https:' && (sponsored || !/(^|\.)rakuten\.(co|ne)\.jp$/.test(u.hostname));
+  } catch {
+    return false;
+  }
+}
 
 const formatYen = (yen: number) => `¥${yen.toLocaleString('ja-JP')}`;
 
@@ -68,6 +81,22 @@ const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       )}
       <div className="mt-0.5 text-[10px] text-gray-500">成分は選ぶと調べます</div>
+      {product.shopLink && isShowableLink(product.shopLink) && (
+        // 見えている文字（PR 商品ページ）を読み上げの頭に残し、商品名と新しいタブで開くことを後に足す
+        <a
+          href={product.shopLink.href}
+          target="_blank"
+          rel={product.shopLink.sponsored ? 'noopener noreferrer sponsored nofollow' : 'noopener noreferrer nofollow'}
+          className="mt-1 inline-flex items-center gap-1 min-h-8 py-1.5 pr-2 text-[10px] text-sage-700 hover:text-sage-900 focus-visible:underline"
+        >
+          {product.shopLink.sponsored && (
+            <span className="font-bold text-gray-500 border border-gray-300 rounded px-1">PR</span>
+          )}
+          <span>商品ページ</span>
+          <ExternalLink aria-hidden="true" className="w-3 h-3" />
+          <span className="sr-only">（{product.name}、新しいタブで開く）</span>
+        </a>
+      )}
     </div>
   </div>
   );
@@ -254,6 +283,12 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
             })}
           </div>
         </div>
+      )}
+
+      {candidates.some((p) => p.shopLink?.sponsored) && (
+        <p className="px-4 pb-1 text-[10px] text-gray-500">
+          PR：「PR」と書かれた「商品ページ」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
+        </p>
       )}
 
       {credits.length > 0 && (

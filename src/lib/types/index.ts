@@ -90,6 +90,8 @@ export interface Product {
   sourceUrl?: string;
   /** お店の商品検索の製品の価格（API が返したまま。保存しない） */
   shopPrice?: { yen: number; taxIncluded: boolean | null };
+  /** お店の商品検索の製品の商品ページ。アフィリエイト ID が設定されていればアフィリエイトリンク（sponsored） */
+  shopLink?: { href: string; sponsored: boolean };
 }
 
 export interface AnalyzedIngredient {

@@ -56,8 +56,20 @@ the affiliate IDs only change links, and this feature shows no shop links.
   - Price: Rakuten `itemPrice` with `taxFlag`, Yahoo! `price` with `priceLabel.taxable`, shown as
     returned, with 「（税別）」 when the shop says it excludes tax. It is one listing's price, kept only
     in the page like the rest of the lineup.
-- **No shop links** until the affiliate IDs arrive (Article 3), and no `sourceUrl` on these
-  products.
+- **Shop links (added 2026-10-17, when the Rakuten affiliate ID arrived):** each card has a small
+  「商品ページ」 link, built by the price feature's `shopLink`, with no shop name. No `sourceUrl`.
+  - Rakuten: only as a Rakuten Affiliate link (`hb.afl.rakuten.co.jp/hgc/<RAKUTEN_AFFILIATE_ID>/`).
+    Without a valid ID there is no Rakuten link at all. Article 3 and Article 10 (4)(5) allow income
+    from the API only through Rakuten Affiliate, so another network (e.g. もしもアフィリエイト) is
+    not used for these products.
+  - Yahoo!: through `YAHOO_AFFILIATE_LINK_TEMPLATE` (ValueCommerce MyLink, set 2026-10-17), else the
+    plain item page.
+  - An affiliate link shows 「PR」, and the tray adds the one-line note used on the price card
+    (景品表示法, stealth-marketing rule).
+  - `rel="sponsored nofollow noopener noreferrer"` on affiliate links. The tray renders only `https`
+    links, and never a non-affiliate Rakuten link, even if the server sent one.
+  - Screen readers hear 「PR 商品ページ」 first, then the product name and that it opens a new tab;
+    the link is 32 px high so it isn't mis-tapped next to the main button.
 - **Which items are kept** (`brandLineup`):
   - of the brand: Yahoo!'s `brand` or `parentBrands` name matches the brand, or the item name
     contains it (Rakuten has no brand field);
@@ -103,7 +115,8 @@ These products have no ingredient list, so the card shows 「成分は選ぶと�
     names unchanged, no `sourceUrl`, credits; photo and price from both shops (Rakuten's
     formatVersion 1 and 2 photo shapes, 税込 and 税別), photo URLs dropped for `http`, a lookalike
     host and a user name and port, a price that isn't a whole number dropped, `mediumImageUrls` in
-    `elements`, no shop label;
+    `elements`, no shop label; links: plain Yahoo!, no Rakuten link without an ID, both affiliate
+  links with IDs;
   - the per-minute count stops a second Yahoo! call when set to 1;
   - the endpoint: 400 for text that is not a brand, no KV write, nothing in the shared cache;
   - `lookup_product` finds a saved product from a Rakuten name with 【公式】 and 送料無料;
@@ -160,10 +173,25 @@ Declined: pinning exact image hosts (e.g. only `thumbnail.image.rakuten.co.jp`).
 really return haven't been seen yet; a wrong pin would silently drop every photo. Revisit with the
 live check.
 
+### Third round: shop links
+
+`code-improver` found no Critical or High issues. Fixed:
+- **Medium:** the link's `aria-label` replaced its visible text (WCAG 2.5.3), didn't say it opens a
+  new tab, and the target was a 10 px line. Now the visible text leads, the rest is `sr-only`, and
+  the link is 32 px high.
+- **Medium:** test gaps. Test 83 now checks every Rakuten item has no link without an ID, a
+  malformed Rakuten ID gives no link, a template without `{url}` gives the plain Yahoo! page, and
+  links reach the endpoint's JSON.
+- **Low:** the tray also refuses a non-affiliate Rakuten link, and the PR note no longer claims the
+  order is unrelated to fees (Yahoo! items come first for their JAN codes, and Yahoo! links may be
+  paid once its template is set).
+
+Declined: a render test of the tray with `react-dom/server`. The suite has no component tests, and
+the rules that matter (which links exist and whether they're sponsored) are checked on the data the
+tray receives.
+
 ## Not done
 
-- **Affiliate links** for Rakuten (`affiliateId`) and Yahoo! (`affiliate_type=vc`, `affiliate_id`),
-  when the IDs arrive. Until then no shop links are shown.
 - **Yahoo! `brand_id`:** searching by brand ID would be more precise than the name, but the IDs
   are not in our list.
 - **LINE Yahoo! terms on storing data:** only Rakuten's storage rule was checked in detail. The

@@ -4,6 +4,7 @@ import { IndexedBrand, textHasBrand } from './brand-suggest';
 import { isActualCosmeticProduct } from './live-cosmetics-service';
 import { NOT_SINGLE_ITEM } from './price-service';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
+import { shopLink } from './shops';
 import { searchKey } from '../search/product-match';
 import { productSearchQuery } from './web-research';
 
@@ -12,8 +13,9 @@ import { productSearchQuery } from './web-research';
  * - 検索語はブランド名だけ。利用者が入力した文はお店に送らない
  * - 結果はサーバーに保存しない（KV・メモリのキャッシュ・共有の製品キャッシュのどれにも入れない）。楽天の規約
  *   （第10条 (9)：不特定多数と共有できる場所に保存しない）による。ブラウザがそのページの間だけ持つ
- * - 商品名は API が返したまま（第10条 (7)：改変しない）。商品ページへのリンクは出さない（アフィリエイト ID が
- *   届くまで。第3条）
+ * - 商品名は API が返したまま（第10条 (7)：改変しない）
+ * - 商品ページへのリンクは shopLink で作る。楽天は楽天アフィリエイトのリンク（第3条・第10条 (4)(5)：楽天アフィリエイト
+ *   以外で収益を得ない）。楽天の ID が無ければリンクは出さない
  * - 成分はここでは分からない。選ばれたら JAN コード、無ければ名前で調べる（チャットの lookup_product）
  */
 
@@ -48,9 +50,16 @@ function toProduct(item: ShopItem, brand: IndexedBrand): Product {
     // 候補には写真と価格を出し、商品名（【公式】・送料無料などが付く）は出さない。お店の名前も出さない
     ...(item.imageUrl && { imageUrl: item.imageUrl }),
     ...(item.priceYen && { shopPrice: { yen: item.priceYen, taxIncluded: item.taxIncluded } }),
+    ...linkOf(item),
     ingredients: [],
     isEstimatedFromMarketplaces: true,
   };
+}
+
+/** 商品ページへのリンク。楽天は楽天アフィリエイトのリンクのときだけ出す（そのままの楽天のページへのリンクは出さない） */
+function linkOf(item: ShopItem): { shopLink?: Product['shopLink'] } {
+  const link = shopLink(item.shopId, item.url);
+  return item.shopId === 'rakuten' && !link.sponsored ? {} : { shopLink: link };
 }
 
 /** このブランドの商品か：Yahoo! はブランド名（親ブランドを含む）、楽天は商品名で確かめる */

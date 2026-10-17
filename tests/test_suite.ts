@@ -3128,9 +3128,10 @@ test('72. Ingredient explanations: rules classify look-alike names correctly; th
   };
   const kv = new Map<string, string>();
   const kvPuts: string[] = [];
+  const kvKeys: string[] = [];
   const APP_CACHE = {
     async get(key: string) { return kv.get(key) ?? null; },
-    async put(key: string, value: string) { kvPuts.push(value); kv.set(key, value); },
+    async put(key: string, value: string) { kvPuts.push(value); kvKeys.push(key); kv.set(key, value); },
   };
   const answer = (over: Record<string, unknown> = {}) =>
     JSON.stringify({
@@ -3157,7 +3158,7 @@ test('72. Ingredient explanations: rules classify look-alike names correctly; th
     const request = gemini.requests[0].body;
     assert.ok(!JSON.stringify(request.systemInstruction).includes(injected), 'The name is not in the instructions');
     assert.deepStrictEqual(JSON.parse(request.contents.at(-1).parts.at(-1).text), { ingredientName: injected });
-    assert.strictEqual(kvPuts.length, 1);
+    assert.strictEqual(kvPuts.length, 1, `KV writes: ${kvKeys.join(', ')}`);
     assert.ok(!kvPuts[0].includes('以前の指示'), 'The shared explanation carries no spelling from the sender');
     assert.deepStrictEqual(JSON.parse(kvPuts[0]).aliases, []);
 
@@ -4137,7 +4138,14 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
   const { NextRequest } = await import('next/server');
 
-  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'SPEND_PER_MINUTE_YAHOO_API'];
+  const SHOP_ENV = [
+    'RAKUTEN_APPLICATION_ID',
+    'RAKUTEN_ACCESS_KEY',
+    'YAHOO_CLIENT_ID',
+    'SPEND_PER_MINUTE_YAHOO_API',
+    'RAKUTEN_AFFILIATE_ID',
+    'YAHOO_AFFILIATE_LINK_TEMPLATE',
+  ];
   const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
   const originalFetch = globalThis.fetch;
   const requests: { url: URL; headers: Headers }[] = [];
@@ -4227,6 +4235,36 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     );
     assert.deepStrictEqual(lineup.credits, ['yahoo', 'rakuten']);
 
+    // 商品ページへのリンク：アフィリエイト ID が無ければ、Yahoo! はそのままのページ、楽天はリンクなし
+    assert.deepStrictEqual(lineup.products[0].shopLink, { href: 'https://store.shopping.yahoo.co.jp/store/1.html', sponsored: false });
+    for (const p of lineup.products) {
+      if (p.id.startsWith('shop_rakuten_')) assert.strictEqual(p.shopLink, undefined, `No plain Rakuten link: ${p.id}`);
+      else assert.ok(p.shopLink!.href.startsWith('https://') && !p.shopLink!.sponsored, p.id);
+    }
+    // 形の違う ID では楽天のリンクを出さない（そのままのページにもしない）。{url} の無い雛形なら Yahoo! はそのままのページ
+    process.env.RAKUTEN_AFFILIATE_ID = 'not-an-id';
+    process.env.YAHOO_AFFILIATE_LINK_TEMPLATE = 'https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=1&pid=2&vc_url=';
+    resetSpendCap();
+    const badIds = await brandLineup(curel);
+    assert.ok(badIds.products.filter((p) => p.id.startsWith('shop_rakuten_')).every((p) => !p.shopLink));
+    assert.deepStrictEqual(badIds.products[0].shopLink, { href: 'https://store.shopping.yahoo.co.jp/store/1.html', sponsored: false });
+    // ID があればアフィリエイトリンク（楽天は楽天アフィリエイト）
+    process.env.RAKUTEN_AFFILIATE_ID = '0ea62065.34400275.0ea62066.204f04c0';
+    process.env.YAHOO_AFFILIATE_LINK_TEMPLATE = 'https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=1&pid=2&vc_url={url}';
+    resetSpendCap();
+    const linked = await brandLineup(curel);
+    const rakutenPage = encodeURIComponent('https://item.rakuten.co.jp/kao/1/');
+    assert.deepStrictEqual(linked.products[3].shopLink, {
+      href: `https://hb.afl.rakuten.co.jp/hgc/0ea62065.34400275.0ea62066.204f04c0/?pc=${rakutenPage}&m=${rakutenPage}`,
+      sponsored: true,
+    });
+    assert.deepStrictEqual(linked.products[0].shopLink, {
+      href: `https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=1&pid=2&vc_url=${encodeURIComponent('https://store.shopping.yahoo.co.jp/store/1.html')}`,
+      sponsored: true,
+    });
+    delete process.env.RAKUTEN_AFFILIATE_ID;
+    delete process.env.YAHOO_AFFILIATE_LINK_TEMPLATE;
+
     // 呼び出しの回数は全体で数える（1分あたりの上限に達したら呼ばない）
     resetSpendCap();
     process.env.SPEND_PER_MINUTE_YAHOO_API = '1';
@@ -4248,7 +4286,9 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     assert.strictEqual((await ask('私の頬が赤くなった')).status, 400, 'Not a brand: nothing is sent to the shops');
     const ok = await ask('きゅれる');
     assert.strictEqual(ok.status, 200);
-    assert.strictEqual(((await ok.json()) as { products: unknown[] }).products.length, 6);
+    const okBody = (await ok.json()) as { products: { id: string; shopLink?: { href: string } }[] };
+    assert.strictEqual(okBody.products.length, 6);
+    assert.strictEqual(okBody.products[0].shopLink?.href, 'https://store.shopping.yahoo.co.jp/store/1.html', 'Links reach the browser');
     assert.strictEqual(puts.length, 0, 'No KV write');
     assert.ok(!COSMETICS_DATABASE.some((p) => p.id.startsWith('shop_')), 'Not in the shared product cache');
 
