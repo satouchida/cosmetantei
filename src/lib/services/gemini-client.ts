@@ -47,7 +47,7 @@ function readEnv(name: string): string {
 
 /** AI Gateway の接続設定。いずれかが未設定・プレースホルダーなら null */
 function getGatewayConfig(): GatewayConfig | null {
-  const accountId = readEnv('CF_ACCOUNT_ID');
+  const accountId = readEnv('CLOUDFLARE_ACCOUNT_ID');
   const gatewayId = readEnv('AI_GATEWAY_ID');
   const token = readEnv('CF_AIG_TOKEN');
   return accountId && gatewayId && token ? { accountId, gatewayId, token } : null;
@@ -59,7 +59,7 @@ let warnedMissingConfig = false;
 function warnMissingGatewayConfigOnce(): void {
   if (warnedMissingConfig) return;
   warnedMissingConfig = true;
-  const missing = ['CF_ACCOUNT_ID', 'AI_GATEWAY_ID', 'CF_AIG_TOKEN'].filter((name) => !readEnv(name));
+  const missing = ['CLOUDFLARE_ACCOUNT_ID', 'AI_GATEWAY_ID', 'CF_AIG_TOKEN'].filter((name) => !readEnv(name));
   console.warn('Gemini disabled: AI Gateway config missing or placeholder:', missing.join(', '));
 }
 

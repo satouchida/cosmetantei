@@ -13,12 +13,12 @@ import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
 import { Product, INGREDIENT_RISK_LEVELS } from '../src/lib/types';
 
 // 外部API（Open Beauty Facts・Gemini）には接続しない：テストを高速・安定にするためネットワークを遮断する
-const GATEWAY_ENV_KEYS = ['CF_ACCOUNT_ID', 'AI_GATEWAY_ID', 'CF_AIG_TOKEN', 'AI_GATEWAY_LOG_PAYLOAD'] as const;
+const GATEWAY_ENV_KEYS = ['CLOUDFLARE_ACCOUNT_ID', 'AI_GATEWAY_ID', 'CF_AIG_TOKEN', 'AI_GATEWAY_LOG_PAYLOAD'] as const;
 for (const key of GATEWAY_ENV_KEYS) delete process.env[key];
 
 /** テスト用の AI Gateway 設定（実在しないトークン） */
 function setGatewayEnv(): void {
-  process.env.CF_ACCOUNT_ID = 'test-account';
+  process.env.CLOUDFLARE_ACCOUNT_ID = 'test-account';
   process.env.AI_GATEWAY_ID = 'test-gateway';
   process.env.CF_AIG_TOKEN = 'test-token-123';
 }

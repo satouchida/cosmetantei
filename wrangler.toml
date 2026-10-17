@@ -57,7 +57,7 @@ id = "2afbe688816d43f998dc380861d4b9f7"
 GEMINI_MODEL = "gemini-3.8-flash"
 NEXT_PUBLIC_AMAZON_AFFILIATE_TAG = "cosmetantei-22"
 # Gemini と Clef は Cloudflare AI Gateway 経由で呼び出す（ローカルは .dev.vars で cosmetantei-dev に上書き）
-CF_ACCOUNT_ID = "abd3843a83776fc9f73f65bb4bc2265e"
+CLOUDFLARE_ACCOUNT_ID = "abd3843a83776fc9f73f65bb4bc2265e"
 AI_GATEWAY_ID = "cosmetantei-prod"
 # チャットゲート（Clef）: enforce | shadow | off。雑談・指示の書き換え・本人の医療相談を Gemini の前で止める
 # この判定はキーワードでは代替できないため enforce で運用する（docs/plans/gemini-role-redesign.md）
