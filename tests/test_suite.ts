@@ -5557,3 +5557,54 @@ test('94. Review fixes: category words, UV-only caution, rule-rated irritants in
   assert.deepStrictEqual((await findAlternatives(tie!)).products, []);
   assert.ok(summarizeAlternatives(tie!, []).includes('種類'));
 });
+
+test('95. Chat client: server error text is shown, unreadable replies and network failures get a fixed message', async () => {
+  const { toChatResult, postChat, TIMEOUT_MESSAGE, NETWORK_MESSAGE } = await import('../src/lib/client/chat-request');
+  const json = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  const ok = await toChatResult(json(200, { reply: '結果です', singleAnalysis: { x: 1 } }));
+  assert.ok(ok.ok && ok.data.reply === '結果です' && ok.data.singleAnalysis);
+
+  // サーバーが付けた文をそのまま使う（429 の reply、401・503 の error）
+  const limited = await toChatResult(json(429, { reply: '1分ほどお待ちください' }));
+  assert.deepStrictEqual(limited, { ok: false, status: 429, message: '1分ほどお待ちください' });
+  const verify = await toChatResult(json(401, { error: 'ブラウザの確認が必要です。', verify: { siteKey: 'k' } }));
+  assert.strictEqual(!verify.ok && verify.message, 'ブラウザの確認が必要です。');
+
+  // JSON でない応答（Workers の 502 等）・reply の無い成功・空の本文は、空の吹き出しにしない
+  const html = await toChatResult(new Response('<html>Bad gateway</html>', { status: 502 }));
+  assert.ok(!html.ok && html.message.includes('サーバーで問題'));
+  const noReply = await toChatResult(json(200, { singleAnalysis: {} }));
+  assert.ok(!noReply.ok && noReply.message.length > 0);
+  const empty = await toChatResult(new Response('', { status: 429 }));
+  assert.ok(!empty.ok && empty.message.includes('1分ほど'));
+
+  // 時間切れ・通信エラー
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => {
+      throw new DOMException('timed out', 'TimeoutError');
+    }) as typeof fetch;
+    assert.deepStrictEqual(await postChat({ message: 'x' }), { ok: false, status: null, message: TIMEOUT_MESSAGE });
+    globalThis.fetch = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch;
+    assert.deepStrictEqual(await postChat({ message: 'x' }), { ok: false, status: null, message: NETWORK_MESSAGE });
+    // 1回の要求には時間切れの signal が付く
+    let signal: AbortSignal | null | undefined;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal;
+      return json(200, { reply: 'ok' });
+    }) as typeof fetch;
+    assert.ok((await postChat({ message: 'x' })).ok);
+    assert.ok(signal instanceof AbortSignal, 'Each chat request carries a timeout signal');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  // 画面のコード：/api/chat の応答を直接 res.json() で読まない（共通の postChat を通す）
+  const { readFileSync } = await import('node:fs');
+  const container = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+  assert.ok(!container.includes("apiFetch('/api/chat'"), 'ChatContainer calls /api/chat only through postChat');
+});

@@ -15,8 +15,11 @@ export interface LabelInput {
 interface LabelInputModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** 分析を依頼する。成功したら true（入力欄を空にする。失敗したときは入力を残してやり直せるようにする） */
-  onSubmit: (label: LabelInput) => Promise<boolean>;
+  /**
+   * 分析を依頼する。成功したら true（入力欄を空にする。失敗したときは入力を残してやり直せるようにする）。
+   * 受け付けられないとき（前の返答を待っている等）は、この画面に出す理由の文
+   */
+  onSubmit: (label: LabelInput) => Promise<boolean | string>;
 }
 
 /** サーバーの上限（src/lib/services/label-reader.ts）と同じ */
@@ -87,7 +90,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: { mimeType: 'image/jpeg', data } }),
         signal: controller.signal,
-      });
+      }, { timeoutMs: 60_000 });
       const body = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
       if (controller.signal.aborted) return;
       if (res.ok && body?.text) {
@@ -112,11 +115,17 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
     e.preventDefault();
     if (!text.trim() || isReading) return;
     setNotice(null);
+    const submitted = { text, name, brand };
     const ok = await onSubmit({ text: text.trim(), name: name.trim() || undefined, brand: brand.trim() || undefined });
+    if (typeof ok === 'string') {
+      setNotice({ kind: 'info', text: ok });
+      return;
+    }
     if (ok) {
-      setText('');
-      setName('');
-      setBrand('');
+      // 待っている間に開き直して入力し直した内容は消さない
+      setText((current) => (current === submitted.text ? '' : current));
+      setName((current) => (current === submitted.name ? '' : current));
+      setBrand((current) => (current === submitted.brand ? '' : current));
     }
   };
 

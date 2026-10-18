@@ -29,6 +29,7 @@ import {
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
 import { apiFetch } from '@/lib/client/api-fetch';
+import { ChatResponse, postChat } from '@/lib/client/chat-request';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
 import {
   getCurrentUseServerSnapshot,
@@ -53,6 +54,25 @@ function messageMeta(prefix: string): { id: string; timestamp: number } {
   messageSequence += 1;
   const timestamp = currentTime();
   return { id: `${prefix}-${timestamp}-${messageSequence}`, timestamp };
+}
+
+/** 応答待ちの間に、ほかのサーバーへの操作が押されたときの案内 */
+const WAIT_MESSAGE = '前の返答を待っています。届いてから、もう一度お試しください。';
+const DEFAULT_LOADING_TEXT = '成分データベースを解析中...';
+
+type ReplyField = 'productSuggestions' | 'singleAnalysis' | 'differentialAnalysis' | 'priceResult' | 'quickReplies';
+
+/** 返答のうち、この操作で使う項目だけを吹き出しに載せる（形はサーバーの型どおり） */
+function pickReply(data: ChatResponse, keys: ReplyField[]): Partial<ChatMessage> {
+  const out: Record<string, unknown> = {};
+  for (const key of keys) if (data[key] !== undefined && data[key] !== null) out[key] = data[key];
+  return out as Partial<ChatMessage>;
+}
+
+/** 読み上げる返答の冒頭（カードまで全部は読まない） */
+function announcementOf(content: string): string {
+  const text = content.replace(/\s+/g, ' ').trim();
+  return `返答：${text.length > 120 ? `${text.slice(0, 120)}…` : text}`;
 }
 
 /** Tailwind の lg（64rem）未満。rem で書き、ブラウザの文字サイズ設定が違っても CSS のブレークポイントと一致させる */
@@ -91,8 +111,12 @@ export const ChatContainer: React.FC = () => {
   const lineupRequested = useRef(new Set<string>());
   // 取れなかったブランドは、この時刻まで取り直さない（入力のたびに呼ばない）
   const lineupRetryAt = useRef(new Map<string, number>());
-  // お店の製品の成分を調べている間は、もう一度押されても調べない（有料の Web リサーチを2回しない）
-  const lookupRef = useRef(false);
+  // サーバーに頼む操作は1つずつ。再描画を待たずに判定するため ref（2回押しで有料の調べものを2回しない・返信の順序を保つ）
+  const busyRef = useRef(false);
+  const [loadingText, setLoadingText] = useState(DEFAULT_LOADING_TEXT);
+  // 読み上げ用：返答が届いた・失敗した（ライブリージョンは常に置き、中身だけ替える）
+  const [announcement, setAnnouncement] = useState('');
+  const [alertText, setAlertText] = useState('');
   const [isTrayOpen, setIsTrayOpen] = useState(false);
 
   /** ブランドの製品一覧をお店の商品検索から1回だけ取る（同じブランドはこのページを開いている間は取り直さない） */
@@ -183,7 +207,6 @@ export const ChatContainer: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const priceLookupRef = useRef(false);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   // スマホの幅（Tailwind の lg = 64rem 未満）か。引き出しをモーダルとして扱うかどうかに使う
   const isMobileViewport = useSyncExternalStore(
@@ -198,7 +221,8 @@ export const ChatContainer: React.FC = () => {
   const drawerCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    messagesEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
   };
 
   useEffect(() => {
@@ -224,293 +248,142 @@ export const ChatContainer: React.FC = () => {
   }, [isDrawerModal]);
 
 
+  // 同じ案内を続けて出したときに、前のタイマーで早く消えないようにする
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage((current) => (current === msg ? null : current));
-    }, 3000);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  /**
+   * サーバーに頼む操作の共通の流れ：利用者の吹き出し → 返答の吹き出し（失敗ならサーバーの文か決まった文）。
+   * 応答待ちの間は受け付けず、案内を出して null を返す
+   */
+  const runChatAction = async (
+    userContent: string,
+    body: Record<string, unknown>,
+    toMessage: (data: ChatResponse) => Partial<ChatMessage>,
+    options: {
+      loadingText?: string;
+      /** 失敗の吹き出しを変える（状態コードごとの案内・入力し直しのボタン） */
+      failure?: (result: { status: number | null; message: string }) => Partial<ChatMessage>;
+    } = {}
+  ): Promise<ChatResponse | null> => {
+    if (busyRef.current) {
+      showToast(WAIT_MESSAGE);
+      return null;
+    }
+    busyRef.current = true;
+    const loading = options.loadingText ?? DEFAULT_LOADING_TEXT;
+    setLoadingText(loading);
+    setIsLoading(true);
+    setAnnouncement(loading);
+    setAlertText('');
+    setMessages((prev) => [...prev, { ...messageMeta('user'), role: 'user', content: userContent }]);
+    try {
+      const result = await postChat(body);
+      if (result.ok) {
+        const reply: ChatMessage = { ...messageMeta('bot'), role: 'assistant', content: result.data.reply, ...toMessage(result.data) };
+        setMessages((prev) => [...prev, reply]);
+        setAnnouncement(announcementOf(reply.content));
+        return result.data;
+      }
+      const failure: ChatMessage = { ...messageMeta('err'), role: 'assistant', content: result.message, ...options.failure?.(result) };
+      setMessages((prev) => [...prev, failure]);
+      setAnnouncement('');
+      setAlertText(failure.content);
+      return null;
+    } finally {
+      busyRef.current = false;
+      setIsLoading(false);
+    }
   };
 
   const handleSendMessage = async (textToSend?: string) => {
     const messageText = (textToSend || input).trim();
-    if (!messageText || isLoading) return;
-
+    if (!messageText) return;
+    if (busyRef.current) {
+      showToast(WAIT_MESSAGE);
+      return;
+    }
     setInput('');
     setIsTrayOpen(false);
-
-    // Add user message
-    const userMsg: ChatMessage = {
-      ...messageMeta('user'),
-      role: 'user',
-      content: messageText,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setIsLoading(true);
-
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          routine,
-        }),
-      });
-
-      if (!res.ok) throw new Error('API Error');
-
-      const data = await res.json();
-
-      const assistantMsg: ChatMessage = {
-        ...messageMeta('bot'),
-        role: 'assistant',
-        content: data.reply,
-        productSuggestions: data.productSuggestions,
+    await runChatAction(
+      messageText,
+      { message: messageText, routine },
+      (data) => ({
+        ...pickReply(data, ['productSuggestions', 'singleAnalysis', 'differentialAnalysis', 'priceResult', 'quickReplies']),
         suggestionKind: data.suggestionKind === 'alternatives' ? 'alternatives' : undefined,
-        singleAnalysis: data.singleAnalysis,
-        differentialAnalysis: data.differentialAnalysis,
-        priceResult: data.priceResult,
-        quickReplies: data.quickReplies,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageMeta('err'),
-          role: 'assistant',
-          content: '通信中にエラーが発生しました。もう一度お試しください。',
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+      }),
+      { loadingText: '調べています...' }
+    );
+    // 入力して送ったときは入力欄に戻す（送信ボタンが無効になってフォーカスが失われないように）
+    if (!textToSend) inputRef.current?.focus();
   };
 
   const handleBarcodeScanned = async (barcode: string, label?: string) => {
     setIsScannerOpen(false);
-    setIsLoading(true);
-
-    const userMsg: ChatMessage = {
-      ...messageMeta('user-barcode'),
-      role: 'user',
-      content: label ?? `📷 バーコード（${barcode}）をスキャンしました`,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'barcode_lookup',
-          barcode,
-          routine,
-        }),
-      });
-
-      const data = await res.json();
-
-      const assistantMsg: ChatMessage = {
-        ...messageMeta('bot-barcode'),
-        role: 'assistant',
-        content: data.reply,
-        singleAnalysis: data.singleAnalysis,
-        quickReplies: data.quickReplies,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
+    await runChatAction(
+      label ?? `📷 バーコード（${barcode}）をスキャンしました`,
+      { action: 'barcode_lookup', barcode, routine },
+      (data) => pickReply(data, ['singleAnalysis', 'quickReplies']),
+      { loadingText: 'バーコードの商品を調べています...' }
+    );
   };
 
   /** お店の商品検索の製品（JAN コードなし）の成分を、商品名で調べる。見つかった製品を候補として出す */
   const lookupShopProduct = async (product: Product) => {
-    if (lookupRef.current) return;
-    lookupRef.current = true;
-    setIsLoading(true);
-    setMessages((prev) => [
-      ...prev,
-      { ...messageMeta('user-select'), role: 'user', content: `「${product.name}」の成分を詳しく知りたい` },
-    ]);
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'lookup_product', selectedProduct: product }),
-      });
-      if (!res.ok && res.status !== 429) throw new Error('API Error');
-      const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageMeta('bot-lookup'),
-          role: 'assistant',
-          content: data.reply,
-          productSuggestions: data.productSuggestions,
-          quickReplies: data.quickReplies,
-        },
-      ]);
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        { ...messageMeta('bot-lookup'), role: 'assistant', content: '通信中にエラーが発生しました。もう一度お試しください。' },
-      ]);
-    } finally {
-      lookupRef.current = false;
-      setIsLoading(false);
-    }
+    await runChatAction(
+      `「${product.name}」の成分を詳しく知りたい`,
+      { action: 'lookup_product', selectedProduct: product },
+      (data) => pickReply(data, ['productSuggestions', 'quickReplies']),
+      { loadingText: 'Webで成分を調べています（1分ほどかかることがあります）...' }
+    );
   };
 
   /** 分析した商品の販売価格を調べる（サーバーはブランド名と商品名だけで検索する） */
   const handlePriceLookup = async (label: string, product: Product) => {
-    // 再描画の前に2回押されても、有料の検索を2回しない
-    if (priceLookupRef.current) return;
-    priceLookupRef.current = true;
-    setIsLoading(true);
-    setMessages((prev) => [...prev, { ...messageMeta('user-price'), role: 'user', content: label }]);
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'price_lookup', selectedProduct: product }),
-      });
-      if (!res.ok && res.status !== 429) throw new Error('API Error');
-      const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageMeta('bot-price'),
-          role: 'assistant',
-          content: data.reply,
-          priceResult: data.priceResult,
-          quickReplies: data.quickReplies,
-        },
-      ]);
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        { ...messageMeta('err'), role: 'assistant', content: '通信中にエラーが発生しました。もう一度お試しください。' },
-      ]);
-    } finally {
-      priceLookupRef.current = false;
-      setIsLoading(false);
-    }
+    await runChatAction(
+      label,
+      { action: 'price_lookup', selectedProduct: product },
+      (data) => pickReply(data, ['priceResult', 'quickReplies']),
+      { loadingText: '販売価格を調べています...' }
+    );
   };
 
   /** 入力された成分表示を分析する（サーバーはパーサーと成分DBだけで分析し、保存しない） */
-  const handleLabelSubmit = async (label: LabelInput): Promise<boolean> => {
-    // 前の応答を待っている間は受け付けない（返信の順序が入れ替わらないように）
-    if (isLoading) return false;
+  const handleLabelSubmit = async (label: LabelInput): Promise<boolean | string> => {
+    // 前の応答を待っている間は受け付けない（返信の順序が入れ替わらないように）。理由は入力の画面に出す
+    if (busyRef.current) return WAIT_MESSAGE;
     setIsLabelInputOpen(false);
-    setIsLoading(true);
-    setMessages((prev) => [
-      ...prev,
+    const data = await runChatAction(
+      `📝 成分表示を入力しました${label.name ? `（${label.name}）` : ''}`,
+      { action: 'analyze_label', label, routine },
+      (reply) => pickReply(reply, ['singleAnalysis', 'quickReplies']),
       {
-        ...messageMeta('user-label'),
-        role: 'user',
-        content: `📝 成分表示を入力しました${label.name ? `（${label.name}）` : ''}`,
-      },
-    ]);
-
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'analyze_label', label, routine }),
-      });
-      const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageMeta('bot-label'),
-          role: 'assistant',
-          content: data.reply,
-          singleAnalysis: data.singleAnalysis,
-          quickReplies: data.quickReplies,
-        },
-      ]);
-      return !!data.singleAnalysis;
-    } catch (err) {
-      console.error(err);
-      // 入力した成分表示は入力欄に残っているので、開き直してやり直せる
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageMeta('bot-label-error'),
-          role: 'assistant',
-          content: '通信中にエラーが発生しました。入力した成分表示は残っているので、もう一度お試しください。',
+        // 入力した成分表示は入力欄に残っているので、開き直してやり直せる
+        failure: (result) => ({
+          content: `${result.message}\n\n入力した成分表示は残っているので、開き直してもう一度お試しください。`,
           quickReplies: ['📝 成分表示を入力する'],
-        },
-      ]);
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
+        }),
+      }
+    );
+    return !!data?.singleAnalysis;
   };
 
   const handleSelectProductToAnalyze = async (product: Product) => {
     // お店の商品検索の製品は成分が分からない。JAN コードがあればバーコードで、無ければ名前で調べる
     if (product.id.startsWith('shop_')) {
-      if (lookupRef.current) return;
-      if (product.barcode) {
-        lookupRef.current = true;
-        try {
-          await handleBarcodeScanned(product.barcode, `「${product.name}」の成分を詳しく知りたい`);
-        } finally {
-          lookupRef.current = false;
-        }
-        return;
-      }
-      await lookupShopProduct(product);
+      if (product.barcode) await handleBarcodeScanned(product.barcode, `「${product.name}」の成分を詳しく知りたい`);
+      else await lookupShopProduct(product);
       return;
     }
-    setIsLoading(true);
-
-    const userMsg: ChatMessage = {
-      ...messageMeta('user-select'),
-      role: 'user',
-      content: `「${product.brand} ${product.name}」の成分を詳しく知りたい`,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'analyze_single',
-          selectedProduct: product,
-          routine,
-        }),
-      });
-
-      const data = await res.json();
-
-      const assistantMsg: ChatMessage = {
-        ...messageMeta('bot-analysis'),
-        role: 'assistant',
-        content: data.reply,
-        singleAnalysis: data.singleAnalysis,
-        quickReplies: data.quickReplies,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
+    await runChatAction(
+      `「${product.brand} ${product.name}」の成分を詳しく知りたい`,
+      { action: 'analyze_single', selectedProduct: product, routine },
+      (data) => pickReply(data, ['singleAnalysis', 'quickReplies'])
+    );
   };
 
   /** 肌荒れリストに追加する。追加した場合は true、すでに登録済みなら false */
@@ -607,8 +480,11 @@ export const ChatContainer: React.FC = () => {
       setIsLabelInputOpen(true);
       return;
     }
-    // 応答待ちの間は、メッセージの順序が入れ替わらないよう他のボタンを受け付けない
-    if (isLoading) return;
+    // 応答待ちの間は、メッセージの順序が入れ替わらないよう他のボタンを受け付けない（押されたことは伝える）
+    if (busyRef.current) {
+      showToast(WAIT_MESSAGE);
+      return;
+    }
     switch (action.kind) {
       case 'send':
         handleSendMessage(action.text);
@@ -667,106 +543,44 @@ export const ChatContainer: React.FC = () => {
 
   const handleRunDifferential = async () => {
     if (routine.badProducts.length === 0) return;
-
-    setIsLoading(true);
-
-    const userMsg: ChatMessage = {
-      ...messageMeta('user-diff'),
-      role: 'user',
-      content: `⚡️ 肌荒れコスメ（${routine.badProducts.map((p) => p.name).join('、')}）の原因成分をあぶり出してください`,
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'differential',
-          routine,
-        }),
-      });
-
-      const data = await res.json();
-
-      const assistantMsg: ChatMessage = {
-        ...messageMeta('bot-diff'),
-        role: 'assistant',
-        content: data.reply,
-        differentialAnalysis: data.differentialAnalysis,
-        quickReplies: data.quickReplies,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
+    await runChatAction(
+      `⚡️ 肌荒れコスメ（${routine.badProducts.map((p) => p.name).join('、')}）の原因成分をあぶり出してください`,
+      { action: 'differential', routine },
+      (data) => pickReply(data, ['differentialAnalysis', 'quickReplies']),
+      { loadingText: '原因成分をあぶり出しています...' }
+    );
   };
 
   /** 今使っているコスメの組み合わせを調べる（サーバーはルールだけで判定する） */
   const handleCheckCurrentUse = async () => {
-    if (currentUse.length < 2 || isLoading) return;
+    if (currentUse.length < 2) return;
     // 送った時点の、3か月以上前に追加した製品（結果のカードで確かめてもらう）
     const staleProductNames = staleEntries.map((e) => e.product.name);
-    setIsLoading(true);
-    setMessages((prev) => [
-      ...prev,
+    await runChatAction(
+      `🧴 今使っているコスメ（${currentUse.map((e) => e.product.name).join('、')}）の組み合わせを調べてください`,
+      // 比較リストは使わないので送らない
       {
-        ...messageMeta('user-current'),
-        role: 'user',
-        content: `🧴 今使っているコスメ（${currentUse.map((e) => e.product.name).join('、')}）の組み合わせを調べてください`,
+        action: 'check_current_use',
+        routine: { badProducts: [], safeProducts: [], currentlyUsing: routine.currentlyUsing },
       },
-    ]);
-
-    try {
-      const res = await apiFetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // 比較リストは使わないので送らない
-        body: JSON.stringify({
-          action: 'check_current_use',
-          routine: { badProducts: [], safeProducts: [], currentlyUsing: routine.currentlyUsing },
-        }),
-      });
-      if (res.status === 400) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            ...messageMeta('bot-current-invalid'),
-            role: 'assistant',
-            content:
-              '「今使っているコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
-          },
-        ]);
-        return;
+      (data) => {
+        const check = data.currentUseCheck as ChatMessage['currentUseCheck'];
+        return {
+          ...pickReply(data, ['quickReplies']),
+          currentUseCheck: check && { ...check, ...(staleProductNames.length > 0 && { staleProductNames }) },
+        };
+      },
+      {
+        loadingText: '組み合わせを確かめています...',
+        failure: (result) =>
+          result.status === 400
+            ? {
+                content:
+                  '「今使っているコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
+              }
+            : {},
       }
-      if (!res.ok && res.status !== 429) throw new Error('API Error');
-      const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          ...messageMeta('bot-current'),
-          role: 'assistant',
-          content: data.reply,
-          currentUseCheck: data.currentUseCheck && {
-            ...data.currentUseCheck,
-            ...(staleProductNames.length > 0 && { staleProductNames }),
-          },
-          quickReplies: data.quickReplies,
-        },
-      ]);
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) => [
-        ...prev,
-        { ...messageMeta('err'), role: 'assistant', content: '通信中にエラーが発生しました。もう一度お試しください。' },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+    );
   };
 
   const handleLoadPreset = (presetType: 'sample_irritation' | 'clear') => {
@@ -828,6 +642,13 @@ export const ChatContainer: React.FC = () => {
       {/* 読み上げ用のライブリージョンは常に置いておく（中身ごと追加すると読み上げられないことがある） */}
       <div role="status" className="sr-only">
         {toastMessage}
+      </div>
+      {/* 返答が届いた・調べ始めた（冒頭だけ）と、失敗（すぐ読み上げる） */}
+      <div role="status" className="sr-only">
+        {announcement}
+      </div>
+      <div role="alert" className="sr-only">
+        {alertText}
       </div>
       {toastMessage && (
         <div
@@ -1018,13 +839,15 @@ export const ChatContainer: React.FC = () => {
 
                   {/* Quick Replies */}
                   {msg.quickReplies && msg.quickReplies.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-sand-200 -mx-4 px-4 pb-1 flex gap-2 overflow-x-auto sm:mx-0 sm:px-0 sm:flex-wrap">
+                    <div className="mt-3 pt-3 pb-1 border-t border-sand-200 flex flex-wrap gap-2">
                       {msg.quickReplies.map((qr, i) => (
                         <button
                           key={i}
                           type="button"
                           onClick={() => handleQuickReply(qr, msg)}
-                          className="shrink-0 whitespace-nowrap min-h-12 text-[13px] bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 rounded-full font-semibold transition-colors"
+                          // 応答待ちでもフォーカスを失わないよう disabled にはせず、押したら案内を出す
+                          aria-disabled={isLoading || undefined}
+                          className="max-w-full min-h-12 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:opacity-60 aria-disabled:hover:bg-white aria-disabled:hover:border-sand-300"
                         >
                           {qr}
                         </button>
@@ -1043,14 +866,14 @@ export const ChatContainer: React.FC = () => {
 
             {isLoading && (
               <div className="flex gap-3 items-center text-sm text-ink-muted">
-                <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 animate-pulse">
+                <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center shrink-0 animate-pulse motion-reduce:animate-none">
                   <Bot className="w-[18px] h-[18px]" aria-hidden />
                 </div>
                 <div className="flex items-center gap-1.5 bg-white px-4 py-3 rounded-2xl rounded-tl-sm border border-sand-200 shadow-xs">
-                  <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce" />
-                  <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce [animation-delay:0.2s]" />
-                  <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce [animation-delay:0.4s]" />
-                  <span className="ml-1 font-medium">成分データベースを解析中...</span>
+                  <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce motion-reduce:animate-none" />
+                  <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.2s]" />
+                  <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.4s]" />
+                  <span className="ml-1 font-medium">{loadingText}</span>
                 </div>
               </div>
             )}
@@ -1074,6 +897,11 @@ export const ChatContainer: React.FC = () => {
                 isOpen={isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== ''}
                 onClose={() => setIsTrayOpen(false)}
                 onSelectProduct={(product) => {
+                  // 応答待ちなら、入力と候補を残したまま案内する（選んだ製品を黙って捨てない）
+                  if (busyRef.current) {
+                    showToast(WAIT_MESSAGE);
+                    return;
+                  }
                   setIsTrayOpen(false);
                   setInput('');
                   handleSelectProductToAnalyze(product);
@@ -1182,7 +1010,12 @@ export const ChatContainer: React.FC = () => {
       <BarcodeScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
-        onScanSuccess={handleBarcodeScanned}
+        onScanSuccess={(barcode) => {
+          // 応答待ちならスキャナーを開いたまま理由を出す（読めたバーコードを黙って捨てない）
+          if (busyRef.current) return WAIT_MESSAGE;
+          void handleBarcodeScanned(barcode);
+          return true;
+        }}
       />
 
       <LabelInputModal

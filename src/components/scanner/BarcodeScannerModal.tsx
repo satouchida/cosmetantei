@@ -17,7 +17,8 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 interface BarcodeScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onScanSuccess: (barcode: string) => void;
+  /** 読めたバーコードを渡す。受け付けられないとき（前の返答を待っている等）は、この画面に出す理由の文 */
+  onScanSuccess: (barcode: string) => true | string;
 }
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
@@ -34,6 +35,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   // 起動中（カメラ許可待ちなど）に閉じられた場合も確実にカメラを止めるため、起動処理を保持する
   const startPromiseRef = useRef<Promise<unknown> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 1回読めたら、カメラが止まるまでに次の映像で読めても送らない（開き直すと受け付ける）
+  const handledRef = useRef(false);
+  const isOpenRef = useRef(isOpen);
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
   const readerElementId = 'barcode-reader-viewport';
 
   const stopScanner = async () => {
@@ -57,8 +64,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   };
 
   const handleSuccess = (code: string) => {
-    stopScanner();
-    onScanSuccess(code.trim());
+    if (handledRef.current) return;
+    handledRef.current = true;
+    const accepted = onScanSuccess(code.trim());
+    if (accepted !== true) {
+      // 受け付けられなければ開いたまま理由を出し、少ししてからまた読む（同じ映像で続けて断らない）
+      setErrorMsg(accepted);
+      setTimeout(() => {
+        if (isOpenRef.current) handledRef.current = false;
+      }, 2_000);
+      return;
+    }
+    void stopScanner();
   };
 
   const startScanner = async () => {
@@ -131,11 +148,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     let timer: NodeJS.Timeout;
 
     if (isOpen) {
+      handledRef.current = false;
       // DOMマウント完了を待ってからスキャナーを初期化
       timer = setTimeout(() => {
         startScanner();
       }, 200);
     } else {
+      // 閉じた後に届いた読み取り結果（画像の読み取り・止まる前の映像）は使わない
+      handledRef.current = true;
       stopScanner();
     }
 
@@ -149,9 +169,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (manualCode.trim()) {
-      handleSuccess(manualCode.trim());
-    }
+    // 全角の数字（日本語入力）や区切りの空白・ハイフンは、数字だけにそろえる
+    const code = manualCode.normalize('NFKC').replace(/\D/g, '');
+    if (code) handleSuccess(code);
+    else setErrorMsg('バーコードの番号（数字）を入力してください。');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -161,27 +182,29 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setIsProcessingFile(true);
     setErrorMsg(null);
 
+    // カメラで読み取っている間は画像を読めない（html5-qrcode の制約）。カメラを止め、画像用に作り直す
+    // 起動中（許可待ち）も含め、カメラを使っていて失敗していなければ、後で動かし直す
+    const cameraWasRunning = scannerRef.current !== null && !errorMsg;
+    await stopScanner();
     try {
-      let scanner = scannerRef.current;
-      if (!scanner) {
-        scanner = new Html5Qrcode(readerElementId, {
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.QR_CODE,
-          ],
-          verbose: false,
-        });
-        scannerRef.current = scanner;
-      }
-
+      const scanner = new Html5Qrcode(readerElementId, {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.QR_CODE,
+        ],
+        verbose: false,
+      });
+      scannerRef.current = scanner;
       const decodedResult = await scanner.scanFile(file, true);
       handleSuccess(decodedResult);
     } catch (err: unknown) {
       console.error('File scan error:', err);
+      // カメラで読み取っていたなら、もう一度カメラを動かしてから理由を出す（起動で案内が消えるため、後に出す）
+      if (cameraWasRunning) await startScanner();
       setErrorMsg('画像からバーコードを検出できませんでした。より鮮明な画像をお試しいただくか、番号を直接ご入力ください。');
     } finally {
       setIsProcessingFile(false);
@@ -238,7 +261,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-500 -mt-1 -mr-1" />
                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-500 -mb-1 -ml-1" />
                 <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-500 -mb-1 -mr-1" />
-                <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-red-400/80 animate-pulse" />
+                <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-red-400/80 animate-pulse motion-reduce:animate-none" />
               </div>
               <span className="mt-3 text-xs text-white/90 bg-black/60 px-3 py-1 rounded-full font-medium">
                 JAN (45/49), 韓国 (880), UPC対応
@@ -280,6 +303,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessingFile}
               className={`w-full ${buttonSecondary}`}
             >
               <Upload className="w-5 h-5" aria-hidden />
@@ -297,12 +321,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
                 aria-label="バーコード番号"
+                inputMode="numeric"
                 className="w-full h-12 pl-9 pr-3 text-sm border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>
             <button
               type="submit"
-              disabled={!manualCode.trim()}
+              disabled={!manualCode.trim() || isProcessingFile}
               className={buttonPrimary}
             >
               照合
