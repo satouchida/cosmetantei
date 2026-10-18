@@ -143,6 +143,8 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
 
       // 有効成分（グリチルリチン酸2K, アラントイン, ナイアシンアミド）
       if (norm.includes(normAlias) && normAlias.length >= 4) {
+        // 水酸化亜鉛・過酸化亜鉛・水酸化チタンは紫外線散乱剤の酸化亜鉛・酸化チタンではない
+        if ((item.id === 'zinc_oxide' || item.id === 'titanium_dioxide') && /^(水|過)酸化/.test(norm)) continue;
         return item;
       }
     }

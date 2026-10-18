@@ -36,6 +36,26 @@ export function isYahooApiConfigured(): boolean {
   return !!readShopConfig('YAHOO_CLIENT_ID');
 }
 
+/** 楽天のアプリに登録したサイト（[vars] の RAKUTEN_API_ORIGIN） */
+const DEFAULT_RAKUTEN_API_ORIGIN = 'https://cosmetantei.app';
+
+/**
+ * 楽天の API のヘッダー。Origin が無いと 403（REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING）、
+ * アプリに登録していないサイトなら 403（HTTP_REFERRER_NOT_ALLOWED）になる
+ */
+function rakutenHeaders(): Record<string, string> {
+  return { accessKey: readShopConfig('RAKUTEN_ACCESS_KEY'), Origin: rakutenOrigin() };
+}
+
+/** Origin はスキームとホストだけ（設定の末尾の / やパスは外す。形が違えば既定のサイト） */
+function rakutenOrigin(): string {
+  try {
+    return new URL(readShopConfig('RAKUTEN_API_ORIGIN') || DEFAULT_RAKUTEN_API_ORIGIN).origin;
+  } catch {
+    return DEFAULT_RAKUTEN_API_ORIGIN;
+  }
+}
+
 /** 同じアプリ ID の呼び出しの間隔（楽天・Yahoo! とも 1秒に1回まで） */
 const API_INTERVAL_MS = 1_100;
 
@@ -103,7 +123,7 @@ async function rakutenSearch(query: string, shopCode?: string): Promise<ShopOffe
   if (shopCode) params.set('shopCode', shopCode);
   const body = await getJson(
     `${RAKUTEN_ENDPOINT}?${params}`,
-    { accessKey: readShopConfig('RAKUTEN_ACCESS_KEY') },
+    rakutenHeaders(),
     'Rakuten item search',
     'rakuten_api'
   );
@@ -243,7 +263,7 @@ export async function rakutenItemSearch(keyword: string): Promise<ShopItem[] | n
   });
   const body = await getJson(
     `${RAKUTEN_ENDPOINT}?${params}`,
-    { accessKey: readShopConfig('RAKUTEN_ACCESS_KEY') },
+    rakutenHeaders(),
     'Rakuten item search',
     'rakuten_api'
   );

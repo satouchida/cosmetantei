@@ -2679,6 +2679,7 @@ test('67. Shop prices: Rakuten and Yahoo! APIs when keys are set, affiliate link
     for (const r of rakutenCalls) {
       assert.strictEqual(r.url.searchParams.get('keyword'), 'キュレル 潤浸保湿 化粧水');
       assert.strictEqual(r.headers.accessKey, 'test-rakuten-secret');
+      assert.strictEqual(r.headers.Origin, 'https://cosmetantei.app', 'Rakuten refuses calls without the registered Origin');
       assert.ok(!r.url.search.includes('test-rakuten-secret'), 'The access key is not in the URL');
     }
     const yahooCall = requests.find((r) => r.url.hostname === 'shopping.yahooapis.jp')!;
@@ -3079,7 +3080,8 @@ test('72. Ingredient explanations: rules classify look-alike names correctly; th
   const expected: [string, string, string][] = [
     ['サリチル酸', 'active_caution', 'potent_active'],
     ['サリチル酸ベンジル', 'moderate_irritant', 'fragrance'],
-    ['サリチル酸エチルヘキシル', 'unknown', 'other'],
+    // サリチル酸エチルヘキシルは角質ケアのサリチル酸ではなく、紫外線吸収剤（成分DB）
+    ['サリチル酸エチルヘキシル', 'low_caution', 'uv_filter'],
     ['magnesium sulfate', 'unknown', 'other'],
     ['フェニルベンズイミダゾールスルホン酸', 'unknown', 'other'],
     ['ラウリル硫酸アンモニウム', 'high_irritant', 'sulfate'],
@@ -4272,6 +4274,7 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     assert.strictEqual(rakutenReq.url.searchParams.get('keyword'), 'キュレル', 'Only the brand name is sent');
     assert.strictEqual(rakutenReq.url.searchParams.get('formatVersion'), '2');
     assert.strictEqual(rakutenReq.headers.get('accessKey'), 'test-rakuten-secret');
+    assert.strictEqual(rakutenReq.headers.get('Origin'), 'https://cosmetantei.app');
     assert.ok(!rakutenReq.url.search.includes('test-rakuten-secret'));
     const yahooReq = requests.find((r) => r.url.hostname === 'shopping.yahooapis.jp')!;
     assert.strictEqual(yahooReq.url.pathname, '/ShoppingWebService/V3/itemSearch');
@@ -5420,4 +5423,66 @@ test('92. Alternatives are the same kind of product, or none', async () => {
   assert.ok(diff.safeAlternatives.length > 0 && diff.safeAlternatives.every(isSunscreen));
   const badUnknown: Product = { ...badSunscreen, id: 'bad_unknown', name: 'テスト製品' };
   assert.deepStrictEqual(performDifferentialAnalysis([badUnknown], []).safeAlternatives, []);
+});
+
+test('93. Ingredients common on shop labels are rated: UV filters (DB) and rule groups', async () => {
+  const { getOrGenerateIngredientExplanation } = await import('../src/lib/services/dynamic-ingredient-service');
+  const classify = (name: string) => findMatchingKnownIngredient(name) ?? getOrGenerateIngredientExplanation(name);
+  const expected: [string, string, string][] = [
+    // 成分DB：紫外線吸収剤・散乱剤（化粧品基準 別表第4、EU Annex VI）
+    ['ジエチルアミノヒドロキシベンゾイル安息香酸ヘキシル', 'low_caution', 'uv_filter'],
+    ['ビスエチルヘキシルオキシフェノールメトキシフェニルトリアジン', 'low_caution', 'uv_filter'],
+    ['エチルヘキシルトリアゾン', 'low_caution', 'uv_filter'],
+    ['t-ブチルメトキシジベンゾイルメタン', 'low_caution', 'uv_filter'],
+    ['ポリシリコーン−15', 'low_caution', 'uv_filter'],
+    ['ドロメトリゾールトリシロキサン', 'low_caution', 'uv_filter'],
+    ['酸化チタン', 'safe', 'uv_filter'],
+    ['酸化亜鉛', 'safe', 'uv_filter'],
+    ['グリチルレチン酸ステアリル', 'safe', 'soothing'],
+    ['オレンジ油', 'high_irritant', 'essential_oil'],
+    // 「−」（U+2212）などのハイフンの仲間は区切りとして外す
+    ['PCA−Na', 'safe', 'moisturizer'],
+    // ルール
+    ['シリカ', 'safe', 'other'],
+    ['水酸化Al', 'safe', 'other'],
+    ['ジステアルジモニウムヘクトライト', 'safe', 'other'],
+    ['ベヘニルアルコール', 'safe', 'other'],
+    ['(C14−22)アルコール', 'safe', 'other'],
+    ['エチルヘキサン酸セチル', 'safe', 'barrier_support'],
+    ['安息香酸アルキル(C12-15)', 'safe', 'barrier_support'],
+    ['シア脂', 'safe', 'barrier_support'],
+    ['オリーブ果実油', 'safe', 'barrier_support'],
+    ['流動パラフィン', 'safe', 'barrier_support'],
+    ['トリメチルシロキシケイ酸', 'safe', 'barrier_support'],
+    ['サラシミツロウ', 'safe', 'barrier_support'],
+    ['ローズマリー葉油', 'moderate_irritant', 'essential_oil'],
+    ['ユズ果皮油', 'high_irritant', 'essential_oil'],
+    ['ライム油', 'high_irritant', 'essential_oil'],
+    ['トリエトキシカプリリルシラン', 'safe', 'barrier_support'],
+    ['トレハロース', 'safe', 'moisturizer'],
+    ['シロキクラゲ多糖体', 'safe', 'moisturizer'],
+    ['加水分解コラーゲン', 'low_caution', 'moisturizer'],
+    ['水添レシチン', 'safe', 'barrier_support'],
+    ['コレステロール', 'safe', 'barrier_support'],
+    ['BHT', 'safe', 'other'],
+    ['メタリン酸Na', 'safe', 'other'],
+    ['クロルフェネシン', 'low_caution', 'preservative'],
+    ['安息香酸Na', 'low_caution', 'preservative'],
+    ['尿素', 'low_caution', 'moisturizer'],
+    ['バリン', 'safe', 'moisturizer'],
+    // 似た名前の別成分は、これまでどおり
+    ['加水分解コムギ', 'low_caution', 'other'],
+    ['ステアリルアルコール', 'safe', 'other'],
+    ['エタノール', 'moderate_irritant', 'drying_alcohol'],
+    ['安息香酸ベンジル', 'moderate_irritant', 'fragrance'],
+    ['硫酸Na', 'unknown', 'other'],
+    ['チオグリコール酸グリセリル', 'unknown', 'other'],
+    ['パラフィンスルホン酸Na', 'unknown', 'other'],
+    ['オキシラン', 'unknown', 'other'],
+    ['水酸化亜鉛', 'unknown', 'other'],
+  ];
+  for (const [name, riskLevel, category] of expected) {
+    const got = classify(name);
+    assert.deepStrictEqual([got.riskLevel, got.category], [riskLevel, category], name);
+  }
 });

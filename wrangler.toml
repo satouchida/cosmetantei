@@ -102,6 +102,8 @@ SPEND_BACKGROUND_SHARE = "0.5"
 # 楽天・Yahoo! の API（無料）。アプリ ID ごとに1秒に1回までの規約に合わせ、全体で1分あたりの件数を数える
 SPEND_PER_MINUTE_RAKUTEN_API = "50"
 SPEND_PER_MINUTE_YAHOO_API = "50"
+# 楽天の API に送る Origin。楽天のアプリに登録したサイトでないと 403 になる
+RAKUTEN_API_ORIGIN = "https://cosmetantei.app"
 # 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）
 # docs/plans/clef-chat-gate-and-search-filter.md の Phase 2
 SEARCH_FILTER_MODE = "off"

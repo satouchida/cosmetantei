@@ -6,6 +6,13 @@ import { KnownIngredient, ReferenceLink } from '../types';
  */
 
 const REVIEWED = '2026-10-12';
+/** お店の商品の成分表示に多い成分を足した日（紫外線吸収剤・散乱剤 等。docs/plans/alternative-recommendations.md） */
+const REVIEWED_2026_10_18 = '2026-10-18';
+
+const UV_ABSORBER_ADVICE =
+  '肌が敏感な時期は刺激を感じることがあります。日焼け止めで赤みやかゆみが出たことがある場合は、紫外線吸収剤を使わない「ノンケミカル」の製品と比べてみてください。';
+const UV_SCATTERER_ADVICE =
+  '紫外線吸収剤を使わない「ノンケミカル」の日焼け止めに使われる成分で、刺激になりにくい成分です。';
 
 const REF = {
   euCosmetics: {
@@ -281,7 +288,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     id: 'citrus_oils',
     nameJa: '柑橘系果皮油（オレンジ・レモン・ベルガモット等）',
     nameEn: 'Citrus Peel Oils (Orange, Lemon, Bergamot, Grapefruit)',
-    aliases: ['オレンジ果皮油', 'レモン果皮油', 'ベルガモット果実油', 'グレープフルーツ果皮油', 'citrus aurantium dulcis', 'citrus limon', 'citrus grandis'],
+    aliases: ['オレンジ果皮油', 'オレンジ油', 'レモン果皮油', 'レモン油', 'ベルガモット果実油', 'グレープフルーツ果皮油', 'citrus aurantium dulcis', 'citrus limon', 'citrus grandis'],
     category: 'essential_oil',
     riskLevel: 'high_irritant',
     reasonJa: 'リモネンやシトラールを多く含み、香料アレルギーの原因になります。ベルガモット油などフロクマリンを含むものは、日光に当たると炎症を起こす光毒性があります。',
@@ -518,6 +525,116 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     reviewedAt: REVIEWED,
   },
 
+  // 紫外線吸収剤・紫外線散乱剤（日本の化粧品基準の別表第4、EU の Annex VI に載るもの。配合上限は成分のカードが化粧品基準から出す）
+  {
+    id: 'diethylamino_hydroxybenzoyl_hexyl_benzoate',
+    nameJa: 'ジエチルアミノヒドロキシベンゾイル安息香酸ヘキシル',
+    nameEn: 'Diethylamino Hydroxybenzoyl Hexyl Benzoate',
+    aliases: ['ジエチルアミノヒドロキシベンゾイル安息香酸ヘキシル', 'diethylamino hydroxybenzoyl hexyl benzoate'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'UVAを吸収する紫外線吸収剤です。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'bis_ethylhexyloxyphenol_methoxyphenyl_triazine',
+    nameJa: 'ビスエチルヘキシルオキシフェノールメトキシフェニルトリアジン',
+    nameEn: 'Bis-Ethylhexyloxyphenol Methoxyphenyl Triazine (Bemotrizinol)',
+    aliases: ['ビスエチルヘキシルオキシフェノールメトキシフェニルトリアジン', 'bis-ethylhexyloxyphenol methoxyphenyl triazine', 'bemotrizinol'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'UVAとUVBの両方を吸収する紫外線吸収剤です。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'ethylhexyl_triazone',
+    nameJa: 'エチルヘキシルトリアゾン',
+    nameEn: 'Ethylhexyl Triazone',
+    aliases: ['エチルヘキシルトリアゾン', 'ethylhexyl triazone'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'UVBを吸収する紫外線吸収剤です。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'ethylhexyl_salicylate',
+    nameJa: 'サリチル酸エチルヘキシル',
+    nameEn: 'Ethylhexyl Salicylate (Octisalate)',
+    aliases: ['サリチル酸エチルヘキシル', 'サリチル酸オクチル', 'ethylhexyl salicylate', 'octisalate'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'UVBを吸収する紫外線吸収剤です（角質ケアのサリチル酸とは別の成分です）。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'avobenzone',
+    nameJa: 't-ブチルメトキシジベンゾイルメタン',
+    nameEn: 'Butyl Methoxydibenzoylmethane (Avobenzone)',
+    aliases: ['t-ブチルメトキシジベンゾイルメタン', 'ブチルメトキシジベンゾイルメタン', 'butyl methoxydibenzoylmethane', 'avobenzone'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'UVAを吸収する紫外線吸収剤です。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'polysilicone_15',
+    nameJa: 'ポリシリコーン-15',
+    nameEn: 'Polysilicone-15',
+    aliases: ['ポリシリコーン-15', 'ジメチコジエチルベンザルマロネート', 'polysilicone-15'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'シリコーンに紫外線吸収の働きを持たせた、UVBを吸収する紫外線吸収剤です。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'drometrizole_trisiloxane',
+    nameJa: 'ドロメトリゾールトリシロキサン',
+    nameEn: 'Drometrizole Trisiloxane',
+    aliases: ['ドロメトリゾールトリシロキサン', 'drometrizole trisiloxane'],
+    category: 'uv_filter',
+    riskLevel: 'low_caution',
+    reasonJa: 'UVAとUVBを吸収する紫外線吸収剤です。日本の化粧品基準（別表第4）とEUの規則（Annex VI）で、配合できる量が決められています。',
+    sensitiveSkinAdviceJa: UV_ABSORBER_ADVICE,
+    sources: [REF.jpCosmeticStandard, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'titanium_dioxide',
+    nameJa: '酸化チタン',
+    nameEn: 'Titanium Dioxide',
+    aliases: ['酸化チタン', '二酸化チタン', 'titanium dioxide', 'ci 77891'],
+    category: 'uv_filter',
+    riskLevel: 'safe',
+    reasonJa: '紫外線を反射・散乱させて防ぐ無機の粉体（紫外線散乱剤）です。EUの規則（Annex VI）で紫外線防止剤として認められています。白い色を付ける顔料としても使われます。',
+    sensitiveSkinAdviceJa: UV_SCATTERER_ADVICE,
+    sources: [REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+  {
+    id: 'zinc_oxide',
+    nameJa: '酸化亜鉛',
+    nameEn: 'Zinc Oxide',
+    aliases: ['酸化亜鉛', 'zinc oxide', 'ci 77947'],
+    category: 'uv_filter',
+    riskLevel: 'safe',
+    reasonJa: '紫外線を反射・散乱させて防ぐ無機の粉体（紫外線散乱剤）です。EUの規則（Annex VI）で紫外線防止剤として認められています。',
+    sensitiveSkinAdviceJa: UV_SCATTERER_ADVICE,
+    sources: [REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_10_18,
+  },
+
   // ==========================================
   // 🟢 鎮静・バリア・保湿成分
   // ==========================================
@@ -544,6 +661,18 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     sensitiveSkinAdviceJa: '肌荒れ防止をうたう医薬部外品の有効成分として広く使われています。',
     sources: [REF.cirGlycyrrhizates],
     reviewedAt: REVIEWED,
+  },
+  {
+    id: 'stearyl_glycyrrhetinate',
+    nameJa: 'グリチルレチン酸ステアリル',
+    nameEn: 'Stearyl Glycyrrhetinate',
+    aliases: ['グリチルレチン酸ステアリル', 'stearyl glycyrrhetinate'],
+    category: 'soothing',
+    riskLevel: 'safe',
+    reasonJa: '甘草の根に含まれる成分から作られる抗炎症成分で、肌荒れを防ぐ目的で配合されます。米国の安全性評価（CIR）は、使われている濃度（最大1%）で刺激やアレルギーの原因にならないとし、化粧品での使用を安全としています。',
+    sensitiveSkinAdviceJa: '肌荒れ防止をうたう医薬部外品の有効成分として使われます。',
+    sources: [REF.cirGlycyrrhizates],
+    reviewedAt: REVIEWED_2026_10_18,
   },
   {
     id: 'allantoin',

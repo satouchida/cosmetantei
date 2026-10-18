@@ -66,6 +66,16 @@ Not used: brand sites, blogs, marketing copy, and Gemini.
 - `comedogenicRating`: nothing reads it. It comes from old animal tests of low reliability; the
   audit removes values it can't source rather than defending them.
 
+## Additions
+
+- 2026-10-18: 9 UV filters (ジエチルアミノヒドロキシベンゾイル安息香酸ヘキシル, ビスエチルヘキシルオキシ
+  フェノールメトキシフェニルトリアジン, エチルヘキシルトリアゾン, サリチル酸エチルヘキシル,
+  t-ブチルメトキシジベンゾイルメタン, ポリシリコーン-15, ドロメトリゾールトリシロキサン, 酸化チタン,
+  酸化亜鉛) from 化粧品基準 別表第4 and EU Annex VI; グリチルレチン酸ステアリル from the CIR 2007
+  glycyrrhetinate report (Stearyl Glycyrrhetinate is named in it; conclusion: safe as used). The
+  texts state only what these sources say; the limits per product type come from
+  `cosmetic-standards-jp.ts` on the ingredient card. ([plan](alternative-recommendations.md))
+
 ## Next review
 
 Due by 2027-10-12; test 55 warns in CI from then on. At each review: re-read the

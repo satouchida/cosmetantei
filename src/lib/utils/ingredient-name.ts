@@ -25,7 +25,8 @@ export function normalizeIngredientName(name: string): string {
     .trim()
     .toLowerCase()
     .replace(/[\(\)（）]/g, '')
-    .replace(/[\s\-_・/]/g, '');
+    // ハイフンの仲間（‐ ‑ ‒ – — ― −）も区切りとして外す。「ー」（長音）は名前の一部なので残す
+    .replace(/[\s\-_・/\u2010-\u2015\u2212]/g, '');
 }
 
 /**

@@ -1,7 +1,7 @@
 # Plan: alternatives that are the same kind of product
 
 Written 2026-10-18. Revised the same day after the Rakuten and Yahoo! API keys were set (production
-secrets and `.dev.vars`). Status: step 1 implemented (uncommitted); step 2 measured 2026-10-18.
+secrets and `.dev.vars`). Status: step 1 done (`2188fc1`); step 2 measured; the Rakuten `Origin` fix and the ingredient additions from step 2 done (2026-10-18). Step 3 not started.
 
 ## What happened
 
@@ -129,6 +129,25 @@ What this changes for step 3: send `Origin` to Rakuten (a fix on its own); befor
 first) or let the existing AI rating cover them; parse only the part after the last 「【変更後】」
 and drop captions with two 「全成分」 blocks; skip Open Beauty Facts for shop JAN codes.
 
+### Follow-up done the same day
+
+- Rakuten calls send `Origin` (`RAKUTEN_API_ORIGIN`, `https://cosmetantei.app`). Checked live:
+  `https://cosmetantei.app` and the workers.dev address pass; an unregistered origin gets 403
+  `HTTP_REFERRER_NOT_ALLOWED`, so Rakuten checks the origin against the app's registered sites.
+- Ingredient database: sourced entries for the 9 UV filters that were unrated (化粧品基準 別表第4 and
+  EU Annex VI; 酸化チタン and 酸化亜鉛 as `safe` scatterers) and グリチルレチン酸ステアリル (CIR 2007);
+  オレンジ油 and レモン油 as names of the citrus peel oils. Rules for the safe groups: minerals,
+  fatty alcohols, emollient esters, plant oils, sugars, proteins, sterols and phospholipids,
+  silicones, hydrocarbons and waxes, chelators, amino acids; essential oils as
+  `moderate_irritant` (citrus peel oils `high_irritant`, as in the DB); preservatives and urea as
+  `low_caution`. Look-alikes stay unrated: チオグリコール酸グリセリル, パラフィンスルホン酸Na,
+  水酸化亜鉛. Dash variants (「−」 U+2212 etc.) are
+  now stripped when names are compared (`PCA−Na`, `ポリシリコーン−15`). Test 93.
+- Effect on the same 152 lists: **119 pass the 80% bar, up from 33**, with no AI call. The
+  remaining unrated names are mostly actives (vitamin C derivatives, トラネキサム酸, アルブチン,
+  エクトイン; for sourced entries or the AI rating later) and text that isn't an ingredient
+  (「はれ」「かゆみ」「刺激」, warning sentences, 「1」), which step 3's reader must drop.
+
 ## Step 3: find candidates in the shops, check them in code
 
 When step 1 finds fewer than 3, the card shows 「同じ種類で原因成分を含まない商品を探す」. A press
@@ -142,8 +161,27 @@ every analysis, because the shop APIs allow about 1 call a second for the whole 
    and duplicates (JAN code, `productIdentityKey()`).
 2. **Check ingredients, cheapest source first:**
    1. a saved product with the same JAN code or identity key (already checked, free);
-   2. the item text, parsed by `parseIngredientLabel()` (code, free). Used **for this reply only**
-      and never cached (Rakuten Article 10 (9)); the card says 「販売ページの成分表示で確認」;
+   2. the item text, read in three passes and used **for this reply only**, never cached
+      (Rakuten Article 10 (9)); the card says 「販売ページの成分表示で確認」:
+      - **cut** (code): the block after the last 「全成分」 or 「【変更後】」, ending at the first
+        heading that isn't ingredients (使用方法, 使用上の注意, お肌に異常, 内容量, 区分,
+        広告文責, ...); captions with two separate lists are skipped;
+      - **parse and drop the obvious** (code): `parseIngredientLabel()`, then drop items that are
+        sentences (「。」, verbs), numbers alone, or symptom words (はれ, かゆみ, 刺激, 赤み, 傷);
+      - **filter with clef-flash** (Workers AI, $0.038 per million input tokens, about $0.00004 per
+        list): one call per list, one question per remaining item, "is this an ingredient name
+        on a full ingredient label?" (ingredient / other). Items Clef calls `other` with 75%+ are
+        dropped. Clef sees only the item names, not the whole description. The call skips the AI
+        Gateway cache and payload logs (no shop text kept anywhere), like calls with user text.
+        If Clef is unavailable, the code-filtered list is used: leftover junk counts as unrated
+        and pushes the list below the 80% bar, so the failure is "no alternative", never a
+        wrong badge.
+      - The real risk is the opposite: a cut that ends too early drops real ingredients, and a
+        product could look free of a suspect it contains. So a list is used only when its cut
+        ends at a known heading or at the end of the text, and only with 8 or more ingredients.
+        Before shipping, evaluate on the step 2 queries: compare Clef's decisions with a hand
+        check of 20 lists, and count how often each pass changes the result (as for the search
+        filter on 2026-10-13);
    3. only for the top 3 still unchecked: the existing product lookup (JAN code for Yahoo!, name
       search otherwise), which reads the maker's or a shop's page with Gemini (paid, about $0.01 per
       product). Products read this way are saved as today, so the saved list grows with real
