@@ -112,7 +112,48 @@ export interface GeminiRequest {
    * 残りをチャットの返事など利用者が待っている呼び出しのために空けておく
    */
   background?: boolean;
+  /**
+   * 安全フィルターの強さ（GEMINI_SAFETY_SETTINGS）。未指定は user_facing。
+   * extraction はページ・写真・成分表示を書き写すだけの呼び出し（体のケア用品のページなどで止めすぎないように）
+   */
+  safety?: GeminiSafetyProfile;
 }
+
+export type GeminiSafetyProfile = 'user_facing' | 'extraction';
+
+const SAFETY_CATEGORIES = [
+  'HARM_CATEGORY_HARASSMENT',
+  'HARM_CATEGORY_HATE_SPEECH',
+  'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+  'HARM_CATEGORY_DANGEROUS_CONTENT',
+] as const;
+
+/**
+ * 安全フィルターの設定（送らないと API の既定が使われ、モデルによっては止めない設定になる）。
+ * - user_facing: 利用者に見せる文章（チャットの返事・成分の解説と評価）。嫌がらせ・差別・性的な内容は中程度から止める。
+ *   危険な内容は「高」だけ（酸・ピーリング・ハイドロキノン・刺激成分のふつうの説明まで止めないように）
+ * - extraction: ページ・写真の書き写し（コードが形を確かめる）。どれも「高」だけ
+ * 止められた応答は blocked として返し、使用量に blocked と記録する
+ */
+export const GEMINI_SAFETY_SETTINGS: Record<GeminiSafetyProfile, { category: string; threshold: string }[]> = {
+  user_facing: SAFETY_CATEGORIES.map((category) => ({
+    category,
+    threshold: category === 'HARM_CATEGORY_DANGEROUS_CONTENT' ? 'BLOCK_ONLY_HIGH' : 'BLOCK_MEDIUM_AND_ABOVE',
+  })),
+  extraction: SAFETY_CATEGORIES.map((category) => ({ category, threshold: 'BLOCK_ONLY_HIGH' })),
+};
+
+/** 安全フィルター・禁止された内容・個人情報などで止められた終わり方（同じ入力なら、また止められる） */
+const BLOCKED_FINISH_REASONS = new Set([
+  'SAFETY',
+  'PROHIBITED_CONTENT',
+  'SPII',
+  'BLOCKLIST',
+  'IMAGE_SAFETY',
+  'IMAGE_PROHIBITED_CONTENT',
+]);
+/** 正常に終わった・出力の上限で切れた・著作物の引用で止められた（RECITATION は別に扱う）以外は、モデルの一時的な失敗として扱う */
+const HANDLED_FINISH_REASONS = new Set(['STOP', 'MAX_TOKENS', 'RECITATION']);
 
 export interface GeminiResult {
   text: string;
@@ -125,6 +166,13 @@ export interface GeminiResult {
    * urlContext 指定時だけこの形で返す（ページを分けて読み直せるように）。それ以外は null
    */
   recitation?: boolean;
+  /**
+   * 安全フィルターなどで止められた（promptFeedback.blockReason、または SAFETY・PROHIBITED_CONTENT・SPII などの finishReason）。
+   * text は空。入力は課金されていて、同じ入力ならまた止められる（呼び出し側は一時的な失敗と区別する）
+   */
+  blocked?: string;
+  /** 止められたのはプロンプトそのもの（promptFeedback.blockReason）。ページを分けて読み直しても同じ */
+  promptBlocked?: boolean;
 }
 
 interface UrlMetadata {
@@ -196,6 +244,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
       },
     ],
     generationConfig,
+    safetySettings: GEMINI_SAFETY_SETTINGS[req.safety ?? 'user_facing'],
   };
   if (req.systemInstruction) {
     body.systemInstruction = { parts: [{ text: req.systemInstruction }] };
@@ -218,6 +267,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   let outcome: UsageOutcome = 'error';
   // 実際の金額。undefined は分からない（通信エラー・タイムアウトは課金されたかもしれないので、見積もりを残す）
   let actualMicros: number | undefined;
+  // 応答が届いたか（届く前の接続の失敗は課金されていない）
+  let responded = false;
   try {
     const response = await fetch(geminiEndpoint(gateway, model), {
       method: 'POST',
@@ -230,10 +281,13 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
         'cf-aig-collect-log-payload':
           !req.images?.length && process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
         ...(req.images?.length || req.skipCache ? { 'cf-aig-skip-cache': 'true' } : {}),
+        // ゲートウェイで再試行しない（再試行の分も課金されるが、上限には1回分しか確保していない）
+        'cf-aig-max-attempts': '1',
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
+    responded = true;
 
     if (!response.ok) {
       // 4xx（レート制限を含む）は課金されない。5xx・ゲートウェイのタイムアウトは生成の後に起きうるので見積もりを残す
@@ -247,7 +301,37 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     outcome = response.headers.get('cf-aig-cache-status')?.toUpperCase() === 'HIT' ? 'cache_hit' : 'ok';
     actualMicros = outcome === 'cache_hit' ? 0 : geminiCostMicros(data, price);
     const text = extractResponseText(data);
-    const finishReason = (data as { candidates?: { finishReason?: string }[] })?.candidates?.[0]?.finishReason;
+    const candidate = (data as { candidates?: { finishReason?: string; safetyRatings?: { category?: string; blocked?: boolean }[] }[] })
+      ?.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const blockReason = (data as { promptFeedback?: { blockReason?: string } })?.promptFeedback?.blockReason;
+    // 安全フィルターなどで止められた（途中までの文章があっても使わない）。RECITATION は下で別に扱う
+    const blocked = blockReason ?? (finishReason && BLOCKED_FINISH_REASONS.has(finishReason) ? finishReason : undefined);
+    if (blocked) {
+      if (outcome === 'ok') outcome = 'blocked';
+      // 理由と分類名だけを記録する（本文は記録しない）
+      const categories = (candidate?.safetyRatings ?? []).filter((r) => r.blocked).map((r) => r.category);
+      console.warn(`Gemini output blocked (${blocked}${categories.length ? ` ${categories.join(',')}` : ''}) for task ${req.task}`);
+      return {
+        text: '',
+        truncated: false,
+        blocked,
+        ...(blockReason && { promptBlocked: true }),
+        ...(req.urlContext && { retrievedUrls: extractRetrievedUrls(data) }),
+      };
+    }
+    // そのほかの終わり方（OTHER・MALFORMED_RESPONSE・ツールの呼び出しの失敗など）は、モデルの一時的な失敗。途中の文章は使わない
+    if (finishReason && !HANDLED_FINISH_REASONS.has(finishReason)) {
+      if (outcome === 'ok') outcome = 'error';
+      console.warn(`Gemini stopped unexpectedly (${finishReason}) for task ${req.task}`);
+      return null;
+    }
+    // 思考で出力の上限を使い切り、文章が無い
+    if (!text && finishReason === 'MAX_TOKENS') {
+      if (outcome === 'ok') outcome = 'truncated';
+      console.warn(`Gemini output truncated (MAX_TOKENS) for task ${req.task}`);
+      return { text: '', truncated: true, ...(req.urlContext && { retrievedUrls: extractRetrievedUrls(data) }) };
+    }
     if (!text) {
       if (finishReason !== 'RECITATION') return null;
       // 入力は課金済み（キャッシュから返ったものを除く）。理由を使用量の記録に残す
@@ -257,9 +341,14 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     }
 
     const truncated = finishReason === 'MAX_TOKENS';
-    if (truncated) console.warn('Gemini output truncated (MAX_TOKENS)');
+    if (truncated) {
+      if (outcome === 'ok') outcome = 'truncated';
+      console.warn(`Gemini output truncated (MAX_TOKENS) for task ${req.task}`);
+    }
     return req.urlContext ? { text, truncated, retrievedUrls: extractRetrievedUrls(data) } : { text, truncated };
   } catch (err) {
+    // 応答が届く前の接続の失敗（fetch の TypeError）は課金されていない。タイムアウト・本文を読む途中の失敗は課金されたかもしれないので見積もりを残す
+    if (err instanceof TypeError && !responded) actualMicros = 0;
     console.error('Gemini API request failed:', err);
     return null;
   } finally {
@@ -269,7 +358,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
       task: req.task,
       model,
       outcome,
-      ...((outcome === 'ok' || outcome === 'recitation') && geminiTokenCounts(data)),
+      ...((outcome === 'ok' || outcome === 'recitation' || outcome === 'blocked' || outcome === 'truncated') &&
+        geminiTokenCounts(data)),
       urlContext: req.urlContext,
       ms: Date.now() - started,
     });

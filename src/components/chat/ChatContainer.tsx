@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
+import { apiFetch } from '@/lib/client/api-fetch';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
 import {
   getCurrentUseServerSnapshot,
@@ -104,7 +105,7 @@ export const ChatContainer: React.FC = () => {
       lineupRequested.current.delete(brand);
       lineupRetryAt.current.set(brand, Date.now() + 30_000);
     };
-    fetch(`/api/products/lineup?brand=${encodeURIComponent(brand)}`)
+    apiFetch(`/api/products/lineup?brand=${encodeURIComponent(brand)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data || !Array.isArray(data.products)) {
@@ -127,7 +128,7 @@ export const ChatContainer: React.FC = () => {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/products/search?q=${encodeURIComponent(trimmed)}&limit=6`, {
+        const res = await apiFetch(`/api/products/search?q=${encodeURIComponent(trimmed)}&limit=6`, {
           signal: controller.signal,
         });
         if (res.ok) {
@@ -248,7 +249,7 @@ export const ChatContainer: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -302,7 +303,7 @@ export const ChatContainer: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -340,7 +341,7 @@ export const ChatContainer: React.FC = () => {
       { ...messageMeta('user-select'), role: 'user', content: `「${product.name}」の成分を詳しく知りたい` },
     ]);
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'lookup_product', selectedProduct: product }),
@@ -377,7 +378,7 @@ export const ChatContainer: React.FC = () => {
     setIsLoading(true);
     setMessages((prev) => [...prev, { ...messageMeta('user-price'), role: 'user', content: label }]);
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'price_lookup', selectedProduct: product }),
@@ -422,7 +423,7 @@ export const ChatContainer: React.FC = () => {
     ]);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'analyze_label', label, routine }),
@@ -484,7 +485,7 @@ export const ChatContainer: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -678,7 +679,7 @@ export const ChatContainer: React.FC = () => {
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -721,7 +722,7 @@ export const ChatContainer: React.FC = () => {
     ]);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // 比較リストは使わないので送らない

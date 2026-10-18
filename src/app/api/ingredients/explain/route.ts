@@ -2,54 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { explainIngredientWithAI, NOT_AN_INGREDIENT_NAME } from '@/lib/services/dynamic-ingredient-service';
 import { findMatchingKnownIngredient } from '@/lib/analyzer/ingredient-analyzer';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
-import { withUsageRoute } from '@/lib/server/usage';
+import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 
 const MAX_INGREDIENT_NAME_LENGTH = 100;
 /** 成分名1つの要求としては大きすぎる本文 */
 const MAX_BODY_BYTES = 2048;
-
-const TOO_LARGE = Symbol('too large');
-
-/** 本文を上限まで読む（Content-Length が無い・偽りの要求でも、上限を超えたら読むのをやめる） */
-async function readJsonBody(req: NextRequest): Promise<unknown | typeof TOO_LARGE> {
-  if (!req.body) return null;
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      await reader.cancel().catch(() => {});
-      return TOO_LARGE;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return null;
-  }
-}
 
 async function handlePost(req: NextRequest) {
   if (await isRateLimited('ai', getClientIp(req.headers))) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
   }
 
-  if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: '成分名が長すぎます。' }, { status: 413 });
-  }
-
   try {
-    const body = await readJsonBody(req);
+    const body = await readJsonBody(req, MAX_BODY_BYTES);
     if (body === TOO_LARGE) {
       return NextResponse.json({ error: '成分名が長すぎます。' }, { status: 413 });
     }
@@ -79,5 +44,5 @@ async function handlePost(req: NextRequest) {
   }
 }
 
-/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
-export const POST = withUsageRoute('ingredient_explain', handlePost);
+/** ほかのサイトからの呼び出しを断り、有料の呼び出しにルート名と利用者を付ける（src/lib/server/api-route.ts） */
+export const POST = apiRoute('ingredient_explain', handlePost);

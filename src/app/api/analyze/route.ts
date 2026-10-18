@@ -4,9 +4,12 @@ import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { isValidProduct, isValidProductList } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client-products';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
-import { withUsageRoute } from '@/lib/server/usage';
+import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 import { analyzeProductWithAI } from '@/lib/services/ai-analysis';
 import { isUserLabelProduct } from '@/lib/product-source';
+
+/** 本文の上限（チャットと同じ考え方。src/app/api/chat/route.ts の MAX_CHAT_BODY_BYTES） */
+const MAX_ANALYZE_BODY_BYTES = 512 * 1024;
 
 async function handlePost(request: NextRequest) {
   // 成分数×既知DBの計算をするため、回数を制限する（有料の呼び出しは無いので検索と同じ枠）
@@ -14,7 +17,9 @@ async function handlePost(request: NextRequest) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
   }
   try {
-    const body = await request.json();
+    const body = await readJsonBody(request, MAX_ANALYZE_BODY_BYTES);
+    if (body === TOO_LARGE) return NextResponse.json({ error: '製品データが大きすぎます' }, { status: 413 });
+    if (!body || typeof body !== 'object') return NextResponse.json({ error: '製品データの形式が正しくありません' }, { status: 400 });
     const { product, badProducts, safeProducts, aiEvaluate } = body as {
       product?: unknown;
       badProducts?: unknown;
@@ -73,5 +78,5 @@ async function handlePost(request: NextRequest) {
   }
 }
 
-/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
-export const POST = withUsageRoute('analyze', handlePost);
+/** ほかのサイトからの呼び出しを断り、有料の呼び出しにルート名と利用者を付ける（src/lib/server/api-route.ts） */
+export const POST = apiRoute('analyze', handlePost);

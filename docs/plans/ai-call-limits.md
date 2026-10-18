@@ -2,6 +2,18 @@
 
 Written 2026-10-17. Status: step 2 done on 2026-10-17 (before the AI ratings shipped); steps 0, 1 and 3 are the next task.
 
+**Update 2026-10-18:** the security review added a per-client daily budget ($0.50 per IP, IPv6 per
+/48, `SPEND_PER_CLIENT_USD`), kept in the spend-cap Durable Object's storage
+(`client:<day>:<ip>`, old days deleted on the first paid call of a new UTC day). It counts every
+paid call (Gemini, Workers AI, web search) by its estimated cost, settled to the real cost. That
+already bounds problem 1 below in dollars: one IP can have at most about 50 rating calls in flight
+and roughly 150 ratings a day after settling. Step 1 is still worth doing to bound the per-minute
+burst, but it is less urgent. Failed names are not "paid for once": a name whose answer was
+unusable is retried after 1 hour, one that was blocked or cut off after 1 day, and no marker is
+written when the spend cap refused the call. A second update the same day added limits per IPv4
+/24, per cloud network and per Turnstile session, plus caps that tighten after half the day's
+budget is spent (see docs/walkthroughs/2026-10-14-cost-tracking.md, "Update 2026-10-18 (2)").
+
 ## Why
 
 AI ratings for unrated ingredients (`evaluateUnknownIngredients` in
@@ -46,7 +58,7 @@ Add a second rate limit binding that counts AI rating calls per client:
 ```toml
 [[ratelimits]]
 name = "AI_EVAL_RATE_LIMITER"
-namespace_id = "1003"
+namespace_id = "1004"
 simple = { limit = 40, period = 60 }
 ```
 
@@ -87,8 +99,9 @@ Give Gemini calls a priority, and let background work use only part of each minu
   (`isSpendLimits` and the rest) accepts it.
 - **Setting:** `SPEND_BACKGROUND_SHARE` in `[vars]`, defaulting to `0.5`, so background
   work can use 30 of the 60.
-- **What the user sees:** a refused background call counts as a transient failure (remembered for
-  one minute, as now). The card shows what was rated, and the rest are rated on the next view.
+- **What the user sees:** a refused background call is not remembered as a failure (since
+  2026-10-18, no failure marker is written when the spend cap refuses a call). The card shows what
+  was rated, and the rest are rated on the next view.
 - **Tests:**
   - in the memory store, with `perMinute` 10 and share 0.5, 5 background calls pass, the 6th is
     refused, and interactive calls still pass up to 10;
@@ -108,7 +121,8 @@ Give Gemini calls a priority, and let background work use only part of each minu
 
 - **One ingredient per call stays.** Going back to batches would reopen the problem of one name
   steering other ingredients' shared ratings.
-- **The dollar budget and its Durable Object stay as they are.**
+- **The dollar budget and its Durable Object** stay as they are, apart from the per-client daily
+  budget added on 2026-10-18 (see the update at the top).
 - **Typed labels are still never sent to Gemini in bulk.**
 
 ## Done when

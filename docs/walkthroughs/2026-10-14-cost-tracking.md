@@ -26,7 +26,7 @@ counted. Page reads with URL context are marked instead.
   route are `other`.
 - **One record per call**, made in the three shared wrappers: `callGemini`, `runWorkersAI` and
   `runWebSearch`. Call sites only pass a `task` label, which is required, so new calls can't skip it.
-- **Fields:** route, kind, task, model (or search provider), outcome (`ok`, `error`, `capped`, `cache_hit`),
+- **Fields:** route, kind, task, model (or search provider), outcome (`ok`, `error`, `capped`, `cache_hit`, and since 2026-10-17/18 `recitation`, `blocked`, `truncated`),
   prompt, output, thought and cached tokens, and time.
   - Gemini tokens come from `usageMetadata`. The prompt count includes `toolUsePromptTokenCount`,
     the page text that URL context reads, which is billed as input.
@@ -294,3 +294,66 @@ Declined:
 - **Moving `getBindings` to its own module:** the `cloudflare.ts`, `usage.ts` and `spend-cap.ts`
   imports only meet inside functions, so the cycle is safe as is.
 
+## Update 2026-10-18: per-client budget, failure markers, new outcomes
+
+- **Per-client daily budget:** every paid call made inside an API request is also charged to the
+  client (the IP from `cf-connecting-ip`; IPv6 grouped by /48), up to `SPEND_PER_CLIENT_USD`
+  ($0.50) per UTC day. The Durable Object stores it as `client:<day>:<ip>`, keeps a read-through
+  copy in memory, and deletes earlier days' keys (128 at a time) on the first paid call of a new
+  day. Settling adjusts the client's total too. A value of `"0"` refuses every client call; it does
+  not mean "unlimited". Calls outside a request (none today) are not charged to a client.
+- **Background share:** ingredient ratings and translations may use only
+  `SPEND_BACKGROUND_SHARE` (0.5) of each minute's Gemini count.
+- **New outcomes:** `blocked` (a safety filter, or `promptFeedback.blockReason`), `truncated`
+  (`MAX_TOKENS`) and `recitation`. All three were billed, so token counts are recorded. Other
+  unexpected finish reasons are recorded as `error`.
+- **Failure markers** (so a failure isn't paid for on every request): web research and barcode
+  research 10 minutes; a translation with no response 30 minutes (an unusable answer marks the
+  product untranslatable); an ingredient rating 1 minute with no response, 1 hour unusable, 1 day
+  blocked or cut off. No marker is written in a request where the spend cap refused a call, so
+  nobody can use the caps to mark popular searches as failed for everyone.
+- **Price page offers** are reused for 15 minutes when every page was read; shop API prices are
+  never stored. Price lookups are limited to 5 a minute per client (`PRICE_RATE_LIMITER`).
+
+
+## Update 2026-10-18 (2): limits for one person using many IPs
+
+The per-IP budget stops one address, but $30 ÷ $0.50 is only 60 IPs, and rented servers and
+proxies are cheap. Three more limits, all checked in the same Durable Object call. A paid call is
+refused if it would pass **any** of the client's limits:
+
+| Key (stored as `client:<day>:<key>`) | When it's attached | Daily limit | Setting |
+| --- | --- | --- | --- |
+| `ip:<ip>` (IPv6 per /48) | always | $0.50 | `SPEND_PER_CLIENT_USD` |
+| `net:<a.b.c>.0/24` | IPv4 only | $2 | `SPEND_PER_NETWORK_USD` |
+| `asn:<number>` | the request comes from a cloud or hosting network (`request.cf.asn` is in `src/lib/server/hosting-networks.ts`) | $1 per network | `SPEND_PER_HOSTING_NETWORK_USD` |
+| `sess:<id>` | a Turnstile-verified browser session | $0.50 | `SPEND_PER_CLIENT_USD` |
+
+- **Tightening:** once today's global total reaches `SPEND_TIGHTEN_AFTER_SHARE` (0.5) of the day
+  budget, every limit above drops to `SPEND_TIGHTENED_PERCENT` (30) %, so $0.50 becomes $0.15.
+  Even a wide attack then leaves the second half of the day's budget spread over many users.
+- **Turnstile** (`src/lib/server/session.ts`): when `TURNSTILE_SITE_KEY` is set, every `apiRoute`
+  needs a signed `__Host-session` cookie (HttpOnly, Secure, SameSite=Strict, 24 hours; it holds
+  only a random ID, the expiry and an HMAC-SHA256 signature made with `SESSION_SECRET`). Without
+  one the route returns 401 with the site key before any work is done. The browser's `apiFetch`
+  (`src/lib/client/api-fetch.ts`) solves Turnstile (usually invisibly), posts the token to
+  `POST /api/session` (same-origin only, 10 a minute per IP, `SESSION_RATE_LIMITER`), and retries
+  once. The server checks the token with Cloudflare's siteverify, including the action (`api`)
+  and the hostname. If the site key is set but `TURNSTILE_SECRET_KEY` or `SESSION_SECRET` (32+
+  characters) is missing, paid routes return 503. Cloudflare's test secret only works on
+  localhost.
+- **Not grouped:** home and mobile ISPs (no ASN cap), iCloud Private Relay and WARP exits, and
+  IPv6 beyond /48. A busy carrier-grade NAT /24 shares $2, which is plenty at today's traffic.
+- On deploy, today's per-IP totals start again from zero (the key changed from `<ip>` to `ip:<ip>`).
+
+### Setting up Turnstile
+
+1. Cloudflare dashboard → Turnstile → Add widget. Hostname: the production domain (and the
+   `workers.dev` host if used). Widget mode: Managed.
+2. Put the site key in `wrangler.toml` as `TURNSTILE_SITE_KEY`.
+3. `pnpm exec wrangler secret put TURNSTILE_SECRET_KEY` (the widget's secret key) and
+   `pnpm exec wrangler secret put SESSION_SECRET` (for example the output of
+   `openssl rand -base64 48`). Set both secrets **before** deploying the site key, or paid routes
+   return 503 until they are set.
+4. Locally, use Cloudflare's public test keys:
+   `wrangler dev --var TURNSTILE_SITE_KEY:1x00000000000000000000AA --var TURNSTILE_SECRET_KEY:1x0000000000000000000000000000000AA --var SESSION_SECRET:<random>`.

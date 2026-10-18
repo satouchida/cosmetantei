@@ -3,7 +3,8 @@ import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
-import { researchBarcode } from './web-research';
+import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS } from './web-research';
+import { mayRememberFailure } from '../server/usage';
 import { CATEGORY_SYNONYMS } from '../search/product-match';
 import { ETHANOL_IN_LABEL } from './label-reader';
 import {
@@ -163,6 +164,8 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   }
   // 直近で見つからなかったバーコードは、外部API・Gemini への再問い合わせを避ける
   if (await cacheGetJSON<boolean>(`${kvKey}:miss`)) return null;
+  // 少し前に Web リサーチが一時的に失敗したバーコードは、しばらく調べ直さない（失敗に何度も費用をかけない）
+  const recentlyFailed = await cacheGetJSON<boolean>(`${kvKey}:fail`);
 
   // 3. Open Beauty Facts API 問い合わせ (4秒タイムアウト付き)
   try {
@@ -254,13 +257,18 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   if (stored) return stored;
 
   // 4. Web リサーチ：バーコードで検索し、同じバーコードが書かれたページの製品だけを採用する
+  if (recentlyFailed) return null;
   const webProduct = await researchBarcode(cleanCode);
   if (webProduct) {
     await cachePutJSON(kvKey, webProduct, BARCODE_TTL_SECONDS);
     return webProduct;
   }
-  // 一時的な失敗（検索・Gemini のエラー）は「見つからない」として保存しない
-  if (webProduct === undefined) return null;
+  // 一時的な失敗（検索・Gemini のエラー）は「見つからない」として保存しない。しばらく調べ直さない印だけ付ける
+  // （この利用者が自分の1日の上限に達して失敗したときは付けない）
+  if (webProduct === undefined) {
+    if (mayRememberFailure()) await cachePutJSON(`${kvKey}:fail`, true, RESEARCH_FAIL_TTL_SECONDS);
+    return null;
+  }
 
   await cachePutJSON(`${kvKey}:miss`, true, BARCODE_MISS_TTL_SECONDS);
   return null;

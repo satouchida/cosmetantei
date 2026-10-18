@@ -20,7 +20,9 @@ Every other site is ignored, even when the search returns it.
 
 - **Search terms:** the product name from `toProductSearchQuery` / `toPriceSearchQuery`, plus the
   shop's name for the web search. No user chat text goes to the search or to a shop API.
-- **Never cached.** No KV write, no AI Gateway cache.
+- **API prices are never cached.** No KV write, no AI Gateway cache. Prices read from shop pages
+  (the paid part: a web search and Gemini page reads) are reused for 15 minutes per product name
+  and shop (`priceoffers:v1`, added 2026-10-18), so repeated clicks don't pay again.
 - **Checked in code:**
   - the URL is a product page of the listed shop;
   - whole yen from 100 to 100,000;

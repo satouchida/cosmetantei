@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
-import { withUsageRoute } from '@/lib/server/usage';
+import { apiRoute } from '@/lib/server/api-route';
 import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';
 import { brandLineup } from '@/lib/services/shop-lineup';
 
@@ -35,4 +35,4 @@ async function handleGet(request: NextRequest) {
   );
 }
 
-export const GET = withUsageRoute('product_lineup', handleGet);
+export const GET = apiRoute('product_lineup', handleGet);

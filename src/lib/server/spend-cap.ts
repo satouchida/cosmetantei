@@ -1,6 +1,7 @@
 import 'server-only';
 import { getBindings } from './cloudflare';
-import { MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod } from './spend-cap-core';
+import { BudgetClientKind, currentClients, markRefused } from './usage';
+import { ClientLimit, MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod } from './spend-cap-core';
 
 /**
  * 有料の呼び出しの上限（全体で厳密に数える）。Gemini・Workers AI・Web 検索の前に reserveSpend、後に settleSpend
@@ -9,6 +10,15 @@ import { MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod }
  *   呼び出しの前に見積もり金額（src/lib/server/prices.ts の単価）を確保し、予算を超えるなら呼ばない。
  *   後で実際の金額（Gemini は usageMetadata のトークン数）に直す
  * - 急増を止める1分あたりの件数は SPEND_PER_MINUTE_WEB_SEARCH・_GEMINI・_WORKERS_AI
+ * - 利用者ごとにも、1日あたりの合計金額に上限を付ける。ログインの無いアプリなので、1人や少数の利用者が
+ *   全員の予算を使い切り、ほかの利用者が AI を使えなくなるのを防ぐ。どれか1つでも超えれば断る
+ *   - IP（IPv6 は /48）と、Turnstile で確かめたブラウザのセッション: SPEND_PER_CLIENT_USD（既定 $0.50）
+ *   - IPv4 の /24（隣り合う 256 個のアドレス）: SPEND_PER_NETWORK_USD（既定 $2）
+ *   - クラウドの事業者（src/lib/server/hosting-networks.ts。借りたサーバーの IP を並べた呼び出し）:
+ *     事業者ごとに SPEND_PER_HOSTING_NETWORK_USD（既定 $1）
+ *   - 今日の全体の合計が予算の SPEND_TIGHTEN_AFTER_SHARE（既定 0.5）に達したら、どの上限も
+ *     SPEND_TIGHTENED_PERCENT（既定 30）% に下げる（多くの IP を使われても、残りを多くの利用者で分ける）
+ *   （利用者は API ルートの apiRoute が付ける。ルートの外の呼び出しには使わない）
  * - 急がない仕事（background。成分の評価・翻訳）は、その1分の件数が上限 × SPEND_BACKGROUND_SHARE（既定 0.5）に
  *   達していたら断る。数えるのは同じ件数なので、全体の上限は変わらず、残りは利用者が待っている呼び出しが使える
  * - 未設定・形が違うときは DEFAULT_BUDGET_USD・DEFAULT_PER_MINUTE
@@ -19,6 +29,27 @@ import { MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod }
  */
 
 export const DEFAULT_BUDGET_USD = { perDay: 30, perMonth: 100 };
+
+/** 利用者（IP。IPv6 は /48）ごとの1日あたりの上限（USD）。SPEND_PER_CLIENT_USD が無い・形が違うとき */
+export const DEFAULT_PER_CLIENT_USD = 0.5;
+
+/** 利用者の種類ごとの1日あたりの上限（USD）。設定が無い・形が違うとき */
+export const DEFAULT_CLIENT_BUDGET_USD: Record<BudgetClientKind, number> = {
+  ip: DEFAULT_PER_CLIENT_USD,
+  session: DEFAULT_PER_CLIENT_USD,
+  network: 2,
+  hosting: 1,
+};
+
+const CLIENT_BUDGET_ENV: Record<BudgetClientKind, string> = {
+  ip: 'SPEND_PER_CLIENT_USD',
+  session: 'SPEND_PER_CLIENT_USD',
+  network: 'SPEND_PER_NETWORK_USD',
+  hosting: 'SPEND_PER_HOSTING_NETWORK_USD',
+};
+
+/** 利用者ごとの上限を下げ始める、全体の1日の予算の割合と、下げた後の割合（%） */
+export const DEFAULT_TIGHTEN = { afterShare: 0.5, percent: 30 };
 
 export const DEFAULT_PER_MINUTE: Record<SpendBucket, number> = {
   web_search: 30,
@@ -40,11 +71,21 @@ const PER_MINUTE_ENV: Record<SpendBucket, string> = {
 /** 急がない仕事が使える、1分あたりの上限の割合（SPEND_BACKGROUND_SHARE が無い・形が違うとき） */
 export const DEFAULT_BACKGROUND_SHARE = 0.5;
 
+/** 0〜1 の割合の設定。無い・形が違えば fallback */
+function readShare(name: string, fallback: number): number {
+  const raw = (process.env[name] || '').trim();
+  return /^(0(\.\d+)?|1(\.0+)?)$/.test(raw) ? Number(raw) : fallback;
+}
+
 /** 急がない仕事が使える割合（0〜1） */
 export function backgroundShare(): number {
-  const raw = (process.env.SPEND_BACKGROUND_SHARE || '').trim();
-  const share = /^(0(\.\d+)?|1(\.0+)?)$/.test(raw) ? Number(raw) : DEFAULT_BACKGROUND_SHARE;
-  return share;
+  return readShare('SPEND_BACKGROUND_SHARE', DEFAULT_BACKGROUND_SHARE);
+}
+
+/** 利用者の種類ごとの1日あたりの上限（マイクロドル） */
+export function clientBudgetMicros(kind: BudgetClientKind): number {
+  const raw = (process.env[CLIENT_BUDGET_ENV[kind]] || '').trim();
+  return usdToMicros(/^\d+(\.\d+)?$/.test(raw) ? Number(raw) : DEFAULT_CLIENT_BUDGET_USD[kind]);
 }
 
 const DO_TIMEOUT_MS = 2_000;
@@ -57,10 +98,13 @@ export function spendLimits(bucket: SpendBucket): SpendLimits {
   const perDay = budget ? Number(budget[1]) : DEFAULT_BUDGET_USD.perDay;
   const perMonth = budget ? Number(budget[2]) : DEFAULT_BUDGET_USD.perMonth;
   const rate = (process.env[PER_MINUTE_ENV[bucket]] || '').trim();
+  const percent = (process.env.SPEND_TIGHTENED_PERCENT || '').trim();
   return {
     perMinute: /^\d+$/.test(rate) ? Number(rate) : DEFAULT_PER_MINUTE[bucket],
     dayMicros: usdToMicros(perDay),
     monthMicros: usdToMicros(perMonth),
+    tightenAfterMicros: usdToMicros(perDay * readShare('SPEND_TIGHTEN_AFTER_SHARE', DEFAULT_TIGHTEN.afterShare)),
+    tightenedPercent: /^(\d{1,2}|100)$/.test(percent) ? Number(percent) : DEFAULT_TIGHTEN.percent,
   };
 }
 
@@ -68,6 +112,8 @@ export function spendLimits(bucket: SpendBucket): SpendLimits {
 export interface SpendTicket {
   costMicros: number;
   period: SpendPeriod;
+  /** 利用者ごとの予算のキー（利用者ごとの合計も直す） */
+  clients: string[];
 }
 
 let memoryCounter = new SpendCounter(new MemorySpendStore());
@@ -128,13 +174,26 @@ export async function reserveSpend(
   const cost = Math.max(0, Math.ceil(costMicros));
   try {
     const target = await capTarget(`${bucket} call`);
-    if (!target) return null;
+    if (!target) {
+      markRefused();
+      return null;
+    }
+    const clients: ClientLimit[] = currentClients().map((c) => ({ key: c.key, dayMicros: clientBudgetMicros(c.kind) }));
     const decision =
       target.kind === 'memory'
-        ? await memoryCounter.consume(bucket, limits, cost, Date.now())
-        : ((await target.fetch('/consume', { bucket, limits, costMicros: cost })) as { allowed?: unknown; period?: SpendPeriod });
-    return decision.allowed === true && decision.period ? { costMicros: cost, period: decision.period } : null;
+        ? await memoryCounter.consume(bucket, limits, cost, Date.now(), clients)
+        : ((await target.fetch('/consume', { bucket, limits, costMicros: cost, clients })) as {
+            allowed?: unknown;
+            period?: SpendPeriod;
+            reason?: unknown;
+          });
+    // 断られた呼び出しの失敗を、全員の分の「失敗した検索」として覚えさせない
+    if (decision.allowed !== true) markRefused();
+    return decision.allowed === true && decision.period
+      ? { costMicros: cost, period: decision.period, clients: clients.map((c) => c.key) }
+      : null;
   } catch (err) {
+    markRefused();
     console.error(`Spend cap check failed for ${bucket}; refusing the call:`, err instanceof Error ? err.message : err);
     return null;
   }
@@ -153,8 +212,8 @@ export async function settleSpend(ticket: SpendTicket, actualMicros: number): Pr
   try {
     const target = await capTarget('settlement');
     if (!target) return;
-    if (target.kind === 'memory') await memoryCounter.settle(deltaMicros, ticket.period, Date.now());
-    else await target.fetch('/settle', { deltaMicros, period: ticket.period });
+    if (target.kind === 'memory') await memoryCounter.settle(deltaMicros, ticket.period, Date.now(), ticket.clients);
+    else await target.fetch('/settle', { deltaMicros, period: ticket.period, clients: ticket.clients });
   } catch (err) {
     console.error('Spend settlement failed:', err instanceof Error ? err.message : err);
   }

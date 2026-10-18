@@ -4,6 +4,7 @@ import React, { useRef, useState } from 'react';
 import { Camera, FileText, ImagePlus, Loader2, X, AlertCircle } from 'lucide-react';
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimary, buttonPrimaryCompact, buttonSecondaryCompact, iconButton, panel } from '../ui/design';
+import { apiFetch } from '@/lib/client/api-fetch';
 
 export interface LabelInput {
   text: string;
@@ -81,7 +82,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
     readAbortRef.current = controller;
     try {
       const data = await toJpegBase64(file);
-      const res = await fetch('/api/label/read', {
+      const res = await apiFetch('/api/label/read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: { mimeType: 'image/jpeg', data } }),

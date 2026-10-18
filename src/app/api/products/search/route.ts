@@ -11,7 +11,7 @@ import {
   RATE_LIMIT_MESSAGE_JA,
 } from '@/lib/server/cloudflare';
 import { Product } from '@/lib/types';
-import { withUsageRoute } from '@/lib/server/usage';
+import { apiRoute } from '@/lib/server/api-route';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts, isVerifiedSource } from '@/lib/data/cosmetics-db';
 
 const DEFAULT_LIMIT = 6;
@@ -79,5 +79,5 @@ async function handleGet(request: NextRequest) {
   return NextResponse.json({ query: q, results: withBrandFirst(external), brands, brand });
 }
 
-/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
-export const GET = withUsageRoute('product_search', handleGet);
+/** ほかのサイトからの呼び出しを断り、有料の呼び出しにルート名と利用者を付ける（src/lib/server/api-route.ts） */
+export const GET = apiRoute('product_search', handleGet);

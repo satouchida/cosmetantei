@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { parseLabelImage, readLabelImage, MAX_LABEL_IMAGE_BYTES } from '@/lib/services/label-reader';
-import { withUsageRoute } from '@/lib/server/usage';
+import { apiRoute } from '@/lib/server/api-route';
 
 /** base64 は元の 4/3 倍。JSON の枠の分を足した上限 */
 const MAX_LABEL_REQUEST_BYTES = Math.ceil((MAX_LABEL_IMAGE_BYTES * 4) / 3) + 1024;
@@ -44,5 +44,5 @@ async function handlePost(request: NextRequest) {
   );
 }
 
-/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
-export const POST = withUsageRoute('label_read', handlePost);
+/** ほかのサイトからの呼び出しを断り、有料の呼び出しにルート名と利用者を付ける（src/lib/server/api-route.ts） */
+export const POST = apiRoute('label_read', handlePost);

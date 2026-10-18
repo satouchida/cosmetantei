@@ -41,6 +41,10 @@ interface AppBindings {
   APP_CACHE?: KVNamespaceLike;
   AI_RATE_LIMITER?: RateLimiterLike;
   SEARCH_RATE_LIMITER?: RateLimiterLike;
+  /** 価格の検索（1回で Web 検索と Gemini のページ読み取りを何回も使うので、ほかの AI の操作より少なくする） */
+  PRICE_RATE_LIMITER?: RateLimiterLike;
+  /** Turnstile の確認とセッションの発行（src/lib/server/session.ts） */
+  SESSION_RATE_LIMITER?: RateLimiterLike;
   /** 有料の呼び出しの上限を全体で数える Durable Object（worker.ts の SpendCapObject） */
   SPEND_CAP?: DurableObjectNamespaceLike;
   USAGE?: AnalyticsEngineLike;
@@ -73,6 +77,20 @@ export async function getBindings(): Promise<AppBindings> {
 }
 
 /**
+ * 要求元のネットワークの AS 番号（Cloudflare が付ける request.cf.asn）。Cloudflare 外（next dev・テスト）では undefined
+ */
+export async function getRequestAsn(): Promise<number | undefined> {
+  try {
+    const { getCloudflareContext } = await import('@opennextjs/cloudflare');
+    const { cf } = await getCloudflareContext({ async: true });
+    const asn = (cf as { asn?: unknown } | undefined)?.asn;
+    return Number.isSafeInteger(asn) && (asn as number) > 0 ? (asn as number) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * レスポンスを返した後も処理を続ける（Workers の ctx.waitUntil）。Cloudflare 外ではそのまま実行させておく
  */
 export async function runAfterResponse(task: Promise<unknown>): Promise<void> {
@@ -90,8 +108,11 @@ export async function runAfterResponse(task: Promise<unknown>): Promise<void> {
 
 // ---------- Workers AI ----------
 
+/** Workers AI（Clef）の呼び出しを待つ上限 */
+const WORKERS_AI_TIMEOUT_MS = 5_000;
+
 /**
- * Workers AI のモデルを実行する。バインディングが無い環境（next dev・テスト）やエラー時は null
+ * Workers AI のモデルを実行する。バインディングが無い環境（next dev・テスト）・エラー・タイムアウト時は null
  */
 export async function runWorkersAI(
   model: string,
@@ -115,8 +136,13 @@ export async function runWorkersAI(
     return null;
   }
   const started = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const result = await AI.run(model, input, gatewayId ? { gateway: { id: gatewayId } } : undefined);
+    // 応答が無いまま待ち続けない（呼び出し側のゲート・フィルターにも短い上限があるが、ブランドの判定には無いため）
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${WORKERS_AI_TIMEOUT_MS} ms`)), WORKERS_AI_TIMEOUT_MS);
+    });
+    const result = await Promise.race([AI.run(model, input, gatewayId ? { gateway: { id: gatewayId } } : undefined), timeout]);
     const usage = (result as { usage?: { input_tokens?: number; output_tokens?: number } })?.usage;
     await recordUsage({
       kind: 'workers_ai',
@@ -129,9 +155,11 @@ export async function runWorkersAI(
     });
     return result;
   } catch (err) {
-    console.error(`Workers AI ${model} failed:`, err);
+    console.error(`Workers AI ${model} failed:`, err instanceof Error ? err.message : err);
     await recordUsage({ kind: 'workers_ai', task: options.task, model, outcome: 'error', ms: Date.now() - started });
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -216,6 +244,11 @@ export async function runWebSearch(
 // ---------- KV キャッシュ ----------
 
 const memoryKv = new BoundedCache<unknown>(1000);
+
+/** テスト用：KV のメモリの写しを消す（同じキーを、別の内容で読み直すテストのため） */
+export function clearMemoryCacheForTests(): void {
+  memoryKv.clear();
+}
 // メモリ層は短期間だけ保持し、他のアイソレートが KV に書いた更新を取りこぼさないようにする
 const MEMORY_LAYER_TTL_MS = 60_000;
 
@@ -265,35 +298,55 @@ export async function cachePutJSON(key: string, value: unknown, ttlSeconds: numb
 
 // ---------- レート制限 ----------
 
-export type RateLimitBucket = 'ai' | 'search';
+export type RateLimitBucket = 'ai' | 'search' | 'price' | 'session';
 
 /** バインディングが無い環境用のフォールバック上限（1分あたり） */
-const FALLBACK_LIMITS: Record<RateLimitBucket, number> = { ai: 20, search: 60 };
+const FALLBACK_LIMITS: Record<RateLimitBucket, number> = { ai: 20, search: 60, price: 5, session: 10 };
+
+const RATE_LIMITER_BINDING: Record<RateLimitBucket, keyof AppBindings> = {
+  ai: 'AI_RATE_LIMITER',
+  search: 'SEARCH_RATE_LIMITER',
+  price: 'PRICE_RATE_LIMITER',
+  session: 'SESSION_RATE_LIMITER',
+};
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const fallbackHistory = new BoundedCache<number[]>(5000, RATE_LIMIT_WINDOW_MS);
 
 /**
- * IPv6 アドレスを /64 プレフィックスに丸める（同一回線内でアドレスを変えてレート制限を回避されないように）
+ * IPv6 アドレスを /48 プレフィックスに丸める（安いサーバーや回線は /48・/56 をまとめて持つので、
+ * /64 で分けると、アドレスを変えるだけで回数制限・利用者ごとの予算を何万倍にもできる）
  */
-function toIpv6Prefix64(ip: string): string {
+function toIpv6Prefix48(ip: string): string {
   const [head, tail] = ip.split('::');
   const headGroups = head ? head.split(':') : [];
   const tailGroups = tail !== undefined && tail !== '' ? tail.split(':') : [];
   const missing = tail !== undefined ? 8 - headGroups.length - tailGroups.length : 0;
   const groups = [...headGroups, ...Array(Math.max(missing, 0)).fill('0'), ...tailGroups];
   return `${groups
-    .slice(0, 4)
+    .slice(0, 3)
     .map((g) => (parseInt(g, 16) || 0).toString(16))
-    .join(':')}::/64`;
+    .join(':')}::/48`;
 }
 
+/**
+ * 利用者の IP（回数制限・利用者ごとの予算のキー）。本番は Cloudflare が付ける cf-connecting-ip だけを使う
+ * （x-forwarded-for は利用者が自由に書けるので、Cloudflare の外で動かす開発環境だけで使う）
+ */
 export function getClientIp(headers: Headers): string {
-  const ip = headers.get('cf-connecting-ip') || headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const forwarded = process.env.NODE_ENV === 'production' ? undefined : headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  const ip = headers.get('cf-connecting-ip') || forwarded;
   if (!ip) return 'anonymous';
   if (!ip.includes(':')) return ip;
   // IPv4射影アドレス（::ffff:1.2.3.4）は IPv4 として扱う
   if (ip.includes('.')) return ip.slice(ip.lastIndexOf(':') + 1);
-  return toIpv6Prefix64(ip);
+  return toIpv6Prefix48(ip);
+}
+
+/** IPv4 アドレス（getClientIp の値）の /24（隣り合う 256 個）。IPv4 でなければ null */
+export function ipv4Network24(ip: string): string | null {
+  const m = ip.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/);
+  if (!m || m.slice(1).some((part) => Number(part) > 255)) return null;
+  return `${Number(m[1])}.${Number(m[2])}.${Number(m[3])}.0/24`;
 }
 
 /**
@@ -301,7 +354,7 @@ export function getClientIp(headers: Headers): string {
  */
 export async function isRateLimited(bucket: RateLimitBucket, clientKey: string): Promise<boolean> {
   const bindings = await getBindings();
-  const limiter = bucket === 'ai' ? bindings.AI_RATE_LIMITER : bindings.SEARCH_RATE_LIMITER;
+  const limiter = bindings[RATE_LIMITER_BINDING[bucket]] as RateLimiterLike | undefined;
   const key = `${bucket}:${clientKey}`;
 
   if (limiter) {

@@ -6,6 +6,7 @@ import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCi
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
 import { isUserLabelProduct } from '@/lib/product-source';
+import { apiFetch } from '@/lib/client/api-fetch';
 import {
   badge as badgeClass,
   buttonSecondary,
@@ -48,7 +49,7 @@ type AIFetch = { result: ProductAnalysisResult | null; retry: boolean };
 
 async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
   try {
-    const res = await fetch('/api/analyze', {
+    const res = await apiFetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ product: a.product, aiEvaluate: true }),
@@ -124,7 +125,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     setIsExplainingWithAI(true);
     setExplainError(null);
     try {
-      const res = await fetch('/api/ingredients/explain', {
+      const res = await apiFetch('/api/ingredients/explain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ingredientName }),

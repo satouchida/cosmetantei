@@ -25,7 +25,8 @@ import { COSMETICS_DATABASE, hydrateVerifiedProducts } from '@/lib/data/cosmetic
 import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '@/lib/services/label-reader';
 import { brandLineup, shopProductQuery } from '@/lib/services/shop-lineup';
 import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';
-import { withUsageRoute } from '@/lib/server/usage';
+import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
+import { isUserLabelProduct } from '@/lib/product-source';
 
 /** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
 function isValidLabelInput(label: unknown): boolean {
@@ -36,7 +37,11 @@ function isValidLabelInput(label: unknown): boolean {
 }
 
 /** 価格を調べて返す（T4）。query は商品名だけ。商品名が無ければ入力を案内する */
-async function priceReply(query: string | null) {
+async function priceReply(query: string | null, clientIp: string) {
+  // 価格の検索は1回で Web 検索と Gemini を何回も使うので、ほかの操作より少ない回数に制限する
+  if (await isRateLimited('price', clientIp)) {
+    return NextResponse.json({ reply: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
+  }
   if (!query) {
     return NextResponse.json({
       reply: '価格を調べたい商品の名前（ブランド名＋商品名）を入力してください。例：「キュレル 潤浸保湿 化粧水 の価格」',
@@ -57,6 +62,12 @@ const SINGLE_ANALYSIS_REPLIES = [
   '💴 この商品の価格を調べる',
 ];
 
+/**
+ * 本文の上限。3つの比較リスト（各 20 件）の製品を送ってもふつうは 100KB に届かない。
+ * 何十 MB もの本文でアイソレートのメモリ（128MB）を使い切らせないように、それより大きい本文は読まない
+ */
+const MAX_CHAT_BODY_BYTES = 512 * 1024;
+
 const INVALID_REQUEST_REPLY = 'リクエストの形式が正しくありません。ページを再読み込みしてもう一度お試しください。';
 
 async function handlePost(request: NextRequest) {
@@ -66,7 +77,9 @@ async function handlePost(request: NextRequest) {
       return NextResponse.json({ reply: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
     }
 
-    const body = await request.json();
+    const body = await readJsonBody(request, MAX_CHAT_BODY_BYTES);
+    if (body === TOO_LARGE) return NextResponse.json({ reply: INVALID_REQUEST_REPLY }, { status: 413 });
+    if (!body || typeof body !== 'object') return NextResponse.json({ reply: INVALID_REQUEST_REPLY }, { status: 400 });
     const {
       message,
       routine: sentRoutine,
@@ -208,8 +221,21 @@ async function handlePost(request: NextRequest) {
     }
 
     // 2b. 分析した商品の価格（ボタン操作）。検索語はブランド名と商品名だけ
-    if (action === 'price_lookup' && selectedProduct) {
-      return priceReply(productSearchQuery(selectedProduct));
+    // サーバーが持っている製品（調べて確かめた商品）だけ。送られた名前で費用のかかる検索をしない
+    if (action === 'price_lookup' && sentProduct) {
+      let priced = selectedProduct;
+      // 別のアイソレートで見つけたばかりの製品は、このメモリにまだ無い。KV を早めに読み直して探す
+      if (priced === sentProduct && !isUserLabelProduct(sentProduct)) {
+        await hydrateVerifiedProducts({ recheck: true });
+        priced = await resolveClientProduct(sentProduct);
+      }
+      if (!priced || priced === sentProduct) {
+        return NextResponse.json({
+          reply: 'この商品は価格を調べられません。「（ブランド名）（商品名） の価格」と送ってください。',
+          quickReplies: ['🔍 別のコスメを調べる'],
+        });
+      }
+      return priceReply(productSearchQuery(priced), getClientIp(request.headers));
     }
 
     // 2c. 今使っているコスメの組み合わせチェック（ボタン操作。ルールだけで判定し、Gemini は呼ばない）
@@ -316,7 +342,7 @@ async function handlePost(request: NextRequest) {
 
     // D. 価格（T4）。検索語は文章から取り出した商品名だけ。価格はキャッシュしない
     if (gate?.intent === 'price_inquiry') {
-      return priceReply(toPriceSearchQuery(userText));
+      return priceReply(toPriceSearchQuery(userText), getClientIp(request.headers));
     }
 
     // E. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
@@ -355,5 +381,5 @@ async function handlePost(request: NextRequest) {
   }
 }
 
-/** 有料の呼び出しの利用量を、このルートの分として記録する（src/lib/server/usage.ts） */
-export const POST = withUsageRoute('chat', handlePost);
+/** ほかのサイトからの呼び出しを断り、有料の呼び出しにルート名と利用者を付ける（src/lib/server/api-route.ts） */
+export const POST = apiRoute('chat', handlePost);

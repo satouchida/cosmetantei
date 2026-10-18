@@ -9,6 +9,7 @@ import {
   hasVerifiedIngredients,
 } from '../src/lib/analyzer/ingredient-analyzer';
 import { COSMETICS_DATABASE, addProductToDynamicCache } from '../src/lib/data/cosmetics-db';
+import { clearMemoryCacheForTests } from '../src/lib/server/cloudflare';
 import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
 import { Product, INGREDIENT_RISK_LEVELS } from '../src/lib/types';
 
@@ -770,8 +771,9 @@ test('27. Request validation, barcode format and client IP keys', async () => {
   assert.strictEqual(await lookupByBarcode('1'.repeat(40)), null, 'Too-long barcode must be rejected');
 
   const h = (ip: string) => new Headers({ 'cf-connecting-ip': ip });
-  assert.strictEqual(getClientIp(h('2001:db8:1:2:aaaa::1')), getClientIp(h('2001:db8:1:2:bbbb::2')), 'Same /64 shares a key');
-  assert.notStrictEqual(getClientIp(h('2001:db8:1:2::1')), getClientIp(h('2001:db8:1:3::1')), 'Different /64 differs');
+  // /48 ごとに1つのキー（/48・/56 を持つ回線がアドレスを変えて、制限を何万倍にもできないように）
+  assert.strictEqual(getClientIp(h('2001:db8:1:2:aaaa::1')), getClientIp(h('2001:db8:1:3:bbbb::2')), 'Same /48 shares a key');
+  assert.notStrictEqual(getClientIp(h('2001:db8:1::1')), getClientIp(h('2001:db8:2::1')), 'Different /48 differs');
   assert.strictEqual(getClientIp(h('::ffff:192.0.2.7')), '192.0.2.7');
   assert.strictEqual(getClientIp(h('203.0.113.9')), '203.0.113.9');
 });
@@ -2375,7 +2377,7 @@ test('64. Alternatives from web pages are re-checked in code; none confirmed mea
   }
 });
 
-test('65. Prices: listed shops only, page-confirmed offers, sane amounts, the same product, never cached', async () => {
+test('65. Prices: listed shops only, page-confirmed offers, sane amounts, the same product; page prices reused for 15 minutes', async () => {
   const { toPriceSearchQuery, researchPrices, summarizePriceResult, offerMatchesQuery } = await import(
     '../src/lib/services/price-service'
   );
@@ -2446,13 +2448,15 @@ test('65. Prices: listed shops only, page-confirmed offers, sane amounts, the sa
       assert.ok(!prompt.includes(other), 'Pages outside the listed shops are never read');
     }
 
-    // 価格はキャッシュしない：同じ商品をもう一度調べると、もう一度検索する。KV にも書かない
+    // 商品ページから読んだ価格（費用のかかる Web 検索と Gemini）は 15 分だけ使い回す。KV に書くのはその結果だけ
     const kvPuts: string[] = [];
     const APP_CACHE = { async get() { return null; }, async put(key: string) { kvPuts.push(key); } };
     const firstRound = searches.length;
+    const readsBefore = reader.prompts.length;
     await withCloudflareEnv({ AI, APP_CACHE }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
-    assert.strictEqual(searches.length, firstRound * 2);
-    assert.deepStrictEqual(kvPuts, [], 'Prices are never written to KV');
+    assert.strictEqual(searches.length, firstRound, 'Page prices are reused for a short time');
+    assert.strictEqual(reader.prompts.length, readsBefore);
+    assert.ok(kvPuts.every((k) => k.startsWith('priceoffers:v1:')), 'Only page offers are written to KV');
 
     // 税抜の価格は税込に直して比べる
     globalThis.fetch = fakeGeminiPageReader(
@@ -2462,11 +2466,13 @@ test('65. Prices: listed shops only, page-confirmed offers, sane amounts, the sa
       ],
       [shopA]
     ).fetchFn;
+    clearMemoryCacheForTests(); // 同じ商品名を、別のページの内容で調べ直す（ページの価格は 15 分使い回すため）
     const taxed = await withCloudflareEnv({ AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
     assert.deepStrictEqual(taxed.offers.map((o) => o.shop), ['税込ショップ', '税抜ショップ']);
 
     // 検索・読み取りの失敗は「価格が無い」とは言わない
     const down = fakeWebSearchAI(() => new Error('down'));
+    clearMemoryCacheForTests(); // 同じ商品名を、別のページの内容で調べ直す（ページの価格は 15 分使い回すため）
     const failed = await withCloudflareEnv({ AI: down.AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
     assert.strictEqual(failed.status, 'unavailable');
     assert.match(summarizePriceResult(failed), /時間をおいて/);
@@ -2524,17 +2530,26 @@ test('66. Chat route: price and alternative requests reach their services with a
     assert.deepStrictEqual(price.priceResult.offers, []);
     assertShopQueries(searches, 'ルート価格テスト 化粧水');
 
-    const product = verifiedProduct({ id: 'route_price_1', brand: 'ルートブランド', name: 'ルート 乳液 120ml' });
+    // 価格のボタンは、サーバーが持っている製品だけ（送られた名前で費用のかかる検索をしない）
+    const unknown = verifiedProduct({ id: 'route_price_unknown', brand: 'ルートブランド', name: '送られただけの商品' });
+    const searchesBefore = searches.length;
+    const refused = await call({ AI }, { action: 'price_lookup', selectedProduct: unknown });
+    assert.strictEqual(refused.priceResult, undefined);
+    assert.strictEqual(searches.length, searchesBefore, 'No paid search for a product the server does not hold');
+
+    const product = addProductToDynamicCache(verifiedProduct({ id: 'route_price_1', brand: 'ルートブランド', name: 'ルート 乳液 120ml' }));
     const button = await call({ AI }, { action: 'price_lookup', selectedProduct: product });
     assert.ok(button.priceResult);
     assertShopQueries(searches, 'ルートブランド ルート 乳液');
 
     // 長い商品名は先頭の語で、複数表記のブランドは最初の表記で調べる
-    const longName = verifiedProduct({ id: 'route_price_2', brand: 'ビオレ・Biore', name: 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+ PA++++ 70g 限定デザインボトル' });
+    const longName = addProductToDynamicCache(
+      verifiedProduct({ id: 'route_price_2', brand: 'ビオレ・Biore', name: 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+ PA++++ 70g 限定デザインボトル' })
+    );
     const longRes = await call({ AI }, { action: 'price_lookup', selectedProduct: longName });
     assert.ok(longRes.priceResult, 'A long product name still gets a price lookup');
     assertShopQueries(searches, 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+');
-    const multiBrand = verifiedProduct({ id: 'route_price_3', brand: 'ちふれ化粧品 / ちふれ', name: '美白化粧水 W' });
+    const multiBrand = addProductToDynamicCache(verifiedProduct({ id: 'route_price_3', brand: 'ちふれ化粧品 / ちふれ', name: '美白化粧水 W' }));
     await call({ AI }, { action: 'price_lookup', selectedProduct: multiBrand });
     assertShopQueries(searches, 'ちふれ化粧品 美白化粧水 W');
 
@@ -3703,7 +3718,7 @@ test('78. Cost tracking: usage records per route with token counts and no text; 
     assert.strictEqual(searches.length, before, 'No paid search when capped');
     assert.strictEqual(points[0].blobs?.[4], 'capped');
     // Exa の定価 $7.00 / 1,000 回に、クレジットの手数料 5%
-    assert.deepStrictEqual(asked, [{ bucket: 'web_search', limits: spendLimits('web_search'), costMicros: 7_350 }]);
+    assert.deepStrictEqual(asked, [{ bucket: 'web_search', limits: spendLimits('web_search'), costMicros: 7_350, clients: [] }]);
     // Gemini と Workers AI も同じ
     let geminiCalls = 0;
     globalThis.fetch = (async () => {
@@ -3850,6 +3865,14 @@ test('79. Strict spend cap: a dollar budget per UTC day and month in one Durable
       async put<T>(key: string, value: T) {
         storage.set(key, value);
       },
+      async list<T>({ prefix, limit }: { prefix: string; limit: number }) {
+        const keys = [...storage.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit);
+        return new Map(keys.map((k) => [k, storage.get(k) as T]));
+      },
+      async delete(keys: string[]) {
+        keys.forEach((k) => storage.delete(k));
+        return keys.length;
+      },
     },
   };
   const ask = (obj: InstanceType<typeof SpendCapObject>, path: string, body: unknown) =>
@@ -3863,10 +3886,33 @@ test('79. Strict spend cap: a dollar budget per UTC day and month in one Durable
   assert.strictEqual((await (await ask(restarted, '/consume', { bucket: 'gemini', limits: dayLimit, costMicros: 1 })).json()).allowed, false);
   // 精算で戻せば、また呼べる
   assert.strictEqual((await ask(restarted, '/settle', { deltaMicros: -10, period: r1.period })).status, 200);
+
   assert.strictEqual((await (await ask(restarted, '/consume', { bucket: 'gemini', limits: dayLimit, costMicros: 10 })).json()).allowed, true);
   assert.strictEqual((await ask(restarted, '/consume', { bucket: 'other', limits: dayLimit, costMicros: 1 })).status, 400);
   assert.strictEqual((await ask(restarted, '/consume', { bucket: 'gemini', limits: { ...dayLimit, perMinute: -1 }, costMicros: 1 })).status, 400);
   assert.strictEqual((await ask(restarted, '/consume', { bucket: 'gemini', limits: dayLimit, costMicros: -1 })).status, 400);
+
+  // 利用者ごとの1日の合計もストレージに残る（使われていない間に止まって再起動しても、ゆっくり呼ぶ利用者の合計は戻らない）
+  const clientLimit = { perMinute: 100, dayMicros: 1_000_000, monthMicros: 1_000_000 };
+  const clients = [{ key: 'ip:203.0.113.7', dayMicros: 15 }];
+  const c1 = new SpendCapObject(state);
+  assert.strictEqual((await (await ask(c1, '/consume', { bucket: 'gemini', limits: clientLimit, costMicros: 10, clients })).json()).allowed, true);
+  // 前の日の利用者の合計（日が変わった最初の呼び出しで消す）
+  storage.set('client:2000-01-01:ip:198.51.100.1', 5);
+  const c2 = new SpendCapObject(state);
+  const overClient = await (await ask(c2, '/consume', { bucket: 'gemini', limits: clientLimit, costMicros: 10, clients })).json();
+  assert.strictEqual(overClient.allowed, false);
+  assert.strictEqual(overClient.reason, 'client');
+  assert.ok([...storage.keys()].some((k) => k.startsWith('client:')));
+  assert.ok(!storage.has('client:2000-01-01:ip:198.51.100.1'), 'Old days are cleaned up');
+  // 利用者の一覧の形が違えば断る（多すぎる・キーが重なる）
+  const many = Array.from({ length: 5 }, (_, i) => ({ key: `ip:203.0.113.${i}`, dayMicros: 15 }));
+  assert.strictEqual((await ask(c2, '/consume', { bucket: 'gemini', limits: clientLimit, costMicros: 1, clients: many })).status, 400);
+  assert.strictEqual(
+    (await ask(c2, '/consume', { bucket: 'gemini', limits: clientLimit, costMicros: 1, clients: [clients[0], clients[0]] })).status,
+    400
+  );
+  assert.strictEqual((await ask(c2, '/settle', { deltaMicros: -1, period: r1.period, clients: 'ip:203.0.113.7' })).status, 400);
   assert.strictEqual((await ask(restarted, '/settle', { deltaMicros: 1.5, period: r1.period })).status, 400);
   assert.strictEqual((await ask(restarted, '/other', {})).status, 400);
 
@@ -3886,16 +3932,26 @@ test('79. Strict spend cap: a dollar budget per UTC day and month in one Durable
       perMinute: DEFAULT_PER_MINUTE.gemini,
       dayMicros: DEFAULT_BUDGET_USD.perDay * 1_000_000,
       monthMicros: DEFAULT_BUDGET_USD.perMonth * 1_000_000,
+      tightenAfterMicros: DEFAULT_BUDGET_USD.perDay * 500_000,
+      tightenedPercent: 30,
     });
     process.env.SPEND_BUDGET_USD = '2.5/40';
     process.env.SPEND_PER_MINUTE_GEMINI = '10';
-    assert.deepStrictEqual(spendLimits('gemini'), { perMinute: 10, dayMicros: 2_500_000, monthMicros: 40_000_000 });
+    assert.deepStrictEqual(spendLimits('gemini'), {
+      perMinute: 10,
+      dayMicros: 2_500_000,
+      monthMicros: 40_000_000,
+      tightenAfterMicros: 1_250_000,
+      tightenedPercent: 30,
+    });
     process.env.SPEND_BUDGET_USD = 'lots';
     process.env.SPEND_PER_MINUTE_GEMINI = '10/200';
     assert.deepStrictEqual(spendLimits('gemini'), {
       perMinute: DEFAULT_PER_MINUTE.gemini,
       dayMicros: DEFAULT_BUDGET_USD.perDay * 1_000_000,
       monthMicros: DEFAULT_BUDGET_USD.perMonth * 1_000_000,
+      tightenAfterMicros: DEFAULT_BUDGET_USD.perDay * 500_000,
+      tightenedPercent: 30,
     });
 
     // メモリ版：予算を使い切ると断り、精算で戻る
@@ -4324,6 +4380,7 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     const res = await POST(
       new NextRequest('http://localhost/api/chat', {
         method: 'POST',
+          headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action: 'lookup_product', selectedProduct: lineup.products[1] }),
       })
     );
@@ -4335,6 +4392,7 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     const forged = await POST(
       new NextRequest('http://localhost/api/chat', {
         method: 'POST',
+          headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           action: 'lookup_product',
           selectedProduct: { ...lineup.products[1], id: 'shop_rakuten_forged', name: '私の頬が赤くなった化粧水' },
@@ -4445,8 +4503,9 @@ test('84. Web research survives Gemini RECITATION: page-by-page retry without ca
     globalThis.fetch = e.fetchFn;
     const ai3 = fakeWebSearchAI(() => [{ url: official }, { url: shop }]);
     assert.deepStrictEqual(await withCloudflareEnv({ AI: ai3.AI }, () => researchProducts('リサイト リップ E', 4)), []);
+    // 「該当なし」とは保存しないが、10 分は同じ検索をしない（失敗に何度も費用をかけない）
     await withCloudflareEnv({ AI: ai3.AI }, () => researchProducts('リサイト リップ E', 4));
-    assert.strictEqual(ai3.searches.filter((s) => s.provider === 'exa').length, 2, 'A temporary failure is not cached as "not found"');
+    assert.strictEqual(ai3.searches.filter((s) => s.provider === 'exa').length, 1, 'A temporary failure is not searched again right away');
 
     // F. 最初の検索が Linkup（Exa は失敗）で全ページ止められた：使っていないサービスは無いので探し直さず、短期間「該当なし」
     const f = fakeRecitingPageReader(() => 'recitation');
@@ -4592,7 +4651,10 @@ test('86. English (INCI) labels from web pages are translated to Japanese names 
         headers: { 'Content-Type': 'application/json' },
       });
     }) as typeof fetch;
-    const [untranslatable] = await translateEnglishLabels([englishProduct]);
+    // 失敗の印は製品ごと（上の製品は 30 分訳し直さない）。別の製品で確かめる
+    assert.deepStrictEqual((await translateEnglishLabels([englishProduct]))[0].ingredientsEn, undefined, 'A failed label is not retried right away');
+    assert.strictEqual(translateCalls, 0);
+    const [untranslatable] = await translateEnglishLabels([{ ...englishProduct, id: 'en_untranslatable' }]);
     assert.deepStrictEqual(untranslatable.ingredientsEn, []);
     await translateEnglishLabels([untranslatable]);
     assert.strictEqual(translateCalls, 1, 'An untranslatable label is not sent again');
@@ -4803,10 +4865,10 @@ test('87. Unrated ingredients are evaluated by AI one per call, shared, capped a
     const { evaluateUnknownIngredients } = await import('../src/lib/services/dynamic-ingredient-service');
     await withCloudflareEnv({ APP_CACHE: TTL_CACHE }, () => evaluateUnknownIngredients(['テスト一時失敗成分']));
     assert.deepStrictEqual(ttls, [60]);
-    // 応答はあったが途中で切れた（費用がかかった）ものは 1 時間
+    // 応答はあったが途中で切れた（費用がかかった・同じ名前ならまた切れる）ものは 1 日
     globalThis.fetch = fakeGeminiText('{"isCosmeticIngredient": true, "nameJa": "途', 'MAX_TOKENS').fetchFn;
     await withCloudflareEnv({ APP_CACHE: TTL_CACHE }, () => evaluateUnknownIngredients(['テスト切れた応答成分']));
-    assert.deepStrictEqual(ttls, [60, 3600]);
+    assert.deepStrictEqual(ttls, [60, 86400]);
   } finally {
     globalThis.fetch = originalFetch;
     clearGatewayEnv();
@@ -4880,4 +4942,417 @@ test('88. Background Gemini work (ratings, translations) may use only part of th
     else process.env.SPEND_BACKGROUND_SHARE = saved.share;
     resetSpendCap();
   }
+});
+
+test('89. Abuse limits without login: same-origin API, body size, $0.50 per client per day, failure markers, price limit', async () => {
+  // ほかのサイトのページからの呼び出しは断る（ブラウザが付けるヘッダーで分かる）
+  const { crossSiteRejection, readJsonBody, TOO_LARGE } = await import('../src/lib/server/api-route');
+  const req = (method: string, headers: Record<string, string>, body?: string) =>
+    new Request('https://app.example/api/chat', { method, headers, body });
+  const json = { 'content-type': 'application/json' };
+  assert.strictEqual(crossSiteRejection(req('POST', { ...json, 'sec-fetch-site': 'same-origin', origin: 'https://app.example' })), null);
+  assert.strictEqual(crossSiteRejection(req('POST', json)), null, 'Server-to-server calls are limited by the budget instead');
+  assert.strictEqual(crossSiteRejection(req('POST', { ...json, 'sec-fetch-site': 'cross-site' }))?.status, 403);
+  assert.strictEqual(crossSiteRejection(req('POST', { ...json, 'sec-fetch-site': 'same-site' }))?.status, 403);
+  assert.strictEqual(crossSiteRejection(req('POST', { ...json, origin: 'https://evil.example' }))?.status, 403);
+  // 事前の確認が要らない text/plain の送信（ほかのサイトから送れる）は受け付けない
+  assert.strictEqual(crossSiteRejection(req('POST', { 'content-type': 'text/plain' }))?.status, 415);
+  assert.strictEqual(crossSiteRejection(req('GET', { 'sec-fetch-site': 'cross-site' }))?.status, 403, 'A cross-site GET (img src) is refused');
+  assert.strictEqual(crossSiteRejection(req('GET', { 'sec-fetch-site': 'none' })), null, 'Typing the URL is fine');
+  assert.strictEqual(crossSiteRejection(req('GET', { origin: 'https://evil.example' }))?.status, 403, 'Origin is checked on GET too');
+  // request.url と違う形で届いても、Host が同じなら同じサイト（プロキシの後ろ・開発環境）
+  assert.strictEqual(crossSiteRejection(req('POST', { ...json, origin: 'http://192.168.0.5:8787', host: '192.168.0.5:8787' })), null);
+
+  // 本文は上限まで読む（Content-Length が無くても、超えたら読むのをやめる）
+  assert.strictEqual(await readJsonBody(req('POST', json, JSON.stringify({ a: 'x'.repeat(100) })), 50), TOO_LARGE);
+  assert.strictEqual(await readJsonBody(req('POST', { ...json, 'content-length': '999999' }, '{}'), 50), TOO_LARGE);
+  assert.deepStrictEqual(await readJsonBody(req('POST', json, '{"a":1}'), 50), { a: 1 });
+  assert.strictEqual(await readJsonBody(req('POST', json, 'not json'), 50), null);
+
+  // チャットのルートも、ほかのサイトからの呼び出しを有料の処理の前に断る
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+  const crossSite = await POST(
+    new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', 'cf-connecting-ip': '198.51.100.89' },
+      body: JSON.stringify({ message: 'キュレル 化粧水' }),
+    })
+  );
+  assert.strictEqual(crossSite.status, 415);
+  const huge = await POST(
+    new NextRequest('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.89' },
+      body: JSON.stringify({ message: 'x', routine: { badProducts: [] }, pad: 'x'.repeat(600 * 1024) }),
+    })
+  );
+  assert.strictEqual(huge.status, 413);
+
+  // 利用者（IP）ごとに1日 $0.50 まで。ほかの利用者・利用者の分からない呼び出しは別に数える
+  const { reserveSpend, settleSpend, resetSpendCap, spendLimits } = await import('../src/lib/server/spend-cap');
+  const { withUsageRoute, mayRememberFailure } = await import('../src/lib/server/usage');
+  assert.ok(spendLimits('gemini'));
+  resetSpendCap();
+  const asClient = <T>(ip: string, fn: () => Promise<T>) => withUsageRoute('test', fn, [{ kind: 'ip', key: `ip:${ip}` }])();
+  const first = await asClient('203.0.113.1', () => reserveSpend('gemini', 400_000));
+  assert.ok(first);
+  assert.deepStrictEqual(first.clients, ['ip:203.0.113.1']);
+  const over = await asClient('203.0.113.1', async () => {
+    const ticket = await reserveSpend('gemini', 200_000);
+    return { ticket, remember: mayRememberFailure() };
+  });
+  assert.strictEqual(over.ticket, null, 'The same client is refused past $0.50');
+  assert.strictEqual(over.remember, false, 'A failure caused by the client\'s own cap is not remembered for everyone');
+  // 全体の1分の件数で断られたときも同じ（1分の件数を埋めて、人気の検索語を全員の分だけ失敗扱いにさせない）
+  const savedRate = process.env.SPEND_PER_MINUTE_GEMINI;
+  process.env.SPEND_PER_MINUTE_GEMINI = '0';
+  const minuteRefused = await asClient('203.0.113.3', async () => ({
+    ticket: await reserveSpend('gemini', 1),
+    remember: mayRememberFailure(),
+  }));
+  if (savedRate === undefined) delete process.env.SPEND_PER_MINUTE_GEMINI;
+  else process.env.SPEND_PER_MINUTE_GEMINI = savedRate;
+  assert.strictEqual(minuteRefused.ticket, null);
+  assert.strictEqual(minuteRefused.remember, false);
+  assert.strictEqual(await asClient('203.0.113.4', async () => mayRememberFailure()), true, 'Normal requests may remember failures');
+  assert.ok(await asClient('203.0.113.2', () => reserveSpend('gemini', 200_000)), 'Another client still has its budget');
+  assert.ok(await reserveSpend('gemini', 200_000), 'Calls outside a request are not counted per client');
+  // 見積もりより安く済んだ分は、利用者の分も戻る
+  await settleSpend(first, 100_000);
+  assert.ok(await asClient('203.0.113.1', () => reserveSpend('gemini', 200_000)), 'Settling returns the unused estimate');
+  resetSpendCap();
+
+  // 価格の検索は、ほかの AI の操作より少ない回数まで（1分に5回）
+  const { isRateLimited } = await import('../src/lib/server/cloudflare');
+  const results: boolean[] = [];
+  for (let i = 0; i < 6; i++) results.push(await isRateLimited('price', '203.0.113.89'));
+  assert.deepStrictEqual(results, [false, false, false, false, false, true]);
+});
+
+test('90. Gemini safety settings, blocked answers, strict output checks and hardened prompts', async () => {
+  const { callGemini, GEMINI_SAFETY_SETTINGS } = await import('../src/lib/services/gemini-client');
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const usageLines: string[] = [];
+  const respond = (payload: unknown) =>
+    new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  setGatewayEnv();
+  try {
+    // 安全フィルターの設定を必ず送る。利用者に見せる文章は「危険な内容」だけ高のみ、書き写しはどれも高のみ
+    const plain = fakeGeminiText('ok');
+    globalThis.fetch = plain.fetchFn;
+    await callGemini({ task: 'test', prompt: 'x' });
+    await callGemini({ task: 'test', prompt: 'x', safety: 'extraction' });
+    assert.deepStrictEqual(plain.requests[0].body.safetySettings, GEMINI_SAFETY_SETTINGS.user_facing);
+    assert.deepStrictEqual(plain.requests[1].body.safetySettings, GEMINI_SAFETY_SETTINGS.extraction);
+    const dangerous = GEMINI_SAFETY_SETTINGS.user_facing.find((s) => s.category === 'HARM_CATEGORY_DANGEROUS_CONTENT');
+    assert.strictEqual(dangerous?.threshold, 'BLOCK_ONLY_HIGH', 'Normal text about acids and peels is not blocked');
+    assert.ok(GEMINI_SAFETY_SETTINGS.extraction.every((s) => s.threshold === 'BLOCK_ONLY_HIGH'));
+    assert.strictEqual(plain.requests[0].headers['cf-aig-max-attempts'], '1', 'The gateway does not retry (each retry is billed)');
+
+    // 止められた応答は使わず blocked と記録する（途中までの文章があっても使わない）
+    console.log = (...args: unknown[]) => {
+      if (typeof args[0] === 'string' && args[0].startsWith('[usage]')) usageLines.push(args.join(' '));
+    };
+    globalThis.fetch = (async () => respond({ promptFeedback: { blockReason: 'SAFETY' } })) as typeof fetch;
+    const promptBlocked = await callGemini({ task: 'test_block', prompt: 'x' });
+    assert.deepStrictEqual(promptBlocked, { text: '', truncated: false, blocked: 'SAFETY', promptBlocked: true });
+    globalThis.fetch = (async () =>
+      respond({ candidates: [{ finishReason: 'PROHIBITED_CONTENT', content: { parts: [{ text: '途中までの文章' }] } }] })) as typeof fetch;
+    const outputBlocked = await callGemini({ task: 'test_block', prompt: 'x' });
+    assert.strictEqual(outputBlocked?.text, '');
+    assert.strictEqual(outputBlocked?.blocked, 'PROHIBITED_CONTENT');
+    globalThis.fetch = (async () =>
+      respond({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"a":' }] } }] })) as typeof fetch;
+    assert.strictEqual((await callGemini({ task: 'test_cut', prompt: 'x' }))?.truncated, true);
+    // 思考で上限を使い切って文章が無いときも「切れた」
+    globalThis.fetch = (async () => respond({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [] } }] })) as typeof fetch;
+    assert.deepStrictEqual(await callGemini({ task: 'test_cut', prompt: 'x' }), { text: '', truncated: true });
+    // 安全以外の止まり方（OTHER など）はモデルの一時的な失敗。「止められた」とはしない（ページの読み直し・「該当なし」の保存をしない）
+    globalThis.fetch = (async () =>
+      respond({ candidates: [{ finishReason: 'OTHER', content: { parts: [{ text: '途中' }] } }] })) as typeof fetch;
+    assert.strictEqual(await callGemini({ task: 'test_other', prompt: 'x' }), null);
+    console.log = originalLog;
+    const outcomes = usageLines.map((l) => JSON.parse(l.slice('[usage] '.length)).outcome);
+    assert.deepStrictEqual(outcomes, ['blocked', 'blocked', 'truncated', 'truncated', 'error']);
+
+    // 利用者に見せる文章の確かめ（リンク・ドメイン名・書式・箇条書き・見えない文字）
+    const { isPlainReplyText, isPlainLabelText, forAiQuestion } = await import('../src/lib/utils/safe-text');
+    assert.ok(isPlainReplyText('「グリセリン」は保湿のために配合されます。一般に刺激は少ないといわれます。'));
+    for (const bad of ['詳しくは evil.xyz へ', '[こちら](x)', '# 見出し', '- 箇条書き', 'コード `x`', '隠し​文字', 'https://a']) {
+      assert.ok(!isPlainReplyText(bad), bad);
+    }
+    assert.ok(isPlainLabelText('キュレル 潤浸保湿 化粧水 III 150ml'));
+    assert.ok(!isPlainLabelText('化粧水\n検索語に完全一致'));
+    assert.strictEqual(forAiQuestion('ブランド‮名\n2行目', 100), 'ブランド名 2行目');
+    assert.strictEqual(forAiQuestion('あ'.repeat(50), 40).length, 40);
+
+    // 成分の質問：答えられないときは決まった返事。質問は JSON のデータとして渡し、AI Gateway のキャッシュに残さない
+    const { answerIngredientQuestion } = await import('../src/lib/services/chat-replies');
+    const noAnswer = fakeGeminiText('NO_ANSWER');
+    globalThis.fetch = noAnswer.fetchFn;
+    const reply = await answerIngredientQuestion('テスト90の謎の成分について教えて');
+    assert.match(reply, /成分の解説を用意できませんでした/);
+    assert.deepStrictEqual(JSON.parse(noAnswer.requests[0].body.contents.at(-1).parts.at(-1).text), {
+      userQuestion: 'テスト90の謎の成分について教えて',
+    });
+    assert.strictEqual(noAnswer.requests[0].headers['cf-aig-skip-cache'], 'true');
+    globalThis.fetch = fakeGeminiText('一般に保湿成分です。詳しくは example.xyz をご覧ください。').fetchFn;
+    assert.match(await answerIngredientQuestion('テスト90の別の成分は？'), /成分の解説を用意できませんでした/, 'A reply with a domain name is not used');
+
+    // 訳：応答はあったが使えない一覧（件数が違う）は「訳せない」印を付け、キャッシュから返すたびに頼み直さない
+    const { translateEnglishLabels } = await import('../src/lib/services/ingredient-translate');
+    globalThis.fetch = fakeGeminiText(JSON.stringify({ names: ['水'] })).fetchFn;
+    const [unusable] = await withCloudflareEnv({}, () =>
+      translateEnglishLabels([
+        { ...verifiedProduct({ id: 'en_t90', ingredients: ['Water', 'Glycerin', 'Fragrance'] }), ingredientSource: 'web_page' },
+      ])
+    );
+    assert.deepStrictEqual(unusable.ingredientsEn, []);
+
+    // 訳：知らない英語名を、既知の成分（グリセリン）の名前にした訳は使わない
+    const { acceptTranslations } = await import('../src/lib/services/ingredient-translate');
+    assert.deepStrictEqual(acceptTranslations(['Xyz Unknown Oil'], ['グリセリン']), ['Xyz Unknown Oil']);
+    // 色素の番号付きの名前は訳さない（米国名と日本の色素番号の対応を取り違えることがある）
+    assert.deepStrictEqual(acceptTranslations(['RED 21 (CI 45380)', 'Iron Oxides (CI 77499)', 'Silica'], ['赤218', '酸化鉄', 'シリカ']), [
+      'RED 21 (CI 45380)',
+      'Iron Oxides (CI 77499)',
+      'シリカ',
+    ]);
+
+    // AI の評価：確かな根拠が無いと書いたのに「安全」としたものは「未評価」にする
+    const { explainIngredientWithAI } = await import('../src/lib/services/dynamic-ingredient-service');
+    globalThis.fetch = fakeGeminiText(
+      JSON.stringify({
+        isCosmeticIngredient: true,
+        nameJa: 'テスト九十油',
+        nameEn: 'Test Ninety Oil',
+        category: 'moisturizer',
+        riskLevel: 'safe',
+        reasonJa: '肌をやわらげる油です。',
+        sensitiveSkinAdviceJa: '一般に刺激は少ないといわれます。',
+        evidenceJa: '確かな根拠を確認できていません。',
+      })
+    ).fetchFn;
+    const explained = await withCloudflareEnv({}, () => explainIngredientWithAI('テスト九十油'));
+    assert.strictEqual(explained.riskLevel, 'unknown');
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+
+  // ブランドの判定は利用者の検索語を含むので、本文をログに残すゲートウェイを通さない
+  const { judgeBrands } = await import('../src/lib/services/brand-check');
+  const runOptions: unknown[] = [];
+  const AI = {
+    async run(_model: string, _input: unknown, options?: unknown) {
+      runOptions.push(options);
+      return { answers: {} };
+    },
+  };
+  process.env.AI_GATEWAY_ID = 'cosmetantei-test';
+  try {
+    await withCloudflareEnv({ AI }, () => judgeBrands([{ brand: 'テスト九十ブランド', productName: 'テスト 化粧水' }], 'テスト 化粧水'));
+  } finally {
+    delete process.env.AI_GATEWAY_ID;
+  }
+  assert.strictEqual(runOptions.length, 1);
+  assert.strictEqual(runOptions[0], undefined, 'Not routed through the logging gateway');
+
+  // Workers AI が応答しないときは 5 秒で諦める
+  const { runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const hanging = { run: () => new Promise(() => {}) };
+  const started = Date.now();
+  assert.strictEqual(await withCloudflareEnv({ AI: hanging }, () => runWorkersAI('@cf/cloudflare/clef', {}, { task: 'test' })), null);
+  assert.ok(Date.now() - started < 7_000);
+});
+
+test('91. Spread-out abuse: /24 and cloud-network caps, caps that tighten as the day fills, Turnstile sessions', async () => {
+  const { budgetClients, apiRoute } = await import('../src/lib/server/api-route');
+  const { reserveSpend, resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { withUsageRoute, currentClients } = await import('../src/lib/server/usage');
+  const { ipv4Network24, isRateLimited } = await import('../src/lib/server/cloudflare');
+  const { SpendCounter, MemorySpendStore } = await import('../src/lib/server/spend-cap-core');
+  const { createSessionValue, readSessionId, SESSION_COOKIE } = await import('../src/lib/server/session');
+  const { POST: startSessionRoute } = await import('../src/app/api/session/route');
+  const { NextRequest } = await import('next/server');
+
+  // 予算のキー：IP は必ず、IPv4 は /24、クラウドの事業者は AS 番号、確かめたセッション
+  assert.strictEqual(ipv4Network24('203.0.113.77'), '203.0.113.0/24');
+  assert.strictEqual(ipv4Network24('2001:db8:1::/48'), null);
+  assert.strictEqual(ipv4Network24('999.0.0.1'), null);
+  const withCf = async <T>(cf: Record<string, unknown> | undefined, fn: () => Promise<T>): Promise<T> => {
+    const key = Symbol.for('__cloudflare-context__');
+    const g = globalThis as Record<symbol, unknown>;
+    const previous = g[key];
+    g[key] = { env: {}, cf, ctx: { waitUntil() {}, passThroughOnException() {} } };
+    try {
+      return await fn();
+    } finally {
+      g[key] = previous;
+    }
+  };
+  const from = (ip: string) => new Request('https://app.example/api/chat', { headers: { 'cf-connecting-ip': ip } });
+  assert.deepStrictEqual(await budgetClients(from('203.0.113.77')), [
+    { kind: 'ip', key: 'ip:203.0.113.77' },
+    { kind: 'network', key: 'net:203.0.113.0/24' },
+  ]);
+  assert.deepStrictEqual(await withCf({ asn: 16509 }, () => budgetClients(from('2001:db8:1:2::1'), 'abc')), [
+    { kind: 'ip', key: 'ip:2001:db8:1::/48' },
+    { kind: 'hosting', key: 'asn:16509' },
+    { kind: 'session', key: 'sess:abc' },
+  ]);
+  assert.strictEqual((await withCf({ asn: 2516 }, () => budgetClients(from('203.0.113.77')))).length, 2, 'Home and mobile ISPs are not grouped');
+
+  // /24 と事業者の上限：IP を替えても同じ /24・同じクラウドなら、まとめて断る
+  const saved = Object.fromEntries(
+    ['SPEND_PER_NETWORK_USD', 'SPEND_PER_HOSTING_NETWORK_USD', 'SPEND_TIGHTEN_AFTER_SHARE', 'SPEND_BUDGET_USD'].map((n) => [n, process.env[n]])
+  );
+  const asRequest = <T>(request: Request, fn: () => Promise<T>) =>
+    budgetClients(request).then((clients) => withUsageRoute('test', fn, clients)());
+  try {
+    resetSpendCap();
+    process.env.SPEND_PER_NETWORK_USD = '1';
+    const spend = (ip: string) => asRequest(from(ip), () => reserveSpend('gemini', 400_000));
+    assert.ok(await spend('198.51.100.1'));
+    assert.ok(await spend('198.51.100.2'));
+    assert.strictEqual(await spend('198.51.100.3'), null, 'The third $0.40 call from the same /24 passes $1');
+    assert.ok(await spend('198.51.101.3'), 'The next /24 has its own budget');
+
+    resetSpendCap();
+    process.env.SPEND_PER_HOSTING_NETWORK_USD = '0.5';
+    const cloud = (ip: string) => withCf({ asn: 14061 }, () => asRequest(from(ip), () => reserveSpend('gemini', 300_000)));
+    assert.ok(await cloud('192.0.2.1'));
+    assert.strictEqual(await cloud('203.0.113.200'), null, 'Different IPs on the same cloud share one budget');
+
+    // 全体の合計が予算の半分に達したら、利用者ごとの上限を 30% に下げる（$0.50 → $0.15）
+    const counter = new SpendCounter(new MemorySpendStore());
+    const limits = { perMinute: 1000, dayMicros: 1_000_000, monthMicros: 10_000_000, tightenAfterMicros: 500_000, tightenedPercent: 30 };
+    const one = (key: string, cost: number) => counter.consume('gemini', limits, cost, Date.UTC(2026, 9, 18), [{ key, dayMicros: 500_000 }]);
+    assert.ok((await one('ip:a', 200_000)).allowed, 'Before the day is half used, $0.20 is fine');
+    assert.ok((await one('ip:b', 400_000)).allowed);
+    const late = await one('ip:c', 200_000);
+    assert.strictEqual(late.allowed, false, 'After half the day budget, a new client gets $0.15');
+    assert.strictEqual(late.reason, 'client');
+    assert.ok((await one('ip:c', 150_000)).allowed);
+  } finally {
+    resetSpendCap();
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+
+  // Turnstile のセッション：Cookie は ID・期限・署名。書き換え・期限切れ・違う秘密キーは通さない
+  const secret = 's'.repeat(40);
+  const now = Date.UTC(2026, 9, 18, 12);
+  const value = await createSessionValue(secret, now);
+  const cookie = (v: string) => `other=1; ${SESSION_COOKIE}=${v}`;
+  const id = await readSessionId(cookie(value), secret, now);
+  assert.match(id ?? '', /^[A-Za-z0-9_-]{22}$/);
+  assert.strictEqual(await readSessionId(cookie(value), secret, now + 25 * 3600_000), null, 'Expires after 24 hours');
+  assert.strictEqual(await readSessionId(cookie(value), 't'.repeat(40), now), null);
+  const [sid, exp, sig] = value.split('.');
+  assert.strictEqual(await readSessionId(cookie(`${sid}.${Number(exp) + 3600}.${sig}`), secret, now), null, 'A longer expiry breaks the signature');
+  assert.strictEqual(await readSessionId(cookie(`${'A'.repeat(22)}.${exp}.${sig}`), secret, now), null);
+  assert.strictEqual(await readSessionId(null, secret, now), null);
+
+  const envNames = ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY', 'SESSION_SECRET'];
+  const savedEnv = Object.fromEntries(envNames.map((n) => [n, process.env[n]]));
+  const originalFetch = globalThis.fetch;
+  const seen: string[] = [];
+  const route = apiRoute('test', async () => {
+    seen.push(currentClients().map((c) => c.kind).join(','));
+    return Response.json({ ok: true });
+  });
+  const apiCall = (headers: Record<string, string> = {}) =>
+    route(new Request('https://app.example/api/x', { headers: { 'cf-connecting-ip': '203.0.113.9', ...headers } }));
+  const sessionCall = (token: unknown, url = 'https://app.example/api/session', ip = '203.0.113.9') =>
+    startSessionRoute(
+      new NextRequest(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'cf-connecting-ip': ip },
+        body: JSON.stringify({ token }),
+      })
+    );
+  try {
+    // サイトキーが空なら使わない（IP の予算だけ）
+    for (const n of envNames) delete process.env[n];
+    assert.strictEqual((await apiCall()).status, 200);
+    assert.strictEqual(seen.pop(), 'ip,network');
+
+    // サイトキーだけで秘密情報が無ければ、有料の API を断る
+    process.env.TURNSTILE_SITE_KEY = '0x4AAAAAAA-site';
+    assert.strictEqual((await apiCall()).status, 503);
+    process.env.TURNSTILE_SECRET_KEY = '0x4AAAAAAA-secret';
+    process.env.SESSION_SECRET = 'short';
+    assert.strictEqual((await apiCall()).status, 503, 'A short session secret is a configuration error');
+    process.env.SESSION_SECRET = secret;
+
+    // Cookie が無ければ 401 とサイトキー（ブラウザが Turnstile を出す）。ハンドラーは呼ばない
+    const needVerify = await apiCall();
+    assert.strictEqual(needVerify.status, 401);
+    assert.deepStrictEqual((await needVerify.json()).verify, { siteKey: '0x4AAAAAAA-site' });
+    assert.strictEqual(seen.length, 0);
+
+    // Cloudflare に確かめたトークンでセッションを始める（action とホスト名も確かめる）
+    const verified: Record<string, unknown>[] = [];
+    let answer: Record<string, unknown> = { success: true, action: 'api', hostname: 'app.example' };
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      assert.strictEqual(url, 'https://challenges.cloudflare.com/turnstile/v0/siteverify');
+      verified.push(Object.fromEntries(new URLSearchParams(init.body as URLSearchParams)));
+      return new Response(JSON.stringify(answer), { status: 200 });
+    }) as typeof fetch;
+    const started = await sessionCall('token-1');
+    assert.strictEqual(started.status, 200);
+    assert.deepStrictEqual(verified[0], { secret: '0x4AAAAAAA-secret', response: 'token-1' });
+    const setCookie = started.headers.get('set-cookie') ?? '';
+    assert.match(setCookie, /^__Host-session=[^;]+; Path=\/; Max-Age=86400; HttpOnly; Secure; SameSite=Strict$/);
+    const sessionCookie = setCookie.split(';')[0];
+    assert.strictEqual((await apiCall({ cookie: sessionCookie })).status, 200);
+    assert.strictEqual(seen.pop(), 'ip,network,session', 'The session gets its own daily budget');
+
+    answer = { success: true, action: 'other', hostname: 'app.example' };
+    assert.strictEqual((await sessionCall('token-2')).status, 403, 'A token made for another action is refused');
+    answer = { success: true, action: 'api', hostname: 'evil.example' };
+    assert.strictEqual((await sessionCall('token-3')).status, 403, 'A token solved on another site is refused');
+    answer = { success: false, 'error-codes': ['timeout-or-duplicate'] };
+    assert.strictEqual((await sessionCall('token-4')).status, 403);
+    globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+    assert.strictEqual((await sessionCall('token-5')).status, 503, 'A siteverify outage is not reported as a bad token');
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      verified.push(Object.fromEntries(new URLSearchParams(init.body as URLSearchParams)));
+      return new Response(JSON.stringify(answer), { status: 200 });
+    }) as typeof fetch;
+    assert.strictEqual((await sessionCall('x'.repeat(3000), undefined, '203.0.113.10')).status, 400);
+    assert.strictEqual((await sessionCall(42, undefined, '203.0.113.10')).status, 400);
+
+    // テスト用の秘密キーは手元の開発環境でだけ通る
+    process.env.TURNSTILE_SECRET_KEY = '1x0000000000000000000000000000000AA';
+    answer = { success: true, hostname: 'example.com', action: '' };
+    assert.strictEqual((await sessionCall('t', 'http://localhost:8787/api/session', '203.0.113.11')).status, 200);
+    assert.strictEqual((await sessionCall('t', undefined, '203.0.113.11')).status, 403, 'A test key never works on the real host');
+
+    // ほかのサイトからの呼び出しは断る。トークンの確認は1分に10回まで
+    const crossSite = await startSessionRoute(
+      new NextRequest('https://app.example/api/session', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+        body: '{}',
+      })
+    );
+    assert.strictEqual(crossSite.status, 403);
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) statuses.push((await sessionCall('t', 'http://localhost/api/session', '203.0.113.12')).status);
+    assert.strictEqual(statuses.filter((s) => s === 429).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [name, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+  assert.strictEqual(await isRateLimited('session', '203.0.113.13'), false);
 });

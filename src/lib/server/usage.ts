@@ -16,7 +16,8 @@ export type UsageKind = 'gemini' | 'workers_ai' | 'web_search';
  * cache_hit: AI Gateway のキャッシュから返った（モデルの提供元への有料の呼び出しは無いので、トークン数は数えない）
  */
 // recitation: Gemini が著作物の引用に似ているとして出力を止めた（ページの成分表示の書き写しで起きる）
-export type UsageOutcome = 'ok' | 'error' | 'capped' | 'cache_hit' | 'recitation';
+// blocked: 安全フィルターなどで止められた / truncated: 出力の上限で途中で切れた（どちらも課金される）
+export type UsageOutcome = 'ok' | 'error' | 'capped' | 'cache_hit' | 'recitation' | 'blocked' | 'truncated';
 
 export interface UsageEvent {
   kind: UsageKind;
@@ -36,15 +37,53 @@ export interface UsageEvent {
   ms?: number;
 }
 
-const routeContext = new AsyncLocalStorage<string>();
+/**
+ * 利用者ごとの1日の予算のキー（src/lib/server/spend-cap.ts）。1回の要求に、種類ごとに1つまで付く
+ * - ip: IP（IPv6 は /48） / network: IPv4 の /24 / hosting: クラウドの事業者（AS 番号） /
+ *   session: Turnstile で確かめたブラウザのセッション
+ */
+export type BudgetClientKind = 'ip' | 'network' | 'hosting' | 'session';
+export interface BudgetClient {
+  kind: BudgetClientKind;
+  key: string;
+}
 
-/** API ルートの処理を包み、その中の有料の呼び出しにルート名を付ける */
-export function withUsageRoute<A extends unknown[], R>(route: string, handler: (...args: A) => Promise<R>) {
-  return (...args: A): Promise<R> => routeContext.run(route, () => handler(...args));
+const routeContext = new AsyncLocalStorage<{ route: string; clients: BudgetClient[]; refused?: boolean }>();
+
+/**
+ * API ルートの処理を包み、その中の有料の呼び出しにルート名と利用者（利用者ごとの1日の予算のキー）を付ける。
+ * API ルートは src/lib/server/api-route.ts の apiRoute から使う
+ */
+export function withUsageRoute<A extends unknown[], R>(
+  route: string,
+  handler: (...args: A) => Promise<R>,
+  clients: BudgetClient[] = []
+) {
+  return (...args: A): Promise<R> => routeContext.run({ route, clients }, () => handler(...args));
 }
 
 export function currentUsageRoute(): string {
-  return routeContext.getStore() ?? 'other';
+  return routeContext.getStore()?.route ?? 'other';
+}
+
+/** この有料の呼び出しを頼んだ利用者の予算のキー（API ルートの外・テストでは空） */
+export function currentClients(): BudgetClient[] {
+  return routeContext.getStore()?.clients ?? [];
+}
+
+/** この要求の有料の呼び出しが、上限（利用者ごと・全体の予算・1分の件数）で断られた・数えられなかった（spend-cap.ts が付ける） */
+export function markRefused(): void {
+  const store = routeContext.getStore();
+  if (store) store.refused = true;
+}
+
+/**
+ * 失敗を「しばらく頼み直さない」として全員の分に覚えてよいか。上限で断られた呼び出しの失敗は、検索語そのものの失敗では
+ * ないので覚えない（利用者が自分の上限に達したあとや、1分の件数を埋めたあとに、費用をかけずに人気の検索語などを
+ * 全員の分だけ失敗扱いにできないように）
+ */
+export function mayRememberFailure(): boolean {
+  return routeContext.getStore()?.refused !== true;
 }
 
 const count = (n: unknown): number => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : 0);

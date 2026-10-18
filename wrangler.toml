@@ -25,6 +25,18 @@ name = "SEARCH_RATE_LIMITER"
 namespace_id = "1002"
 simple = { limit = 60, period = 60 }
 
+# 価格の検索（1回で Web 検索と Gemini のページ読み取りを何回も使う）
+[[ratelimits]]
+name = "PRICE_RATE_LIMITER"
+namespace_id = "1003"
+simple = { limit = 5, period = 60 }
+
+# ブラウザの確認（Turnstile のトークンを Cloudflare に確かめ、セッションを発行する。src/lib/server/session.ts）
+[[ratelimits]]
+name = "SESSION_RATE_LIMITER"
+namespace_id = "1005"
+simple = { limit = 10, period = 60 }
+
 # 有料の呼び出し（Gemini・Workers AI・Web 検索）の上限を、全世界で1つの Durable Object で厳密に数える
 # （src/lib/server/spend-cap.ts）。クラスは worker.ts から export している。上限は [vars] の SPEND_BUDGET_USD・SPEND_PER_MINUTE_*
 [[durable_objects.bindings]]
@@ -66,6 +78,21 @@ CHAT_GATE_MODE = "enforce"
 # 超える呼び出しはせず、利用量の記録に capped と残す。単価は src/lib/server/prices.ts、詳細は
 # docs/walkthroughs/2026-10-14-cost-tracking.md の「Budget」
 SPEND_BUDGET_USD = "30/100"
+# 利用者（IP。IPv6 は /48）ごとの1日あたりの上限（USD）。1人で全員の予算を使い切れないように。
+# "0" は「上限なし」ではなく、利用者からの有料の呼び出しをすべて断る
+SPEND_PER_CLIENT_USD = "0.5"
+# IP を並べて予算を使い切られないよう、まとめて数える上限（USD/日）。IPv4 の /24（隣り合う 256 個）ごとと、
+# クラウドの事業者（src/lib/server/hosting-networks.ts）ごと
+SPEND_PER_NETWORK_USD = "2"
+SPEND_PER_HOSTING_NETWORK_USD = "1"
+# 今日の全体の合計が予算のこの割合に達したら、利用者ごとの上限（IP・/24・事業者・セッション）をこの % に下げる
+SPEND_TIGHTEN_AFTER_SHARE = "0.5"
+SPEND_TIGHTENED_PERCENT = "30"
+# ブラウザの確認（Cloudflare Turnstile）。ダッシュボードで作ったウィジェットのサイトキー（公開してよい値）。
+# 空なら使わない（IP ごとの予算だけ）。設定したら、秘密情報も wrangler secret put で設定する（無ければ有料の API を断る）:
+#   pnpm exec wrangler secret put TURNSTILE_SECRET_KEY   （ウィジェットの秘密キー）
+#   pnpm exec wrangler secret put SESSION_SECRET         （セッションの Cookie の署名。32文字以上のランダムな文字列）
+TURNSTILE_SITE_KEY = "0x4AAAAAAFZpjmtvFBd8swaZ"
 # 急増を止める、種類ごとの1分あたりの件数
 SPEND_PER_MINUTE_WEB_SEARCH = "30"
 SPEND_PER_MINUTE_GEMINI = "60"
