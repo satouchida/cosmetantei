@@ -5,6 +5,7 @@ import { Product } from '@/lib/types';
 import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
 import { badge, buttonPrimary, innerCard, panel } from '../ui/design';
+import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -15,6 +16,10 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
   products,
 }) => {
   if (!products || products.length === 0) return null;
+  // 「同じ種類」と書くのは、全商品の種類がそろうときだけ（src/lib/analyzer/product-category.ts）
+  const categories = new Set(products.map((p) => productCategory(p)));
+  const category = categories.size === 1 ? [...categories][0] : undefined;
+  const sameKind = category ? `同じ種類（${CATEGORY_LABELS_JA[category]}）で、` : '';
 
   return (
     <section className={`my-3 space-y-3 text-ink ${panel('safe', 'roomy')}`}>
@@ -30,7 +35,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
               <span className={badge('neutral')}>PR</span>
             </h3>
             <p className="text-xs text-ink-muted">
-              敏感肌でも使いやすい低刺激・無香料処方の厳選コスメ
+              {sameKind}原因候補の成分と強い刺激成分を含まず、全成分を確認できた商品です
             </p>
           </div>
         </div>

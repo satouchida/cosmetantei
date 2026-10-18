@@ -5,6 +5,12 @@ import {
   findSafeAlternatives,
   performDifferentialAnalysis,
 } from '../analyzer/ingredient-analyzer';
+import {
+  AlternativeCategory,
+  CATEGORY_LABELS_JA,
+  categoryFromText,
+  mostCommonCategory,
+} from '../analyzer/product-category';
 import { findIngredientsInText } from './chat-replies';
 import { productIdentityKey, researchAlternativeCandidates } from './web-research';
 
@@ -13,29 +19,6 @@ import { productIdentityKey, researchAlternativeCandidates } from './web-researc
  * - 検索語は成分DBの名前と決まった語だけで作る（利用者の文章・商品名は送らない）
  * - 候補は必ずコードで確かめる（findSafeAlternatives）。確かめられなければ代わりの商品を出さない
  */
-
-export type AlternativeCategory = Exclude<Product['category'], 'other'>;
-
-export const CATEGORY_LABELS_JA: Readonly<Record<AlternativeCategory, string>> = {
-  cleanser: '洗顔料',
-  toner: '化粧水',
-  serum: '美容液',
-  cream: 'クリーム',
-  sunscreen: '日焼け止め',
-  mask: 'パック',
-  lip: 'リップ',
-};
-
-/** 文章に出てくる種類の言葉（先に一致したものを使う） */
-const CATEGORY_WORDS: readonly [RegExp, AlternativeCategory][] = [
-  [/洗顔|クレンジング|メイク落とし/, 'cleanser'],
-  [/日焼け止め|サンスクリーン|uv/i, 'sunscreen'],
-  [/化粧水|ローション|トナー/, 'toner'],
-  [/美容液|セラム|エッセンス/, 'serum'],
-  [/クリーム|乳液|ミルク|保湿ジェル/, 'cream'],
-  [/パック|シートマスク/, 'mask'],
-  [/リップ|口紅|唇/, 'lip'],
-];
 
 /** 検索語に使う成分の上限（長い検索語は結果が減る） */
 const MAX_QUERY_INGREDIENTS = 3;
@@ -49,11 +32,6 @@ export interface AlternativeRequest {
   category?: AlternativeCategory;
   /** 候補から除く製品（肌荒れしたコスメ） */
   excludeIds: string[];
-}
-
-export function categoryFromText(text: string): AlternativeCategory | undefined {
-  const t = text.normalize('NFKC');
-  return CATEGORY_WORDS.find(([pattern]) => pattern.test(t))?.[1];
 }
 
 /**
@@ -93,18 +71,6 @@ function isNegatedInText(item: KnownIngredient, text: string): boolean {
     }
     return false;
   });
-}
-
-/** 肌荒れしたコスメに多い種類（「その他」は除く） */
-function mostCommonCategory(products: Product[]): AlternativeCategory | undefined {
-  const counts = new Map<AlternativeCategory, number>();
-  for (const p of products) {
-    // 決まった種類だけ（検証済みだが、検索語に入るので念のため確かめる）
-    if (!Object.hasOwn(CATEGORY_LABELS_JA, p.category)) continue;
-    const c = p.category as AlternativeCategory;
-    counts.set(c, (counts.get(c) ?? 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
 /**

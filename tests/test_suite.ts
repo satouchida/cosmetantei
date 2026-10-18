@@ -121,12 +121,13 @@ test('4. Differential culprit isolation & alternatives only from verified ingred
   };
 
   const verifiedAlt = addProductToDynamicCache(
-    verifiedProduct({ id: 'obf_verified_alt', name: 'セラミド 保湿クリーム', ingredients: ['水', 'グリセリン', 'セラミドNP'] })
+    verifiedProduct({ id: 'obf_verified_alt', name: 'セラミド 化粧水', category: 'toner', ingredients: ['水', 'グリセリン', 'セラミドNP'] })
   );
   const aiEstimated = addProductToDynamicCache(
     verifiedProduct({
       id: 'gem_ai_estimated_alt',
-      name: 'AI推定 保湿クリーム',
+      name: 'AI推定 化粧水',
+      category: 'toner',
       ingredients: ['水', 'グリセリン'],
       ingredientSource: 'ai_estimate',
       isEstimatedFromMarketplaces: true,
@@ -5355,4 +5356,68 @@ test('91. Spread-out abuse: /24 and cloud-network caps, caps that tighten as the
     }
   }
   assert.strictEqual(await isRateLimited('session', '203.0.113.13'), false);
+});
+
+test('92. Alternatives are the same kind of product, or none', async () => {
+  const { productCategory, mostCommonCategory } = await import('../src/lib/analyzer/product-category');
+  const lipBalm = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_alt_lip', name: 'Moisturizing Lip Creator', category: 'lip', ingredients: ['ワセリン', 'グリセリン'] })
+  );
+  const sunscreen = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_alt_sunscreen', name: 'マイルド サンスクリーン', category: 'sunscreen', ingredients: ['水', 'グリセリン', '酸化亜鉛'] })
+  );
+  // 種類が「その他」でも、名前に「UV」があれば日焼け止めとして候補になる
+  const uvGel = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_alt_uv_gel', name: 'やさしい UV ジェル', category: 'other', ingredients: ['水', 'BG', '酸化チタン'] })
+  );
+  const suspectIngredients = ['水', 'エタノール', 'メトキシケイヒ酸エチルヘキシル', '香料'];
+  const isSunscreen = (p: Product) => productCategory(p) === 'sunscreen';
+
+  for (const category of ['sunscreen', 'other'] as const) {
+    const analysis = analyzeProduct({
+      id: `test_uv_mist_${category}`,
+      name: 'ビオレUV アスリズム プロテクトミスト',
+      brand: 'ビオレ',
+      country: 'JP',
+      category,
+      ingredients: suspectIngredients,
+    });
+    assert.ok(['caution', 'warning'].includes(analysis.overallRiskLevel), `${category}: the sample must ask for alternatives`);
+    const alternatives = analysis.safeAlternatives ?? [];
+    assert.ok(alternatives.length > 0, `${category}: a cached sunscreen must be suggested`);
+    assert.ok(alternatives.every(isSunscreen), `${category}: only sunscreens may be suggested`);
+    assert.ok(!alternatives.some((p) => p.id === lipBalm.id), `${category}: a lip balm must never be suggested`);
+  }
+  const all = findSafeAlternatives([{ nameJa: 'エタノール' }], [], Number.MAX_SAFE_INTEGER, { category: 'sunscreen' }).map((p) => p.id);
+  assert.ok(all.includes(sunscreen.id) && all.includes(uvGel.id), 'Sunscreens by category and by name are both candidates');
+
+  // 種類が分からなければ、代わりの商品を出さない
+  const unknown = analyzeProduct({
+    id: 'test_unknown_kind',
+    name: 'テスト製品',
+    brand: 'テスト',
+    country: 'JP',
+    category: 'other',
+    ingredients: suspectIngredients,
+  });
+  assert.deepStrictEqual(unknown.safeAlternatives, []);
+
+  // 製品名からの種類：リップの UV はリップ、Lipid はリップではない
+  assert.strictEqual(productCategory({ category: 'other', name: 'リップクリーム UV' }), 'lip');
+  assert.strictEqual(productCategory({ category: 'other', name: 'SHISEIDO MEN Moisturizing Lip Creator' }), 'lip');
+  assert.strictEqual(productCategory({ category: 'other', name: 'Lipid Barrier' }), undefined);
+  assert.strictEqual(productCategory({ category: 'toner', name: 'UV トナー' }), 'toner', 'A stated category wins over the name');
+  assert.strictEqual(productCategory({ category: 'cream', name: '薬用リップクリーム' }), 'lip', 'A lip name wins over a stored category');
+  assert.strictEqual(productCategory({ category: 'other', name: 'Nuvo Moist' }), undefined, 'UV inside a word is not a sunscreen');
+  assert.strictEqual(productCategory({ category: 'other', name: 'UVカット ミルク' }), 'sunscreen');
+  assert.strictEqual(productCategory({ category: 'other', name: '洗顔後の化粧水' }), 'toner');
+  assert.strictEqual(mostCommonCategory([{ category: 'other', name: 'テスト' }]), undefined);
+  assert.strictEqual(mostCommonCategory([{ category: 'toner', name: 'a' }, { category: 'lip', name: 'b' }]), undefined, 'A tie gives no category');
+
+  // 比較：肌荒れした製品に多い種類からだけ。種類が分からなければ出さない
+  const badSunscreen: Product = { ...verifiedProduct({ id: 'bad_uv', name: 'UV ミルク', category: 'other' }), ingredients: suspectIngredients };
+  const diff = performDifferentialAnalysis([badSunscreen], []);
+  assert.ok(diff.safeAlternatives.length > 0 && diff.safeAlternatives.every(isSunscreen));
+  const badUnknown: Product = { ...badSunscreen, id: 'bad_unknown', name: 'テスト製品' };
+  assert.deepStrictEqual(performDifferentialAnalysis([badUnknown], []).safeAlternatives, []);
 });

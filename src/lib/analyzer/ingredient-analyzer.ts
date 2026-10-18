@@ -6,6 +6,7 @@ import { findStandardEntry, productUseType, standardLabelNotes, standardNote } f
 import { findPairFindings, PairContext } from './pair-rules';
 import { designatedNote, findDesignatedEntry } from './jp-designated';
 import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
+import { mostCommonCategory, productCategory } from './product-category';
 import {
   AnalyzedIngredient,
   CulpritIngredient,
@@ -220,7 +221,8 @@ export function findSafeAlternatives(
   // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
   const safeItems = COSMETICS_DATABASE.filter((product) => {
     if (excludedProductIds.includes(product.id)) return false;
-    if (options.category && product.category !== options.category) return false;
+    // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
+    if (options.category && productCategory(product) !== options.category) return false;
     if (!hasVerifiedIngredients(product)) return false;
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
     if (product.ingredientSource === 'user_label') return false;
@@ -417,11 +419,14 @@ export function analyzeProduct(
     summaryJa += ` ${aiEvaluatedCount}成分は成分データに無いため、AIが評価しました（誤りを含む可能性があります）。`;
   }
 
-  // 高リスク時は代替品を提示
+  // 高リスク時は同じ種類の代替品を提示する。種類が分からなければ出さない（日焼け止めにリップを勧めない）
   const suspectItems = analyzedIngredients.filter((i) => i.isSuspect).map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
+  const category = productCategory(product);
   const safeAlternatives =
     overallRiskLevel === 'caution' || overallRiskLevel === 'warning'
-      ? findSafeAlternatives(suspectItems, [product.id], 3)
+      ? category
+        ? findSafeAlternatives(suspectItems, [product.id], 3, { category })
+        : []
       : undefined;
 
   return {
@@ -588,9 +593,10 @@ export function performDifferentialAnalysis(
   // 肌荒れした製品を一緒に使っていた場合の組み合わせの注意
   const pairFindings = pairFindingsFor(badProducts, 'trouble');
 
-  // あぶり出された疑わしい成分を含まない安全な代替コスメ（Amazonアフィリエイト付き）を検索
+  // あぶり出された疑わしい成分を含まない代替コスメを、肌荒れした製品に多い種類から探す（種類が分からなければ出さない）
   const badProductIds = badProducts.map((p) => p.id);
-  const safeAlternatives = findSafeAlternatives(culprits, badProductIds, 3);
+  const category = mostCommonCategory(badProducts);
+  const safeAlternatives = category ? findSafeAlternatives(culprits, badProductIds, 3, { category }) : [];
 
   return {
     badProducts,
