@@ -19,12 +19,15 @@ interface BarcodeScannerModalProps {
   onClose: () => void;
   /** 読めたバーコードを渡す。受け付けられないとき（前の返答を待っている等）は、この画面に出す理由の文 */
   onScanSuccess: (barcode: string) => true | string;
+  /** 閉じたとき、開いたボタンが見えなくなっていれば代わりにフォーカスする要素（スマホの引き出しから開いたとき） */
+  fallbackFocus?: () => HTMLElement | null;
 }
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   isOpen,
   onClose,
   onScanSuccess,
+  fallbackFocus,
 }) => {
   const [manualCode, setManualCode] = useState('');
   const [isProcessingFile, setIsProcessingFile] = useState(false);
@@ -226,7 +229,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <ModalDialog labelledBy="barcode-scanner-title" onClose={onClose}>
+    <ModalDialog labelledBy="barcode-scanner-title" onClose={onClose} fallbackFocus={fallbackFocus}>
       <div>
         {/* Header */}
         <div className="sticky top-0 z-10 bg-white flex items-center justify-between gap-2 pl-5 pr-1 py-1 min-h-14 border-b border-sand-200">

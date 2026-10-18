@@ -127,9 +127,9 @@ export const routineAction = {
   current: 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200',
 } as const;
 
-/** 登録ボタン 3 つを並べるとき（アイコンの下にラベル） */
+/** 登録ボタン 3 つを並べるとき（アイコンの下にラベル）。狭い画面（320px）ではラベルを折り返す */
 export const routineActionCompact =
-  'flex flex-col items-center justify-center gap-0.5 min-h-12 py-1.5 px-1 whitespace-nowrap border rounded-xl text-xs font-semibold transition-colors';
+  'flex flex-col items-center justify-center gap-0.5 min-h-12 py-1.5 px-1 text-center leading-tight break-keep [overflow-wrap:anywhere] border rounded-xl text-xs font-semibold transition-colors';
 
 /** 登録ボタンを横長で並べるとき */
 export const routineActionWide =

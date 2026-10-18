@@ -89,6 +89,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                 <button
                   type="button"
                   onClick={() => onSelectToAnalyze(p)}
+                  // 同じ文のボタンが並ぶので、読み上げでは商品名を足す（見えている文は先頭に残す）
+                  aria-label={`成分を詳しくチェック（${p.name}）`}
                   className={`w-full ${buttonPrimary}`}
                 >
                   <Search className="w-4 h-4" aria-hidden />
@@ -98,6 +100,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <button
                     type="button"
                     onClick={() => onAddToBad(p)}
+                    aria-label={`肌荒れした（${p.name}）`}
                     className={`${routineActionCompact} ${routineAction.bad}`}
                   >
                     <AlertTriangle className="w-4 h-4" aria-hidden />
@@ -106,6 +109,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <button
                     type="button"
                     onClick={() => onAddToSafe(p)}
+                    aria-label={`普段使えている（${p.name}）`}
                     className={`${routineActionCompact} ${routineAction.safe}`}
                   >
                     <ShieldCheck className="w-4 h-4" aria-hidden />
@@ -114,6 +118,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <button
                     type="button"
                     onClick={() => onAddToCurrent(p)}
+                    aria-label={`今使っている（${p.name}）`}
                     className={`${routineActionCompact} ${routineAction.current}`}
                   >
                     <Layers className="w-4 h-4" aria-hidden />

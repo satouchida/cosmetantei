@@ -20,6 +20,8 @@ interface LabelInputModalProps {
    * 受け付けられないとき（前の返答を待っている等）は、この画面に出す理由の文
    */
   onSubmit: (label: LabelInput) => Promise<boolean | string>;
+  /** 閉じたとき、開いたボタンが見えなくなっていれば代わりにフォーカスする要素 */
+  fallbackFocus?: () => HTMLElement | null;
 }
 
 /** サーバーの上限（src/lib/services/label-reader.ts）と同じ */
@@ -58,7 +60,7 @@ async function toJpegBase64(file: File): Promise<string> {
 /**
  * 成分表示の入力（貼り付け・写真）。写真は文字に起こして入力欄に入れ、ユーザーが確認・修正してから分析する
  */
-export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClose, onSubmit }) => {
+export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClose, onSubmit, fallbackFocus }) => {
   const [text, setText] = useState('');
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
@@ -130,7 +132,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
   };
 
   return (
-    <ModalDialog labelledBy="label-input-title" onClose={close} sheet>
+    <ModalDialog labelledBy="label-input-title" onClose={close} sheet fallbackFocus={fallbackFocus}>
       <form onSubmit={submit} className="p-4 sm:p-5 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -149,20 +151,21 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         </p>
 
         <div className="grid grid-cols-2 gap-2">
+          {/* 読み取り中も disabled にはしない（押したボタンからフォーカスが失われるため）。押しても何もしない */}
           <button
             type="button"
-            disabled={isReading}
-            onClick={() => cameraInputRef.current?.click()}
-            className={buttonPrimaryCompact}
+            aria-disabled={isReading || undefined}
+            onClick={() => !isReading && cameraInputRef.current?.click()}
+            className={`${buttonPrimaryCompact} aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`}
           >
             <Camera className="w-5 h-5" aria-hidden />
             写真を撮る
           </button>
           <button
             type="button"
-            disabled={isReading}
-            onClick={() => fileInputRef.current?.click()}
-            className={buttonSecondaryCompact}
+            aria-disabled={isReading || undefined}
+            onClick={() => !isReading && fileInputRef.current?.click()}
+            className={`${buttonSecondaryCompact} aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`}
           >
             <ImagePlus className="w-5 h-5" aria-hidden />
             画像を選ぶ
@@ -190,33 +193,41 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
           />
         </div>
 
-        {isReading && (
-          <div role="status" className="flex items-center gap-2 text-sm text-sage-800">
-            <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-            写真から成分表示を読み取っています…
-          </div>
-        )}
-        {notice && (
-          <div
-            role={notice.kind === 'error' ? 'alert' : 'status'}
-            className={`flex items-start gap-2 ${panel(notice.kind === 'error' ? 'warning' : 'caution')}`}
-          >
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
-            <span>{notice.text}</span>
-          </div>
-        )}
+        {/* ステータスの入れ物は常に置き、中身だけ替える（中身ごと作ると読み上げられないことがある） */}
+        <div role="status" className="space-y-3 empty:hidden">
+          {isReading && (
+            <div className="flex items-center gap-2 text-sm text-sage-800">
+              <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />
+              写真から成分表示を読み取っています…
+            </div>
+          )}
+          {notice?.kind === 'info' && (
+            <div className={`flex items-start gap-2 ${panel('caution')}`}>
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
+              <span>{notice.text}</span>
+            </div>
+          )}
+        </div>
+        <div role="alert" className="empty:hidden">
+          {notice?.kind === 'error' && (
+            <div className={`flex items-start gap-2 ${panel('warning')}`}>
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
+              <span>{notice.text}</span>
+            </div>
+          )}
+        </div>
 
         <label className="block space-y-1">
           <span className="text-sm font-semibold text-ink">成分表示</span>
           <textarea
             value={text}
-            // 写真の読み取り中は、結果で入力途中の文章を消さないよう編集を止める
-            disabled={isReading}
+            // 写真の読み取り中は、結果で入力途中の文章を消さないよう編集を止める（フォーカスは残す）
+            readOnly={isReading}
             onChange={(e) => setText(e.target.value)}
             maxLength={MAX_TEXT_LENGTH}
             rows={7}
             placeholder={'例）水、BG、グリセリン、ナイアシンアミド、フェノキシエタノール\n医薬部外品は「有効成分：…」「その他の成分：…」のまま貼り付けられます'}
-            className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-ink placeholder:text-gray-500 disabled:bg-surface-container-low"
+            className="w-full px-3 py-2.5 text-sm bg-white border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary text-ink placeholder:text-gray-500 read-only:bg-surface-container-low"
           />
         </label>
 

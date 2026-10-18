@@ -5608,3 +5608,17 @@ test('95. Chat client: server error text is shown, unreadable replies and networ
   const container = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
   assert.ok(!container.includes("apiFetch('/api/chat'"), 'ChatContainer calls /api/chat only through postChat');
 });
+
+test('96. Accessibility helpers: decorative emoji are hidden from screen readers; compact buttons can wrap', async () => {
+  const React = await import('react');
+  const { withHiddenEmoji } = await import('../src/components/ui/emoji');
+  assert.strictEqual(withHiddenEmoji('絵文字なし'), '絵文字なし');
+  const parts = withHiddenEmoji('📸 バーコードをスキャンする 🇯🇵 👩‍🔬') as React.ReactNode[];
+  const hidden = parts.filter((p) => React.isValidElement(p)) as React.ReactElement<{ 'aria-hidden': string; children: string }>[];
+  assert.deepStrictEqual(hidden.map((e) => e.props.children), ['📸', '🇯🇵', '👩‍🔬'], 'Flags and ZWJ sequences stay whole');
+  assert.ok(hidden.every((e) => e.props['aria-hidden'] === 'true'));
+  assert.ok(parts.includes(' バーコードをスキャンする '), 'The text itself is kept');
+
+  const { routineActionCompact } = await import('../src/components/ui/design');
+  assert.ok(!routineActionCompact.includes('whitespace-nowrap'), 'Labels like 普段使えている must wrap at 320px');
+});

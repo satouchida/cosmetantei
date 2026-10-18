@@ -75,7 +75,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         {culprits.length === 0 ? (
           <p className={panel('neutral')}>明確な特有刺激成分は検出されませんでした。</p>
         ) : (
-          <ol className="space-y-2">
+          <ol role="list" className="space-y-2">
             {culprits.map((c, i) => {
               // 高・中・アクティブはそのままの段階、未評価は「未評価成分」、それ以外は「注意成分」
               const level =
@@ -95,7 +95,11 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
                         {i + 1}
                       </span>
                       <span className="font-semibold text-[15px]">{c.nameJa}</span>
-                      {c.nameEn && c.nameEn !== c.nameJa && <span className="text-xs text-ink-muted">({c.nameEn})</span>}
+                      {c.nameEn && c.nameEn !== c.nameJa && (
+                        <span className="text-xs text-ink-muted" lang={/^[\x20-\x7E]+$/.test(c.nameEn) ? 'en' : undefined}>
+                          ({c.nameEn})
+                        </span>
+                      )}
                     </div>
                     <span className={riskBadge(level)}>{riskLabel}</span>
                   </div>

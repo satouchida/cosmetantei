@@ -28,6 +28,8 @@ interface LiveSearchCandidateTrayProps {
   onAddToBad: (product: Product) => void;
   onAddToSafe: (product: Product) => void;
   onAddToCurrent: (product: Product) => void;
+  /** 入力欄の aria-controls と同じ id */
+  id?: string;
 }
 
 /** お店の商品検索の製品（src/lib/services/shop-lineup.ts）。成分はまだ分からない */
@@ -123,22 +125,36 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
   onAddToBad,
   onAddToSafe,
   onAddToCurrent,
+  id,
 }) => {
   if (!isOpen || (candidates.length === 0 && brands.length === 0)) return null;
 
   return (
-    <div className="mb-2 bg-white rounded-2xl border border-sand-200 shadow-lg overflow-hidden animate-fade-in transition-all">
+    <div
+      id={id}
+      role="region"
+      aria-labelledby={id ? `${id}-title` : undefined}
+      // 候補の中で Escape を押したら閉じて入力欄に戻る（onClose が入力欄にフォーカスを戻す）
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+      className="mb-2 bg-white rounded-2xl border border-sand-200 shadow-lg overflow-hidden animate-fade-in motion-reduce:animate-none transition-all"
+    >
       {/* Tray Header */}
       <div className="flex items-center justify-between gap-2 pl-4 pr-1 py-1 bg-surface-container-low border-b border-sand-200">
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-7 h-7 shrink-0 rounded-full bg-tint-safe text-primary flex items-center justify-center">
             <Search className="w-4 h-4" aria-hidden />
           </div>
-          <span className="text-sm font-semibold text-ink" aria-live="polite">
+          {/* 件数の読み上げは、常に置いてある入力欄側のステータスが行う（ここは開くたびに作り直されるため） */}
+          <h2 id={id ? `${id}-title` : undefined} className="text-sm font-semibold text-ink">
             {candidates.length > 0
               ? `${query ? `「${query}」に関連するコスメ候補` : 'おすすめの低刺激コスメ候補'} (${candidates.length}件)`
               : 'ブランドを選ぶと、そのブランドの製品に絞り込めます'}
-          </span>
+          </h2>
           {candidates.length > 0 && (
             <span className="text-xs text-ink-muted hidden sm:inline">
               — タップして成分解析やリスト追加が可能です
@@ -147,7 +163,10 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
         </div>
         <button
           type="button"
+          // 入力欄のフォーカスを保つ（タップでスマートフォンのキーボードを閉じたり開き直したりしない）
+          onMouseDown={(e) => e.preventDefault()}
           onClick={onClose}
+          data-tray-close
           className={iconButton}
           title="閉じる"
           aria-label="候補を閉じる"
@@ -166,7 +185,8 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
               // 入力欄からフォーカスを外さない（スマートフォンのキーボードを閉じない）
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onSelectBrand(brand.name)}
-              aria-label={`${brand.name}の製品から探す`}
+              // 見えている読み仮名も名前に入れる（音声で操作する人が見えている文字で呼べるように）
+              aria-label={`${brand.name}${brand.kana ? ` ${brand.kana}` : ''}の製品から探す`}
               className="flex items-center gap-1.5 min-h-12 px-4 bg-white hover:bg-tint-safe text-ink border border-sand-300 hover:border-emerald-500 rounded-full text-[13px] font-semibold transition-colors"
               title={`${brand.name}の製品から探す`}
             >
@@ -207,9 +227,9 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                       <div className="text-xs font-semibold text-sage-700 truncate">
                         {getDisplayBrand(product.brand, product.name)}
                       </div>
-                      <h2 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
+                      <h3 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
                         {product.name}
-                      </h2>
+                      </h3>
 
                       {product.activeIngredientsJa && product.activeIngredientsJa.length > 0 ? (
                         <div className="mt-1 text-xs text-emerald-900 truncate bg-tint-safe px-2 py-1 rounded-lg">
@@ -240,6 +260,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                         <button
                           type="button"
                           onClick={() => onAddToBad(product)}
+                          aria-label={`肌荒れした（${product.name}）`}
                           className={`${routineActionCompact} ${routineAction.bad}`}
                         >
                           <AlertTriangle className="w-4 h-4" aria-hidden />
@@ -248,6 +269,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                         <button
                           type="button"
                           onClick={() => onAddToSafe(product)}
+                          aria-label={`普段使えている（${product.name}）`}
                           className={`${routineActionCompact} ${routineAction.safe}`}
                         >
                           <ShieldCheck className="w-4 h-4" aria-hidden />
@@ -256,6 +278,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                         <button
                           type="button"
                           onClick={() => onAddToCurrent(product)}
+                          aria-label={`今使っている（${product.name}）`}
                           className={`${routineActionCompact} ${routineAction.current}`}
                         >
                           <Layers className="w-4 h-4" aria-hidden />

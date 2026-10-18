@@ -93,7 +93,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                 >
                   <span>Amazonで詳細・価格を見る</span>
                   <ExternalLink className="w-4 h-4" aria-hidden />
-                  <span className="sr-only">（新しいタブで開く）</span>
+                  <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                 </a>
               </div>
             </div>

@@ -30,6 +30,7 @@ import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { ChatResponse, postChat } from '@/lib/client/chat-request';
+import { withHiddenEmoji, withoutEmoji } from '../ui/emoji';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
 import {
   getCurrentUseServerSnapshot,
@@ -59,6 +60,8 @@ function messageMeta(prefix: string): { id: string; timestamp: number } {
 /** 応答待ちの間に、ほかのサーバーへの操作が押されたときの案内 */
 const WAIT_MESSAGE = '前の返答を待っています。届いてから、もう一度お試しください。';
 const DEFAULT_LOADING_TEXT = '成分データベースを解析中...';
+/** 検索候補のトレイの id（入力欄の aria-controls） */
+const SEARCH_TRAY_ID = 'search-tray';
 
 type ReplyField = 'productSuggestions' | 'singleAnalysis' | 'differentialAnalysis' | 'priceResult' | 'quickReplies';
 
@@ -71,7 +74,7 @@ function pickReply(data: ChatResponse, keys: ReplyField[]): Partial<ChatMessage>
 
 /** 読み上げる返答の冒頭（カードまで全部は読まない） */
 function announcementOf(content: string): string {
-  const text = content.replace(/\s+/g, ' ').trim();
+  const text = withoutEmoji(content).replace(/\s+/g, ' ').trim();
   return `返答：${text.length > 120 ? `${text.slice(0, 120)}…` : text}`;
 }
 
@@ -208,6 +211,9 @@ export const ChatContainer: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+  // スマホの引き出しの中のボタンから開いたダイアログを閉じたときの、フォーカスの戻り先（ヘッダーのボタン）
+  const scanButtonRef = useRef<HTMLButtonElement | null>(null);
+  const labelButtonRef = useRef<HTMLButtonElement | null>(null);
   // スマホの幅（Tailwind の lg = 64rem 未満）か。引き出しをモーダルとして扱うかどうかに使う
   const isMobileViewport = useSyncExternalStore(
     (onChange) => {
@@ -240,8 +246,35 @@ export const ChatContainer: React.FC = () => {
     if (!isDrawerModal) return;
     drawerCloseRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      closeSidebar();
+      if (e.key === 'Escape') {
+        closeSidebar();
+        return;
+      }
+      // Tab で引き出しの外（ブラウザの画面）に出ないよう、最後と最初をつなぐ
+      if (e.key !== 'Tab') return;
+      const drawer = document.getElementById('routine-drawer');
+      if (!drawer) return;
+      // 見えているものだけ（隠れた要素が最後だと、そこで一致せず外へ出てしまう）
+      const focusables = [
+        ...drawer.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+        ),
+      ].filter((el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (!drawer.contains(active)) {
+        // 引き出しの文字をタップした後など、外にあるフォーカスは中に戻す
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
@@ -635,6 +668,16 @@ export const ChatContainer: React.FC = () => {
   };
 
   const routineCount = routine.badProducts.length + routine.safeProducts.length + currentUse.length;
+  const isTrayVisible = isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== '';
+  const closeTray = () => {
+    setIsTrayOpen(false);
+    inputRef.current?.focus();
+  };
+  /** 入力欄から候補の最初のボタンへ（下矢印キー） */
+  const focusTray = () => {
+    // 閉じるボタンではなく、最初の候補（ブランドか製品のボタン）へ
+    document.getElementById(SEARCH_TRAY_ID)?.querySelector<HTMLElement>('button:not([data-tray-close]), a[href]')?.focus();
+  };
 
   return (
     <div className="flex flex-col h-dvh bg-surface text-ink font-sans">
@@ -642,6 +685,22 @@ export const ChatContainer: React.FC = () => {
       {/* 読み上げ用のライブリージョンは常に置いておく（中身ごと追加すると読み上げられないことがある） */}
       <div role="status" className="sr-only">
         {toastMessage}
+      </div>
+      {/* キーボードで、ヘッダーと会話を飛ばして入力欄へ */}
+      <a
+        href="#chat-input"
+        inert={isDrawerModal}
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[70] focus:bg-white focus:text-ink focus:px-4 focus:py-3 focus:rounded-lg focus:shadow-lg"
+      >
+        入力欄へ移動
+      </a>
+      {/* 検索候補の件数（トレイは開くたびに作り直されるので、こちらで読み上げる） */}
+      <div role="status" className="sr-only">
+        {isTrayVisible
+          ? trayCandidates.length > 0
+            ? `候補が${trayCandidates.length}件あります。下矢印キーで候補に移動できます。`
+            : 'ブランドの候補があります。下矢印キーで移動できます。'
+          : ''}
       </div>
       {/* 返答が届いた・調べ始めた（冒頭だけ）と、失敗（すぐ読み上げる） */}
       <div role="status" className="sr-only">
@@ -675,6 +734,7 @@ export const ChatContainer: React.FC = () => {
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <button
+            ref={scanButtonRef}
             type="button"
             onClick={() => setIsScannerOpen(true)}
             aria-label="バーコード読取"
@@ -685,6 +745,7 @@ export const ChatContainer: React.FC = () => {
           </button>
 
           <button
+            ref={labelButtonRef}
             type="button"
             onClick={() => setIsLabelInputOpen(true)}
             aria-label="成分表示を入力"
@@ -701,13 +762,10 @@ export const ChatContainer: React.FC = () => {
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             aria-expanded={isSidebarOpen}
             aria-controls="routine-drawer"
-            aria-label={
-              isSidebarOpen
-                ? 'マイルーティンを閉じる'
-                : staleIds.size > 0
-                ? `マイルーティンを開く（${STALE_AFTER_MONTHS}か月以上前に追加したコスメが${staleIds.size}点あります）`
-                : 'マイルーティンを開く'
-            }
+            // 開閉は aria-expanded で伝え、名前は変えない。数のバッジは見た目だけなので、名前に数を入れる
+            aria-label={`マイルーティン（${routineCount}点${
+              staleIds.size > 0 ? `、${STALE_AFTER_MONTHS}か月以上前に追加したコスメが${staleIds.size}点` : ''
+            }）`}
             className="lg:hidden min-h-12 min-w-12 flex items-center justify-center text-ink rounded-full hover:bg-surface-container relative"
           >
             <Menu className="w-6 h-6" aria-hidden />
@@ -753,12 +811,11 @@ export const ChatContainer: React.FC = () => {
           </div>
 
           {/* 3か月以上前に追加した「今使っているコスメ」の確認（今も使っている・削除で消える） */}
+          {/* ステータスの入れ物は常に置く（中身ごと作ると読み上げられないことがある） */}
+          <div role="status">
           {staleEntries.length > 0 && (
-            <div
-              role="status"
-              className="mx-3 sm:mx-6 mt-3 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex items-center gap-2"
-            >
-              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" />
+            <div className="mx-3 sm:mx-6 mt-3 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex items-center gap-2">
+              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" aria-hidden />
               <p className="flex-1 min-w-0 break-words">
                 「今使っているコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加したものがあります（
                 {staleEntries.slice(0, 3).map((e) => e.product.name).join('、')}
@@ -768,12 +825,14 @@ export const ChatContainer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
+                aria-label="今使っているコスメを確認する"
                 className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg text-sm font-semibold"
               >
                 確認する
               </button>
             </div>
           )}
+          </div>
 
           {/* Messages Scroll Area */}
           <div className="flex-1 overflow-y-auto px-3 py-4 sm:p-6 space-y-4">
@@ -804,7 +863,7 @@ export const ChatContainer: React.FC = () => {
                       : 'bg-white text-ink rounded-tl-sm border border-sand-200'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  <div className="whitespace-pre-wrap">{withHiddenEmoji(msg.content)}</div>
 
                   {/* Product Suggestion Cards */}
                   {msg.productSuggestions && (
@@ -849,7 +908,7 @@ export const ChatContainer: React.FC = () => {
                           aria-disabled={isLoading || undefined}
                           className="max-w-full min-h-12 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:opacity-60 aria-disabled:hover:bg-white aria-disabled:hover:border-sand-300"
                         >
-                          {qr}
+                          {withHiddenEmoji(qr)}
                         </button>
                       ))}
                     </div>
@@ -883,39 +942,8 @@ export const ChatContainer: React.FC = () => {
 
           {/* Input Form Bar */}
           <div className="px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 bg-surface">
-            <div className="max-w-[720px] mx-auto">
-              <LiveSearchCandidateTray
-                query={input}
-                candidates={trayCandidates}
-                brands={liveBrands}
-                credits={trayCredits}
-                onSelectBrand={(brand) => {
-                  // ブランド名を入れて続けて入力できるようにする（候補はそのブランドの製品に絞り込まれる）
-                  setInput(`${brand} `);
-                  inputRef.current?.focus();
-                }}
-                isOpen={isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== ''}
-                onClose={() => setIsTrayOpen(false)}
-                onSelectProduct={(product) => {
-                  // 応答待ちなら、入力と候補を残したまま案内する（選んだ製品を黙って捨てない）
-                  if (busyRef.current) {
-                    showToast(WAIT_MESSAGE);
-                    return;
-                  }
-                  setIsTrayOpen(false);
-                  setInput('');
-                  handleSelectProductToAnalyze(product);
-                }}
-                onAddToBad={(product) => {
-                  handleAddToBad(product);
-                }}
-                onAddToSafe={(product) => {
-                  handleAddToSafe(product);
-                }}
-                onAddToCurrent={(product) => {
-                  handleAddToCurrent(product);
-                }}
-              />
+            {/* 候補のトレイは見た目は入力欄の上、Tab の順番は入力欄の後（DOM は入力欄が先） */}
+            <div className="max-w-[720px] mx-auto flex flex-col">
 
               <form
                 onSubmit={(e) => {
@@ -936,8 +964,23 @@ export const ChatContainer: React.FC = () => {
 
                 <input
                   ref={inputRef}
+                  id="chat-input"
                   type="text"
                   value={input}
+                  // 候補の有無は上のステータスが読み上げる（テキストボックスに aria-expanded は付けられない）
+                  aria-controls={SEARCH_TRAY_ID}
+                  onKeyDown={(e) => {
+                    // 下矢印で候補へ、Escape で候補を閉じる（入力はそのまま）
+                    // 日本語入力の確定中は使わない（Safari は確定のキーで isComposing が false なので keyCode 229 も見る）
+                    if (!isTrayVisible || e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      focusTray();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setIsTrayOpen(false);
+                    }
+                  }}
                   onChange={(e) => {
                     const value = e.target.value;
                     setInput(value);
@@ -961,6 +1004,44 @@ export const ChatContainer: React.FC = () => {
                   <Send className="w-5 h-5" aria-hidden />
                 </button>
               </form>
+              <div className="order-first">
+              <LiveSearchCandidateTray
+                id={SEARCH_TRAY_ID}
+                query={input}
+                candidates={trayCandidates}
+                brands={liveBrands}
+                credits={trayCredits}
+                onSelectBrand={(brand) => {
+                  // ブランド名を入れて続けて入力できるようにする（候補はそのブランドの製品に絞り込まれる）
+                  setInput(`${brand} `);
+                  inputRef.current?.focus();
+                }}
+                isOpen={isTrayVisible}
+                onClose={closeTray}
+                onSelectProduct={(product) => {
+                  // 応答待ちなら、入力と候補を残したまま案内する（選んだ製品を黙って捨てない）
+                  if (busyRef.current) {
+                    showToast(WAIT_MESSAGE);
+                    return;
+                  }
+                  // キーボードで候補を選んだときは、消える候補から入力欄へフォーカスを戻す
+                  const fromTray = !!document.activeElement?.closest(`#${SEARCH_TRAY_ID}`);
+                  setIsTrayOpen(false);
+                  setInput('');
+                  if (fromTray) inputRef.current?.focus();
+                  handleSelectProductToAnalyze(product);
+                }}
+                onAddToBad={(product) => {
+                  handleAddToBad(product);
+                }}
+                onAddToSafe={(product) => {
+                  handleAddToSafe(product);
+                }}
+                onAddToCurrent={(product) => {
+                  handleAddToCurrent(product);
+                }}
+              />
+              </div>
             </div>
           </div>
         </main>
@@ -1010,6 +1091,7 @@ export const ChatContainer: React.FC = () => {
       <BarcodeScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
+        fallbackFocus={() => scanButtonRef.current}
         onScanSuccess={(barcode) => {
           // 応答待ちならスキャナーを開いたまま理由を出す（読めたバーコードを黙って捨てない）
           if (busyRef.current) return WAIT_MESSAGE;
@@ -1022,6 +1104,7 @@ export const ChatContainer: React.FC = () => {
         isOpen={isLabelInputOpen}
         onClose={() => setIsLabelInputOpen(false)}
         onSubmit={handleLabelSubmit}
+        fallbackFocus={() => labelButtonRef.current}
       />
     </div>
   );

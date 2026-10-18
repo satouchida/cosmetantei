@@ -53,7 +53,7 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
       </div>
 
       {result.offers.length > 0 && (
-        <ul className="space-y-2">
+        <ul role="list" className="space-y-2">
           {result.offers.map((offer, i) => {
             const href = safeHref(offer.href ?? offer.sourceUrl);
             return (

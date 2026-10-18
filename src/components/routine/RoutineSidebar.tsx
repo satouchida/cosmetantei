@@ -64,6 +64,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             type="button"
             onClick={() => onLoadPreset('clear')}
             title="肌荒れしたコスメ・安全なコスメのリストを空にする（今使っているコスメはそのまま）"
+            aria-label="比較リストをクリア（今使っているコスメはそのまま）"
             className="min-h-12 px-3 rounded-lg text-sm font-semibold text-ink-muted hover:text-rose-700 hover:bg-tint-warning flex items-center gap-1 transition-colors"
           >
             <RefreshCw className="w-4 h-4" aria-hidden />
@@ -105,7 +106,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
               毎日使っているコスメを「今使っている」で追加すると、一緒に使うときに注意したい組み合わせを調べられます
             </EmptyState>
           ) : (
-            <ul className="space-y-2">
+            <ul role="list" className="space-y-2">
               {currentUse.map(({ product: p, addedAt }) => {
                 const stale = staleIds.has(p.id);
                 return (
@@ -145,12 +146,13 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                 type="button"
                 onClick={onCheckCurrentUse}
                 disabled={currentUse.length < 2}
+                aria-describedby="current-use-hint"
                 className="w-full min-h-12 px-5 border-[1.5px] border-primary text-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors"
               >
                 <Layers className="w-5 h-5" aria-hidden />
                 <span>組み合わせをチェック</span>
               </button>
-              <p className="text-xs text-ink-muted">
+              <p id="current-use-hint" className="text-xs text-ink-muted">
                 {currentUse.length < 2 && '2点以上追加すると調べられます。'}
                 このリストはこの端末のブラウザにだけ保存されます。
               </p>
@@ -170,7 +172,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           {badProducts.length === 0 ? (
             <EmptyState>チャットでコスメを検索、またはバーコードをスキャンして追加</EmptyState>
           ) : (
-            <ul className="space-y-2">
+            <ul role="list" className="space-y-2">
               {badProducts.map((p) => (
                 <li key={p.id}>
                   <ProductRow
@@ -198,7 +200,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           {safeProducts.length === 0 ? (
             <EmptyState>普段問題なく使えているコスメを追加すると、除外照合で原因特定が高精度になります</EmptyState>
           ) : (
-            <ul className="space-y-2">
+            <ul role="list" className="space-y-2">
               {safeProducts.map((p) => (
                 <li key={p.id}>
                   <ProductRow
@@ -243,12 +245,13 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           type="button"
           onClick={onRunDifferential}
           disabled={badProducts.length === 0}
+          aria-describedby="differential-hint"
           className="w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors"
         >
           <Sparkles className="w-5 h-5" aria-hidden />
           <span>原因成分をあぶり出す (差分分析)</span>
         </button>
-        <p className="text-xs text-ink-muted text-center">
+        <p id="differential-hint" className="text-xs text-ink-muted text-center">
           {badProducts.length === 0
             ? '肌荒れしたコスメを1点以上登録すると実行できます'
             : `登録した${badProducts.length + safeProducts.length}点のコスメから共通点・除外成分を解析します`}
