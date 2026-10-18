@@ -12,6 +12,7 @@ import {
   CulpritIngredient,
   CurrentUseCheckResult,
   DifferentialAnalysisResult,
+  IngredientCategory,
   KnownIngredient,
   PairFinding,
   Product,
@@ -50,6 +51,25 @@ function isEthanolName(norm: string): boolean {
     /^(denatured|sd)?(ethyl)?(alcohol|ethanol)/.test(norm)
   );
 }
+
+/** text の中の needle のどれかが、直前が before に一致しない位置にあるか */
+function hasOccurrenceNotAfter(text: string, needle: string, before: RegExp): boolean {
+  for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + 1)) {
+    if (!before.test(text.slice(0, i))) return true;
+  }
+  return false;
+}
+
+/** 「注意」の要約に書く、成分の種類 */
+const CAUTION_KIND_JA: Partial<Record<IngredientCategory, string>> = {
+  drying_alcohol: 'アルコール',
+  preservative: '防腐剤',
+  potent_active: 'アクティブ成分',
+  uv_filter: '紫外線吸収剤',
+  fragrance: '香料',
+  essential_oil: '精油',
+  sulfate: '洗浄成分',
+};
 
 /**
  * 部分一致させない成分。名前を含む別成分が多い
@@ -144,7 +164,8 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
       // 有効成分（グリチルリチン酸2K, アラントイン, ナイアシンアミド）
       if (norm.includes(normAlias) && normAlias.length >= 4) {
         // 水酸化亜鉛・過酸化亜鉛・水酸化チタンは紫外線散乱剤の酸化亜鉛・酸化チタンではない
-        if ((item.id === 'zinc_oxide' || item.id === 'titanium_dioxide') && /^(水|過)酸化/.test(norm)) continue;
+        //（「水酸化Al・酸化チタン」のように、別の所に本物の酸化チタンがあれば一致）
+        if ((item.id === 'zinc_oxide' || item.id === 'titanium_dioxide') && !hasOccurrenceNotAfter(norm, normAlias, /[水過]$/)) continue;
         return item;
       }
     }
@@ -231,11 +252,10 @@ export function findSafeAlternatives(
 
     for (const { raw } of labelIngredients(product)) {
       const known = findMatchingKnownIngredient(raw);
-      if (known) {
-        if (avoidIds.has(known.id)) return false;
-        // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない
-        if (known.riskLevel === 'high_irritant' || known.riskLevel === 'moderate_irritant') return false;
-      }
+      if (known && avoidIds.has(known.id)) return false;
+      // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
+      const rated = known ?? getOrGenerateIngredientExplanation(raw);
+      if (rated.riskLevel === 'high_irritant' || rated.riskLevel === 'moderate_irritant') return false;
 
       const names = [normalizeIngredientName(raw)];
       if (known) names.push(normalizeIngredientName(known.nameJa), normalizeIngredientName(known.nameEn));
@@ -399,7 +419,16 @@ export function analyzeProduct(
   } else if (overallRiskLevel === 'safe') {
     summaryJa = '刺激になりやすい成分は見当たらず、敏感肌にも配慮されたマイルドな処方です。';
   } else if (overallRiskLevel === 'caution') {
-    summaryJa = '一部にアルコール、防腐剤、またはアクティブ成分が含まれています。肌がゆらいでいる時は様子を見ながらの使用が推奨されます。';
+    // 見つかった種類を書く（紫外線吸収剤だけの日焼け止めを「アルコール・防腐剤」とは言わない）
+    const kinds = [
+      ...new Set(
+        analyzedIngredients
+          .filter((i) => i.riskLevel === 'low_caution' || i.riskLevel === 'moderate_irritant' || i.riskLevel === 'active_caution')
+          .map((i) => CAUTION_KIND_JA[i.category])
+          .filter((k): k is string => !!k)
+      ),
+    ].slice(0, 3);
+    summaryJa = `一部に${kinds.length > 0 ? `${kinds.join('・')}など、` : ''}肌がゆらいでいる時に刺激になることがある成分が含まれています。様子を見ながらの使用が推奨されます。`;
   } else {
     summaryJa = '香料、精油、または刺激になりやすい成分が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
   }
@@ -422,7 +451,10 @@ export function analyzeProduct(
   }
 
   // 高リスク時は同じ種類の代替品を提示する。種類が分からなければ出さない（日焼け止めにリップを勧めない）
-  const suspectItems = analyzedIngredients.filter((i) => i.isSuspect).map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
+  // 「やや注意」の成分が重なっただけの「注意」（紫外線吸収剤の多い日焼け止め等）は、それらを避ける
+  const suspects = analyzedIngredients.filter((i) => i.isSuspect);
+  const avoidForAlternatives = suspects.length > 0 ? suspects : analyzedIngredients.filter((i) => i.riskLevel === 'low_caution');
+  const suspectItems = avoidForAlternatives.map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
   const category = productCategory(product);
   const safeAlternatives =
     overallRiskLevel === 'caution' || overallRiskLevel === 'warning'

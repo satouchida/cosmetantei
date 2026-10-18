@@ -50,7 +50,9 @@ function rakutenHeaders(): Record<string, string> {
 /** Origin はスキームとホストだけ（設定の末尾の / やパスは外す。形が違えば既定のサイト） */
 function rakutenOrigin(): string {
   try {
-    return new URL(readShopConfig('RAKUTEN_API_ORIGIN') || DEFAULT_RAKUTEN_API_ORIGIN).origin;
+    const url = new URL(readShopConfig('RAKUTEN_API_ORIGIN') || DEFAULT_RAKUTEN_API_ORIGIN);
+    // 「localhost:3000」のようにスキームが無いと、例外にならず origin が "null" になる
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.origin : DEFAULT_RAKUTEN_API_ORIGIN;
   } catch {
     return DEFAULT_RAKUTEN_API_ORIGIN;
   }

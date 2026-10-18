@@ -30,6 +30,8 @@ export interface AlternativeRequest {
   /** 検索語に使う成分（成分DBの項目だけ） */
   known: KnownIngredient[];
   category?: AlternativeCategory;
+  /** 比較リストから作ったが、肌荒れしたコスメの種類が分からない（同数・不明）。別の種類を勧めないよう探さない */
+  unknownKind?: boolean;
   /** 候補から除く製品（肌荒れしたコスメ） */
   excludeIds: string[];
 }
@@ -119,6 +121,7 @@ export interface AlternativeResult {
  * 同じ確認（避ける成分・強い刺激成分を含まない、全成分が確認済み、同じ種類）をやり直す
  */
 export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_LIMIT): Promise<AlternativeResult> {
+  if (req.unknownKind) return { products: [], researched: false };
   // 同じ製品がブランド表記違いで重複して登録されていることがあるため、多めに取って1件にまとめる
   const check = () => {
     const unique: Product[] = [];
@@ -156,13 +159,19 @@ export function alternativeRequest(text: string, routine: UserRoutineState | und
   const fromText = alternativeRequestFromText(text);
   if (fromText && fromText.known.length > 0) return fromText;
   const fromRoutine = alternativeRequestFromRoutine(routine);
-  if (fromRoutine) return { ...fromRoutine, category: fromText?.category ?? fromRoutine.category };
+  if (fromRoutine) {
+    const category = fromText?.category ?? fromRoutine.category;
+    return { ...fromRoutine, category, ...(!category && { unknownKind: true }) };
+  }
   return fromText;
 }
 
 /** 代わりの商品の返答（定型文。Gemini は使わない） */
 export function summarizeAlternatives(req: AlternativeRequest, products: Product[]): string {
   const names = avoidedNames(req);
+  if (req.unknownKind) {
+    return '肌荒れしたコスメの種類が分からないため、代わりの商品を探せませんでした。「化粧水で代わりを探して」のように、種類を添えてお送りください。';
+  }
   const kind = req.category ? CATEGORY_LABELS_JA[req.category] : 'コスメ';
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
   if (products.length === 0) {

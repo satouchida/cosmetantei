@@ -5486,3 +5486,74 @@ test('93. Ingredients common on shop labels are rated: UV filters (DB) and rule 
     assert.deepStrictEqual([got.riskLevel, got.category], [riskLevel, category], name);
   }
 });
+
+test('94. Review fixes: category words, UV-only caution, rule-rated irritants in alternatives, look-alike names', async () => {
+  const { categoryFromText, productCategory } = await import('../src/lib/analyzer/product-category');
+  const { getOrGenerateIngredientExplanation } = await import('../src/lib/services/dynamic-ingredient-service');
+  const { alternativeRequest, findAlternatives, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const classify = (name: string) => findMatchingKnownIngredient(name) ?? getOrGenerateIngredientExplanation(name);
+
+  // 種類の言葉
+  assert.strictEqual(categoryFromText('日焼け止めを塗ったら唇が荒れた'), 'sunscreen');
+  assert.strictEqual(categoryFromText('クレンジング不要の日焼け止め'), 'sunscreen');
+  assert.strictEqual(categoryFromText('日焼け止め落としに使える洗顔'), 'cleanser');
+  assert.strictEqual(productCategory({ category: 'other', name: '洗顔料で落とせるUVミルク' }), 'sunscreen');
+  assert.strictEqual(productCategory({ category: 'toner', name: 'フィリップ 化粧水' }), 'toner');
+  assert.strictEqual(productCategory({ category: 'other', name: 'チューリップ 美容液' }), 'serum');
+  assert.strictEqual(productCategory({ category: 'other', name: '薬用リップクリーム UV' }), 'lip');
+
+  // 紫外線吸収剤だけの「注意」は、その種類を書き、代わりの商品はそれらを避ける
+  const chemicalOnly = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_alt_chemical_uv', name: 'ケミカル UV ジェル', category: 'sunscreen', ingredients: ['水', 'BG', 't-ブチルメトキシジベンゾイルメタン', 'エチルヘキシルトリアゾン'] })
+  );
+  const mineral = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_alt_mineral_uv', name: 'ノンケミカル UV ミルク', category: 'sunscreen', ingredients: ['水', 'BG', '酸化亜鉛', '酸化チタン'] })
+  );
+  const uvOnly = analyzeProduct({
+    id: 'test_uv_absorbers_only',
+    name: 'テスト UV ミスト',
+    brand: 'テスト',
+    country: 'JP',
+    category: 'sunscreen',
+    ingredients: ['水', 'BG', 'グリセリン', 'ジメチコン', 't-ブチルメトキシジベンゾイルメタン', 'ジエチルアミノヒドロキシベンゾイル安息香酸ヘキシル', 'ビスエチルヘキシルオキシフェノールメトキシフェニルトリアジン', 'エチルヘキシルトリアゾン'],
+  });
+  assert.strictEqual(uvOnly.overallRiskLevel, 'caution');
+  assert.ok(uvOnly.summaryJa.includes('紫外線吸収剤'), uvOnly.summaryJa);
+  assert.ok(!uvOnly.summaryJa.includes('アルコール'), 'No alcohol in this product');
+  const altIds = (uvOnly.safeAlternatives ?? []).map((p) => p.id);
+  assert.ok(altIds.includes(mineral.id), 'A sunscreen without the absorbers is suggested');
+  assert.ok(!altIds.includes(chemicalOnly.id), 'A sunscreen with the same absorbers is not');
+
+  // ルールで強い刺激と評価した精油（成分DBに無い）を含む製品は、代わりの商品にしない
+  const yuzu = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_alt_yuzu', name: 'ユズ 化粧水', category: 'toner', ingredients: ['水', 'グリセリン', 'ユズ果皮油'] })
+  );
+  assert.ok(!findSafeAlternatives([{ nameJa: '香料' }], [], Number.MAX_SAFE_INTEGER, { category: 'toner' }).some((p) => p.id === yuzu.id));
+
+  // 似た名前の別成分
+  const expected: [string, string, string][] = [
+    ['ステアロイルフィトスフィンゴシン', 'safe', 'barrier_support'],
+    ['ステアロイルグルタミン酸Na', 'safe', 'other'],
+    ['水酸化Al・酸化チタン', 'safe', 'uv_filter'],
+    ['エチルヘキサン酸', 'unknown', 'other'],
+    ['エチルヘキサン酸セチル', 'safe', 'barrier_support'],
+    ['デシロキシPG', 'unknown', 'other'],
+  ];
+  for (const [name, riskLevel, category] of expected) {
+    const got = classify(name);
+    assert.deepStrictEqual([got.riskLevel, got.category], [riskLevel, category], name);
+  }
+
+  // 比較リストの種類が決まらない（化粧水とリップが1つずつ）なら、チャットでも探さずに種類をたずねる
+  const tie = alternativeRequest('代わりを探して', {
+    badProducts: [
+      { ...verifiedProduct({ id: 'bad_tie_toner', name: 'A 化粧水', category: 'toner' }), ingredients: ['水', '香料'] },
+      { ...verifiedProduct({ id: 'bad_tie_lip', name: 'B リップ', category: 'lip' }), ingredients: ['ワセリン', '香料'] },
+    ],
+    safeProducts: [],
+    currentlyUsing: [],
+  });
+  assert.ok(tie?.unknownKind, 'A tie gives no kind');
+  assert.deepStrictEqual((await findAlternatives(tie!)).products, []);
+  assert.ok(summarizeAlternatives(tie!, []).includes('種類'));
+});
