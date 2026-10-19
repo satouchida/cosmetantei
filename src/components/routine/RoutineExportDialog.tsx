@@ -37,6 +37,8 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
   const [attempt, setAttempt] = useState(0);
   // 共有の画面を開いている間に、もう一度押されても開き直さない（InvalidStateError になる）
   const sharingRef = useRef(false);
+  // 「もう一度作る」は押すと消えるので、押したらこのチェックボックスへフォーカスを移す
+  const dataToggleRef = useRef<HTMLInputElement | null>(null);
   const skipped = excludedCount(snapshot);
   const current = result?.includeData === includeData ? result : null;
   const rendered = current && 'rendered' in current ? current.rendered : null;
@@ -126,6 +128,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
 
         <label className="flex items-start gap-3 min-h-12 p-3 rounded-xl bg-surface-container-low cursor-pointer">
           <input
+            ref={dataToggleRef}
             type="checkbox"
             checked={includeData}
             onChange={(e) => setIncludeData(e.target.checked)}
@@ -155,7 +158,14 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
               <p role="alert" className="text-sm text-rose-800">
                 {error}
               </p>
-              <button type="button" onClick={() => setAttempt((n) => n + 1)} className={buttonSecondaryCompact}>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttempt((n) => n + 1);
+                  dataToggleRef.current?.focus();
+                }}
+                className={buttonSecondaryCompact}
+              >
                 もう一度作る
               </button>
             </div>

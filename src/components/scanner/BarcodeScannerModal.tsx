@@ -80,9 +80,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  /** 読めたコードを渡す。受け付けられたら true、断られたら理由の文（読み取りの最中なら null） */
   // カメラを起動できなかった（「もう一度起動する」を出す）
   const [cameraFailed, setCameraFailed] = useState(false);
+  // 番号の入力欄（「カメラをもう一度起動する」は押すと消えるので、ここへフォーカスを移す）
+  const manualInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** 読めたコードを渡す。受け付けられたら true、断られたら理由の文（読み取りの最中なら null） */
 
   const handleSuccess = (code: string): true | string | null => {
     if (handledRef.current) return null;
@@ -193,6 +196,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     e.preventDefault();
     // 全角の数字（日本語入力）や区切りの空白・ハイフンは、数字だけにそろえる
     const code = manualCode.normalize('NFKC').replace(/\D/g, '');
+    // 入力・画像は利用者が選んだ操作なので、カメラで断った直後の待ち（2秒）を待たずに受け付ける
+    handledRef.current = false;
     if (/^\d{8,14}$/.test(code)) handleSuccess(code);
     else setErrorMsg('バーコードの番号（8〜14桁の数字）を入力してください。');
   };
@@ -222,6 +227,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       });
       scannerRef.current = scanner;
       const decodedResult = await scanner.scanFile(file, true);
+      handledRef.current = false;
       const outcome = handleSuccess(decodedResult);
       // 断られたら（応答待ち・バーコードではない）、カメラを動かし直してから理由を出す（起動で案内が消えるため）
       if (outcome !== true && cameraWasRunning) {
@@ -322,7 +328,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           )}
           {cameraFailed && (
-            <button type="button" onClick={() => void startScanner()} className={`mt-2 w-full ${buttonSecondary}`}>
+            <button
+              type="button"
+              onClick={() => {
+                manualInputRef.current?.focus();
+                void startScanner();
+              }}
+              className={`mt-2 w-full ${buttonSecondary}`}
+            >
               カメラをもう一度起動する
             </button>
           )}
@@ -354,6 +367,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <Barcode className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" aria-hidden />
               <input
                 type="text"
+                ref={manualInputRef}
                 placeholder="バーコード番号を直接入力 (例: 4901301272133)"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}

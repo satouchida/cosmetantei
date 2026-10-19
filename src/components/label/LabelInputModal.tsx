@@ -81,6 +81,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
   // 最後に選んだ写真（読み取りに失敗したとき「もう一度読み取る」で使う。送ったあとも保存はしない）
   const lastPhotoRef = useRef<File | null>(null);
   const [canRetryPhoto, setCanRetryPhoto] = useState(false);
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   if (!isOpen) return null;
 
@@ -118,6 +119,8 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
       const body = (await res.json().catch(() => null)) as { text?: string; error?: string } | null;
       if (controller.signal.aborted) return;
       if (res.ok && body?.text) {
+        // 読み取れたら写真は持たない（もう一度読み取る必要は無い）
+        lastPhotoRef.current = null;
         setText(body.text.slice(0, MAX_TEXT_LENGTH));
         setNotice({
           kind: 'info',
@@ -155,6 +158,10 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
       return;
     }
     if (ok) {
+      // 分析を頼んだら、前の写真と、その失敗の案内は残さない（次に開いたときに出さない）
+      lastPhotoRef.current = null;
+      setCanRetryPhoto(false);
+      setNotice(null);
       // 待っている間に開き直して入力し直した内容は消さない
       setText((current) => (current === submitted.text ? '' : current));
       setName((current) => (current === submitted.name ? '' : current));
@@ -248,7 +255,15 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
           )}
         </div>
         {notice?.kind === 'error' && canRetryPhoto && !isReading && (
-          <button type="button" onClick={() => void handlePhoto(lastPhotoRef.current ?? undefined)} className={`w-full ${buttonSecondaryCompact}`}>
+          <button
+            type="button"
+            onClick={() => {
+              // 押したボタンは読み取りの間は消えるので、成分表示の入力欄へフォーカスを移す
+              textAreaRef.current?.focus();
+              void handlePhoto(lastPhotoRef.current ?? undefined);
+            }}
+            className={`w-full ${buttonSecondaryCompact}`}
+          >
             同じ写真をもう一度読み取る
           </button>
         )}
@@ -256,6 +271,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         <label className="block space-y-1">
           <span className="text-sm font-semibold text-ink">成分表示</span>
           <textarea
+            ref={textAreaRef}
             value={text}
             // 写真の読み取り中は、結果で入力途中の文章を消さないよう編集を止める（フォーカスは残す）
             readOnly={isReading}

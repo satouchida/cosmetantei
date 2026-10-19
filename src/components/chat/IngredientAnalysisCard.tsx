@@ -53,8 +53,9 @@ const isTimeout = (err: unknown) => err instanceof DOMException && (err.name ===
  * 評価の結果。retry: 頼み直す意味がある失敗か（回数制限などの 4xx は頼み直しても同じ）。
  * error: サーバーが付けた理由の文（429 の「1分ほど待って」など。カードにそのまま出す）
  */
-type AIFetch = { result: ProductAnalysisResult | null; retry: boolean; error?: string };
-type AIOutcome = { result: ProductAnalysisResult | null; error?: string };
+type AIFetch = { result: ProductAnalysisResult | null; retry: boolean; error?: string; rejected?: boolean };
+/** rejected: サーバーが断った（回数・予算の上限など 4xx）。押して頼み直しても同じなので「もう一度調べる」を出さない */
+type AIOutcome = { result: ProductAnalysisResult | null; error?: string; rejected?: boolean };
 
 async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
   try {
@@ -70,7 +71,7 @@ async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
     if (res.status >= 400 && res.status < 500) {
       const data = await res.json().catch(() => null);
       const error = typeof data?.error === 'string' && data.error ? data.error : undefined;
-      return { result: null, retry: false, error };
+      return { result: null, retry: false, error, rejected: true };
     }
     const result = res.ok ? ((await res.json())?.result as ProductAnalysisResult | undefined) : undefined;
     return result?.aiEvaluation ? { result, retry: false } : { result: null, retry: true };
@@ -90,10 +91,10 @@ function requestAIAnalysis(a: ProductAnalysisResult): Promise<AIOutcome> {
   if (!request) {
     request = (async () => {
       const first = await fetchAIAnalysis(a);
-      if (first.result || !first.retry) return { result: first.result, error: first.error };
+      if (first.result || !first.retry) return { result: first.result, error: first.error, rejected: first.rejected };
       await new Promise((resolve) => setTimeout(resolve, AI_RETRY_DELAY_MS));
       const second = await fetchAIAnalysis(a);
-      return { result: second.result, error: second.error };
+      return { result: second.result, error: second.error, rejected: second.rejected };
     })();
     aiRequests.set(a, request);
   }
@@ -119,7 +120,14 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   const detailRef = useRef<HTMLDivElement | null>(null);
   // 未評価の成分の AI の評価（表示のあとで頼み、届いたら分析を差し替える）。
   // 結果は頼んだときの分析とひも付け、別の分析が渡されたら古い結果は使わない
-  const [ai, setAi] = useState<{ source: ProductAnalysisResult; result: ProductAnalysisResult | null; error?: string } | null>(null);
+  const [ai, setAi] = useState<{
+    source: ProductAnalysisResult;
+    result: ProductAnalysisResult | null;
+    error?: string;
+    rejected?: boolean;
+  } | null>(null);
+  // カード（「もう一度調べる」を押したとき、ボタンが消えるのでここへフォーカスを移す）
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const settled = ai?.source === initialAnalysis ? ai : null;
   const analysis = settled?.result ?? initialAnalysis;
   const aiStatus: 'idle' | 'loading' | 'failed' =
@@ -128,8 +136,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   useEffect(() => {
     if (!needsAIEvaluation(initialAnalysis)) return;
     let cancelled = false;
-    requestAIAnalysis(initialAnalysis).then(({ result, error }) => {
-      if (!cancelled) setAi({ source: initialAnalysis, result, error });
+    requestAIAnalysis(initialAnalysis).then(({ result, error, rejected }) => {
+      if (!cancelled) setAi({ source: initialAnalysis, result, error, rejected });
     });
     return () => {
       cancelled = true;
@@ -141,6 +149,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     aiRequests.delete(initialAnalysis);
     setAi(null);
     setAiAttempt((n) => n + 1);
+    // 押したボタンは消えるので、カードへフォーカスを移す（読み上げは状態の枠で伝える）
+    cardRef.current?.focus();
   };
 
   // 開いている成分の解説は、AI の評価が届いたら新しい分析のものにする（「AIでさらに詳しく調べる」の結果はそのまま）
@@ -284,7 +294,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   };
 
   return (
-    <div data-analysis-card className={`my-3 p-4 sm:p-5 space-y-4 text-ink ${card}`}>
+    <div ref={cardRef} tabIndex={-1} data-analysis-card className={`my-3 p-4 sm:p-5 space-y-4 text-ink focus:outline-none ${card}`}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 pb-3 border-b border-sand-200">
         <div className="min-w-0">
@@ -324,9 +334,11 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           <div className={`space-y-2 ${panel('neutral', 'small')}`}>
             {/* 回数の制限など、サーバーが理由を付けたときはそれを出す（「1つずつ調べて」と勧めても同じ制限に当たる） */}
             <p>{settled?.error ?? '成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。'}</p>
-            <button type="button" onClick={retryAIAnalysis} className={buttonSecondary}>
-              もう一度調べる
-            </button>
+            {!settled?.rejected && (
+              <button type="button" onClick={retryAIAnalysis} className={buttonSecondary}>
+                もう一度調べる
+              </button>
+            )}
           </div>
         )}
       </div>

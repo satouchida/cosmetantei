@@ -6229,10 +6229,18 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
     assert.deepStrictEqual(await shop.shopIngredientProducts('ほげほげ 化粧水'), []);
     assert.strictEqual(requests.length, 0);
 
-    // 検索：お店で見つかれば Web 検索を待たずに返す（共有の結果は返答の後に信頼するサイトで作る）
+    // 検索：お店で見つかれば Web 検索を待たずに返す（共有の結果は返答の後に信頼するサイトで作る）。
+    // 同じ検索語のキャッシュに別の製品しか無ければ、お店も調べる
+    const { cachePutJSON, hashedCacheKey } = await import('../src/lib/server/cloudflare');
+    const { toProductSearchQuery } = await import('../src/lib/services/web-research');
+    const q = toProductSearchQuery('キュレル 皮脂トラブルケア 化粧水')!;
+    await cachePutJSON(await hashedCacheKey('webfacts:v2', q.normalize('NFKC').toLowerCase()), [
+      verifiedProduct({ id: 'web_other_one', brand: 'キュレル', name: 'キュレル 潤浸保湿 乳液', ingredientSource: 'web_page', sourceUrl: 'https://www.kao.co.jp/curel/x/' }),
+    ], 3600);
     requests.length = 0;
     const results = await searchCosmeticsLive('キュレル 皮脂トラブルケア 化粧水', 6, { webResearch: true, openBeautyFacts: false });
     assert.ok(results.some((p) => p.id === 'shoptext_rakuten_kao:12'), JSON.stringify(results.map((p) => p.id)));
+    assert.ok(requests.some((u) => u.hostname === 'openapi.rakuten.co.jp'), 'A cache holding another product does not skip the shops');
   } finally {
     globalThis.fetch = originalFetch;
     for (const [k, v] of Object.entries(savedEnv)) {

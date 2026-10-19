@@ -9,7 +9,7 @@ import {
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { isKnownGenericTerm } from './brand-check';
-import { hasSharedResearch, researchProducts, toProductSearchQuery } from './web-research';
+import { researchProducts, sharedResearchFor, toProductSearchQuery } from './web-research';
 import { shopIngredientProducts } from './shop-ingredients';
 import { withoutListingNoise } from './shop-lineup';
 import { isShopListingProduct } from '../product-source';
@@ -475,7 +475,11 @@ export async function searchCosmeticsLive(
     // 見つかれば、すぐに返す。楽天の説明から読んだ成分は保存できないので、全員で共有する結果は、返答の後に
     // 信頼するサイトを調べて作る（保存済みの確かめた製品が見つかったときは調べない）
     // ただし、前に調べた確かめた結果がキャッシュにあれば、それを使う（費用なし。お店の説明文より確か）
-    const fromShops = (await hasSharedResearch(productQuery))
+    // 探している製品（名前に検索語を含み、全成分つき）がそこにあるときだけ。別の製品だけなら、お店も調べる
+    const cachedAnswer = (await sharedResearchFor(productQuery)).some(
+      (p) => hasVerifiedIngredientList(p) && namesProduct(p, productQuery)
+    );
+    const fromShops = cachedAnswer
       ? []
       : await shopIngredientProducts(productQuery).catch((err) => {
           console.error('Shop ingredient lookup failed:', err instanceof Error ? err.message : err);

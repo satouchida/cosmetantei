@@ -139,9 +139,10 @@ async function imageSize(file: File): Promise<'ok' | 'too_large' | 'not_image'> 
 
 /** 足す前の数と、足したあとの数から、足さなかった数（重複・上限） */
 function appendStats(list: Product[], incoming: Product[], taken: Set<string>): { added: number; skipped: number } {
-  const fresh = incoming.filter((p) => !taken.has(p.id));
-  const added = Math.max(0, Math.min(fresh.length, MAX_ROUTINE_PRODUCTS - list.length));
-  return { added, skipped: incoming.length - added };
+  // appendProducts と同じ順に数える（重複・上限）。足す製品は taken に入れる
+  const fresh = incoming.filter((p) => !taken.has(p.id) && taken.add(p.id));
+  const added = fresh.slice(0, Math.max(0, MAX_ROUTINE_PRODUCTS - list.length));
+  return { added: added.length, skipped: incoming.length - added.length };
 }
 
 /** 長く待つ操作の案内に足す文（Web を調べるときは1分ほどかかる） */
@@ -151,7 +152,10 @@ const STILL_WORKING_AFTER_MS = 15_000;
 /** 失敗の吹き出しに付ける、同じ頼みごとをもう一度送るボタン */
 const RETRY_LABEL = '🔁 もう一度送る';
 /** 一度押したら、同じ吹き出しでは調べ直さないボタン（有料の調べもの） */
-const ONCE_PER_MESSAGE_LABELS = new Set(['🔎 Webで成分を調べ直す', '💴 この商品の価格を調べる']);
+const ONCE_PER_MESSAGE_LABELS = new Set(['🔎 Webで成分を調べ直す', '💴 この商品の価格を調べる', RETRY_LABEL]);
+
+/** 頼み直して結果が変わりうる失敗か（通信・時間切れ・中止は null、408、サーバーの問題） */
+const retryable = (status: number | null): boolean => status === null || status === 408 || status >= 500;
 
 /** 今のリストに足す（同じ製品はどのリストにあっても足さない。1つのリストは上限まで） */
 function appendProducts(list: Product[], incoming: Product[], taken: Set<string>): Product[] {
@@ -225,6 +229,10 @@ export const ChatContainer: React.FC = () => {
   const lineupRetryAt = useRef(new Map<string, number>());
   // サーバーに頼む操作は1つずつ。再描画を待たずに判定するため ref（2回押しで有料の調べものを2回しない・返信の順序を保つ）
   const busyRef = useRef(false);
+  // 送れなかったので入力欄に戻した文（候補を探し直さない）
+  const restoredInputRef = useRef<string | null>(null);
+  // いまの比較リスト（「もう一度送る」で、失敗したときではなく今のリストを送る）
+  const routineRef = useRef<UserRoutineState | null>(null);
   const [loadingText, setLoadingText] = useState(DEFAULT_LOADING_TEXT);
   // 読み上げ用：返答が届いた・失敗した（ライブリージョンは常に置き、中身だけ替える）
   const [announcement, setAnnouncement] = useState('');
@@ -258,6 +266,11 @@ export const ChatContainer: React.FC = () => {
     const trimmed = input.trim();
     // 入力が空のときは何もしない（候補トレイは描画側で入力が空なら非表示にする）
     if (!trimmed) return;
+    // 送れなかった文を入力欄に戻したときは、候補を探し直さない（失敗の吹き出しの上に候補を出さない）
+    if (restoredInputRef.current === input) {
+      restoredInputRef.current = null;
+      return;
+    }
 
     // 高頻度API & Google検索への非同期問い合わせ（300msデバウンス）
     // 入力が変わったら前のリクエストを中断し、古い結果で新しい結果を上書きしないようにする
@@ -313,6 +326,9 @@ export const ChatContainer: React.FC = () => {
   // 今使っているコスメはこの端末のブラウザに保存する（src/lib/current-use.ts）
   const currentUse = useSyncExternalStore(subscribeCurrentUse, getCurrentUseSnapshot, getCurrentUseServerSnapshot);
   const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
+  useEffect(() => {
+    routineRef.current = routine;
+  });
   // 3か月以上前に追加した製品（今も使っているか確かめてもらう）
   const staleEntries = currentUse.filter((e) => isStale(e.addedAt, currentTime()));
   const staleIds = new Set(staleEntries.map((e) => e.product.id));
@@ -449,10 +465,16 @@ export const ChatContainer: React.FC = () => {
         content: result.message,
         isError: true,
         ...custom,
-        // 同じ頼みごとを、もう一度送れるようにする（入力し直さなくてよい）
-        quickReplies: [RETRY_LABEL, ...(custom?.quickReplies ?? [])],
+        // 頼み直して結果が変わりうる失敗（通信・時間切れ・中止・サーバーの問題）だけ、同じ頼みごとをもう一度送れるようにする。
+        // 入力の誤り（400 等）・回数の制限（429。すぐ頼み直しても同じ）には出さない
+        quickReplies: [...(retryable(result.status) ? [RETRY_LABEL] : []), ...(custom?.quickReplies ?? [])],
       };
-      retryRef.current.set(failure.id, () => runChatAction(userContent, body, toMessage, options));
+      if (retryable(result.status)) {
+        // 比較リストを送る頼みごとは、失敗したときではなく、押したときのリストで送る
+        retryRef.current.set(failure.id, () =>
+          runChatAction(userContent, 'routine' in body && routineRef.current ? { ...body, routine: routineRef.current } : body, toMessage, options)
+        );
+      }
       setMessages((prev) => [...prev, failure]);
       setAnnouncement('');
       setAlertText(failure.content);
@@ -483,8 +505,15 @@ export const ChatContainer: React.FC = () => {
       }),
       { loadingText: `調べています${LONG_WAIT_NOTE}...` }
     );
-    // 送れなかったときは、入力した文を入力欄に戻す（その間に何か入力していれば、そのまま）
-    if (!data) setInput((current) => current || messageText);
+    // 入力して送れなかったときは、その文を入力欄に戻す（その間に何か入力していれば、そのまま）。
+    // ボタンの文は戻さない（入力していない文を入力欄に入れない）
+    if (!data && !textToSend) {
+      setInput((current) => {
+        if (current) return current;
+        restoredInputRef.current = messageText;
+        return messageText;
+      });
+    }
     // 入力して送ったときは入力欄に戻す（送信ボタンが無効になってフォーカスが失われないように）
     if (!textToSend) inputRef.current?.focus();
   };
@@ -662,15 +691,14 @@ export const ChatContainer: React.FC = () => {
       showToast(WAIT_MESSAGE, 'error');
       return;
     }
-    // 有料の調べもののボタンは、同じ吹き出しでは1回だけ（前の吹き出しのボタンで何度も調べない）
+    // 有料の調べもの・もう一度送るボタンは、同じ吹き出しでは1回だけ（前の吹き出しのボタンで何度も調べない）。
+    // 使った印は、実際に頼んだときだけ付ける
     const usedKey = `${sourceMessage.id}|${label}`;
-    if (ONCE_PER_MESSAGE_LABELS.has(label)) {
-      if (usedActions.has(usedKey)) {
-        showToast('この商品はもう調べました。結果は下の吹き出しにあります。', 'error');
-        return;
-      }
-      setUsedActions((prev) => new Set(prev).add(usedKey));
+    if (ONCE_PER_MESSAGE_LABELS.has(label) && usedActions.has(usedKey)) {
+      showToast('このボタンはもう使いました。結果は下の吹き出しにあります。', 'error');
+      return;
     }
+    const markUsed = () => setUsedActions((prev) => new Set(prev).add(usedKey));
     switch (action.kind) {
       case 'retry': {
         const retry = retryRef.current.get(sourceMessage.id);
@@ -680,6 +708,7 @@ export const ChatContainer: React.FC = () => {
         }
         // 同じ失敗の吹き出しからは1回だけ（また失敗したら、新しい吹き出しにボタンが付く）
         retryRef.current.delete(sourceMessage.id);
+        markUsed();
         void retry();
         return;
       }
@@ -715,14 +744,18 @@ export const ChatContainer: React.FC = () => {
       }
       case 'price_analyzed': {
         const product = sourceMessage.singleAnalysis?.product;
-        if (product) handlePriceLookup(label, product);
-        else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
+        if (product) {
+          markUsed();
+          handlePriceLookup(label, product);
+        } else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
       }
       case 'research_analyzed': {
         const product = sourceMessage.singleAnalysis?.product;
-        if (product) handleResearchProduct(label, product);
-        else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
+        if (product) {
+          markUsed();
+          handleResearchProduct(label, product);
+        } else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
       }
       case 'pick_from_cards':
@@ -894,7 +927,6 @@ export const ChatContainer: React.FC = () => {
       // 足さなかった数（重複・上限）を、読み込んだ後の案内に出す
       const taken = new Set([...routine.badProducts, ...routine.safeProducts].map((p) => p.id));
       const bad = appendStats(routine.badProducts, snapshot.badProducts, taken);
-      snapshot.badProducts.forEach((p) => taken.add(p.id));
       const safe = appendStats(routine.safeProducts, snapshot.safeProducts, taken);
       const currentIds = new Set(currentUse.map((e) => e.product.id));
       const currentFresh = snapshot.currentUse.filter((e) => !currentIds.has(e.product.id)).length;
@@ -1227,7 +1259,11 @@ export const ChatContainer: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => abortRef.current?.abort()}
+                  onClick={() => {
+                    abortRef.current?.abort();
+                    // 押したボタンは止まると消えるので、入力欄へ移す
+                    inputRef.current?.focus();
+                  }}
                   className="min-h-12 px-4 rounded-full text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-container"
                 >
                   中止

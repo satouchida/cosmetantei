@@ -580,14 +580,18 @@ async function registerProducts(products: Product[], { fresh }: { fresh: boolean
 
 // ---------- T1: 商品の調査 ----------
 
+/** 商品の調べものの結果のキャッシュのキー（v2: 医薬部外品の有効成分・「他 n成分」を読み取るようにした） */
+function researchCacheKey(productQuery: string): Promise<string> {
+  return hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
+}
+
 /**
- * この検索語の、全員で共有してよい調べた結果（全成分つき）がキャッシュにあるか（費用なし。書き込まない）。
- * あれば、お店の説明文より先にそれを使う
+ * この検索語の、全員で共有してよい調べた結果（キャッシュ。費用なし。書き込まない）。無ければ []。
+ * 探している製品が入っているかは、呼び出し側が確かめる（同じ検索語で別の製品だけが見つかっていることがある）
  */
-export async function hasSharedResearch(productQuery: string): Promise<boolean> {
-  const cacheKey = await hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
-  const cached = await cacheGetJSON<Product[]>(cacheKey);
-  return !!cached && (sharedCached(cached) ?? []).some((p) => isVerifiedSource(p));
+export async function sharedResearchFor(productQuery: string): Promise<Product[]> {
+  const cached = await cacheGetJSON<Product[]>(await researchCacheKey(productQuery));
+  return cached ? (sharedCached(cached) ?? []) : [];
 }
 
 /**
@@ -601,8 +605,7 @@ export async function researchProducts(
 ): Promise<Product[]> {
   if (!isGeminiConfigured()) return [];
 
-  // v2: 医薬部外品の有効成分・「他 n成分」を読み取るようにした
-  const cacheKey = await hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
+  const cacheKey = await researchCacheKey(productQuery);
   const cached = await cacheGetJSON<Product[]>(cacheKey);
   // 調べ直しを頼まれたときは、全成分が1つも無かった結果のキャッシュを使わない。
   // 同じ検索語では RETRY_COOLDOWN_SECONDS に1回まで（何度押しても、有料の調べものは増えない）
