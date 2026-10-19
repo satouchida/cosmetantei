@@ -23,6 +23,8 @@ import {
   User,
   Menu,
   CheckCircle2,
+  AlertTriangle,
+  Loader2,
   FileText,
   CalendarClock,
   ScanBarcode,
@@ -32,6 +34,7 @@ import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { ChatResponse, postChat } from '@/lib/client/chat-request';
+import { MessageCardBoundary } from './MessageCardBoundary';
 import { withHiddenEmoji, withoutEmoji } from '../ui/emoji';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
 import {
@@ -82,29 +85,42 @@ const MAX_ROUTINE_IMAGE_BYTES = 8_000_000;
 const MAX_ROUTINE_IMAGE_PIXELS = 16_000_000;
 const IMPORT_FAILED = 'この画像からマイルーティンを読み込めませんでした。コスメ探偵で作った画像を選んでください。';
 
-/** 画像から、マイルーティンを読む。ファイルの中のデータを先に、無ければ QR コードを読む */
-async function readRoutineImage(file: File): Promise<{ snapshot: RoutineSnapshot; namesOnly: boolean } | null> {
-  if (file.size > MAX_ROUTINE_IMAGE_BYTES) return null;
+/** 画像を読めなかった理由ごとの案内 */
+const IMPORT_FAILURES = {
+  too_large: 'ファイルが大きすぎます（8MBまで）。コスメ探偵で保存した画像を選んでください。',
+  not_image: '画像として開けませんでした。PNG・JPEG の画像を選んでください。',
+  unreadable: 'この画像の中に、マイルーティンのデータとQRコードが見つかりませんでした。コスメ探偵で作った画像を、切り抜かずに選んでください。',
+  failed: '画像を読み込めませんでした。もう一度お試しください。',
+} as const;
+type ImportFailure = keyof typeof IMPORT_FAILURES;
+
+type ImportRead = { snapshot: RoutineSnapshot; namesOnly: boolean } | { failure: ImportFailure };
+
+/** 画像から、マイルーティンを読む。ファイルの中のデータを先に、無ければ QR コードを読む。読めなければ理由 */
+async function readRoutineImage(file: File): Promise<ImportRead> {
+  if (file.size > MAX_ROUTINE_IMAGE_BYTES) return { failure: 'too_large' };
   const now = currentTime();
   const text = readPngText(new Uint8Array(await file.arrayBuffer()), ROUTINE_PNG_KEYWORD);
   const fromFile = text ? parseRoutine(text, now) : null;
   if (fromFile) return { snapshot: fromFile, namesOnly: false };
-  if (!(await hasReadableSize(file))) return null;
+  const size = await imageSize(file);
+  if (size === 'not_image') return { failure: 'not_image' };
+  if (size === 'too_large') return { failure: 'too_large' };
   const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
   const reader = new Html5Qrcode(ROUTINE_QR_READER_ID, { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
   try {
     const fragment = shareFragment(await reader.scanFile(file, false));
     const fromQr = fragment ? await decodeShareFragment(fragment, now) : null;
-    return fromQr ? { snapshot: fromQr, namesOnly: true } : null;
+    return fromQr ? { snapshot: fromQr, namesOnly: true } : { failure: 'unreadable' };
   } catch {
-    return null;
+    return { failure: 'unreadable' };
   } finally {
     reader.clear();
   }
 }
 
 /** 画像の大きさ（縦×横）が上限内か。大きさは画像の頭から分かる（全体を描く前に確かめる） */
-async function hasReadableSize(file: File): Promise<boolean> {
+async function imageSize(file: File): Promise<'ok' | 'too_large' | 'not_image'> {
   const url = URL.createObjectURL(file);
   try {
     const img = new Image();
@@ -113,13 +129,29 @@ async function hasReadableSize(file: File): Promise<boolean> {
       img.onload = () => resolve();
       img.onerror = () => reject(new Error('not an image'));
     });
-    return img.naturalWidth * img.naturalHeight <= MAX_ROUTINE_IMAGE_PIXELS;
+    return img.naturalWidth * img.naturalHeight <= MAX_ROUTINE_IMAGE_PIXELS ? 'ok' : 'too_large';
   } catch {
-    return false;
+    return 'not_image';
   } finally {
     URL.revokeObjectURL(url);
   }
 }
+
+/** 足す前の数と、足したあとの数から、足さなかった数（重複・上限） */
+function appendStats(list: Product[], incoming: Product[], taken: Set<string>): { added: number; skipped: number } {
+  const fresh = incoming.filter((p) => !taken.has(p.id));
+  const added = Math.max(0, Math.min(fresh.length, MAX_ROUTINE_PRODUCTS - list.length));
+  return { added, skipped: incoming.length - added };
+}
+
+/** 長く待つ操作の案内に足す文（Web を調べるときは1分ほどかかる） */
+const LONG_WAIT_NOTE = '（Webで調べるときは1分ほどかかることがあります）';
+/** この時間を過ぎても返事が無ければ、まだ調べていることを伝える */
+const STILL_WORKING_AFTER_MS = 15_000;
+/** 失敗の吹き出しに付ける、同じ頼みごとをもう一度送るボタン */
+const RETRY_LABEL = '🔁 もう一度送る';
+/** 一度押したら、同じ吹き出しでは調べ直さないボタン（有料の調べもの） */
+const ONCE_PER_MESSAGE_LABELS = new Set(['🔎 Webで成分を調べ直す', '💴 この商品の価格を調べる']);
 
 /** 今のリストに足す（同じ製品はどのリストにあっても足さない。1つのリストは上限まで） */
 function appendProducts(list: Product[], incoming: Product[], taken: Set<string>): Product[] {
@@ -173,6 +205,14 @@ export const ChatContainer: React.FC = () => {
   const [routineImport, setRoutineImport] = useState<{ snapshot: RoutineSnapshot; namesOnly: boolean } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // info: 確認（緑のチェック）/ error: 受け付けなかった・失敗（長めに出す）/ progress: 処理中（終わるまで出す）
+  const [toastKind, setToastKind] = useState<'info' | 'error' | 'progress'>('info');
+  // 一度押した有料の調べもののボタン（吹き出しの id と文言）。同じ吹き出しで何度も調べない
+  const [usedActions, setUsedActions] = useState<ReadonlySet<string>>(new Set());
+  // 失敗した頼みごと（「もう一度送る」で同じ内容を送る）。失敗の吹き出しの id ごと
+  const retryRef = useRef(new Map<string, () => Promise<unknown>>());
+  // 応答を待っている要求（「中止」で止める）
+  const abortRef = useRef<AbortController | null>(null);
 
   const [liveCandidates, setLiveCandidates] = useState<Product[]>([]);
   const [liveBrands, setLiveBrands] = useState<{ name: string; kana?: string }[]>([]);
@@ -352,10 +392,13 @@ export const ChatContainer: React.FC = () => {
 
   // 同じ案内を続けて出したときに、前のタイマーで早く消えないようにする
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, kind: 'info' | 'error' | 'progress' = 'info') => {
     setToastMessage(msg);
+    setToastKind(kind);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), 3000);
+    // 失敗の案内は読めるよう長めに。処理中の案内は、終わったときの案内で置き換える（念のため 30 秒で消す）
+    const duration = kind === 'error' ? 6000 : kind === 'progress' ? 30_000 : 3000;
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), duration);
   };
 
   /**
@@ -373,7 +416,7 @@ export const ChatContainer: React.FC = () => {
     } = {}
   ): Promise<ChatResponse | null> => {
     if (busyRef.current) {
-      showToast(WAIT_MESSAGE);
+      showToast(WAIT_MESSAGE, 'error');
       return null;
     }
     busyRef.current = true;
@@ -383,20 +426,40 @@ export const ChatContainer: React.FC = () => {
     setAnnouncement(loading);
     setAlertText('');
     setMessages((prev) => [...prev, { ...messageMeta('user'), role: 'user', content: userContent }]);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    // 長くかかるときは、まだ調べていることを伝える（止めたいときは「中止」）
+    const stillWorking = setTimeout(() => {
+      const text = 'まだ調べています。もう少しお待ちください（止めるときは「中止」）';
+      setLoadingText(text);
+      setAnnouncement(text);
+    }, STILL_WORKING_AFTER_MS);
     try {
-      const result = await postChat(body);
+      const result = await postChat(body, controller.signal);
       if (result.ok) {
         const reply: ChatMessage = { ...messageMeta('bot'), role: 'assistant', content: result.data.reply, ...toMessage(result.data) };
         setMessages((prev) => [...prev, reply]);
         setAnnouncement(announcementOf(reply.content));
         return result.data;
       }
-      const failure: ChatMessage = { ...messageMeta('err'), role: 'assistant', content: result.message, ...options.failure?.(result) };
+      const custom = options.failure?.(result);
+      const failure: ChatMessage = {
+        ...messageMeta('err'),
+        role: 'assistant',
+        content: result.message,
+        isError: true,
+        ...custom,
+        // 同じ頼みごとを、もう一度送れるようにする（入力し直さなくてよい）
+        quickReplies: [RETRY_LABEL, ...(custom?.quickReplies ?? [])],
+      };
+      retryRef.current.set(failure.id, () => runChatAction(userContent, body, toMessage, options));
       setMessages((prev) => [...prev, failure]);
       setAnnouncement('');
       setAlertText(failure.content);
       return null;
     } finally {
+      clearTimeout(stillWorking);
+      abortRef.current = null;
       busyRef.current = false;
       setIsLoading(false);
     }
@@ -406,20 +469,22 @@ export const ChatContainer: React.FC = () => {
     const messageText = (textToSend || input).trim();
     if (!messageText) return;
     if (busyRef.current) {
-      showToast(WAIT_MESSAGE);
+      showToast(WAIT_MESSAGE, 'error');
       return;
     }
     setInput('');
     setIsTrayOpen(false);
-    await runChatAction(
+    const data = await runChatAction(
       messageText,
       { message: messageText, routine },
       (data) => ({
         ...pickReply(data, ['productSuggestions', 'singleAnalysis', 'differentialAnalysis', 'priceResult', 'quickReplies']),
         suggestionKind: data.suggestionKind === 'alternatives' ? 'alternatives' : undefined,
       }),
-      { loadingText: '調べています...' }
+      { loadingText: `調べています${LONG_WAIT_NOTE}...` }
     );
+    // 送れなかったときは、入力した文を入力欄に戻す（その間に何か入力していれば、そのまま）
+    if (!data) setInput((current) => current || messageText);
     // 入力して送ったときは入力欄に戻す（送信ボタンが無効になってフォーカスが失われないように）
     if (!textToSend) inputRef.current?.focus();
   };
@@ -430,7 +495,7 @@ export const ChatContainer: React.FC = () => {
       label ?? `📷 バーコード（${barcode}）をスキャンしました`,
       { action: 'barcode_lookup', barcode, routine },
       (data) => pickReply(data, ['singleAnalysis', 'quickReplies']),
-      { loadingText: 'バーコードの商品を調べています...' }
+      { loadingText: `バーコードの商品を調べています${LONG_WAIT_NOTE}...` }
     );
   };
 
@@ -501,7 +566,7 @@ export const ChatContainer: React.FC = () => {
   /** 肌荒れリストに追加する。追加した場合は true、すでに登録済みなら false */
   const handleAddToBad = (product: Product): boolean => {
     if (routine.badProducts.some((p) => p.id === product.id)) {
-      showToast(`すでに肌荒れリストに登録されています`);
+      showToast(`すでに肌荒れリストに登録されています`, 'error');
       return false;
     }
     setRoutine((prev) => ({
@@ -515,7 +580,7 @@ export const ChatContainer: React.FC = () => {
   /** 安全リストに追加する。追加した場合は true、すでに登録済みなら false */
   const handleAddToSafe = (product: Product): boolean => {
     if (routine.safeProducts.some((p) => p.id === product.id)) {
-      showToast(`すでに安全リストに登録されています`);
+      showToast(`すでに安全リストに登録されています`, 'error');
       return false;
     }
     setRoutine((prev) => ({
@@ -531,11 +596,11 @@ export const ChatContainer: React.FC = () => {
     // 再描画の前に続けて押されても正しく数えるよう、最新のリストで確かめる
     const latest = getCurrentUseSnapshot();
     if (latest.some((e) => e.product.id === product.id)) {
-      showToast('すでに今使っているコスメに登録されています');
+      showToast('すでに今使っているコスメに登録されています', 'error');
       return false;
     }
     if (latest.length >= MAX_CURRENT_USE) {
-      showToast(`今使っているコスメは${MAX_CURRENT_USE}点まで登録できます`);
+      showToast(`今使っているコスメは${MAX_CURRENT_USE}点まで登録できます`, 'error');
       return false;
     }
     const addedAt = currentTime();
@@ -594,10 +659,30 @@ export const ChatContainer: React.FC = () => {
     }
     // 応答待ちの間は、メッセージの順序が入れ替わらないよう他のボタンを受け付けない（押されたことは伝える）
     if (busyRef.current) {
-      showToast(WAIT_MESSAGE);
+      showToast(WAIT_MESSAGE, 'error');
       return;
     }
+    // 有料の調べもののボタンは、同じ吹き出しでは1回だけ（前の吹き出しのボタンで何度も調べない）
+    const usedKey = `${sourceMessage.id}|${label}`;
+    if (ONCE_PER_MESSAGE_LABELS.has(label)) {
+      if (usedActions.has(usedKey)) {
+        showToast('この商品はもう調べました。結果は下の吹き出しにあります。', 'error');
+        return;
+      }
+      setUsedActions((prev) => new Set(prev).add(usedKey));
+    }
     switch (action.kind) {
+      case 'retry': {
+        const retry = retryRef.current.get(sourceMessage.id);
+        if (!retry) {
+          appendLocalExchange(label, 'もう一度送れる内容が見つかりませんでした。入力し直してください。');
+          return;
+        }
+        // 同じ失敗の吹き出しからは1回だけ（また失敗したら、新しい吹き出しにボタンが付く）
+        retryRef.current.delete(sourceMessage.id);
+        void retry();
+        return;
+      }
       case 'send':
         handleSendMessage(action.text);
         return;
@@ -762,11 +847,16 @@ export const ChatContainer: React.FC = () => {
     });
   };
 
-  const offerImport = (found: { snapshot: RoutineSnapshot; namesOnly: boolean } | null) => {
-    if (!found || isEmptySnapshot(found.snapshot)) {
-      showToast(IMPORT_FAILED);
+  const offerImport = (found: ImportRead | null) => {
+    if (!found || 'failure' in found) {
+      showToast(found ? IMPORT_FAILURES[found.failure] : IMPORT_FAILED, 'error');
       return;
     }
+    if (isEmptySnapshot(found.snapshot)) {
+      showToast('この画像のマイルーティンは空でした（読み込めるコスメがありません）。', 'error');
+      return;
+    }
+    setToastMessage(null);
     setIsSidebarOpen(false);
     setRoutineImport(found);
   };
@@ -774,11 +864,14 @@ export const ChatContainer: React.FC = () => {
   // 画像を読んでいる間に、別の画像を選んでも読まない（QR コードを読む要素は1つ）
   const importingRef = useRef(false);
   const handleImportImage = async (file: File) => {
-    if (importingRef.current) return;
+    if (importingRef.current) {
+      showToast('前の画像を読み込んでいます。終わってからお試しください。', 'error');
+      return;
+    }
     importingRef.current = true;
-    showToast('画像を読み込んでいます…');
+    showToast('画像を読み込んでいます…', 'progress');
     try {
-      offerImport(await readRoutineImage(file).catch(() => null));
+      offerImport(await readRoutineImage(file).catch((): ImportRead => ({ failure: 'failed' })));
     } finally {
       importingRef.current = false;
     }
@@ -787,16 +880,26 @@ export const ChatContainer: React.FC = () => {
   /** 共有のリンク（#r=...）・QR コードから読み込む */
   const importFromFragment = async (fragment: string) => {
     const snapshot = await decodeShareFragment(fragment, currentTime());
-    offerImport(snapshot && { snapshot, namesOnly: true });
+    offerImport(snapshot ? { snapshot, namesOnly: true } : null);
   };
 
   const applyImport = (mode: 'append' | 'replace') => {
     if (!routineImport) return;
     const { snapshot } = routineImport;
+    let skipped = 0;
     if (mode === 'replace') {
       setRoutine({ badProducts: snapshot.badProducts, safeProducts: snapshot.safeProducts });
       updateCurrentUse(() => snapshot.currentUse.slice(0, MAX_CURRENT_USE));
     } else {
+      // 足さなかった数（重複・上限）を、読み込んだ後の案内に出す
+      const taken = new Set([...routine.badProducts, ...routine.safeProducts].map((p) => p.id));
+      const bad = appendStats(routine.badProducts, snapshot.badProducts, taken);
+      snapshot.badProducts.forEach((p) => taken.add(p.id));
+      const safe = appendStats(routine.safeProducts, snapshot.safeProducts, taken);
+      const currentIds = new Set(currentUse.map((e) => e.product.id));
+      const currentFresh = snapshot.currentUse.filter((e) => !currentIds.has(e.product.id)).length;
+      const currentAdded = Math.max(0, Math.min(currentFresh, MAX_CURRENT_USE - currentUse.length));
+      skipped = bad.skipped + safe.skipped + (snapshot.currentUse.length - currentAdded);
       // 最新のリストに足す。肌荒れ・安全のリストは、どちらかにある製品を足さない（同じ製品が両方に入らないように）
       setRoutine((prev) => {
         const taken = new Set([...prev.badProducts, ...prev.safeProducts].map((p) => p.id));
@@ -811,7 +914,11 @@ export const ChatContainer: React.FC = () => {
       });
     }
     setRoutineImport(null);
-    showToast('マイルーティンを読み込みました');
+    showToast(
+      skipped > 0
+        ? `マイルーティンを読み込みました（${skipped}点は、すでに登録済みか上限のため追加しませんでした）`
+        : 'マイルーティンを読み込みました'
+    );
   };
 
   // 共有のリンク（https://cosmetantei.app/#r=...）で開いたら、読み込むか確かめる。リンクの部分はアドレスから消す。
@@ -823,7 +930,7 @@ export const ChatContainer: React.FC = () => {
       window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
       void decodeShareFragment(fragment, currentTime()).then((snapshot) => {
         if (snapshot && !isEmptySnapshot(snapshot)) setRoutineImport({ snapshot, namesOnly: true });
-        else showToast(IMPORT_FAILED);
+        else showToast(IMPORT_FAILED, 'error');
       });
     };
     onHash();
@@ -878,7 +985,13 @@ export const ChatContainer: React.FC = () => {
           aria-hidden
           className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] w-max max-w-[calc(100%-2rem)] bg-[#2c322f] text-[#ecf2ed] px-4 py-3 rounded-lg text-sm shadow-lg flex items-center gap-2 animate-fade-in"
         >
-          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-300" aria-hidden />
+          {toastKind === 'error' ? (
+            <AlertTriangle className="w-5 h-5 shrink-0 text-amber-300" aria-hidden />
+          ) : toastKind === 'progress' ? (
+            <Loader2 className="w-5 h-5 shrink-0 text-emerald-300 animate-spin motion-reduce:animate-none" aria-hidden />
+          ) : (
+            <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-300" aria-hidden />
+          )}
           <span>{toastMessage}</span>
         </div>
       )}
@@ -1024,10 +1137,17 @@ export const ChatContainer: React.FC = () => {
                   } rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-xs ${
                     msg.role === 'user'
                       ? 'bg-primary text-on-primary rounded-tr-sm'
-                      : 'bg-white text-ink rounded-tl-sm border border-sand-200'
+                      : msg.isError
+                        ? 'bg-tint-warning text-rose-950 rounded-tl-sm border border-rose-200 border-l-[3px] border-l-rose-600'
+                        : 'bg-white text-ink rounded-tl-sm border border-sand-200'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{withHiddenEmoji(msg.content)}</div>
+                  <div className="whitespace-pre-wrap">
+                    {msg.isError && <AlertTriangle className="inline w-4 h-4 mr-1 -mt-0.5 text-rose-700" aria-hidden />}
+                    {withHiddenEmoji(msg.content)}
+                  </div>
+                  {/* 結果のカードが描けない形の応答でも、ページ全体を止めない */}
+                  <MessageCardBoundary>
 
                   {/* Product Suggestion Cards */}
                   {msg.productSuggestions && (
@@ -1038,6 +1158,7 @@ export const ChatContainer: React.FC = () => {
                       onAddToSafe={handleAddToSafe}
                       onAddToCurrent={handleAddToCurrent}
                       isAlternatives={msg.suggestionKind === 'alternatives'}
+                      busy={isLoading}
                     />
                   )}
 
@@ -1059,22 +1180,28 @@ export const ChatContainer: React.FC = () => {
                   {msg.currentUseCheck && <CurrentUseResultCard result={msg.currentUseCheck} />}
 
                   {msg.priceResult && <PriceResultCard result={msg.priceResult} />}
+                  </MessageCardBoundary>
 
                   {/* Quick Replies */}
                   {msg.quickReplies && msg.quickReplies.length > 0 && (
                     <div className="mt-3 pt-3 pb-1 border-t border-sand-200 flex flex-wrap gap-2">
-                      {msg.quickReplies.map((qr, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => handleQuickReply(qr, msg)}
-                          // 応答待ちでもフォーカスを失わないよう disabled にはせず、押したら案内を出す
-                          aria-disabled={isLoading || undefined}
-                          className="max-w-full min-h-12 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:opacity-60 aria-disabled:hover:bg-white aria-disabled:hover:border-sand-300"
-                        >
-                          {withHiddenEmoji(qr)}
-                        </button>
-                      ))}
+                      {msg.quickReplies.map((qr, i) => {
+                        const used = usedActions.has(`${msg.id}|${qr}`);
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => handleQuickReply(qr, msg)}
+                            // 応答待ち・調べ済みでもフォーカスを失わないよう disabled にはせず、押したら案内を出す。
+                            // 文字は薄くしない（押せるボタンなので、文字のコントラストを保つ）
+                            aria-disabled={isLoading || used || undefined}
+                            className="max-w-full min-h-12 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:text-ink-muted aria-disabled:bg-surface-container-low aria-disabled:border-dashed aria-disabled:cursor-not-allowed aria-disabled:hover:bg-surface-container-low aria-disabled:hover:border-sand-300"
+                          >
+                            {withHiddenEmoji(qr)}
+                            {used && <span className="ml-1 text-xs font-normal">（調べ済み）</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1098,6 +1225,13 @@ export const ChatContainer: React.FC = () => {
                   <div className="w-1.5 h-1.5 bg-sage-500 rounded-full animate-bounce motion-reduce:animate-none [animation-delay:0.4s]" />
                   <span className="ml-1 font-medium">{loadingText}</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => abortRef.current?.abort()}
+                  className="min-h-12 px-4 rounded-full text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-container"
+                >
+                  中止
+                </button>
               </div>
             )}
 
@@ -1171,6 +1305,7 @@ export const ChatContainer: React.FC = () => {
               <div className="order-first">
               <LiveSearchCandidateTray
                 id={SEARCH_TRAY_ID}
+                busy={isLoading}
                 query={input}
                 candidates={trayCandidates}
                 brands={liveBrands}
@@ -1185,7 +1320,7 @@ export const ChatContainer: React.FC = () => {
                 onSelectProduct={(product) => {
                   // 応答待ちなら、入力と候補を残したまま案内する（選んだ製品を黙って捨てない）
                   if (busyRef.current) {
-                    showToast(WAIT_MESSAGE);
+                    showToast(WAIT_MESSAGE, 'error');
                     return;
                   }
                   // キーボードで候補を選んだときは、消える候補から入力欄へフォーカスを戻す
@@ -1234,11 +1369,15 @@ export const ChatContainer: React.FC = () => {
             onRemoveSafe={handleRemoveSafe}
             onRemoveCurrent={handleRemoveCurrent}
             onConfirmCurrent={handleConfirmCurrent}
+            busy={isLoading}
             onCheckCurrentUse={() => {
+              // 応答待ちなら引き出しを閉じずに案内する（閉じてから断ると、何が起きたか分からない）
+              if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
               closeSidebar();
               handleCheckCurrentUse();
             }}
             onRunDifferential={() => {
+              if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
               closeSidebar();
               handleRunDifferential();
             }}
@@ -1268,7 +1407,12 @@ export const ChatContainer: React.FC = () => {
             return true;
           }
           if (busyRef.current) return WAIT_MESSAGE;
-          void handleBarcodeScanned(barcode);
+          // 化粧品の JAN/EAN/UPC（8〜14桁の数字）だけ。ほかの QR コード（URL など）は送らない
+          const digits = barcode.normalize('NFKC').replace(/[\s-]/g, '');
+          if (!/^\d{8,14}$/.test(digits)) {
+            return '化粧品のバーコード（8〜14桁の数字）ではありません。商品のJANバーコードを読み取ってください。';
+          }
+          void handleBarcodeScanned(digits);
           return true;
         }}
       />

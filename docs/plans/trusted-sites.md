@@ -23,8 +23,9 @@ switch to `enforce`.
   barcode from being researched again for 10 minutes (the requester still gets the result;
   others asking in that window see "not found"). For alternatives, the empty result is cached,
   because it is the same answer for everyone.
-- **Barcodes:** the page that printed the barcode decides trust, even when the ingredients come
-  from another page. `sharedSource: false` is honoured by every store check.
+- **Barcodes:** both pages must be trusted. That is the page that printed the barcode (it decides
+  which product the code means) and, when the ingredients come from another page, that page too.
+  `sharedSource: false` is honoured by every store check.
 - **Tests:** test 104.
 - **Before switching to enforce:**
   - bump the product-search cache key (`search:v5` → `v6`, `src/app/api/products/search/route.ts`)

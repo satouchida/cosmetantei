@@ -44,11 +44,8 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {products.map((p) => {
-          // サーバーが作ったリンクでも、https の Amazon のものだけを使う（ほかはその場で作り直す）
-          const amazonUrl =
-            p.amazonSearchUrl && /^https:\/\/www\.amazon\.co\.jp\//.test(p.amazonSearchUrl)
-              ? p.amazonSearchUrl
-              : buildAmazonAffiliateUrl(p.brand, p.name);
+          // いつもその場で作る（保存された製品のリンクには、前のタグが付いていることがある）
+          const amazonUrl = buildAmazonAffiliateUrl(p.brand, p.name);
 
           return (
             <div

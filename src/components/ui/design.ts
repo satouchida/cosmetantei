@@ -33,6 +33,13 @@ export const buttonSecondaryCompact = `${buttonBase} px-3 ${secondaryLook}`;
 /** 目立たせない操作：薄い面 */
 export const buttonTonal = `${buttonBase} px-4 rounded-xl bg-surface-container-low text-ink hover:bg-surface-container disabled:text-gray-500`;
 
+/**
+ * 応答を待っている間の、押せる（押すと案内が出る）ボタンの見た目。aria-disabled と一緒に使う。
+ * 文字は薄くしない（押せるボタンなので、文字のコントラストを保つ。gray-700 / gray-100 は 9:1 以上）
+ */
+export const busyLook =
+  'aria-disabled:bg-gray-100 aria-disabled:text-gray-700 aria-disabled:border-transparent aria-disabled:shadow-none aria-disabled:cursor-wait';
+
 /** アイコンだけのボタン（48px の円） */
 export const iconButton =
   'w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-full text-ink hover:bg-surface-container transition-colors';
@@ -76,35 +83,43 @@ export function badge(tone: Tone, size: 'regular' | 'large' = 'regular'): string
   return `${badgeBase} ${sizing} ${badgeTones[tone]}`;
 }
 
-/** 成分の刺激の段階（色だけでなく文字でも示す） */
-export const RISK_SCALE: Record<IngredientRiskLevel, { label: string; badge: string; pill: string }> = {
+/**
+ * 成分の刺激の段階（色だけでなく文字でも示す）。mark: 成分のボタンに出す1文字（一覧の上に凡例を出す）
+ */
+export const RISK_SCALE: Record<IngredientRiskLevel, { label: string; mark: string; badge: string; pill: string }> = {
   high_irritant: {
     label: '高刺激・アレルゲン',
+    mark: '高',
     badge: 'bg-tint-warning text-rose-800 border-rose-300',
     pill: 'bg-tint-warning text-rose-900 border-rose-300 hover:bg-rose-100',
   },
   moderate_irritant: {
     label: '乾燥・刺激リスク',
+    mark: '刺',
     badge: 'bg-orange-50 text-orange-900 border-orange-300',
     pill: 'bg-orange-50 text-orange-900 border-orange-300 hover:bg-orange-100',
   },
   active_caution: {
     label: '高濃度アクティブ',
+    mark: '活',
     badge: 'bg-violet-50 text-violet-800 border-violet-300',
     pill: 'bg-violet-50 text-violet-900 border-violet-300 hover:bg-violet-100',
   },
   low_caution: {
     label: '軽度の注意',
+    mark: '注',
     badge: 'bg-amber-50 text-amber-900 border-amber-300',
     pill: 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100',
   },
   unknown: {
     label: '未評価',
+    mark: '？',
     badge: 'bg-white text-ink-muted border-sand-300 border-dashed',
     pill: 'bg-white text-ink-muted border-sand-300 border-dashed hover:bg-surface-container-low',
   },
   safe: {
     label: '低刺激・安心',
+    mark: '',
     badge: 'bg-tint-safe text-emerald-800 border-emerald-300',
     pill: 'bg-white text-ink border-sand-200 hover:bg-surface-container-low',
   },

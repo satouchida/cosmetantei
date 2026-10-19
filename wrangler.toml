@@ -138,6 +138,9 @@ RAKUTEN_API_ORIGIN = "https://cosmetantei.app"
 # 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）
 # docs/plans/clef-chat-gate-and-search-filter.md の Phase 2
 SEARCH_FILTER_MODE = "off"
+# Web の製品を全員で共有するのは、信頼するサイト（src/lib/data/trusted-sites.ts）のものだけにする。
+# shadow: 今までどおり動き、出典のホスト名と判定だけを [trusted-sites] のログに出す / enforce: 共有を絞る / off
+TRUSTED_SITES_MODE = "shadow"
 # アフィリエイト（docs/plans/shop-prices.md）。ID を取得したら設定する。未設定ならリンクは商品ページそのもの
 RAKUTEN_AFFILIATE_ID = "3ce8fce4.34db538d.3ce8fce5.5c648f7b"
 # Yahoo!ショッピング：バリューコマースの MyLink（{url} に商品ページの URL が入る）

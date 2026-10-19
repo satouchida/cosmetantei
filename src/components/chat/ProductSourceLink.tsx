@@ -38,7 +38,7 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
         <div className="text-xs text-ink-muted">
           <p>販売ページの成分表示です。成分はパッケージで確かめてください。</p>
           {/* Rakuten Web Services Attribution Snippet FROM HERE */}
-          <a href="https://developers.rakuten.com/" target="_blank" rel="noopener noreferrer">
+          <a href="https://developers.rakuten.com/" target="_blank" lang="en" rel="noopener noreferrer">
             Supported by Rakuten Developers
           </a>
           {/* Rakuten Web Services Attribution Snippet TO HERE */}

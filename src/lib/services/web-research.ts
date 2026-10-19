@@ -581,6 +581,16 @@ async function registerProducts(products: Product[], { fresh }: { fresh: boolean
 // ---------- T1: 商品の調査 ----------
 
 /**
+ * この検索語の、全員で共有してよい調べた結果（全成分つき）がキャッシュにあるか（費用なし。書き込まない）。
+ * あれば、お店の説明文より先にそれを使う
+ */
+export async function hasSharedResearch(productQuery: string): Promise<boolean> {
+  const cacheKey = await hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
+  const cached = await cacheGetJSON<Product[]>(cacheKey);
+  return !!cached && (sharedCached(cached) ?? []).some((p) => isVerifiedSource(p));
+}
+
+/**
  * 商品名で Web を調べ、出典ページから製品名と全成分を取り出す（T1）
  * productQuery は toProductSearchQuery() を通した商品名であること
  */

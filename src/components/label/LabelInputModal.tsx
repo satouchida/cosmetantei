@@ -5,6 +5,7 @@ import { Camera, FileText, ImagePlus, Loader2, X, AlertCircle } from 'lucide-rea
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimary, buttonPrimaryCompact, buttonSecondaryCompact, iconButton, panel } from '../ui/design';
 import { apiFetch } from '@/lib/client/api-fetch';
+import { NETWORK_MESSAGE } from '@/lib/client/chat-request';
 
 export interface LabelInput {
   text: string;
@@ -57,6 +58,13 @@ async function toJpegBase64(file: File): Promise<string> {
   throw new Error('image too large');
 }
 
+/** 写真の読み取りの失敗（サーバーが理由を付けなかったとき）の、状態コードごとの案内 */
+function readFailureMessage(status: number): string {
+  if (status === 429) return '短い間に続けて読み取ったため、少し休んでいます。1分ほど待ってから、もう一度お試しください。';
+  if (status >= 500) return 'サーバーで問題が起きました。少し時間をおいて、もう一度お試しください。';
+  return '写真を読み取れませんでした。成分表示を文字で入力してください。';
+}
+
 /**
  * 成分表示の入力（貼り付け・写真）。写真は文字に起こして入力欄に入れ、ユーザーが確認・修正してから分析する
  */
@@ -70,6 +78,9 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // 閉じたら写真の読み取りを止め、結果を隠れた入力欄に書き込まない
   const readAbortRef = useRef<AbortController | null>(null);
+  // 最後に選んだ写真（読み取りに失敗したとき「もう一度読み取る」で使う。送ったあとも保存はしない）
+  const lastPhotoRef = useRef<File | null>(null);
+  const [canRetryPhoto, setCanRetryPhoto] = useState(false);
 
   if (!isOpen) return null;
 
@@ -80,13 +91,24 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
   };
 
   const handlePhoto = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || isReading) return;
+    lastPhotoRef.current = file;
+    setCanRetryPhoto(false);
     setNotice(null);
     setIsReading(true);
     const controller = new AbortController();
     readAbortRef.current = controller;
+    let data: string;
     try {
-      const data = await toJpegBase64(file);
+      data = await toJpegBase64(file);
+    } catch {
+      // 写真そのものを開けない・大きすぎる（別の写真を選んでもらう）
+      setNotice({ kind: 'error', text: '写真を開けませんでした。別の写真を選ぶか、成分表示を文字で入力してください。' });
+      setIsReading(false);
+      if (readAbortRef.current === controller) readAbortRef.current = null;
+      return;
+    }
+    try {
       const res = await apiFetch('/api/label/read', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,11 +124,20 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
           text: '写真から読み取りました。パッケージと見比べて、違うところがあれば直してから「分析する」を押してください。',
         });
       } else {
-        setNotice({ kind: 'error', text: body?.error || '写真を読み取れませんでした。成分表示を文字で入力してください。' });
+        setNotice({ kind: 'error', text: body?.error || readFailureMessage(res.status) });
+        // 写真が読めなかった（成分表示が見つからない等）のではなく、混雑・サーバーの問題なら、同じ写真でもう一度
+        setCanRetryPhoto(res.status === 429 || res.status >= 500);
       }
-    } catch {
+    } catch (err) {
       if (controller.signal.aborted) return;
-      setNotice({ kind: 'error', text: '写真を読み込めませんでした。別の写真を選ぶか、成分表示を文字で入力してください。' });
+      const timeout = err instanceof DOMException && err.name === 'TimeoutError';
+      setNotice({
+        kind: 'error',
+        text: timeout
+          ? '写真の読み取りに時間がかかりすぎたため、待つのをやめました。もう一度読み取るか、成分表示を文字で入力してください。'
+          : NETWORK_MESSAGE,
+      });
+      setCanRetryPhoto(true);
     } finally {
       if (readAbortRef.current === controller) readAbortRef.current = null;
       setIsReading(false);
@@ -194,7 +225,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         </div>
 
         {/* ステータスの入れ物は常に置き、中身だけ替える（中身ごと作ると読み上げられないことがある） */}
-        <div role="status" className="space-y-3 empty:hidden">
+        <div role="status" className="space-y-3 empty:mb-0">
           {isReading && (
             <div className="flex items-center gap-2 text-sm text-sage-800">
               <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />
@@ -208,7 +239,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
             </div>
           )}
         </div>
-        <div role="alert" className="empty:hidden">
+        <div role="alert" className="empty:mb-0">
           {notice?.kind === 'error' && (
             <div className={`flex items-start gap-2 ${panel('warning')}`}>
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
@@ -216,6 +247,11 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
             </div>
           )}
         </div>
+        {notice?.kind === 'error' && canRetryPhoto && !isReading && (
+          <button type="button" onClick={() => void handlePhoto(lastPhotoRef.current ?? undefined)} className={`w-full ${buttonSecondaryCompact}`}>
+            同じ写真をもう一度読み取る
+          </button>
+        )}
 
         <label className="block space-y-1">
           <span className="text-sm font-semibold text-ink">成分表示</span>

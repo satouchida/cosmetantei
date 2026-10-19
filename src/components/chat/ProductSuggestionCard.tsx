@@ -6,7 +6,7 @@ import { AlertTriangle, ShieldCheck, Layers, Search } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 import { productSourceInfo } from '@/lib/product-source';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
-import { badge, buttonPrimary, countryLabel, innerCard, routineAction, routineActionCompact } from '../ui/design';
+import { badge, busyLook, buttonPrimary, countryLabel, innerCard, routineAction, routineActionCompact } from '../ui/design';
 
 interface ProductSuggestionCardProps {
   products: Product[];
@@ -16,6 +16,8 @@ interface ProductSuggestionCardProps {
   onAddToCurrent: (product: Product) => void;
   /** 原因成分を含まない代わりの商品（見出しと注意書きを変える） */
   isAlternatives?: boolean;
+  /** 応答を待っている（押しても受け付けず、案内が出る） */
+  busy?: boolean;
 }
 
 export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
@@ -25,6 +27,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
   onAddToSafe,
   onAddToCurrent,
   isAlternatives = false,
+  busy = false,
 }) => {
   if (!products || products.length === 0) return null;
   const anyFromWeb = products.some((p) => productSourceInfo(p)?.fromWebSearch);
@@ -91,7 +94,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   onClick={() => onSelectToAnalyze(p)}
                   // 同じ文のボタンが並ぶので、読み上げでは商品名を足す（見えている文は先頭に残す）
                   aria-label={`成分を詳しくチェック（${p.name}）`}
-                  className={`w-full ${buttonPrimary}`}
+                  aria-disabled={busy || undefined}
+                  className={`w-full ${buttonPrimary} ${busyLook}`}
                 >
                   <Search className="w-4 h-4" aria-hidden />
                   <span>成分を詳しくチェック</span>

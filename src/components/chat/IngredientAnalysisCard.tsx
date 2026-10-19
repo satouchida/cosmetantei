@@ -7,6 +7,7 @@ import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 import { apiFetch } from '@/lib/client/api-fetch';
+import { NETWORK_MESSAGE, TIMEOUT_MESSAGE } from '@/lib/client/chat-request';
 import {
   badge as badgeClass,
   buttonSecondary,
@@ -43,6 +44,10 @@ function isDatabaseRated(ing: AnalyzedIngredient): boolean {
 
 /** 1回目で評価できなかったとき、もう1回頼むまでの時間（見つけたばかりの製品が、ほかのサーバーに届くのを待つ） */
 const AI_RETRY_DELAY_MS = 4_000;
+/** AI の評価・解説の1回の要求の上限。超えたら中断して、もう一度頼めるようにする */
+const AI_REQUEST_TIMEOUT_MS = 30_000;
+
+const isTimeout = (err: unknown) => err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
 
 /**
  * 評価の結果。retry: 頼み直す意味がある失敗か（回数制限などの 4xx は頼み直しても同じ）。
@@ -53,11 +58,15 @@ type AIOutcome = { result: ProductAnalysisResult | null; error?: string };
 
 async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
   try {
-    const res = await apiFetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product: a.product, aiEvaluate: true }),
-    });
+    const res = await apiFetch(
+      '/api/analyze',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product: a.product, aiEvaluate: true }),
+      },
+      { timeoutMs: AI_REQUEST_TIMEOUT_MS }
+    );
     if (res.status >= 400 && res.status < 500) {
       const data = await res.json().catch(() => null);
       const error = typeof data?.error === 'string' && data.error ? data.error : undefined;
@@ -65,8 +74,9 @@ async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
     }
     const result = res.ok ? ((await res.json())?.result as ProductAnalysisResult | undefined) : undefined;
     return result?.aiEvaluation ? { result, retry: false } : { result: null, retry: true };
-  } catch {
-    return { result: null, retry: true };
+  } catch (err) {
+    // 時間切れは、もう一度待たせない（カードの「もう一度調べる」で頼み直せる）
+    return isTimeout(err) ? { result: null, retry: false, error: TIMEOUT_MESSAGE } : { result: null, retry: true };
   }
 }
 
@@ -100,6 +110,10 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   // 「AIでさらに詳しく調べる」を頼んでいる成分と、失敗した成分とその理由（別の成分を開いても混ざらないよう名前で持つ）
   const [explainingName, setExplainingName] = useState<string | null>(null);
   const [explainError, setExplainError] = useState<{ name: string; text: string } | null>(null);
+  // 読み上げ：AI の解説を頼んだ・届いた（押したボタンの文字が変わるだけでは伝わらない）
+  const [explainStatus, setExplainStatus] = useState('');
+  // 「もう一度調べる」を押した回数（AI の評価を頼み直す）
+  const [aiAttempt, setAiAttempt] = useState(0);
   // 成分の解説の見出し（開いたとき・AI の解説が届いたときにフォーカスを移す）
   const detailTitleRef = useRef<HTMLDivElement | null>(null);
   const detailRef = useRef<HTMLDivElement | null>(null);
@@ -120,7 +134,14 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [initialAnalysis]);
+  }, [initialAnalysis, aiAttempt]);
+
+  /** AI の評価を頼み直す（失敗・時間切れのあと） */
+  const retryAIAnalysis = () => {
+    aiRequests.delete(initialAnalysis);
+    setAi(null);
+    setAiAttempt((n) => n + 1);
+  };
 
   // 開いている成分の解説は、AI の評価が届いたら新しい分析のものにする（「AIでさらに詳しく調べる」の結果はそのまま）
   const selectedIngredient =
@@ -156,18 +177,24 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     if (!ingredientName || explainingName) return;
     setExplainingName(ingredientName);
     setExplainError(null);
+    setExplainStatus(`${ingredientName}をAIで調べています`);
     try {
-      const res = await apiFetch('/api/ingredients/explain', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ingredientName }),
-      });
+      const res = await apiFetch(
+        '/api/ingredients/explain',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ingredientName }),
+        },
+        { timeoutMs: AI_REQUEST_TIMEOUT_MS }
+      );
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (!data?.ingredient) {
           setExplainError({ name: ingredientName, text: 'AI解説を取得できませんでした。しばらくしてからお試しください。' });
         } else {
           const explained: KnownIngredient = data.ingredient;
+          setExplainStatus(`${ingredientName}の解説を表示しました`);
           // 調べている間に別の成分を選んでいたら、その成分には書き込まない
           setPickedIngredient((current) => {
             if (!current || current.rawName !== ingredientName) return current;
@@ -204,8 +231,10 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       }
     } catch (err) {
       console.error('Failed to explain ingredient with AI:', err);
-      setExplainError({ name: ingredientName, text: 'AI解説を取得できませんでした。通信環境をご確認ください。' });
+      setExplainError({ name: ingredientName, text: isTimeout(err) ? TIMEOUT_MESSAGE : NETWORK_MESSAGE });
     } finally {
+      // 失敗は role=alert で読み上げるので、こちらは消す（成功の文は残す）
+      setExplainStatus((s) => (s.endsWith('調べています') ? '' : s));
       setExplainingName(null);
       // 押したボタンは解説が届くと消える。そのボタン（解説の中）にフォーカスがあったときだけ、見出しへ移す
       const hadFocus = !!detailRef.current?.contains(document.activeElement);
@@ -292,15 +321,22 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           </p>
         )}
         {aiStatus === 'failed' && (
-          <p className={panel('neutral', 'small')}>
+          <div className={`space-y-2 ${panel('neutral', 'small')}`}>
             {/* 回数の制限など、サーバーが理由を付けたときはそれを出す（「1つずつ調べて」と勧めても同じ制限に当たる） */}
-            {settled?.error ?? '成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。'}
-          </p>
+            <p>{settled?.error ?? '成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。'}</p>
+            <button type="button" onClick={retryAIAnalysis} className={buttonSecondary}>
+              もう一度調べる
+            </button>
+          </div>
         )}
       </div>
       {/* 完了の読み上げは、見えない別の枠で（上の枠に入れると、空でなくなって余白ができる） */}
       <div role="status" className="sr-only">
         {settled?.result?.aiEvaluation && `AIで${settled.result.aiEvaluation.evaluatedCount}成分を評価し、結果に反映しました。`}
+      </div>
+      {/* 「AIでさらに詳しく調べる」の開始・完了の読み上げ（いつも置いておく） */}
+      <div role="status" className="sr-only">
+        {explainStatus}
       </div>
       {/* 変わらない案内は、読み上げの枠の外に置く（描き直すたびに読み上げない） */}
       {isUserLabelProduct(analysis.product) && analysis.riskCounts.unknown > 0 && (
@@ -410,6 +446,15 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           <h3 className="text-[15px] font-semibold">全成分リスト ({ingredients.length}成分)</h3>
           <span className="text-xs text-ink-muted">タップで成分解説を表示</span>
         </div>
+        {/* 段階は色だけでなく、ボタンの1文字でも示す（この一覧にある段階の凡例） */}
+        {(() => {
+          const levels = [...new Set(ingredients.map((i) => i.riskLevel))].filter((l) => riskOf(l).mark);
+          return levels.length > 0 ? (
+            <p className="mb-2 text-xs text-ink-muted" aria-hidden>
+              {levels.map((l) => `${riskOf(l).mark}＝${riskOf(l).label}`).join('　')}
+            </p>
+          ) : null;
+        })()}
         <div className="flex flex-wrap gap-2">
           {ingredients.map((ing, idx) => (
             <button
@@ -422,6 +467,11 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               className={`min-h-12 min-w-12 text-[13px] px-3 rounded-lg border transition-colors aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:ring-offset-1 ${getPillStyle(ing)}`}
             >
               {ing.isActive && <span className="mr-1 text-xs font-semibold text-sage-700">有効成分</span>}
+              {riskOf(ing.riskLevel).mark && (
+                <span className="mr-1 text-xs font-semibold" aria-hidden>
+                  {riskOf(ing.riskLevel).mark}
+                </span>
+              )}
               {ing.rawName}
               {ing.aiEvaluated && (
                 <span className="ml-1 text-xs font-semibold text-ink-muted" aria-hidden>

@@ -244,6 +244,8 @@ export interface ChatMessage {
   safeAlternatives?: Product[];
   priceResult?: PriceResult;
   quickReplies?: string[];
+  /** 失敗の吹き出し（返答と見分けがつく形で出す） */
+  isError?: boolean;
 }
 
 export interface UserRoutineState {

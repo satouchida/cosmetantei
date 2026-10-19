@@ -33,6 +33,8 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
   const [includeData, setIncludeData] = useState(true);
   const [result, setResult] = useState<Result | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // 「もう一度作る」を押した回数（作り直す）
+  const [attempt, setAttempt] = useState(0);
   // 共有の画面を開いている間に、もう一度押されても開き直さない（InvalidStateError になる）
   const sharingRef = useRef(false);
   const skipped = excludedCount(snapshot);
@@ -63,7 +65,8 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
         setStatus('画像ができました');
       } catch (err) {
         console.error('Routine image failed:', err instanceof Error ? err.message : err);
-        if (!cancelled) setResult({ includeData, error: '画像を作れませんでした。ページを読み込み直して、もう一度お試しください。' });
+        // ページを読み込み直すと、肌荒れ・安全のリストが消えるので、それは勧めない
+        if (!cancelled) setResult({ includeData, error: '画像を作れませんでした。「もう一度作る」を押してください。ページは読み込み直さないでください（リストが消えます）。' });
       }
     })();
     return () => {
@@ -73,7 +76,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
       setResult(null);
       setStatus(null);
     };
-  }, [includeData, snapshot, culprits]);
+  }, [includeData, snapshot, culprits, attempt]);
 
   const file = rendered ? new File([rendered.blob], fileName(new Date()), { type: 'image/png' }) : null;
   const canShare = !!file && typeof navigator !== 'undefined' && !!navigator.canShare?.({ files: [file] });
@@ -148,14 +151,16 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
               className="w-full h-full object-contain"
             />
           ) : error ? (
-            <p role="alert" className="p-4 text-sm text-rose-800">
-              {error}
-            </p>
+            <div className="p-4 space-y-3 text-center">
+              <p role="alert" className="text-sm text-rose-800">
+                {error}
+              </p>
+              <button type="button" onClick={() => setAttempt((n) => n + 1)} className={buttonSecondaryCompact}>
+                もう一度作る
+              </button>
+            </div>
           ) : (
-            <>
-              <Loader2 className="w-8 h-8 text-primary animate-spin" aria-hidden />
-              <span className="sr-only">画像を作っています</span>
-            </>
+            <Loader2 className="w-8 h-8 text-primary animate-spin motion-reduce:animate-none" aria-hidden />
           )}
         </div>
 
@@ -188,7 +193,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
           </button>
         </div>
         <p role="status" className="text-xs text-ink-muted min-h-4">
-          {status}
+          {status ?? (rendered || error ? null : '画像を作っています…')}
         </p>
       </div>
     </ModalDialog>

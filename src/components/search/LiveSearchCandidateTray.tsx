@@ -12,6 +12,7 @@ import {
   innerCard,
   routineAction,
   routineActionCompact,
+  busyLook,
 } from '../ui/design';
 
 interface LiveSearchCandidateTrayProps {
@@ -25,6 +26,8 @@ interface LiveSearchCandidateTrayProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectProduct: (product: Product) => void;
+  /** 応答を待っている（押しても受け付けず、案内が出る） */
+  busy?: boolean;
   onAddToBad: (product: Product) => void;
   onAddToSafe: (product: Product) => void;
   onAddToCurrent: (product: Product) => void;
@@ -122,6 +125,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
   isOpen,
   onClose,
   onSelectProduct,
+  busy = false,
   onAddToBad,
   onAddToSafe,
   onAddToCurrent,
@@ -249,7 +253,8 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                       type="button"
                       onClick={() => onSelectProduct(product)}
                       aria-label={`${product.name}の成分を詳しくチェック`}
-                      className={`w-full ${buttonPrimary}`}
+                      aria-disabled={busy || undefined}
+                      className={`w-full ${buttonPrimary} ${busyLook}`}
                     >
                       <Sparkles className="w-4 h-4" aria-hidden />
                       <span>成分を詳しくチェック</span>
@@ -305,7 +310,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
           {credits.includes('rakuten') && (
             <>
               {/* Rakuten Web Services Attribution Snippet FROM HERE */}
-              <a href="https://developers.rakuten.com/" target="_blank">
+              <a href="https://developers.rakuten.com/" target="_blank" lang="en">
                 Supported by Rakuten Developers
               </a>
               {/* Rakuten Web Services Attribution Snippet TO HERE */}

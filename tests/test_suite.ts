@@ -6136,6 +6136,8 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
   assert.ok(shop.cutIngredientBlock(`全成分：水&#12289;ヒアルロン酸<b>Na</b><br>内容量 150ml`)?.includes('水、ヒアルロン酸Na'));
   // 長い説明で、見出しが無いまま終わりまで続く一覧は、途中で切れているかもしれないので使わない
   assert.strictEqual(shop.cutIngredientBlock(`${'説明'.repeat(450)}全成分：${label}`), null);
+  // 長い説明の後ろの【変更後】から読むときも、説明の全体の長さで判断する
+  assert.strictEqual(shop.cutIngredientBlock(`${'説明'.repeat(450)}【変更後】全成分：${label}`), null);
   // 「変更前」だけで、どれが今の処方か分からない説明は使わない
   assert.strictEqual(shop.cutIngredientBlock(`【変更前】全成分：${label}<br>内容量 150ml`), null);
   // 最後の成分に文がくっついていたら（除くと香料を見落とす）、一覧を使わない
@@ -6166,6 +6168,11 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
     id: 'obf_4901301999999', name: 'キュレル 潤浸保湿 化粧水 III', brand: 'キュレル', country: 'JP', category: 'toner',
     barcode: '4901301999999', ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
   });
+  // 出品者が別の製品の JAN コードを書いた商品（保存済みの製品の名前が合わない）
+  addProductToDynamicCache({
+    id: 'obf_4901301888888', name: 'キュレル 泡洗顔料', brand: 'キュレル', country: 'JP', category: 'cleanser',
+    barcode: '4901301888888', ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
+  });
   const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
   const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
   const originalFetch = globalThis.fetch;
@@ -6183,7 +6190,10 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
       });
     }
     if (url.hostname === 'shopping.yahooapis.jp') {
-      return Response.json({ hits: [{ name: 'キュレル 化粧水 III とてもしっとり', code: 'y_1', url: 'https://store.shopping.yahoo.co.jp/s/1.html', inStock: true, condition: 'new', brand: { name: 'キュレル' }, janCode: '4901301999999' }] });
+      return Response.json({ hits: [
+        { name: 'キュレル 化粧水 III とてもしっとり', code: 'y_1', url: 'https://store.shopping.yahoo.co.jp/s/1.html', inStock: true, condition: 'new', brand: { name: 'キュレル' }, janCode: '4901301999999' },
+        { name: 'キュレル 化粧水 III 別ストア', code: 'y_2', url: 'https://store.shopping.yahoo.co.jp/s/2.html', inStock: true, condition: 'new', brand: { name: 'キュレル' }, janCode: '4901301888888' },
+      ] });
     }
     return new Response('offline in tests', { status: 503 });
   }) as typeof fetch;

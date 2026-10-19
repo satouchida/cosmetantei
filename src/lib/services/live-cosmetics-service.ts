@@ -9,7 +9,7 @@ import {
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { isKnownGenericTerm } from './brand-check';
-import { researchProducts, toProductSearchQuery } from './web-research';
+import { hasSharedResearch, researchProducts, toProductSearchQuery } from './web-research';
 import { shopIngredientProducts } from './shop-ingredients';
 import { withoutListingNoise } from './shop-lineup';
 import { isShopListingProduct } from '../product-source';
@@ -474,10 +474,13 @@ export async function searchCosmeticsLive(
     // まずお店の API（Yahoo! の JAN コードで保存済みの製品、楽天の商品説明の全成分。費用はほぼ無し）。
     // 見つかれば、すぐに返す。楽天の説明から読んだ成分は保存できないので、全員で共有する結果は、返答の後に
     // 信頼するサイトを調べて作る（保存済みの確かめた製品が見つかったときは調べない）
-    const fromShops = await shopIngredientProducts(productQuery).catch((err) => {
-      console.error('Shop ingredient lookup failed:', err instanceof Error ? err.message : err);
-      return [] as Product[];
-    });
+    // ただし、前に調べた確かめた結果がキャッシュにあれば、それを使う（費用なし。お店の説明文より確か）
+    const fromShops = (await hasSharedResearch(productQuery))
+      ? []
+      : await shopIngredientProducts(productQuery).catch((err) => {
+          console.error('Shop ingredient lookup failed:', err instanceof Error ? err.message : err);
+          return [] as Product[];
+        });
     if (fromShops.length > 0) {
       collected.unshift(...fromShops.filter((s) => !collected.some((c) => c.id === s.id)));
       if (!fromShops.some(hasVerifiedIngredientList)) {

@@ -80,6 +80,8 @@ function captionText(caption: string): string {
 /** 商品説明から、全成分の部分を切り出す。見つからない・2つ以上あるときは null */
 export function cutIngredientBlock(caption: string): string | null {
   let text = captionText(caption);
+  // 途中で切れているかもしれない長さは、説明の全体で見る（【変更後】で切った後ではなく）
+  const fullLength = text.length;
   // 新旧の処方が並ぶ説明は、新しい方（最後の【変更後】の後）だけ。「変更前」だけなら、どれが今の処方か分からない
   const changed = text.lastIndexOf('変更後');
   if (changed >= 0) text = text.slice(changed + '変更後'.length);
@@ -94,7 +96,7 @@ export function cutIngredientBlock(caption: string): string | null {
   const stop = STOP_HEADING.exec(block);
   if (stop) block = block.slice(0, stop.index);
   // 次の見出しが無いまま、長い説明の終わりに着いた一覧は、途中で切れているかもしれない
-  else if (text.length >= CAPTION_MAY_BE_CUT_AT) return null;
+  else if (fullLength >= CAPTION_MAY_BE_CUT_AT) return null;
   return block.trim() || null;
 }
 
@@ -244,7 +246,10 @@ async function lookupInShops(productQuery: string): Promise<Product[]> {
   // Yahoo!: JAN コードで、保存済みの確かめた製品（費用なし。同じ JAN は1回だけ）
   const jans = [...new Set((yahoo ?? []).filter((i) => i.janCode && itemMatches(i, resolved.brand, words)).map((i) => i.janCode!))];
   for (const saved of await Promise.all(jans.map(findSavedByBarcode))) {
-    if (saved && isVerifiedSource(saved) && saved.ingredients.length > 0 && !found.some((p) => p.id === saved.id)) found.push(saved);
+    if (!saved || !isVerifiedSource(saved) || saved.ingredients.length === 0 || found.some((p) => p.id === saved.id)) continue;
+    // 出品者が書いた JAN コードは信頼しない。保存済みの製品の名前でも、入力の語がすべて合うものだけ
+    const savedKey = searchKey(`${saved.brand}${saved.name}`);
+    if (words.every((w) => hasWord(savedKey, w))) found.push(saved);
   }
 
   // 楽天：商品説明の全成分（Clef の確認は並べて行う）

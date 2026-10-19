@@ -16,7 +16,10 @@ export type ChatResult =
   | { ok: true; data: ChatResponse }
   | { ok: false; status: number | null; message: string };
 
-export const TIMEOUT_MESSAGE = '時間がかかりすぎたため中断しました。少し時間をおいて、もう一度お試しください。';
+// サーバーでは調べものが終わっていることもある（待つのをやめただけ）。同じことを頼み直すと、もう一度調べる
+export const TIMEOUT_MESSAGE =
+  '時間がかかりすぎたため、待つのをやめました。結果が届いていない場合は、少し時間をおいてもう一度お試しください。';
+export const CANCELLED_MESSAGE = '中止しました。もう一度調べるときは、ボタンを押すか入力し直してください。';
 export const NETWORK_MESSAGE = '通信できませんでした。インターネットへの接続を確かめて、もう一度お試しください。';
 const RATE_LIMIT_MESSAGE = '短い間に続けて送られたため、少し休んでいます。1分ほど待ってから、もう一度お試しください。';
 const SERVER_MESSAGE = 'サーバーで問題が起きました。少し時間をおいて、もう一度お試しください。';
@@ -45,15 +48,17 @@ export async function toChatResult(res: Response): Promise<ChatResult> {
   return { ok: false, status: res.status, message };
 }
 
-export async function postChat(body: Record<string, unknown>): Promise<ChatResult> {
+/** signal: 利用者が「中止」を押したときに中断する */
+export async function postChat(body: Record<string, unknown>, signal?: AbortSignal): Promise<ChatResult> {
   try {
     const res = await apiFetch(
       '/api/chat',
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal },
       { timeoutMs: CHAT_TIMEOUT_MS }
     );
     return await toChatResult(res);
   } catch (err) {
+    if (signal?.aborted) return { ok: false, status: null, message: CANCELLED_MESSAGE };
     const name = err instanceof Error || err instanceof DOMException ? err.name : '';
     return { ok: false, status: null, message: name === 'TimeoutError' || name === 'AbortError' ? TIMEOUT_MESSAGE : NETWORK_MESSAGE };
   }

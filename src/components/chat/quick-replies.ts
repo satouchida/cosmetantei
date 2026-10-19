@@ -18,6 +18,8 @@ export type QuickReplyAction =
   | { kind: 'price_analyzed' }
   /** 直前に分析した、成分が分からなかった商品を Web で調べ直す */
   | { kind: 'research_analyzed' }
+  /** 失敗した頼みごとを、同じ内容でもう一度送る */
+  | { kind: 'retry' }
   /** 候補カードのボタンから選んでもらうよう案内する */
   | { kind: 'pick_from_cards' }
   /** 比較リストを空にする */
@@ -44,6 +46,7 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
   '✅ 普段安全に使えている（安全リストに追加）': { kind: 'add_analyzed', list: 'safe' },
   '💴 この商品の価格を調べる': { kind: 'price_analyzed' },
   '🔎 Webで成分を調べ直す': { kind: 'research_analyzed' },
+  '🔁 もう一度送る': { kind: 'retry' },
 
   '🚨 この中のアイテムで肌荒れした': { kind: 'pick_from_cards' },
   '✅ この中のアイテムは安全に使えた': { kind: 'pick_from_cards' },

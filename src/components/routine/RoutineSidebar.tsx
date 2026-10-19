@@ -17,7 +17,7 @@ import {
   ImageDown,
   ImageUp,
 } from 'lucide-react';
-import { buttonTonal } from '../ui/design';
+import { busyLook, buttonTonal } from '../ui/design';
 import type { Product } from '@/lib/types';
 
 interface RoutineSidebarProps {
@@ -35,6 +35,8 @@ interface RoutineSidebarProps {
   onRunDifferential: () => void;
   onOpenScanner: () => void;
   onLoadPreset: (presetType: 'sample_irritation' | 'clear') => void;
+  /** 応答を待っている（調べる操作は押しても受け付けず、案内が出る） */
+  busy?: boolean;
   /** マイルーティンを画像で保存・共有する */
   onExportImage: () => void;
   /** 保存した・共有された画像からマイルーティンを読み込む */
@@ -58,6 +60,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
   onLoadPreset,
   onExportImage,
   onImportImage,
+  busy = false,
   onClose,
   closeButtonRef,
 }) => {
@@ -114,14 +117,17 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             countClassName="bg-sky-50 text-sky-800"
           />
 
-          {staleIds.size > 0 && (
-            <div role="status" className="p-3 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex gap-1.5">
-              <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" aria-hidden />
-              <span>
-                {STALE_AFTER_MONTHS}か月以上前に追加したコスメがあります。今も使っているか確かめて、使っていないものは削除してください。
-              </span>
-            </div>
-          )}
+          {/* 読み上げの枠はいつも置いておく（中身が出たときに読み上げる） */}
+          <div role="status">
+            {staleIds.size > 0 && (
+              <div className="p-3 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex gap-1.5">
+                <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" aria-hidden />
+                <span>
+                  {STALE_AFTER_MONTHS}か月以上前に追加したコスメがあります。今も使っているか確かめて、使っていないものは削除してください。
+                </span>
+              </div>
+            )}
+          </div>
 
           {currentUse.length === 0 ? (
             <EmptyState>
@@ -168,8 +174,9 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                 type="button"
                 onClick={onCheckCurrentUse}
                 disabled={currentUse.length < 2}
+                aria-disabled={busy || undefined}
                 aria-describedby="current-use-hint"
-                className="w-full min-h-12 px-5 border-[1.5px] border-primary text-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors"
+                className={`w-full min-h-12 px-5 border-[1.5px] border-primary text-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors ${busyLook}`}
               >
                 <Layers className="w-5 h-5" aria-hidden />
                 <span>組み合わせをチェック</span>
@@ -292,8 +299,9 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           type="button"
           onClick={onRunDifferential}
           disabled={badProducts.length === 0}
+          aria-disabled={busy || undefined}
           aria-describedby="differential-hint"
-          className="w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors"
+          className={`w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors ${busyLook}`}
         >
           <Sparkles className="w-5 h-5" aria-hidden />
           <span>原因成分をあぶり出す (差分分析)</span>

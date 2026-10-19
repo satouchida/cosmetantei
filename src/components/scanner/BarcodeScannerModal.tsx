@@ -23,6 +23,20 @@ interface BarcodeScannerModalProps {
   fallbackFocus?: () => HTMLElement | null;
 }
 
+/** カメラを起動できなかった理由ごとの案内（html5-qrcode は DOMException か、その名前を含む文字列を投げる） */
+function cameraErrorMessage(err: unknown): string {
+  const text = err instanceof Error || err instanceof DOMException ? `${err.name} ${err.message}` : String(err);
+  const fallback = '写真のアップロードか、番号の入力をご利用ください。';
+  if (/NotAllowed|Permission/i.test(text)) {
+    return `カメラの使用が許可されていません。ブラウザの設定でこのサイトにカメラを許可してから、もう一度起動してください。${fallback}`;
+  }
+  if (/NotFound|Overconstrained|DevicesNotFound/i.test(text)) return `カメラが見つかりませんでした。${fallback}`;
+  if (/NotReadable|TrackStart|in use/i.test(text)) {
+    return `カメラをほかのアプリが使っているようです。そのアプリを閉じてから、もう一度起動してください。${fallback}`;
+  }
+  return `カメラを起動できませんでした（HTTPS の接続とカメラの許可が必要です）。${fallback}`;
+}
+
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   isOpen,
   onClose,
@@ -66,8 +80,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  const handleSuccess = (code: string) => {
-    if (handledRef.current) return;
+  /** 読めたコードを渡す。受け付けられたら true、断られたら理由の文（読み取りの最中なら null） */
+  // カメラを起動できなかった（「もう一度起動する」を出す）
+  const [cameraFailed, setCameraFailed] = useState(false);
+
+  const handleSuccess = (code: string): true | string | null => {
+    if (handledRef.current) return null;
     handledRef.current = true;
     const accepted = onScanSuccess(code.trim());
     if (accepted !== true) {
@@ -76,14 +94,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       setTimeout(() => {
         if (isOpenRef.current) handledRef.current = false;
       }, 2_000);
-      return;
+      return accepted;
     }
     void stopScanner();
+    return true;
   };
 
   const startScanner = async () => {
     setErrorMsg(null);
     setCameraReady(false);
+    setCameraFailed(false);
 
     const element = document.getElementById(readerElementId);
     if (!element) {
@@ -140,9 +160,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       if (scannerRef.current === html5Qrcode) setCameraReady(true);
     } catch (err: unknown) {
       console.warn('Camera scan failed or permission denied:', err);
-      setErrorMsg(
-        'カメラの起動に失敗しました（HTTPS環境またはカメラ権限の許可が必要です）。写真アップロードまたは直接入力をご利用ください。'
-      );
+      setCameraFailed(true);
+      setErrorMsg(cameraErrorMessage(err));
     }
   };
 
@@ -174,13 +193,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     e.preventDefault();
     // 全角の数字（日本語入力）や区切りの空白・ハイフンは、数字だけにそろえる
     const code = manualCode.normalize('NFKC').replace(/\D/g, '');
-    if (code) handleSuccess(code);
-    else setErrorMsg('バーコードの番号（数字）を入力してください。');
+    if (/^\d{8,14}$/.test(code)) handleSuccess(code);
+    else setErrorMsg('バーコードの番号（8〜14桁の数字）を入力してください。');
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isProcessingFile) return;
 
     setIsProcessingFile(true);
     setErrorMsg(null);
@@ -203,7 +222,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       });
       scannerRef.current = scanner;
       const decodedResult = await scanner.scanFile(file, true);
-      handleSuccess(decodedResult);
+      const outcome = handleSuccess(decodedResult);
+      // 断られたら（応答待ち・バーコードではない）、カメラを動かし直してから理由を出す（起動で案内が消えるため）
+      if (outcome !== true && cameraWasRunning) {
+        await startScanner();
+        if (typeof outcome === 'string') setErrorMsg(outcome);
+      }
     } catch (err: unknown) {
       console.error('File scan error:', err);
       // カメラで読み取っていたなら、もう一度カメラを動かしてから理由を出す（起動で案内が消えるため、後に出す）
@@ -272,11 +296,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
 
             {isProcessingFile && (
-              <div role="status" className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-white text-sm gap-2">
-                <RefreshCw className="w-6 h-6 animate-spin text-emerald-400" aria-hidden />
+              <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-white text-sm gap-2" aria-hidden>
+                <RefreshCw className="w-6 h-6 animate-spin motion-reduce:animate-none text-emerald-400" />
                 <span>画像を解析中...</span>
               </div>
             )}
+          </div>
+          {/* 読み上げの枠はいつも置いておく（画像の解析を始めたら読み上げる） */}
+          <div role="status" className="sr-only">
+            {isProcessingFile ? '画像を解析しています' : ''}
           </div>
 
           {/* カメラの起動待ちに閉じて開き直すと起動が止まることがあるため、待つように伝える */}
@@ -293,6 +321,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <p>{errorMsg}</p>
             </div>
           )}
+          {cameraFailed && (
+            <button type="button" onClick={() => void startScanner()} className={`mt-2 w-full ${buttonSecondary}`}>
+              カメラをもう一度起動する
+            </button>
+          )}
 
           {/* Photo File Upload Trigger */}
           <div className="mt-3">
@@ -305,9 +338,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessingFile}
-              className={`w-full ${buttonSecondary}`}
+              // 解析中も disabled にはしない（押したボタンからフォーカスが失われるため）。押しても何もしない
+              onClick={() => !isProcessingFile && fileInputRef.current?.click()}
+              aria-disabled={isProcessingFile || undefined}
+              className={`w-full ${buttonSecondary} aria-disabled:cursor-wait`}
             >
               <Upload className="w-5 h-5" aria-hidden />
               <span>📷 バーコード写真・画像をアップロードして読取</span>
