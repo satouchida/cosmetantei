@@ -65,6 +65,7 @@ These are public settings, committed to the repo. For local runs, `.dev.vars` ca
 | `SEARCH_FILTER_MODE` | Clef search-result filter: `off`, `shadow` or `enforce` (default `off`) |
 | `SPEND_BUDGET_USD` | Global budget in USD as `day/month` (UTC), for Gemini, Workers AI and web search together |
 | `SPEND_PER_CLIENT_USD` | Daily budget per IP (IPv6 per /48) and per session |
+| `SPEND_PER_NEW_SESSION_USD`, `SPEND_NEW_SESSION_MINUTES` | Smaller daily budget for a Turnstile session until it is this many minutes old |
 | `SPEND_PER_NETWORK_USD` | Daily budget per IPv4 /24 |
 | `SPEND_PER_HOSTING_NETWORK_USD` | Daily budget per cloud or hosting network |
 | `SPEND_TIGHTEN_AFTER_SHARE` | Share of the day budget after which the per-client limits tighten |

@@ -1,7 +1,7 @@
 import 'server-only';
 import { getClientIp, getRequestAsn, ipv4Network24 } from './cloudflare';
 import { HOSTING_ASNS } from './hosting-networks';
-import { checkSession } from './session';
+import { checkSession, isNewSession } from './session';
 import { BudgetClient, withUsageRoute } from './usage';
 
 /**
@@ -49,15 +49,21 @@ function isSameOrigin(origin: string, requestUrl: string, host: string | null): 
   }
 }
 
-/** 要求の利用者ごとの予算のキー（IP は必ず。/24 は IPv4 のとき、事業者はクラウドのとき、セッションは確かめたとき） */
-export async function budgetClients(request: Request, sessionId?: string): Promise<BudgetClient[]> {
+/**
+ * 要求の利用者ごとの予算のキー（IP は必ず。/24 は IPv4 のとき、事業者はクラウドのとき、セッションは確かめたとき）。
+ * 発行したばかりのセッションは、同じキーで小さい上限（new_session）にする
+ */
+export async function budgetClients(request: Request, sessionId?: string, sessionIssuedAt?: number): Promise<BudgetClient[]> {
   const ip = getClientIp(request.headers);
   const clients: BudgetClient[] = [{ kind: 'ip', key: `ip:${ip}` }];
   const network = ipv4Network24(ip);
   if (network) clients.push({ kind: 'network', key: `net:${network}` });
   const asn = await getRequestAsn();
   if (asn !== undefined && HOSTING_ASNS.has(asn)) clients.push({ kind: 'hosting', key: `asn:${asn}` });
-  if (sessionId) clients.push({ kind: 'session', key: `sess:${sessionId}` });
+  if (sessionId) {
+    const kind = sessionIssuedAt !== undefined && isNewSession(sessionIssuedAt, Date.now()) ? 'new_session' : 'session';
+    clients.push({ kind, key: `sess:${sessionId}` });
+  }
   return clients;
 }
 
@@ -72,7 +78,7 @@ export function apiRoute<A extends [Request, ...unknown[]]>(route: string, handl
     if (rejected) return rejected;
     const session = await checkSession(request);
     if (session instanceof Response) return session;
-    return withUsageRoute(route, handler, await budgetClients(request, session.id))(...args);
+    return withUsageRoute(route, handler, await budgetClients(request, session.id, session.issuedAt))(...args);
   };
 }
 

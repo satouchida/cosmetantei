@@ -13,7 +13,10 @@ import { warnOnceInProduction } from './cloudflare';
  */
 
 export const SESSION_COOKIE = '__Host-session';
+// 発行の時刻は期限からこの長さを引いて出す（readSession）。変えると、発行済みの Cookie の発行の時刻がずれる
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
+/** 小さい上限（new_session）を付ける、発行してからの時間（分）。SPEND_NEW_SESSION_MINUTES が無い・形が違うとき */
+export const DEFAULT_NEW_SESSION_MINUTES = 30;
 const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const SITEVERIFY_TIMEOUT_MS = 5_000;
 /** ブラウザの Turnstile に付ける action（siteverify の結果と比べる） */
@@ -87,8 +90,12 @@ export async function createSessionValue(sessionSecret: string, now: number): Pr
   return `${id}.${expires}.${toBase64Url(new Uint8Array(signature))}`;
 }
 
-/** Cookie のセッションが正しく、期限内なら ID。そうでなければ null */
-export async function readSessionId(cookieHeader: string | null, sessionSecret: string, now: number): Promise<string | null> {
+/** Cookie のセッションが正しく、期限内なら ID と発行した時刻（ミリ秒）。そうでなければ null */
+export async function readSession(
+  cookieHeader: string | null,
+  sessionSecret: string,
+  now: number
+): Promise<{ id: string; issuedAt: number } | null> {
   const value = cookieHeader
     ?.split(';')
     .map((part) => part.trim())
@@ -102,19 +109,35 @@ export async function readSessionId(cookieHeader: string | null, sessionSecret: 
   if (!signature) return null;
   // 署名は verify で比べる（かかる時間から署名を推測させない）
   const valid = await crypto.subtle.verify('HMAC', await hmacKey(sessionSecret), signature, encoder.encode(signedPart(id, expires)));
-  return valid ? id : null;
+  // 期限は発行から SESSION_TTL_SECONDS 後（署名してあるので、利用者は発行の時刻を早められない）
+  return valid ? { id, issuedAt: (expires - SESSION_TTL_SECONDS) * 1000 } : null;
 }
 
 /**
- * 有料の API ルートの前に確かめる。Turnstile を使わない設定なら {}、正しいセッションなら { id }、
+ * 発行してから、小さい上限（new_session。src/lib/server/spend-cap.ts）を付ける間か。
+ * セッションは 24 時間で切れるので、それより長い設定は 24 時間にする（打ち間違いで、ずっと小さい上限にしない）
+ */
+export function isNewSession(issuedAt: number, now: number): boolean {
+  const raw = (process.env.SPEND_NEW_SESSION_MINUTES || '').trim();
+  const minutes = /^\d+$/.test(raw) ? Math.min(Number(raw), SESSION_TTL_SECONDS / 60) : DEFAULT_NEW_SESSION_MINUTES;
+  return now - issuedAt < minutes * 60_000;
+}
+
+/** Cookie のセッションが正しく、期限内なら ID。そうでなければ null */
+export async function readSessionId(cookieHeader: string | null, sessionSecret: string, now: number): Promise<string | null> {
+  return (await readSession(cookieHeader, sessionSecret, now))?.id ?? null;
+}
+
+/**
+ * 有料の API ルートの前に確かめる。Turnstile を使わない設定なら {}、正しいセッションなら { id, issuedAt }、
  * そうでなければ断る応答（401 にはブラウザが Turnstile を出すためのサイトキーを付ける）
  */
-export async function checkSession(request: Request): Promise<{ id?: string } | Response> {
+export async function checkSession(request: Request): Promise<{ id?: string; issuedAt?: number } | Response> {
   const config = turnstileConfig();
   if (config.state === 'off') return {};
   if (config.state === 'misconfigured') return misconfiguredReply();
-  const id = await readSessionId(request.headers.get('cookie'), config.sessionSecret, Date.now());
-  if (id) return { id };
+  const session = await readSession(request.headers.get('cookie'), config.sessionSecret, Date.now());
+  if (session) return session;
   return Response.json({ error: VERIFY_REPLY_JA, verify: { siteKey: config.siteKey } }, { status: 401 });
 }
 

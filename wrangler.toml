@@ -99,6 +99,10 @@ SPEND_BUDGET_USD = "30/100"
 # 利用者（IP。IPv6 は /48）ごとの1日あたりの上限（USD）。1人で全員の予算を使い切れないように。
 # "0" は「上限なし」ではなく、利用者からの有料の呼び出しをすべて断る
 SPEND_PER_CLIENT_USD = "0.5"
+# 発行してからこの分数までの Turnstile のセッションは、上限をこの額（USD/日）にする。Turnstile を解く業者で
+# 新しいセッションを次々に作られても、1つあたりの額を小さくする。製品を Web で1回調べられる額（$0.30 前後）は残す
+SPEND_PER_NEW_SESSION_USD = "0.3"
+SPEND_NEW_SESSION_MINUTES = "30"
 # IP を並べて予算を使い切られないよう、まとめて数える上限（USD/日）。IPv4 の /24（隣り合う 256 個）ごとと、
 # クラウドの事業者（src/lib/server/hosting-networks.ts）ごと
 SPEND_PER_NETWORK_USD = "2"

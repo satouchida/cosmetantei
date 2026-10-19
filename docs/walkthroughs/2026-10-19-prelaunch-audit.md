@@ -88,10 +88,16 @@ Tests 97–100; 100/100 pass. Typecheck, lint and build clean.
    (or a 301 to .app).
 2. **Which sites to trust for shared data:** web results from any site can still enter the shared
    cache under their own id. Sharing only results from brand sites and major retailers (others kept
-   for the requester only) would close this; it needs a list.
+   for the requester only) would close this; it needs a list. The owner chose to do it:
+   [plan](../plans/trusted-sites.md).
 3. **Budget for new sessions:** a botnet with solved Turnstiles can still spend the $30/day budget
    ($100/month cap). Options: a smaller budget for brand-new sessions, a cap on new sessions per hour,
-   and an alert when the day passes the tightening point.
+   and an alert when the day passes the tightening point. **Done 2026-10-19:** a session gets $0.30
+   (`SPEND_PER_NEW_SESSION_USD`) until it is 30 minutes old (`SPEND_NEW_SESSION_MINUTES`), then the
+   usual $0.50 in total. The issue time comes from the signed cookie, so it can't be backdated.
+   It is never more than `SPEND_PER_CLIENT_USD`. A new session can afford one web lookup in its
+   first 30 minutes; after the day's tightening point it is $0.09, too little for any lookup (aged
+   sessions get $0.15, also too little). A cap on new sessions per hour and an alert are not done.
 4. **Hard spend limit outside the app:** a budget alert or limit in Google AI Studio / AI Gateway as
    a backstop.
 5. **Copy:** have someone check the wording against 景品表示法・薬機法.

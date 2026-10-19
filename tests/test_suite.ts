@@ -5320,7 +5320,7 @@ test('91. Spread-out abuse: /24 and cloud-network caps, caps that tighten as the
     assert.match(setCookie, /^__Host-session=[^;]+; Path=\/; Max-Age=86400; HttpOnly; Secure; SameSite=Strict$/);
     const sessionCookie = setCookie.split(';')[0];
     assert.strictEqual((await apiCall({ cookie: sessionCookie })).status, 200);
-    assert.strictEqual(seen.pop(), 'ip,network,session', 'The session gets its own daily budget');
+    assert.strictEqual(seen.pop(), 'ip,network,new_session', 'The session gets its own daily budget (smaller while new)');
 
     answer = { success: true, action: 'other', hostname: 'app.example' };
     assert.strictEqual((await sessionCall('token-2')).status, 403, 'A token made for another action is refused');
@@ -5743,4 +5743,61 @@ test('100. A translated label replaces the stored English label (memory and KV);
   });
   const stored = JSON.parse([...kv.values()][0]) as Product[];
   assert.deepStrictEqual(stored.find((p) => p.id === 'web_translate_me')?.ingredients, ['水', 'グリセリン', 'BG']);
+});
+
+test('101. A brand-new Turnstile session gets a smaller budget under the same key until it is 30 minutes old', async () => {
+  const { budgetClients } = await import('../src/lib/server/api-route');
+  const { clientBudgetMicros, reserveSpend, resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { withUsageRoute } = await import('../src/lib/server/usage');
+  const { createSessionValue, isNewSession, readSession, SESSION_COOKIE } = await import('../src/lib/server/session');
+
+  // 発行の時刻は Cookie の期限から分かる（署名してあるので早められない）
+  const secret = 's'.repeat(40);
+  const issued = Date.UTC(2026, 9, 19, 12);
+  const value = await createSessionValue(secret, issued);
+  const session = await readSession(`${SESSION_COOKIE}=${value}`, secret, issued + 60_000);
+  assert.ok(session);
+  assert.strictEqual(session.issuedAt, Math.floor(issued / 1000) * 1000);
+  assert.strictEqual(isNewSession(session.issuedAt, issued + 29 * 60_000), true);
+  assert.strictEqual(isNewSession(session.issuedAt, issued + 30 * 60_000), false);
+  const [sid, exp, sig] = value.split('.');
+  assert.strictEqual(await readSession(`${SESSION_COOKIE}=${sid}.${Number(exp) + 3600}.${sig}`, secret, issued), null, 'The issue time cannot be moved');
+
+  const from = new Request('https://app.example/api/chat', { headers: { 'cf-connecting-ip': '2001:db8:5::1' } });
+  const fresh = await budgetClients(from, 'abc', Date.now() - 60_000);
+  assert.deepStrictEqual(fresh.at(-1), { kind: 'new_session', key: 'sess:abc' }, 'Same key as an old session, smaller limit');
+  assert.deepStrictEqual((await budgetClients(from, 'abc', Date.now() - 31 * 60_000)).at(-1), { kind: 'session', key: 'sess:abc' });
+
+  const names = ['SPEND_PER_REQUEST_USD', 'SPEND_PER_NEW_SESSION_USD', 'SPEND_PER_CLIENT_USD', 'SPEND_NEW_SESSION_MINUTES'];
+  const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+  try {
+    resetSpendCap();
+    for (const n of names) delete process.env[n];
+    process.env.SPEND_PER_REQUEST_USD = '10';
+    const spend = async (issuedAt: number, ip: string, cost: number) => {
+      const clients = await budgetClients(new Request('https://app.example/api/chat', { headers: { 'cf-connecting-ip': ip } }), 'xyz', issuedAt);
+      return withUsageRoute('test', () => reserveSpend('gemini', cost), clients)();
+    };
+    // 新しいセッションは $0.30 まで（IP を替えても同じセッションの合計）
+    assert.ok(await spend(Date.now() - 60_000, '198.51.100.1', 250_000), 'One web lookup fits a new session');
+    assert.strictEqual(await spend(Date.now() - 60_000, '198.51.100.2', 100_000), null, 'A new session stops at $0.30');
+    // 30 分たてば、同じセッションの合計で $0.50 まで
+    assert.ok(await spend(Date.now() - 31 * 60_000, '198.51.100.3', 200_000), 'After 30 minutes the session has $0.50 in total');
+    assert.strictEqual(await spend(Date.now() - 31 * 60_000, '198.51.100.4', 100_000), null);
+
+    // 新しいセッションの上限は、古いセッションの上限より大きくならない
+    process.env.SPEND_PER_CLIENT_USD = '0.2';
+    assert.strictEqual(clientBudgetMicros('new_session'), 200_000);
+    // 0 なら使わない。24 時間より長い設定は 24 時間
+    process.env.SPEND_NEW_SESSION_MINUTES = '0';
+    assert.strictEqual(isNewSession(issued, issued), false);
+    process.env.SPEND_NEW_SESSION_MINUTES = '99999999';
+    assert.strictEqual(isNewSession(issued, issued + 25 * 3600_000), false);
+  } finally {
+    resetSpendCap();
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });

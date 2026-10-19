@@ -328,6 +328,7 @@ refused if it would pass **any** of the client's limits:
 | `net:<a.b.c>.0/24` | IPv4 only | $2 | `SPEND_PER_NETWORK_USD` |
 | `asn:<number>` | the request comes from a cloud or hosting network (`request.cf.asn` is in `src/lib/server/hosting-networks.ts`) | $1 per network | `SPEND_PER_HOSTING_NETWORK_USD` |
 | `sess:<id>` | a Turnstile-verified browser session | $0.50 | `SPEND_PER_CLIENT_USD` |
+| `sess:<id>` (same key) | the session is less than `SPEND_NEW_SESSION_MINUTES` (30) old | $0.30 | `SPEND_PER_NEW_SESSION_USD` |
 
 - **Tightening:** once today's global total reaches `SPEND_TIGHTEN_AFTER_SHARE` (0.5) of the day
   budget, every limit above drops to `SPEND_TIGHTENED_PERCENT` (30) %, so $0.50 becomes $0.15.

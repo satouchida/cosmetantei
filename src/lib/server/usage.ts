@@ -40,9 +40,10 @@ export interface UsageEvent {
 /**
  * 利用者ごとの1日の予算のキー（src/lib/server/spend-cap.ts）。1回の要求に、種類ごとに1つまで付く
  * - ip: IP（IPv6 は /48） / network: IPv4 の /24 / hosting: クラウドの事業者（AS 番号） /
- *   session: Turnstile で確かめたブラウザのセッション
+ *   session: Turnstile で確かめたブラウザのセッション /
+ *   new_session: 発行したばかりのセッション（キーは session と同じで、上限だけ小さい）
  */
-export type BudgetClientKind = 'ip' | 'network' | 'hosting' | 'session';
+export type BudgetClientKind = 'ip' | 'network' | 'hosting' | 'session' | 'new_session';
 export interface BudgetClient {
   kind: BudgetClientKind;
   key: string;

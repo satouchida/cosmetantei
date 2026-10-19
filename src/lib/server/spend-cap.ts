@@ -13,6 +13,10 @@ import { ClientLimit, MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, 
  * - 利用者ごとにも、1日あたりの合計金額に上限を付ける。ログインの無いアプリなので、1人や少数の利用者が
  *   全員の予算を使い切り、ほかの利用者が AI を使えなくなるのを防ぐ。どれか1つでも超えれば断る
  *   - IP（IPv6 は /48）と、Turnstile で確かめたブラウザのセッション: SPEND_PER_CLIENT_USD（既定 $0.50）
+ *   - 発行から SPEND_NEW_SESSION_MINUTES（既定 30 分。src/lib/server/session.ts）までのセッション:
+ *     SPEND_PER_NEW_SESSION_USD（既定 $0.30。SPEND_PER_CLIENT_USD より大きくはしない）。
+ *     Turnstile を解く業者で新しいセッションを次々に作っても、1つあたりで使える額を小さくする
+ *     （同じセッションの合計なので、時間がたてば $0.50 まで使える。製品を Web で調べる1回は使える額にしておく）
  *   - IPv4 の /24（隣り合う 256 個のアドレス）: SPEND_PER_NETWORK_USD（既定 $2）
  *   - クラウドの事業者（src/lib/server/hosting-networks.ts。借りたサーバーの IP を並べた呼び出し）:
  *     事業者ごとに SPEND_PER_HOSTING_NETWORK_USD（既定 $1）
@@ -37,6 +41,7 @@ export const DEFAULT_PER_CLIENT_USD = 0.5;
 export const DEFAULT_CLIENT_BUDGET_USD: Record<BudgetClientKind, number> = {
   ip: DEFAULT_PER_CLIENT_USD,
   session: DEFAULT_PER_CLIENT_USD,
+  new_session: 0.3,
   network: 2,
   hosting: 1,
 };
@@ -44,6 +49,7 @@ export const DEFAULT_CLIENT_BUDGET_USD: Record<BudgetClientKind, number> = {
 const CLIENT_BUDGET_ENV: Record<BudgetClientKind, string> = {
   ip: 'SPEND_PER_CLIENT_USD',
   session: 'SPEND_PER_CLIENT_USD',
+  new_session: 'SPEND_PER_NEW_SESSION_USD',
   network: 'SPEND_PER_NETWORK_USD',
   hosting: 'SPEND_PER_HOSTING_NETWORK_USD',
 };
@@ -88,7 +94,9 @@ export function backgroundShare(): number {
 /** 利用者の種類ごとの1日あたりの上限（マイクロドル） */
 export function clientBudgetMicros(kind: BudgetClientKind): number {
   const raw = (process.env[CLIENT_BUDGET_ENV[kind]] || '').trim();
-  return usdToMicros(/^\d+(\.\d+)?$/.test(raw) ? Number(raw) : DEFAULT_CLIENT_BUDGET_USD[kind]);
+  const micros = usdToMicros(/^\d+(\.\d+)?$/.test(raw) ? Number(raw) : DEFAULT_CLIENT_BUDGET_USD[kind]);
+  // 新しいセッションの上限は、古いセッションの上限を超えない（SPEND_PER_CLIENT_USD を下げたときも）
+  return kind === 'new_session' ? Math.min(micros, clientBudgetMicros('session')) : micros;
 }
 
 const DO_TIMEOUT_MS = 2_000;
