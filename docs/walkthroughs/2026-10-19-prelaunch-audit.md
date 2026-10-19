@@ -85,7 +85,11 @@ Tests 97–100; 100/100 pass. Typecheck, lint and build clean.
 
 1. **Custom domain:** add the cosmetantei.app zone to the Cloudflare account, uncomment `routes` in
    `wrangler.toml`, add cosmetantei.app to the Turnstile widget, then consider `workers_dev = false`
-   (or a 301 to .app).
+   (or a 301 to .app). **Done 2026-10-19:** cosmetantei.app is live; www.cosmetantei.app redirects
+   to it (308, `next.config.mjs`). The domain is registered with every API the app uses (Rakuten
+   among them) and contact@cosmetantei.app forwards to the owner. workers.dev stays on for
+   development, with `X-Robots-Tag: noindex`. It is the same production Worker, so use there
+   spends the production budgets and writes the production caches.
 2. **Which sites to trust for shared data:** web results from any site can still enter the shared
    cache under their own id. Sharing only results from brand sites and major retailers (others kept
    for the requester only) would close this; it needs a list. The owner chose to do it:

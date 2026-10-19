@@ -7,17 +7,20 @@ compatibility_flags = ["nodejs_compat"]
 # Static Assets
 assets = { directory = ".open-next/assets", binding = "ASSETS" }
 
+# 独自ドメイン（cosmetantei.app）。表（[...]）より前に書く（後ろに書くと、その表の中の設定になり無視される）。
+# ドメインの zone をこの Cloudflare アカウントに追加してから有効にする
+# （zone が無いまま有効にすると deploy が失敗する）。有効にしたら、Turnstile のウィジェットにも cosmetantei.app を足す。
+# www は cosmetantei.app へ転送するだけ（next.config.mjs の redirects）。Turnstile に www を足す必要はない
+routes = [
+  { pattern = "cosmetantei.app", custom_domain = true },
+  { pattern = "www.cosmetantei.app", custom_domain = true }
+]
+
 # Workers Logs（[usage] の費用の記録・エラーを保存して検索できるようにする）。ログには利用者の文章を出さない
 # （件数・ハッシュ・状態コードだけ。docs/walkthroughs/2026-10-14-cost-tracking.md）
 [observability]
 enabled = true
 head_sampling_rate = 1
-
-# 独自ドメイン（cosmetantei.app）。ドメインの zone をこの Cloudflare アカウントに追加してから有効にする
-# （zone が無いまま有効にすると deploy が失敗する）。有効にしたら、Turnstile のウィジェットにも cosmetantei.app を足す
-# routes = [
-#   { pattern = "cosmetantei.app", custom_domain = true }
-# ]
 
 # レート制限（src/lib/server/cloudflare.ts で使用）
 # namespace_id はアカウント内で一意な任意の数値。事前のリソース作成は不要です

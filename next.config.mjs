@@ -18,6 +18,17 @@ const nextConfig = {
   reactStrictMode: true,
   // 使っているフレームワークを応答で知らせない
   poweredByHeader: false,
+  // www は公開するアドレス（https://cosmetantei.app）へ恒久的に転送する（パスとクエリはそのまま）
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [{ type: 'host', value: 'www.cosmetantei.app' }],
+        destination: 'https://cosmetantei.app/:path*',
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       { source: '/:path*', headers: SECURITY_HEADERS },
