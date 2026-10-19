@@ -32,7 +32,7 @@ import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '
 import { brandLineup, shopProductQuery } from '@/lib/services/shop-lineup';
 import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
-import { isUserLabelProduct } from '@/lib/product-source';
+import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 
 /** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
 function isValidLabelInput(label: unknown): boolean {
@@ -230,7 +230,9 @@ async function handlePost(request: NextRequest) {
       }
       const query = productSearchQuery(selectedProduct);
       const found = query
-        ? (await searchCosmeticsLive(query, 6, { webResearch: true, retryEmpty: true })).filter(hasVerifiedIngredients)
+        ? (await searchCosmeticsLive(query, 6, { webResearch: true, retryEmpty: true })).filter(
+            (p) => hasVerifiedIngredients(p) || (isShopListingProduct(p) && p.ingredients.length > 0)
+          )
         : [];
       if (found.length === 0) {
         return NextResponse.json({

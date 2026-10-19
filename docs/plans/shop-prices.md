@@ -51,7 +51,7 @@ Every other site is ignored, even when the search returns it.
 | `RAKUTEN_AFFILIATE_ID` | `[vars]` | e.g. `0ea62065.34400275.0ea62066.204f04c0` |
 | `YAHOO_AFFILIATE_LINK_TEMPLATE` | `[vars]` | ValueCommerce MyLink: `https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=…&pid=…&vc_url={url}` |
 | `COSME_AFFILIATE_LINK_TEMPLATE` | `[vars]` | The ASP's deep-link format with `{url}` |
-| `NEXT_PUBLIC_AMAZON_AFFILIATE_TAG` | `[vars]` | Already there (`cosmetantei-22`) |
+| `NEXT_PUBLIC_AMAZON_AFFILIATE_TAG` | `[vars]` | Already there (`cosmetantei22-22`, the store ID; under review as of 2026-10-19) |
 
 ## Out of scope
 

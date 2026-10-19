@@ -58,6 +58,8 @@ Last updated: 2026-10-18.
 | 2026-10-19 | `4ea9358` | Pre-launch audit and hardening ([walkthrough](walkthroughs/2026-10-19-prelaunch-audit.md)): shared caches hardened against poisoning (instruction-like search terms and ingredient names rejected, verified ingredient lists never replaced under the same id, brand verdicts on the brand string only, seed brands accepted, negative verdicts 1 day); per-request $0.30 / 60 s cap on paid calls; AI Gateway cache off; 50k-token page estimate; shop lineup and Open Beauty Facts quotas; Turnstile `remoteip`; byte-capped label upload; chat replies with safety/cure claims rejected; cosmetantei.app everywhere, robots, sitemap, OG image, noindex on workers.dev, softer copy; static-asset headers; Workers Logs on; CI builds; tests 97–100 |
 | 2026-10-19 | `5c307ea` | New Turnstile sessions get $0.30 until 30 minutes old (`SPEND_PER_NEW_SESSION_USD`, `SPEND_NEW_SESSION_MINUTES`), then $0.50 in total; trusted-sites plan; test 101 |
 | 2026-10-19 | `33682d8` | 「Webで成分を調べ直す」 after an analysis with no ingredient list (skips a cached empty result once per 10 minutes per query; empty results now cached 1 hour, not 7 days; test 102). Routine image ([plan](plans/routine-image.md)): save or share マイルーティン as a PNG with possible causes, products that suited the user and an optional QR code; import from the file data, the QR code alone, a `#r=` link or the in-app scanner; imported products rebuilt from checked fields; test 103 and headless Chrome checks (QR read back from a 720px quality-60 JPEG) |
+| 2026-10-19 | *this commit* | Trusted sites ([plan](plans/trusted-sites.md)): web products are shared (KV query caches, memory, verified index, barcode cache, alternatives) only from listed company domains when `TRUSTED_SITES_MODE=enforce`; other sites go to the requester only, with 「ほかのサイトの情報です」. Production starts in `shadow` (host-only `[trusted-sites]` logs); test 104 |
+| 2026-10-19 | *this commit* | Ingredients from the shops before web research ([plan](plans/shop-ingredients.md)): Yahoo! JAN codes to saved products; Rakuten captions cut, cleaned and filtered by clef-flash, used for that reply only (Rakuten Art. 10 (9)), with trusted-site research after the reply; Amazon tag fixed to `cosmetantei22-22` (the client bundle had `cosmetantei-22`); test 105 |
 
 ## In progress
 
@@ -86,8 +88,9 @@ In order:
    add the site to Google Search Console and submit the sitemap. Done: cosmetantei.app live with
    www redirect, API registrations, contact forwarding (2026-10-19); the smaller budget for new
    sessions.
-5. **Trusted sites for shared web data:** [plan](plans/trusted-sites.md) (owner approved
-   2026-10-19).
+5. **Trusted sites:** after about a week of `[trusted-sites]` shadow logs, add retailers that
+   publish full ingredient lists and missing brand domains, then set `TRUSTED_SITES_MODE =
+   "enforce"` ([plan](plans/trusted-sites.md); see its "Before switching to enforce" list).
 6. **Accessibility, not done in code:** check with a real screen reader (VoiceOver/NVDA) and with
    raised text spacing. The Rakuten and Yahoo! credit links are left as the shops' official snippets
    (no new-tab note, small target), since the terms ask for the snippet as given.

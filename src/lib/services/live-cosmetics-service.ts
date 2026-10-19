@@ -10,6 +10,10 @@ import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { isKnownGenericTerm } from './brand-check';
 import { researchProducts, toProductSearchQuery } from './web-research';
+import { shopIngredientProducts } from './shop-ingredients';
+import { withoutListingNoise } from './shop-lineup';
+import { isShopListingProduct } from '../product-source';
+import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
 import { rankProducts, searchKey } from '../search/product-match';
@@ -467,26 +471,43 @@ export async function searchCosmeticsLive(
     !collected.some((p) => hasVerifiedIngredientList(p) && namesProduct(p, productQuery)) &&
     !isNonCosmeticSearchQuery(clean)
   ) {
-    const webResults = await researchProducts(productQuery, Math.min(limit, 4), { retryEmpty: options.retryEmpty });
-    // 調べた製品を先に置く（Web リサーチは、検索語を名前に含む確認済みの候補が無いときだけ行うので、
-    // ここまでの候補より合っている。後ろに置くと、同じブランドの候補で件数が埋まり切り捨てられる）
-    const found: Product[] = [];
-    for (const w of webResults.filter(isActualCosmeticProduct)) {
-      const i = collected.findIndex((c) => c.id === w.id || c.name === w.name);
-      if (i >= 0) {
-        // 同じ製品で成分が無い候補（前に調べて全成分が無かった等）は、全成分が見つかった結果で置き換える
-        if (hasVerifiedIngredientList(collected[i]) || !hasVerifiedIngredientList(w)) continue;
-        collected.splice(i, 1);
+    // まずお店の API（Yahoo! の JAN コードで保存済みの製品、楽天の商品説明の全成分。費用はほぼ無し）。
+    // 見つかれば、すぐに返す。楽天の説明から読んだ成分は保存できないので、全員で共有する結果は、返答の後に
+    // 信頼するサイトを調べて作る（保存済みの確かめた製品が見つかったときは調べない）
+    const fromShops = await shopIngredientProducts(productQuery).catch((err) => {
+      console.error('Shop ingredient lookup failed:', err instanceof Error ? err.message : err);
+      return [] as Product[];
+    });
+    if (fromShops.length > 0) {
+      collected.unshift(...fromShops.filter((s) => !collected.some((c) => c.id === s.id)));
+      if (!fromShops.some(hasVerifiedIngredientList)) {
+        await runAfterResponse(researchProducts(productQuery, Math.min(limit, 4), { retryEmpty: options.retryEmpty }));
       }
-      found.push(w);
+    } else {
+      const webResults = await researchProducts(productQuery, Math.min(limit, 4), { retryEmpty: options.retryEmpty });
+      // 調べた製品を先に置く（Web リサーチは、検索語を名前に含む確認済みの候補が無いときだけ行うので、
+      // ここまでの候補より合っている。後ろに置くと、同じブランドの候補で件数が埋まり切り捨てられる）
+      const found: Product[] = [];
+      for (const w of webResults.filter(isActualCosmeticProduct)) {
+        const i = collected.findIndex((c) => c.id === w.id || c.name === w.name);
+        if (i >= 0) {
+          // 同じ製品で成分が無い候補（前に調べて全成分が無かった等）は、全成分が見つかった結果で置き換える
+          if (hasVerifiedIngredientList(collected[i]) || !hasVerifiedIngredientList(w)) continue;
+          collected.splice(i, 1);
+        }
+        found.push(w);
+      }
+      collected.unshift(...found);
     }
-    collected.unshift(...found);
   }
 
   // 件数が足りなくても架空の候補は合成しない（0件ならUI側で再検索・バーコードを案内）
 
   // D. 厳格フィルター（実在コスメのみを確実に保証）
-  const validProducts = collected.filter(isActualCosmeticProduct).slice(0, limit);
+  // お店の商品名は変えずに表示するので、【公式】・送料無料などの飾りを外した名前で、コスメかどうかを確かめる
+  const isCosmetic = (p: Product) =>
+    isActualCosmeticProduct(isShopListingProduct(p) ? { ...p, name: withoutListingNoise(p.name) } : p);
+  const validProducts = collected.filter(isCosmetic).slice(0, limit);
 
   // E. Clef による検索語との照合（SEARCH_FILTER_MODE。既定は off）。空の検索・挨拶は照合しない
   return filterSearchResults(clean && !isGreetingOrConsultation(clean) ? clean : '', validProducts);

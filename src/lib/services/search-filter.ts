@@ -1,4 +1,5 @@
 import 'server-only';
+import { isShopListingProduct } from '../product-source';
 import { forAiQuestion } from '../utils/safe-text';
 import { Product } from '../types';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey, runAfterResponse, runWorkersAI } from '../server/cloudflare';
@@ -174,6 +175,8 @@ export async function filterSearchResults(query: string, products: Product[]): P
   if (mode === 'off' || q.length < MIN_QUERY_LENGTH || products.length === 0 || products.length > MAX_CANDIDATES) {
     return products;
   }
+  // 楽天の商品説明から読んだ製品があれば判定しない（判定は商品名から作るキーで KV に保存するため。楽天の規約 第10条 (9)）
+  if (products.some(isShopListingProduct)) return products;
 
   const verdicts = await judgeWithin(q, products);
   if (!verdicts) return products;

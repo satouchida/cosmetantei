@@ -1,9 +1,9 @@
 /**
  * Amazon アソシエイト・アフィリエイトリンク生成ヘルパー
- * デフォルトタグ: cosmetantei-22 (環境変数で上書き可能)
+ * デフォルトタグ: cosmetantei22-22（ストアID。環境変数で上書き可能。NEXT_PUBLIC_ はビルド時に埋め込まれるので、既定値も正しいタグにしておく）
  */
 export const AMAZON_AFFILIATE_TAG =
-  process.env.NEXT_PUBLIC_AMAZON_AFFILIATE_TAG || 'cosmetantei-22';
+  process.env.NEXT_PUBLIC_AMAZON_AFFILIATE_TAG || 'cosmetantei22-22';
 
 /**
  * 商品名・ブランド名から Amazon.co.jp アフィリエイト検索URLを生成

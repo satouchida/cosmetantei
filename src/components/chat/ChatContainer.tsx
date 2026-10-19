@@ -717,7 +717,7 @@ export const ChatContainer: React.FC = () => {
       country: 'JP',
       category: 'serum',
       ingredients: ['アスコルビン酸', 'ピリドキシン塩酸塩', 'アラントイン', 'o-シメン-5-オール', '香料'],
-      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=メラノCC+プレミアム美容液&tag=cosmetantei-22',
+      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=メラノCC+プレミアム美容液&tag=cosmetantei22-22',
       descriptionJa: 'サンプルデータ：ビタミンC高配合美容液',
     };
     const sampleCurel: Product = {
@@ -729,7 +729,7 @@ export const ChatContainer: React.FC = () => {
       fragranceFree: true,
       alcoholFree: true,
       ingredients: ['グリチルリチン酸2K', '精製水', 'グリセリン', 'ラウロイルアスパラギン酸Na液'],
-      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=キュレル+泡洗顔料&tag=cosmetantei-22',
+      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=キュレル+泡洗顔料&tag=cosmetantei22-22',
       descriptionJa: 'サンプルデータ：セラミドケア洗顔料',
     };
     const sampleIhada: Product = {
@@ -741,7 +741,7 @@ export const ChatContainer: React.FC = () => {
       fragranceFree: true,
       alcoholFree: true,
       ingredients: ['アラントイン', 'グリチルリチン酸ジカリウム', '精製水', '高精製ワセリン'],
-      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=イハダ+薬用ローション&tag=cosmetantei-22',
+      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=イハダ+薬用ローション&tag=cosmetantei22-22',
       descriptionJa: 'サンプルデータ：低刺激薬用化粧水',
     };
 

@@ -48,6 +48,9 @@ export function productSourceInfo(p: Product): ProductSourceInfo | null {
       return { label: 'パッケージの成分表示（入力）', fromWebSearch: false };
     case 'ai_estimate':
       return { label: 'AIによる推定', fromWebSearch: false };
+    case 'shop_listing':
+      // 商品ページへのリンクは楽天アフィリエイトのリンク（shopLink）のときだけ（楽天の規約）
+      return { label: '楽天市場の商品説明', href: p.shopLink?.href, fromWebSearch: false };
     default:
       return null;
   }
@@ -60,4 +63,15 @@ export function productSourceInfo(p: Product): ProductSourceInfo | null {
  */
 export function isUserLabelProduct(p: Product): boolean {
   return p.ingredientSource === 'user_label' || p.id.startsWith('label_');
+}
+
+/** お店の商品説明から成分を読んだ製品の ID の頭（src/lib/services/shop-ingredients.ts） */
+export const SHOP_TEXT_ID_PREFIX = 'shoptext_';
+
+/**
+ * お店の商品説明から成分を読んだ製品か。楽天の規約（第10条 (9)）で保存できないので、その返答にだけ使う：
+ * 共有のキャッシュに入れない（isShareable）・ブラウザに保存しない・画像に書き出さない（isPersistable）
+ */
+export function isShopListingProduct(p: Product): boolean {
+  return p.ingredientSource === 'shop_listing' || p.id.startsWith(SHOP_TEXT_ID_PREFIX);
 }

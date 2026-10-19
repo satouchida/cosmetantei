@@ -1,8 +1,9 @@
 import { Product } from '../types';
-import { isUserLabelProduct } from '../product-source';
+import { isShopListingProduct, isUserLabelProduct } from '../product-source';
 import { buildAmazonAffiliateUrl } from '../services/amazon-affiliate';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { hasStaleLabel } from '../analyzer/label-parser';
+import { mayShareWebProduct } from './trusted-sites';
 
 /**
  * 【動的コスメキャッシュ】
@@ -27,10 +28,11 @@ export function isVerifiedSource(p: Product): boolean {
 
 /**
  * 共有のキャッシュ・KV に入れてよい製品か。ユーザーが入力した成分表示は、その人だけのもので確認もされていないため入れない
- * （他の人の検索結果・代替品候補にしない）
+ * （他の人の検索結果・代替品候補にしない）。Web のページの製品は、TRUSTED_SITES_MODE=enforce のとき
+ * 信頼するサイトのものだけ（src/lib/data/trusted-sites.ts）。サーバーの持つ製品として使うか（client-products.ts）も、これで決まる
  */
 export function isShareable(p: Product): boolean {
-  return !isUserLabelProduct(p);
+  return !isUserLabelProduct(p) && !isShopListingProduct(p) && mayShareWebProduct(p);
 }
 
 /**
@@ -117,7 +119,8 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
 
   // 古い方式で分けた成分表示の製品は捨てる（次に調べたときに新しい方式で保存される）
   const raw = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY)) || [];
-  const stored = raw.filter((p) => !hasStaleLabel(p));
+  // 共有しない製品（信頼しないサイトの製品など）も、次の書き込みで一覧から外す
+  const stored = raw.filter((p) => !hasStaleLabel(p) && isShareable(p));
   // すでに保存した製品（同じ id）の成分表示は、別の内容で置き換えない（英語の成分表示を訳した版は置き換える）。
   // 置き換えなかった製品は、新しい製品に押し出される（最大 300 件）まで残る。インデックス全体の期限は書き込むたびに延びる
   const fresh = verified.filter((v) => !stored.some((s) => isRejectedReplacement(s, v)));

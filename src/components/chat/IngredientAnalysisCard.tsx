@@ -5,7 +5,7 @@ import { ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/li
 import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
-import { isUserLabelProduct } from '@/lib/product-source';
+import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 import { apiFetch } from '@/lib/client/api-fetch';
 import {
   badge as badgeClass,
@@ -32,7 +32,7 @@ interface IngredientAnalysisCardProps {
  * 入力・撮影した成分表示は AI にまとめて送らないので頼まない（1成分ずつ「AIでさらに詳しく調べる」で調べられる）
  */
 function needsAIEvaluation(a: ProductAnalysisResult): boolean {
-  return a.riskCounts.unknown > 0 && !a.aiEvaluation && !a.isEstimatedFromMarketplaces && !isUserLabelProduct(a.product);
+  return a.riskCounts.unknown > 0 && !a.aiEvaluation && !a.isEstimatedFromMarketplaces && !isUserLabelProduct(a.product) && !isShopListingProduct(a.product);
 }
 
 /** 成分DB（出典と照合済み）で評価した成分か。ルールの推論（dyn_）・AI（ai_）は含めない */

@@ -19,7 +19,7 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
           <a
             href={source.href}
             target="_blank"
-            rel="noopener noreferrer nofollow"
+            rel={product.ingredientSource === 'shop_listing' ? 'sponsored noopener noreferrer nofollow' : 'noopener noreferrer nofollow'}
             title={source.label}
             className="flex items-center gap-0.5 min-w-0 min-h-12 -my-2 text-sage-700 hover:text-sage-900 underline underline-offset-2"
           >
@@ -34,6 +34,20 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
         )}
       </div>
       {translated && <p className="text-xs text-ink-muted">英語の成分表示を、AIで日本語の成分名に置き換えています。</p>}
+      {product.ingredientSource === 'shop_listing' && (
+        <div className="text-xs text-ink-muted">
+          <p>販売ページの成分表示です。成分はパッケージで確かめてください。</p>
+          {/* Rakuten Web Services Attribution Snippet FROM HERE */}
+          <a href="https://developers.rakuten.com/" target="_blank" rel="noopener noreferrer">
+            Supported by Rakuten Developers
+          </a>
+          {/* Rakuten Web Services Attribution Snippet TO HERE */}
+        </div>
+      )}
+      {/* 信頼するサイト（src/lib/data/trusted-sites.ts）ではないページ。調べた本人にだけ出している */}
+      {product.sharedSource === false && product.ingredientSource !== 'shop_listing' && (
+        <p className="text-xs text-ink-muted">ほかのサイトの情報です。成分はパッケージで確かめてください。</p>
+      )}
     </div>
   );
 };

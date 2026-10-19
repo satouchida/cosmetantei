@@ -226,6 +226,11 @@ export interface ShopItem {
   /** 価格（円、API が返したまま）と、税込か（分からなければ null） */
   priceYen?: number;
   taxIncluded: boolean | null;
+  /**
+   * 楽天の商品説明（itemCaption）。成分を読むとき（caption: true）だけ取る。その返答にだけ使い、保存しない
+   * （第10条 (9)）。ブラウザには送らない
+   */
+  caption?: string;
 }
 
 /** 写真の URL：https で、楽天・Yahoo! の画像サーバーのものだけを使う（ほかのサイトを利用者のブラウザから読ませない） */
@@ -248,11 +253,18 @@ const yen = (v: unknown) => (Number.isSafeInteger(v) && (v as number) > 0 ? (v a
 
 const LINEUP_HITS = 30;
 
+/** 商品説明の上限（文字数）。これより長い説明は先頭だけを読む */
+const MAX_CAPTION_LENGTH = 20_000;
+
 /**
  * 楽天市場の商品検索（https://webservice.rakuten.co.jp/documentation/ichiba-item-search）。
- * 検索語はブランド名だけ（利用者が入力した文は送らない）。キー未設定なら undefined、失敗は null
+ * 検索語はブランド名（と、アプリが決めた種類の語）だけ（利用者が入力した文は送らない）。キー未設定なら undefined、失敗は null。
+ * caption: 商品説明も取る（成分を読むときだけ）
  */
-export async function rakutenItemSearch(keyword: string): Promise<ShopItem[] | null | undefined> {
+export async function rakutenItemSearch(
+  keyword: string,
+  { caption = false }: { caption?: boolean } = {}
+): Promise<ShopItem[] | null | undefined> {
   if (!isRakutenApiConfigured()) return undefined;
   const params = new URLSearchParams({
     applicationId: readShopConfig('RAKUTEN_APPLICATION_ID'),
@@ -261,7 +273,7 @@ export async function rakutenItemSearch(keyword: string): Promise<ShopItem[] | n
     availability: '1',
     formatVersion: '2',
     // 必要な項目だけを返させる
-    elements: 'itemName,itemCode,itemUrl,availability,itemPrice,taxFlag,mediumImageUrls',
+    elements: `itemName,itemCode,itemUrl,availability,itemPrice,taxFlag,mediumImageUrls${caption ? ',itemCaption' : ''}`,
   });
   const body = await getJson(
     `${RAKUTEN_ENDPOINT}?${params}`,
@@ -290,6 +302,7 @@ export async function rakutenItemSearch(keyword: string): Promise<ShopItem[] | n
       ...(yen(item.itemPrice) && { priceYen: yen(item.itemPrice) }),
       // taxFlag 0: 税込、1: 税別
       taxIncluded: item.taxFlag === 0 ? true : item.taxFlag === 1 ? false : null,
+      ...(caption && str(item.itemCaption) && { caption: str(item.itemCaption).slice(0, MAX_CAPTION_LENGTH) }),
     });
   }
   return items;

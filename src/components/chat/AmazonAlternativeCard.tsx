@@ -6,6 +6,7 @@ import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
 import { badge, buttonPrimary, innerCard, panel } from '../ui/design';
 import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
+import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -47,7 +48,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
           const amazonUrl =
             p.amazonSearchUrl && /^https:\/\/www\.amazon\.co\.jp\//.test(p.amazonSearchUrl)
               ? p.amazonSearchUrl
-              : `https://www.amazon.co.jp/s?k=${encodeURIComponent(p.brand + ' ' + p.name)}&tag=cosmetantei-22`;
+              : buildAmazonAffiliateUrl(p.brand, p.name);
 
           return (
             <div

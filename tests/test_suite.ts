@@ -66,7 +66,7 @@ test('2. Sync search returns cached real products only and never synthesizes', (
   const lip = addProductToDynamicCache(verifiedProduct({ name: 'ちふれ 口紅', brand: 'ちふれ', category: 'lip' }));
   const r1 = searchCosmetics('ちふれ　リップ', 3);
   assert.ok(r1.some((p) => p.id === lip.id), 'Cached real product must be found');
-  assert.ok(r1[0].amazonSearchUrl?.includes('tag=cosmetantei-22'));
+  assert.ok(r1[0].amazonSearchUrl?.includes('tag=cosmetantei22-22'));
 });
 
 test('3. Ingredient risk classification on live cosmetics', () => {
@@ -198,7 +198,7 @@ test('8. Dynamic cache registration of live API & Google search products', () =>
 
   const cached = addProductToDynamicCache(liveFetchedProduct);
   assert.strictEqual(cached.id, 'obf_1234567890123');
-  assert.ok(cached.amazonSearchUrl?.includes('tag=cosmetantei-22'));
+  assert.ok(cached.amazonSearchUrl?.includes('tag=cosmetantei22-22'));
 
   const searchHits = searchCosmetics('リアルタイム取得リップバーム', 3);
   assert.ok(searchHits.some((p) => p.id === 'obf_1234567890123'));
@@ -380,7 +380,7 @@ test('12. Dynamic API & cache-only architecture (Zero internal static brand cata
   for (const item of results) {
     assert.ok(item.name, 'Product must have a valid name');
     assert.ok(item.brand, 'Product must have a valid brand');
-    assert.ok(item.amazonSearchUrl?.includes('tag=cosmetantei-22'), 'Must have Amazon affiliate URL');
+    assert.ok(item.amazonSearchUrl?.includes('tag=cosmetantei22-22'), 'Must have Amazon affiliate URL');
     assert.ok(!item.descriptionJa?.includes('**'), 'Description must not contain markdown bold');
   }
 });
@@ -5993,4 +5993,242 @@ test('103. Routine image data: file data and QR link round-trip; typed labels, p
   const { qrCellSize } = await import('../src/lib/client/routine-image');
   const longest = `https://cosmetantei.app/#r=${'A'.repeat(share.MAX_SHARE_URL_BYTES - 'https://cosmetantei.app/#r='.length)}`;
   assert.ok(qrCellSize(longest) >= 4, `cell ${qrCellSize(longest)}px`);
+});
+
+test('104. Trusted sites: hosts match by domain over https; in enforce, other sites are returned to the requester only', async () => {
+  const trust = await import('../src/lib/data/trusted-sites');
+  const { researchProducts, researchAlternativeCandidates } = await import('../src/lib/services/web-research');
+  const { resolveClientProduct } = await import('../src/lib/server/client-products');
+  const { isShareable, rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
+
+  // ホスト名の判定：ドメインそのものかサブドメイン、https だけ。似せたホスト・出品者のページは通さない
+  assert.ok(trust.isTrustedSource('https://www.kao.co.jp/curel/products/a/'));
+  assert.ok(trust.isTrustedSource('https://kao.co.jp./x'));
+  assert.ok(!trust.isTrustedSource('http://www.kao.co.jp/curel/'), 'http is not trusted');
+  assert.ok(!trust.isTrustedSource('https://kao.co.jp.evil.example/'));
+  assert.ok(!trust.isTrustedSource('https://evilkao.co.jp/'));
+  assert.ok(!trust.isTrustedSource('https://user:pw@www.kao.co.jp/'));
+  assert.ok(!trust.isTrustedSource('https://item.rakuten.co.jp/shop/x'));
+  assert.ok(!trust.isTrustedSource(undefined));
+  assert.ok(!trust.isTrustedSource('https://www.kao.co.jp:8443/'), 'Another port is another service');
+  assert.ok(trust.isTrustedSource('https://WWW.KAO.CO.JP/x'), 'Hosts are compared in lower case');
+
+  const saved = process.env.TRUSTED_SITES_MODE;
+  const official = 'https://www.kao.co.jp/curel/products/trust-lotion/';
+  const blog = 'https://blog.example.net/trust-lotion';
+  const item = (sourceUrl: string, name: string) => ({
+    sourceUrl, brand: 'キュレル', name, category: 'toner', ingredients: ['水', 'グリセリン', 'BG'], ingredientsFoundOnPage: true,
+  });
+  const originalFetch = globalThis.fetch;
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('[trusted-sites]')) logs.push(args[0]);
+    else originalLog(...args);
+  };
+  setGatewayEnv();
+  try {
+    // off（既定）：今までどおり、どのサイトの製品も共有する
+    delete process.env.TRUSTED_SITES_MODE;
+    const anySite = { id: 'web_any', name: 'x', brand: 'y', country: 'JP' as const, category: 'other' as const, ingredients: ['水'], ingredientSource: 'web_page' as const, sourceUrl: blog };
+    assert.ok(isShareable(anySite));
+    // サーバーが「共有しない」と決めた印は、どのモードでも守る（バーコードを特定したページが信頼しないサイトだったとき等）
+    assert.ok(!trust.mayShareWebProduct({ ...anySite, sourceUrl: official, sharedSource: false }));
+
+    // shadow：動きは変えず、ホスト名と判定だけをログに出す（商品名・検索語は出さない）
+    process.env.TRUSTED_SITES_MODE = 'shadow';
+    const search1 = fakeWebSearchAI(() => [{ url: official }, { url: blog }]);
+    globalThis.fetch = fakeGeminiPageReader([item(official, '信頼 化粧水 A'), item(blog, '信頼 化粧水 B')], [official, blog]).fetchFn;
+    const shadow = await withCloudflareEnv({ AI: search1.AI }, () => researchProducts('信頼 化粧水 shadow', 4));
+    assert.deepStrictEqual(shadow.map((p) => p.sharedSource), [undefined, undefined]);
+    assert.deepStrictEqual(logs.map((l) => JSON.parse(l.slice('[trusted-sites] '.length))), [
+      { trusted: true, host: 'www.kao.co.jp', task: 'research' },
+      { trusted: false, host: 'blog.example.net', task: 'research' },
+    ]);
+    assert.ok(!logs.join('').includes('化粧水'), 'Only hosts are logged');
+
+    // enforce：信頼しないサイトの製品は本人にだけ返し、キャッシュ・サーバーの製品・代わりの商品に入れない
+    process.env.TRUSTED_SITES_MODE = 'enforce';
+    const search2 = fakeWebSearchAI(() => [{ url: official }, { url: blog }]);
+    globalThis.fetch = fakeGeminiPageReader([item(official, '信頼 化粧水 C'), item(blog, '信頼 化粧水 D')], [official, blog]).fetchFn;
+    const enforced = await withCloudflareEnv({ AI: search2.AI }, () => researchProducts('信頼 化粧水 enforce', 4));
+    const [trusted, other] = enforced;
+    assert.strictEqual(trusted.sharedSource, undefined);
+    assert.strictEqual(other.sharedSource, false);
+    assert.ok(COSMETICS_DATABASE.some((p) => p.id === trusted.id), 'A trusted product is shared');
+    assert.ok(!COSMETICS_DATABASE.some((p) => p.id === other.id), 'Another site’s product is not');
+    // サーバーは信頼しないサイトの製品を持たないので、送られた本人の内容を本人にだけ使う
+    const sent = { ...other, ingredients: ['水'] };
+    assert.strictEqual(await resolveClientProduct(sent), sent);
+    // 2回目は信頼するサイトの製品だけがキャッシュから返る（検索しない）
+    const again = await withCloudflareEnv({ AI: search2.AI }, () => researchProducts('信頼 化粧水 enforce', 4));
+    assert.deepStrictEqual(again.map((p) => p.name), ['信頼 化粧水 C']);
+    assert.strictEqual(search2.searches.length, 1);
+
+    // 信頼しないサイトだけの結果は保存しない（次に聞かれたらまた調べる）
+    const search3 = fakeWebSearchAI(() => [{ url: blog }]);
+    globalThis.fetch = fakeGeminiPageReader([item(blog, '信頼 化粧水 E')], [blog]).fetchFn;
+    const onlyBlog = await withCloudflareEnv({ AI: search3.AI }, () => researchProducts('信頼 化粧水 only-blog', 4));
+    assert.deepStrictEqual(onlyBlog.map((p) => p.sharedSource), [false], 'The requester still gets it');
+    // 続けて聞かれても、しばらくは調べ直さない（保存できない結果のために、何度も費用をかけない）
+    await withCloudflareEnv({ AI: search3.AI }, () => researchProducts('信頼 化粧水 only-blog', 4));
+    assert.strictEqual(search3.searches.length, 1);
+    // ID が web_ でなくても、出典の URL がある製品は Web の製品として判定する
+    assert.ok(!isShareable({ ...anySite, id: 'other_1' }));
+
+    // 代わりの商品は信頼するサイトの製品だけ
+    const search4 = fakeWebSearchAI(() => [{ url: official }, { url: blog }]);
+    globalThis.fetch = fakeGeminiPageReader([item(official, '代わり 化粧水 F'), item(blog, '代わり 化粧水 G')], [official, blog]).fetchFn;
+    const alternatives = await withCloudflareEnv({ AI: search4.AI }, () => researchAlternativeCandidates('香料 無添加 化粧水', '化粧水'));
+    assert.deepStrictEqual(alternatives.map((p) => p.name), ['代わり 化粧水 F']);
+    // 信頼しないサイトの製品だけなら、空の結果を保存する（だれにとっても同じ答え）
+    const search5 = fakeWebSearchAI(() => [{ url: blog }]);
+    globalThis.fetch = fakeGeminiPageReader([item(blog, '代わり 化粧水 H')], [blog]).fetchFn;
+    assert.deepStrictEqual(await withCloudflareEnv({ AI: search5.AI }, () => researchAlternativeCandidates('エタノール 無添加 化粧水', '化粧水')), []);
+    await withCloudflareEnv({ AI: search5.AI }, () => researchAlternativeCandidates('エタノール 無添加 化粧水', '化粧水'));
+    assert.strictEqual(search5.searches.length, 1);
+    // 同じ製品が信頼しないサイトと信頼するサイトにあれば、信頼するサイトの方を残す
+    const search6 = fakeWebSearchAI(() => [{ url: blog }, { url: official }]);
+    globalThis.fetch = fakeGeminiPageReader([item(blog, '信頼 化粧水 J'), item(official, '信頼 化粧水 J')], [blog, official]).fetchFn;
+    const both = await withCloudflareEnv({ AI: search6.AI }, () => researchProducts('信頼 化粧水 both', 4));
+    assert.deepStrictEqual(both.map((p) => [p.sourceUrl, p.sharedSource]), [[official, undefined]]);
+
+    // 確認済み製品の一覧（KV）からも、次の書き込みで外れる
+    const { cachePutJSON } = await import('../src/lib/server/cloudflare');
+    const kv = new Map<string, string>();
+    const APP_CACHE = {
+      async get(key: string) { return kv.has(key) ? JSON.parse(kv.get(key)!) : null; },
+      async put(key: string, value: string) { kv.set(key, value); },
+      async delete(key: string) { kv.delete(key); },
+    };
+    await withCloudflareEnv({ APP_CACHE }, async () => {
+      // enforce の前に保存した、信頼しないサイトの製品が入った一覧
+      await cachePutJSON('verified-products:v1', [anySite], 3600);
+      await rememberVerifiedProducts([trusted]);
+    });
+    assert.deepStrictEqual((JSON.parse(kv.get('verified-products:v1')!) as Product[]).map((p) => p.id), [trusted.id]);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+    if (saved === undefined) delete process.env.TRUSTED_SITES_MODE;
+    else process.env.TRUSTED_SITES_MODE = saved;
+  }
+});
+
+test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) and Yahoo! JAN codes come before web research', async () => {
+  const shop = await import('../src/lib/services/shop-ingredients');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { addProductToDynamicCache, isShareable } = await import('../src/lib/data/cosmetics-db');
+  const { isPersistable } = await import('../src/lib/current-use');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+
+  // 切り出し：全成分の見出しから、次の見出しまで。新旧の処方は【変更後】だけ。2つ以上・見出し無しは使わない
+  const label = '水、BG、グリセリン、ベタイン、スクワラン、ペンチレングリコール、セラミドNP、フェノキシエタノール、メチルパラベン';
+  const caption = `潤いを守る化粧水です。<br>【全成分】<br>${label}<br>【使用方法】適量を手に取り…<br>【内容量】150ml`;
+  assert.strictEqual(shop.cutIngredientBlock(caption)?.replace(/\s+/g, ''), label);
+  assert.strictEqual(shop.cutIngredientBlock(`【変更前】全成分：水、エタノール<br>【変更後】全成分：${label}<br>■広告文責 株式会社X`)?.replace(/\s+/g, ''), label);
+  assert.strictEqual(shop.cutIngredientBlock(`化粧水 全成分：${label}<br>乳液 全成分：水、BG`), null, 'A set lists two products');
+  assert.strictEqual(shop.cutIngredientBlock('潤いを守る化粧水です。'), null);
+  assert.deepStrictEqual(shop.dropObviousNonIngredients(['水', 'はれ', '150', '成分は予告なく変更することがあります。', 'BG']), ['水', 'BG']);
+  // 改行なしで続く見出し（「 内容量：」）で終わる。HTML の文字参照・文中のタグも読む
+  assert.strictEqual(shop.cutIngredientBlock(`全成分表示】${label}、香料 内容量：150ml 使用方法：…`)?.replace(/\s+/g, ''), `${label}、香料`);
+  assert.ok(shop.cutIngredientBlock(`全成分：水&#12289;ヒアルロン酸<b>Na</b><br>内容量 150ml`)?.includes('水、ヒアルロン酸Na'));
+  // 長い説明で、見出しが無いまま終わりまで続く一覧は、途中で切れているかもしれないので使わない
+  assert.strictEqual(shop.cutIngredientBlock(`${'説明'.repeat(450)}全成分：${label}`), null);
+  // 「変更前」だけで、どれが今の処方か分からない説明は使わない
+  assert.strictEqual(shop.cutIngredientBlock(`【変更前】全成分：${label}<br>内容量 150ml`), null);
+  // 最後の成分に文がくっついていたら（除くと香料を見落とす）、一覧を使わない
+  assert.strictEqual(await shop.ingredientsFromCaption(`全成分：${label}、香料 本品は医薬品ではありません。<br>内容量 150ml`), null);
+  // clef-flash：成分ではないと 75% 以上で言われた項目を除く（質問は項目の名前だけ）
+  const asked: unknown[] = [];
+  const AI = {
+    async run(_model: string, input: { questions: Record<string, { instructions: { item: string } }> }) {
+      asked.push(input);
+      const answers = Object.fromEntries(
+        Object.entries(input.questions).map(([id, q]) => [
+          id,
+          q.instructions.item === '保湿成分' || q.instructions.item === 'フェノキシエタノール'
+            ? { type: 'choice', choice: 'other', probabilities: { other: 0.9, ingredient: 0.1 } }
+            : { type: 'choice', choice: 'ingredient', probabilities: { ingredient: 0.95, other: 0.05 } },
+        ])
+      );
+      return { answers };
+    },
+  };
+  const withJunk = await withCloudflareEnv({ AI }, () => shop.ingredientsFromCaption(`全成分：${label}、保湿成分<br>内容量 150ml`));
+  assert.ok(withJunk && !withJunk.ingredients.includes('保湿成分') && withJunk.ingredients.length === 9);
+  assert.ok(withJunk.ingredients.includes('フェノキシエタノール'), 'Clef never removes a name the ingredient database knows');
+  assert.ok(!JSON.stringify(asked).includes('潤いを守る'), 'Clef sees item names only');
+
+  // お店の API：送るのはブランド名と種類の語だけ（入力の「III」「とてもしっとり」は送らない）
+  const saved = addProductToDynamicCache({
+    id: 'obf_4901301999999', name: 'キュレル 潤浸保湿 化粧水 III', brand: 'キュレル', country: 'JP', category: 'toner',
+    barcode: '4901301999999', ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
+  });
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  const requests: URL[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    requests.push(url);
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({
+        items: [
+          { itemName: '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml', itemCode: 'kao:10', itemUrl: 'https://item.rakuten.co.jp/kao/10/', availability: 1, itemCaption: caption },
+          { itemName: 'キュレル 化粧水 III 2個セット', itemCode: 'kao:11', itemUrl: 'https://item.rakuten.co.jp/kao/11/', availability: 1, itemCaption: caption },
+          { itemName: '【公式】キュレル 皮脂トラブルケア 化粧水 送料無料', itemCode: 'kao:12', itemUrl: 'https://item.rakuten.co.jp/kao/12/', availability: 1, itemCaption: caption },
+        ],
+      });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') {
+      return Response.json({ hits: [{ name: 'キュレル 化粧水 III とてもしっとり', code: 'y_1', url: 'https://store.shopping.yahoo.co.jp/s/1.html', inStock: true, condition: 'new', brand: { name: 'キュレル' }, janCode: '4901301999999' }] });
+    }
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    delete process.env.RAKUTEN_AFFILIATE_ID;
+    resetSpendCap();
+    const found = await shop.shopIngredientProducts('キュレル 化粧水 III');
+    const rakutenReq = requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!;
+    assert.strictEqual(rakutenReq.searchParams.get('keyword'), 'キュレル 化粧水');
+    assert.ok(rakutenReq.searchParams.get('elements')?.includes('itemCaption'));
+    assert.strictEqual(requests.find((u) => u.hostname === 'shopping.yahooapis.jp')!.searchParams.get('query'), 'キュレル 化粧水');
+
+    // Yahoo! の JAN コードで保存済みの製品、楽天は商品説明の全成分（セット・別の製品は除く）
+    assert.deepStrictEqual(found.map((p) => p.id), [saved.id, 'shoptext_rakuten_kao:10']);
+    const fromCaption = found[1];
+    assert.strictEqual(fromCaption.name, '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml', 'Rakuten names are not altered');
+    assert.strictEqual(fromCaption.ingredientSource, 'shop_listing');
+    assert.strictEqual(fromCaption.ingredients.length, 9);
+    assert.strictEqual(fromCaption.shopLink, undefined, 'No Rakuten link without the affiliate ID');
+    // 楽天の規約：共有のキャッシュ・ブラウザの保存・書き出しに入れない
+    assert.ok(!isShareable(fromCaption) && !isPersistable(fromCaption));
+    assert.ok(!COSMETICS_DATABASE.some((p) => p.id === fromCaption.id));
+
+    // 「II」は「III」の商品に合わせない
+    assert.deepStrictEqual((await shop.shopIngredientProducts('キュレル 化粧水 II')).map((p) => p.id), []);
+    // ブランドだけ・種類の語だけ・一覧に無いブランドの入力は、お店に聞かない
+    requests.length = 0;
+    assert.deepStrictEqual(await shop.shopIngredientProducts('キュレル 化粧水'), []);
+    assert.deepStrictEqual(await shop.shopIngredientProducts('キュレル'), []);
+    assert.deepStrictEqual(await shop.shopIngredientProducts('ほげほげ 化粧水'), []);
+    assert.strictEqual(requests.length, 0);
+
+    // 検索：お店で見つかれば Web 検索を待たずに返す（共有の結果は返答の後に信頼するサイトで作る）
+    requests.length = 0;
+    const results = await searchCosmeticsLive('キュレル 皮脂トラブルケア 化粧水', 6, { webResearch: true, openBeautyFacts: false });
+    assert.ok(results.some((p) => p.id === 'shoptext_rakuten_kao:12'), JSON.stringify(results.map((p) => p.id)));
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetSpendCap();
+  }
 });

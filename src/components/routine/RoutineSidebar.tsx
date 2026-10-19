@@ -142,7 +142,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                       note={
                         <p className={`text-xs ${stale ? 'text-orange-800 font-semibold' : 'text-ink-muted'}`}>
                           {formatAddedDate(addedAt)}に追加{stale && `（${STALE_AFTER_MONTHS}か月以上前）`}
-                          {!isPersistable(p) && '・入力した成分表示は保存しません'}
+                          {!isPersistable(p) && '・この商品は保存しません（入力した成分表示・お店の商品説明から読んだ成分）'}
                         </p>
                       }
                     >

@@ -1,4 +1,4 @@
-import { COSMETICS_DATABASE, addProductToDynamicCache, rememberVerifiedProducts } from '../data/cosmetics-db';
+import { COSMETICS_DATABASE, addProductToDynamicCache, isShareable, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
@@ -15,7 +15,7 @@ function obfImageUrl(raw: unknown): string | undefined {
     return undefined;
   }
 }
-import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS } from './web-research';
+import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS, UNTRUSTED_ONLY_TTL_SECONDS } from './web-research';
 import { mayRememberFailure } from '../server/usage';
 import { CATEGORY_SYNONYMS } from '../search/product-match';
 import { ETHANOL_IN_LABEL } from './label-reader';
@@ -149,6 +149,23 @@ export const BARCODE_PATTERN = /^[0-9]{8,14}$/;
 const BARCODE_TTL_SECONDS = 60 * 60 * 24 * 7;
 const BARCODE_MISS_TTL_SECONDS = 60 * 60;
 
+/**
+ * 保存済みの製品だけからバーコードで探す（メモリ・KV。Open Beauty Facts・Web には問い合わせない。費用なし）。
+ * お店の商品の JAN コードから、確かめた成分の製品を見つけるのに使う
+ */
+export async function findSavedByBarcode(barcode: string): Promise<Product | null> {
+  const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
+  if (!BARCODE_PATTERN.test(cleanCode)) return null;
+  const cleanNoZero = cleanCode.replace(/^0+/, '');
+  const local = COSMETICS_DATABASE.find((p) => {
+    const pCode = p.barcode?.replace(/[^0-9]/g, '');
+    return !!pCode && (pCode === cleanCode || pCode.replace(/^0+/, '') === cleanNoZero);
+  });
+  if (local) return local;
+  const saved = await cacheGetJSON<Product>(`barcode:v2:${cleanCode}`);
+  return saved && isShareable(saved) && !hasStaleLabel(saved) ? saved : null;
+}
+
 export async function lookupByBarcode(barcode: string): Promise<Product | null> {
   const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
   if (!BARCODE_PATTERN.test(cleanCode)) return null;
@@ -169,13 +186,17 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   // 2. KV に保存済みのバーコード照合結果
   // v2: Google 検索グラウンディングで推定した v1 の結果は使わない
   const kvKey = `barcode:v2:${cleanCode}`;
-  const stored = await cacheGetJSON<Product>(kvKey);
+  // 共有しない製品（信頼しないサイトの製品。TRUSTED_SITES_MODE=enforce の前に保存したもの）は使わない
+  const saved = await cacheGetJSON<Product>(kvKey);
+  const stored = saved && isShareable(saved) ? saved : null;
   if (stored && !hasStaleLabel(stored)) {
     addProductToDynamicCache(stored);
     return stored;
   }
   // 直近で見つからなかったバーコードは、外部API・Gemini への再問い合わせを避ける
   if (await cacheGetJSON<boolean>(`${kvKey}:miss`)) return null;
+  // 少し前に、信頼しないサイトでしか見つからなかったバーコード（保存できない結果のために、何度も調べない）
+  if (await cacheGetJSON<boolean>(`${kvKey}:untrusted`)) return null;
   // 少し前に Web リサーチが一時的に失敗したバーコードは、しばらく調べ直さない（失敗に何度も費用をかけない）
   const recentlyFailed = await cacheGetJSON<boolean>(`${kvKey}:fail`);
 
@@ -273,7 +294,9 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   if (recentlyFailed) return null;
   const webProduct = await researchBarcode(cleanCode);
   if (webProduct) {
-    await cachePutJSON(kvKey, webProduct, BARCODE_TTL_SECONDS);
+    // 全員で共有するのは、信頼するサイトの製品だけ（それ以外は調べた本人にだけ返す）
+    if (isShareable(webProduct)) await cachePutJSON(kvKey, webProduct, BARCODE_TTL_SECONDS);
+    else await cachePutJSON(`${kvKey}:untrusted`, true, UNTRUSTED_ONLY_TTL_SECONDS);
     return webProduct;
   }
   // 一時的な失敗（検索・Gemini のエラー）は「見つからない」として保存しない。しばらく調べ直さない印だけ付ける

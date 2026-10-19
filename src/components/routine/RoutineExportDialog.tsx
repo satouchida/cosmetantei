@@ -166,7 +166,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
         )}
         {skipped > 0 && (
           <p className={panel('neutral', 'small')}>
-            入力・撮影した成分表示の商品（{skipped}点）は、画像にも読み込み用のデータにも入れていません。
+            入力・撮影した成分表示の商品と、お店の商品説明から成分を読んだ商品（{skipped}点）は、画像にも読み込み用のデータにも入れていません。
           </p>
         )}
 

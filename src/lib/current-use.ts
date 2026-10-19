@@ -1,5 +1,5 @@
 import { Product } from './types';
-import { isUserLabelProduct } from './product-source';
+import { isShopListingProduct, isUserLabelProduct } from './product-source';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 
 /**
@@ -37,7 +37,8 @@ export function isStale(addedAt: number, now: number): boolean {
 
 /** 保存してよい製品（入力した成分表示は保存しない） */
 export function isPersistable(product: Product): boolean {
-  return !isUserLabelProduct(product);
+  // お店の商品説明から読んだ成分は、楽天の規約で保存できない
+  return !isUserLabelProduct(product) && !isShopListingProduct(product);
 }
 
 /**

@@ -66,7 +66,7 @@ export function RoutineImportDialog({
 
         {hasCurrentLists && typedLabelsLost > 0 && (
           <p className={panel('notice', 'small')}>
-            置き換えると、入力・撮影した成分表示の商品（{typedLabelsLost}点）は消えます。残すときは「今のリストに追加」を選んでください。
+            置き換えると、入力・撮影した成分表示の商品や、お店の商品説明から成分を読んだ商品（{typedLabelsLost}点）は消えます。残すときは「今のリストに追加」を選んでください。
           </p>
         )}
 

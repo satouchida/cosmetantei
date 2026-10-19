@@ -18,6 +18,7 @@ import { translateEnglishLabels } from './ingredient-translate';
 import { mayRememberFailure } from '../server/usage';
 import { isPlainLabelText } from '../utils/safe-text';
 import { isJailbreakAttempt } from './gemini';
+import { logSourceTrust, mayShareWebProduct } from '../data/trusted-sites';
 
 /**
  * AI への指示のような語（検索語・ページの成分名に入っていたら使わない）。検索語は Gemini のページ読み取りにも渡るため、
@@ -509,7 +510,9 @@ async function keepRealBrands(products: Product[]): Promise<Product[]> {
 function uniqueProducts(products: Product[]): Product[] {
   const unique: Product[] = [];
   const seen = new Set<string>();
-  for (const p of [...products].sort((a, b) => Number(!!b.ingredientSource) - Number(!!a.ingredientSource))) {
+  // 全成分のある方を先に。同じなら共有してよいページ（信頼するサイト）の方を残す
+  const rank = (p: Product) => Number(!!p.ingredientSource) * 2 + Number(mayShareWebProduct(p));
+  for (const p of [...products].sort((a, b) => rank(b) - rank(a))) {
     const key = productIdentityKey(p.brand, p.name);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -540,6 +543,29 @@ const RETRY_COOLDOWN_SECONDS = 10 * 60;
 /** 一時的な失敗の印（この利用者が自分の1日の上限に達して失敗したときは付けない） */
 async function rememberResearchFailure(cacheKey: string): Promise<void> {
   if (mayRememberFailure()) await cachePutJSON(`${cacheKey}:fail`, true, RESEARCH_FAIL_TTL_SECONDS);
+}
+
+/**
+ * 信頼しないサイトの製品に印を付ける（調べた本人にだけ返し、画面に「ほかのサイトの情報」と出す）。
+ * force: 出典の URL に関係なく印を付ける（製品を特定したページが信頼しないサイトだったとき）
+ */
+function markUnshared(products: Product[], force = false): Product[] {
+  return products.map((p) => (!force && mayShareWebProduct(p) ? p : { ...p, sharedSource: false }));
+}
+
+/**
+ * 信頼しないサイトの製品しか見つからなかった印の長さ。その間は同じ検索語・バーコードを調べ直さない
+ * （保存できない結果のために、聞かれるたびに有料の調べものをしない）。その間に聞いた人には「見つからない」と返る
+ */
+export const UNTRUSTED_ONLY_TTL_SECONDS = 10 * 60;
+
+/**
+ * キャッシュの結果のうち、共有してよい製品。TRUSTED_SITES_MODE=enforce の前に保存した、信頼しないサイトだけの
+ * 結果は null（使わずに調べ直す）
+ */
+function sharedCached(cached: Product[]): Product[] | null {
+  const shared = cached.filter(mayShareWebProduct);
+  return shared.length > 0 || cached.length === 0 ? shared : null;
 }
 
 /**
@@ -575,8 +601,10 @@ export async function researchProducts(
     await cachePutJSON(`${cacheKey}:retry`, true, RETRY_COOLDOWN_SECONDS);
     usable = false;
   }
-  if (cached && usable) return registerProducts(await translateCachedLabels(cacheKey, cached, limit), { fresh: false });
+  const shared = cached && usable ? sharedCached(cached) : null;
+  if (shared) return registerProducts(await translateCachedLabels(cacheKey, shared, limit), { fresh: false });
   if (await cacheGetJSON<boolean>(`${cacheKey}:fail`)) return [];
+  if (await cacheGetJSON<boolean>(`${cacheKey}:untrusted`)) return [];
 
   const pages = await searchAndReadProducts(`${productQuery} 全成分`, productQuery);
   // 一時的な失敗（検索・Gemini のエラー等）は「見つからなかった」としてキャッシュしない。しばらく同じ検索をしない印だけ付ける
@@ -587,16 +615,22 @@ export async function researchProducts(
   const candidates = await Promise.all(pages.map(toProduct));
   // 英語の全成分表示は、ブランドを確かめた製品だけ日本語の名前にする（訳した結果をキャッシュする）
   const unique = await translateEnglishLabels(uniqueProducts(await keepRealBrands(candidates)));
+  logSourceTrust(unique, 'research');
+  // 全員で共有するキャッシュには、信頼するサイトの製品だけ（enforce のとき）。それ以外は調べた本人にだけ返す。
+  // 信頼しないサイトの製品しか無ければ何も保存しない（調べものは失敗していないので、失敗の印も付けない）
+  const toShare = unique.filter(mayShareWebProduct);
 
-  if (unique.length > 0) {
+  if (toShare.length > 0) {
     // 全成分が1つも取れなかった結果は短く（ページが更新されたり、別のページが見つかったりする）
-    await cachePutJSON(cacheKey, unique, hasAnyIngredients(unique) ? FACTS_TTL_SECONDS : FACTS_MISS_TTL_SECONDS);
+    await cachePutJSON(cacheKey, toShare, hasAnyIngredients(toShare) ? FACTS_TTL_SECONDS : FACTS_MISS_TTL_SECONDS);
   } else if (candidates.length === 0) {
     // ページを読んで該当製品が無かったときだけ「見つからない」を短期間保持する。
     // ブランド判定で全て外れた場合は Clef の一時的な不調もありうるので保存しない
     await cachePutJSON(cacheKey, unique, FACTS_MISS_TTL_SECONDS);
+  } else if (unique.length > 0) {
+    await cachePutJSON(`${cacheKey}:untrusted`, true, UNTRUSTED_ONLY_TTL_SECONDS);
   }
-  return registerProducts(unique.slice(0, limit), { fresh: true });
+  return registerProducts(markUnshared(unique.slice(0, limit)), { fresh: true });
 }
 
 // ---------- T3: 代わりの商品の候補 ----------
@@ -612,7 +646,8 @@ export async function researchAlternativeCandidates(query: string, target: strin
   // ページから読み取った製品情報だけをキャッシュする（検索結果そのものは保存しない）
   const cacheKey = await hashedCacheKey('altfacts:v1', query.normalize('NFKC'));
   const cached = await cacheGetJSON<Product[]>(cacheKey);
-  if (cached) return registerProducts(await translateCachedLabels(cacheKey, cached, cached.length), { fresh: false });
+  const shared = cached && sharedCached(cached);
+  if (shared) return registerProducts(await translateCachedLabels(cacheKey, shared, shared.length), { fresh: false });
   if (await cacheGetJSON<boolean>(`${cacheKey}:fail`)) return [];
 
   const pages = await searchAndReadProducts(query, target);
@@ -622,11 +657,15 @@ export async function researchAlternativeCandidates(query: string, target: strin
   }
 
   const candidates = await Promise.all(pages.filter((p) => p.ingredients.length > 0).map(toProduct));
-  const products = await translateEnglishLabels(uniqueProducts(await keepRealBrands(candidates)));
+  const found = await translateEnglishLabels(uniqueProducts(await keepRealBrands(candidates)));
+  logSourceTrust(found, 'alternatives');
+  // 代わりの商品は、信頼するサイトの製品だけ（検索語はアプリが作るので全員で同じ。狙ったページを紛れ込ませない）
+  const products = found.filter(mayShareWebProduct);
   if (products.length > 0) {
     await cachePutJSON(cacheKey, products, FACTS_TTL_SECONDS);
-  } else if (candidates.length === 0) {
-    // ページを読んで全成分つきの製品が無かった。ブランド判定で全て外れた場合は Clef の一時的な不調もありうるので保存しない
+  } else if (candidates.length === 0 || found.length > 0) {
+    // ページを読んで全成分つきの製品が無かった。ブランド判定で全て外れた場合は Clef の一時的な不調もありうるので保存しない。
+    // 見つかった製品がどれも信頼しないサイトのものなら、空の結果がだれにとっても同じ答えなので保存する
     await cachePutJSON(cacheKey, products, FACTS_MISS_TTL_SECONDS);
   }
   return registerProducts(products, { fresh: true });
@@ -676,6 +715,8 @@ export async function researchBarcode(barcode: string): Promise<Product | null |
   const [real] = await keepRealBrands([await toProduct({ ...matches[0], barcode })]);
   if (!real) return null;
   const [product] = await translateEnglishLabels([real]);
+  // バーコードと製品を結びつけたのは、このページ。成分を別のページから取っても、このページの信頼で決める
+  const identityShareable = mayShareWebProduct(product);
 
   // バーコードのページに全成分が無ければ、特定できた商品名で調べ、同じ製品の成分表示を使う
   if (!product.ingredientSource) {
@@ -691,7 +732,8 @@ export async function researchBarcode(barcode: string): Promise<Product | null |
     }
   }
 
-  const [registered] = await registerProducts([product], { fresh: true });
+  logSourceTrust([product], 'barcode');
+  const [registered] = await registerProducts(markUnshared([product], !identityShareable), { fresh: true });
   return registered;
 }
 

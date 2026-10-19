@@ -34,6 +34,10 @@ full ingredient lists, points out the likely causes, and suggests products witho
   gateway's Provider Keys, so the app only holds a gateway token, `CF_AIG_TOKEN`.
 - **Shop prices and brand lineups:** Rakuten Ichiba and Yahoo! Shopping item search APIs when
   their keys are set, otherwise the shops' product pages.
+- **Ingredients from the shops first** (`src/lib/services/shop-ingredients.ts`): before paid web
+  research, Yahoo! JAN codes are matched to saved products and Rakuten captions are read (cut,
+  cleaned, filtered by clef-flash). Rakuten lists are used for that reply only, under Rakuten's
+  terms. [Plan](docs/plans/shop-ingredients.md).
 - **Turnstile** checks the browser once and starts a signed session (`src/lib/server/session.ts`).
 - **Routine image** (`src/lib/routine-share.ts`, `src/lib/client/routine-image.ts`): マイルーティン
   can be saved or shared as one PNG, entirely in the browser.
@@ -70,6 +74,7 @@ These are public settings, committed to the repo. For local runs, `.dev.vars` ca
 | `AI_GATEWAY_ID` | AI Gateway name (`cosmetantei-prod`; local runs use `cosmetantei-dev`) |
 | `CHAT_GATE_MODE` | Clef chat gate: `enforce`, `shadow` or `off` |
 | `SEARCH_FILTER_MODE` | Clef search-result filter: `off`, `shadow` or `enforce` (default `off`) |
+| `TRUSTED_SITES_MODE` | Share web results only from trusted sites (`src/lib/data/trusted-sites.ts`): `off`, `shadow` (log hosts only) or `enforce` (default `off`; production `shadow`) |
 | `SPEND_BUDGET_USD` | Global budget in USD as `day/month` (UTC), for Gemini, Workers AI and web search together |
 | `SPEND_PER_CLIENT_USD` | Daily budget per IP (IPv6 per /48) and per session |
 | `SPEND_PER_NEW_SESSION_USD`, `SPEND_NEW_SESSION_MINUTES` | Smaller daily budget for a Turnstile session until it is this many minutes old |

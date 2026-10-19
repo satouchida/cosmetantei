@@ -59,8 +59,11 @@ export interface ReferenceLink {
  * - web_page: Web 検索で見つけたページ（ブランド公式・販売店）の成分表示を Gemini が読み取ったもの。
  *   読み取ったページの URL を sourceUrl に持つ
  * - ai_estimate: Gemini による推定。おすすめ代替品には使わない
+ * - shop_listing: 楽天市場の商品説明（出品者が書いた文）から読み取った成分表示（src/lib/services/shop-ingredients.ts）。
+ *   楽天の規約で保存できないので、その返答にだけ使う（共有のキャッシュ・ブラウザの保存・書き出しに入れない）。
+ *   確認済みとはしない（代わりの商品に使わない）
  */
-export type IngredientSource = 'open_beauty_facts' | 'user_label' | 'web_page' | 'ai_estimate';
+export type IngredientSource = 'open_beauty_facts' | 'user_label' | 'web_page' | 'ai_estimate' | 'shop_listing';
 
 /** お店の商品検索の製品の id の頭（src/lib/services/shop-lineup.ts が付け、候補のカードが見分ける） */
 export const SHOP_ID_PREFIX = 'shop_';
@@ -95,6 +98,11 @@ export interface Product {
   shopPrice?: { yen: number; taxIncluded: boolean | null };
   /** お店の商品検索の製品の商品ページ。アフィリエイト ID が設定されていればアフィリエイトリンク（sponsored） */
   shopLink?: { href: string; sponsored: boolean };
+  /**
+   * false: 信頼するサイト（src/lib/data/trusted-sites.ts）ではないページから読んだ製品。調べた本人にだけ返し、
+   * 共有のキャッシュに入れない。画面に「ほかのサイトの情報」と出す（表示だけに使い、サーバーは信用しない）
+   */
+  sharedSource?: false;
 }
 
 export interface AnalyzedIngredient {

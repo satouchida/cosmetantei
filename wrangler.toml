@@ -92,7 +92,7 @@ id = "2afbe688816d43f998dc380861d4b9f7"
 
 [vars]
 GEMINI_MODEL = "gemini-3.8-flash"
-NEXT_PUBLIC_AMAZON_AFFILIATE_TAG = "cosmetantei-22"
+NEXT_PUBLIC_AMAZON_AFFILIATE_TAG = "cosmetantei22-22"
 # Gemini と Clef は Cloudflare AI Gateway 経由で呼び出す（ローカルは .dev.vars で cosmetantei-dev に上書き）
 CLOUDFLARE_ACCOUNT_ID = "abd3843a83776fc9f73f65bb4bc2265e"
 AI_GATEWAY_ID = "cosmetantei-prod"

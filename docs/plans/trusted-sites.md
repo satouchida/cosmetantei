@@ -1,6 +1,37 @@
 # Plan: share web results only from trusted sites
 
-Written 2026-10-19. Status: approved by the owner on 2026-10-19, not started.
+Written 2026-10-19. Status: implemented 2026-10-19. Production runs `TRUSTED_SITES_MODE=shadow`.
+Next: read a week of `[trusted-sites]` logs, add retailers that publish full ingredient lists, then
+switch to `enforce`.
+
+**As built (differences from the steps below):**
+- **The list** is one flat list of company domains in `src/lib/data/trusted-sites.ts`, not a
+  `domains` field on each `BrandEntry`. Trust is decided by host, so tying a domain to a brand
+  added nothing. Only domains I was sure of are listed. The shadow log will show missing ones.
+- **No KV key bump.** Instead of `webfacts:v3` / `altfacts:v2`, cached results are filtered on
+  read. A cached result with only untrusted products counts as a miss. This keeps the trusted
+  cache through the switch, and shadow mode costs nothing.
+- **One check covers the shared stores.** `isShareable` in `cosmetics-db.ts` now includes
+  `mayShareWebProduct`. That covers the in-memory list, the KV verified index (untrusted entries
+  are dropped on the next write) and the server copy used for products the browser sends. The
+  barcode KV cache uses the same check.
+- **Owner decisions (the plan's recommendations, taken 2026-10-19):** no retailers until the
+  shadow log has been reviewed; alternatives come from trusted sites only.
+- **UI:** the note 「ほかのサイトの情報です。成分はパッケージで確かめてください。」 appears under the
+  source link (`ProductSourceLink`).
+- **Cost:** when only untrusted pages are found, a `:untrusted` marker stops the same query or
+  barcode from being researched again for 10 minutes (the requester still gets the result;
+  others asking in that window see "not found"). For alternatives, the empty result is cached,
+  because it is the same answer for everyone.
+- **Barcodes:** the page that printed the barcode decides trust, even when the ingredients come
+  from another page. `sharedSource: false` is honoured by every store check.
+- **Tests:** test 104.
+- **Before switching to enforce:**
+  - bump the product-search cache key (`search:v5` → `v6`, `src/app/api/products/search/route.ts`)
+    so search results cached before the switch stop being served;
+  - look up the official domains for SK-II, Avène, Maybelline and imju (left out because I wasn't
+    sure of them);
+  - consider a clearer message when the price lookup refuses a product from another site.
 
 ## Why
 
