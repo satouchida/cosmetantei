@@ -1,7 +1,31 @@
 # Plan: alternatives that are the same kind of product
 
 Written 2026-10-18. Revised the same day after the Rakuten and Yahoo! API keys were set (production
-secrets and `.dev.vars`). Status: step 1 done (`2188fc1`); step 2 measured; the Rakuten `Origin` fix and the ingredient additions from step 2 done (2026-10-18). Step 3 not started.
+secrets and `.dev.vars`). Status: step 1 done (`2188fc1`); step 2 measured; the Rakuten `Origin` fix and the ingredient additions from step 2 done (2026-10-18). Step 3 implemented 2026-10-19 (`src/lib/services/shop-alternatives.ts`, test 106).
+
+**Step 3 as built (2026-10-19):**
+- **Ingredient checks:** the third check (paid lookup) runs only by JAN code, for the top 2
+  unchecked Yahoo! items. Name searches are left out (slow and paid).
+- **No clef-flash on captions:** the caption reader uses fixed rules only. A test on Cloudflare
+  showed Clef deleting real ingredients ([shop-ingredients plan](shop-ingredients.md)).
+- **Shop candidates must have 80% or more rated ingredients**, as step 5 asks. Saved, checked
+  products keep today's gate.
+- **Gate refinement:** an avoided name now matches part of a label item only when the ingredient
+  database doesn't know that item. Avoiding エタノール no longer rejects フェノキシエタノール,
+  which the database identifies as a different ingredient.
+- **Web research as a last step** (owner's decision, 2026-10-19): it runs whenever saved products
+  and shops together give fewer than 3. That covers missing shop keys and shop failures, and also
+  shops that answer with too few checkable products. Checked web results come first, then the shop
+  products, with the same product shown once. Test 107.
+- **Same steps for the chat:** 「代わりを探して」 uses them too, and alternatives cards show the
+  photo, the price at search time, 「販売ページを見る」 (an affiliate link), 「Amazonで探す」 and
+  the credits.
+- **Real APIs (no Gemini):** four queries found 0–3 alternatives each within 2 s:
+  - sunscreen avoiding UV absorbers and ethanol: 2;
+  - cleanser avoiding fragrance: 3;
+  - serum avoiding parabens: 1;
+  - toner avoiding fragrance and ethanol: 0. Only 4 of 30 toner captions had a readable
+    list.
 
 ## What happened
 
@@ -192,8 +216,8 @@ every analysis, because the shop APIs allow about 1 call a second for the whole 
    ValueCommerce), plus the Rakuten and Yahoo! credits. The Amazon search link stays as a second
    button. The card heading drops 「Amazon」 and keeps 「PR」 because the links are affiliate links.
 
-If neither shop key is set, or both shops fail, fall back to today's `findAlternatives()` web
-research. The chat's 「代わりを探して」 uses the same steps, so both paths give the same answer.
+If neither shop key is set, both shops fail, or fewer than 3 pass, fall back to today's
+`findAlternatives()` web research (changed 2026-10-19). The chat's 「代わりを探して」 uses the same steps, so both paths give the same answer.
 
 Budget: paid page reads count against the per-client and per-network budgets and the AI rate
 limits like every other paid call; a press with nothing left to check costs $0.

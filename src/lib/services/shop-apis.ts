@@ -263,7 +263,7 @@ const MAX_CAPTION_LENGTH = 20_000;
  */
 export async function rakutenItemSearch(
   keyword: string,
-  { caption = false }: { caption?: boolean } = {}
+  { caption = false, genreId }: { caption?: boolean; genreId?: number } = {}
 ): Promise<ShopItem[] | null | undefined> {
   if (!isRakutenApiConfigured()) return undefined;
   const params = new URLSearchParams({
@@ -274,6 +274,8 @@ export async function rakutenItemSearch(
     formatVersion: '2',
     // 必要な項目だけを返させる
     elements: `itemName,itemCode,itemUrl,availability,itemPrice,taxFlag,mediumImageUrls${caption ? ',itemCaption' : ''}`,
+    // 種類のジャンル（代わりの商品探し。docs/plans/alternative-recommendations.md の step 2 で確かめた ID）
+    ...(genreId && { genreId: String(genreId) }),
   });
   const body = await getJson(
     `${RAKUTEN_ENDPOINT}?${params}`,
@@ -312,7 +314,10 @@ export async function rakutenItemSearch(
  * Yahoo!ショッピングの商品検索 v3（https://developer.yahoo.co.jp/webapi/shopping/v3/itemsearch.html）。
  * 検索語はブランド名だけ。キー未設定なら undefined、失敗は null
  */
-export async function yahooItemSearch(query: string): Promise<ShopItem[] | null | undefined> {
+export async function yahooItemSearch(
+  query: string,
+  { genreCategoryId }: { genreCategoryId?: number } = {}
+): Promise<ShopItem[] | null | undefined> {
   if (!isYahooApiConfigured()) return undefined;
   const params = new URLSearchParams({
     appid: readShopConfig('YAHOO_CLIENT_ID'),
@@ -321,6 +326,7 @@ export async function yahooItemSearch(query: string): Promise<ShopItem[] | null 
     in_stock: 'true',
     condition: 'new',
     sort: '-score',
+    ...(genreCategoryId && { genre_category_id: String(genreCategoryId) }),
   });
   const body = await getJson(`${YAHOO_ENDPOINT}?${params}`, {}, 'Yahoo item search', 'yahoo_api');
   if (body === null) return null;

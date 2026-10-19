@@ -2,14 +2,16 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
-import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2 } from 'lucide-react';
+import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 import { apiFetch } from '@/lib/client/api-fetch';
+import { productCategory } from '@/lib/analyzer/product-category';
 import { NETWORK_MESSAGE, TIMEOUT_MESSAGE } from '@/lib/client/chat-request';
 import {
   badge as badgeClass,
+  busyLook,
   buttonSecondary,
   card,
   panel,
@@ -26,6 +28,10 @@ interface IngredientAnalysisCardProps {
   onAddToBadRoutine?: () => void;
   onAddToSafeRoutine?: () => void;
   onAddToCurrentRoutine?: () => void;
+  /** 「同じ種類で原因成分を含まない商品を探す」（お店の商品検索で探す。docs/plans/alternative-recommendations.md の step 3） */
+  onFindAlternatives?: () => void;
+  /** 応答を待っている（押しても受け付けず、案内が出る） */
+  busy?: boolean;
 }
 
 /**
@@ -106,6 +112,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   onAddToBadRoutine,
   onAddToSafeRoutine,
   onAddToCurrentRoutine,
+  onFindAlternatives,
+  busy = false,
 }) => {
   const [pickedIngredient, setPickedIngredient] = useState<AnalyzedIngredient | null>(null);
   // 「AIでさらに詳しく調べる」を頼んでいる成分と、失敗した成分とその理由（別の成分を開いても混ざらないよう名前で持つ）
@@ -637,6 +645,18 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       {/* Amazon Safe Alternatives (if warning/caution) */}
       {safeAlternatives && safeAlternatives.length > 0 && (
         <AmazonAlternativeCard products={safeAlternatives} />
+      )}
+      {/* 保存済みの製品だけでは3件に満たないとき、お店で同じ種類の商品を探す（種類が分かるときだけ） */}
+      {onFindAlternatives && safeAlternatives !== undefined && safeAlternatives.length < 3 && productCategory(product) && (
+        <button
+          type="button"
+          onClick={onFindAlternatives}
+          aria-disabled={busy || undefined}
+          className={`w-full ${buttonSecondary} ${busyLook}`}
+        >
+          <Search className="w-4 h-4" aria-hidden />
+          <span>同じ種類で原因成分を含まない商品を探す</span>
+        </button>
       )}
 
       {/* Routine Quick Actions */}

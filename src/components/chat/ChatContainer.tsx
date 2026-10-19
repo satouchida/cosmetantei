@@ -173,6 +173,15 @@ function pickReply(data: ChatResponse, keys: ReplyField[]): Partial<ChatMessage>
   return out as Partial<ChatMessage>;
 }
 
+/** 返答の、代わりの商品の印とクレジット（形の違う値は使わない） */
+function alternativesOf(data: ChatResponse): Partial<ChatMessage> {
+  if (data.suggestionKind !== 'alternatives') return {};
+  const credits = Array.isArray(data.alternativeCredits)
+    ? data.alternativeCredits.filter((c): c is 'rakuten' | 'yahoo' => c === 'rakuten' || c === 'yahoo')
+    : [];
+  return { suggestionKind: 'alternatives', ...(credits.length > 0 && { alternativeCredits: credits }) };
+}
+
 /** 読み上げる返答の冒頭（カードまで全部は読まない） */
 function announcementOf(content: string): string {
   const text = withoutEmoji(content).replace(/\s+/g, ' ').trim();
@@ -501,7 +510,7 @@ export const ChatContainer: React.FC = () => {
       { message: messageText, routine },
       (data) => ({
         ...pickReply(data, ['productSuggestions', 'singleAnalysis', 'differentialAnalysis', 'priceResult', 'quickReplies']),
-        suggestionKind: data.suggestionKind === 'alternatives' ? 'alternatives' : undefined,
+        ...alternativesOf(data),
       }),
       { loadingText: `調べています${LONG_WAIT_NOTE}...` }
     );
@@ -545,6 +554,19 @@ export const ChatContainer: React.FC = () => {
       { action: 'research_product', selectedProduct: product },
       (data) => pickReply(data, ['productSuggestions', 'quickReplies']),
       { loadingText: 'Webで成分を調べています（1分ほどかかることがあります）...' }
+    );
+  };
+
+  /**
+   * 分析した商品と同じ種類で、原因候補の成分を含まない商品を探す（分析カードのボタン）。
+   * お店の商品検索で探し、成分を確かめた商品だけを出す（サーバーは種類の名前と決まった語だけでお店を検索する）
+   */
+  const handleFindAlternatives = async (product: Product) => {
+    await runChatAction(
+      `「${product.name}」と同じ種類で、原因候補の成分を含まない商品を探したい`,
+      { action: 'find_alternatives', selectedProduct: product },
+      (data) => ({ ...pickReply(data, ['productSuggestions', 'quickReplies']), ...alternativesOf(data) }),
+      { loadingText: `代わりの商品を探しています${LONG_WAIT_NOTE}...` }
     );
   };
 
@@ -1190,6 +1212,7 @@ export const ChatContainer: React.FC = () => {
                       onAddToSafe={handleAddToSafe}
                       onAddToCurrent={handleAddToCurrent}
                       isAlternatives={msg.suggestionKind === 'alternatives'}
+                      credits={msg.alternativeCredits}
                       busy={isLoading}
                     />
                   )}
@@ -1201,6 +1224,8 @@ export const ChatContainer: React.FC = () => {
                       onAddToBadRoutine={() => handleAddToBad(msg.singleAnalysis!.product)}
                       onAddToSafeRoutine={() => handleAddToSafe(msg.singleAnalysis!.product)}
                       onAddToCurrentRoutine={() => handleAddToCurrent(msg.singleAnalysis!.product)}
+                      onFindAlternatives={() => void handleFindAlternatives(msg.singleAnalysis!.product)}
+                      busy={isLoading}
                     />
                   )}
 

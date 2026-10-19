@@ -32,7 +32,6 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
           <div>
             <h3 className="text-[15px] font-semibold flex flex-wrap items-center gap-1.5">
               <span>原因候補の成分を含まない代わりの商品</span>
-              <span className={badge('brand')}>Amazon</span>
               <span className={badge('neutral')}>PR</span>
             </h3>
             <p className="text-xs text-ink-muted">

@@ -220,12 +220,34 @@ export function hasVerifiedIngredients(product: Product): boolean {
 /**
  * 疑わしい成分を含まない安心なコスメ（Amazonおすすめ候補）を抽出する
  */
-export function findSafeAlternatives(
-  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
-  excludedProductIds: string[] = [],
-  limit = 3,
-  options: { category?: Product['category'] } = {}
-): Product[] {
+/**
+ * 1つの製品の分析で、代わりの商品が避ける成分。原因候補の成分。無ければ「やや注意」の成分
+ * （紫外線吸収剤の多い日焼け止め等、「やや注意」が重なっただけの「注意」は、それらを避ける）
+ */
+export function alternativeAvoidItems(ingredients: AnalyzedIngredient[]): { nameJa: string; nameEn?: string }[] {
+  const suspects = ingredients.filter((i) => i.isSuspect);
+  const avoid = suspects.length > 0 ? suspects : ingredients.filter((i) => i.riskLevel === 'low_caution');
+  return avoid.map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
+}
+
+/** 代わりの商品として勧めてよいかの確認（findSafeAlternatives と、お店の候補の確認で同じものを使う） */
+export interface AlternativeGateOptions {
+  category?: Product['category'];
+  /** お店の商品説明から読んだ成分表示の製品も確かめる（その返答にだけ使う。確認済みの出典ではない） */
+  allowShopListing?: boolean;
+  /**
+   * 成分DBとルールで評価できた成分の割合の下限（0〜1）。お店の説明から読んだ一覧は、読めない名前が多いと
+   * 「原因成分フリー」の根拠にならないので、8割以上を求める
+   */
+  minRatedShare?: number;
+}
+
+/**
+ * 避ける成分から、代わりの商品の確認を作る。含まない・強い刺激成分を含まない・同じ種類・全成分が確かめられている
+ */
+export function alternativeGate(
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
+): (product: Product, options?: AlternativeGateOptions) => boolean {
   // 避けるべき成分を「既知DBのID」と「日本語名・英語名」の両方で表す（英語INCI表記の製品にも対応）
   const avoidIds = new Set<string>();
   const avoidNames = new Set<string>();
@@ -241,31 +263,48 @@ export function findSafeAlternatives(
     }
   }
 
-  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
-  const safeItems = COSMETICS_DATABASE.filter((product) => {
-    if (excludedProductIds.includes(product.id)) return false;
+  return (product, options = {}) => {
     // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
     if (options.category && productCategory(product) !== options.category) return false;
-    if (!hasVerifiedIngredients(product)) return false;
+    const shopListing = options.allowShopListing && product.ingredientSource === 'shop_listing' && product.ingredients.length > 0;
+    if (!shopListing && !hasVerifiedIngredients(product)) return false;
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
     if (product.ingredientSource === 'user_label') return false;
 
-    for (const { raw } of labelIngredients(product)) {
+    const label = labelIngredients(product);
+    let rated = 0;
+    for (const { raw } of label) {
       const known = findMatchingKnownIngredient(raw);
       if (known && avoidIds.has(known.id)) return false;
       // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
-      const rated = known ?? getOrGenerateIngredientExplanation(raw);
-      if (rated.riskLevel === 'high_irritant' || rated.riskLevel === 'moderate_irritant') return false;
+      const rating = known ?? getOrGenerateIngredientExplanation(raw);
+      if (rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant') return false;
+      if (rating.riskLevel !== 'unknown') rated++;
 
       const names = [normalizeIngredientName(raw)];
       if (known) names.push(normalizeIngredientName(known.nameJa), normalizeIngredientName(known.nameEn));
+      // 名前の一部での一致は、成分DBで何の成分か分からない名前だけ（「フェノキシエタノール」は防腐剤で、
+      // 「エタノール」を避けても除かない。DBで別の成分と分かる名前は、上の ID の照合で決める）
       for (const avoid of avoidNames) {
-        if (names.some((n) => n === avoid || n.includes(avoid))) return false;
+        if (names.some((n) => n === avoid || (!known && n.includes(avoid)))) return false;
       }
     }
-
+    if (options.minRatedShare && label.length > 0 && rated / label.length < options.minRatedShare) return false;
     return true;
-  });
+  };
+}
+
+export function findSafeAlternatives(
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
+  excludedProductIds: string[] = [],
+  limit = 3,
+  options: { category?: Product['category'] } = {}
+): Product[] {
+  const passes = alternativeGate(avoidCulprits);
+  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
+  const safeItems = COSMETICS_DATABASE.filter(
+    (product) => !excludedProductIds.includes(product.id) && passes(product, { category: options.category })
+  );
 
   // 無香料・アルコールフリーを優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、
   // 刺激の少なさとは関係しないため順位に使わない
@@ -451,10 +490,7 @@ export function analyzeProduct(
   }
 
   // 高リスク時は同じ種類の代替品を提示する。種類が分からなければ出さない（日焼け止めにリップを勧めない）
-  // 「やや注意」の成分が重なっただけの「注意」（紫外線吸収剤の多い日焼け止め等）は、それらを避ける
-  const suspects = analyzedIngredients.filter((i) => i.isSuspect);
-  const avoidForAlternatives = suspects.length > 0 ? suspects : analyzedIngredients.filter((i) => i.riskLevel === 'low_caution');
-  const suspectItems = avoidForAlternatives.map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
+  const suspectItems = alternativeAvoidItems(analyzedIngredients);
   const category = productCategory(product);
   const safeAlternatives =
     overallRiskLevel === 'caution' || overallRiskLevel === 'warning'

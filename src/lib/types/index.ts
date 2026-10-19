@@ -238,6 +238,8 @@ export interface ChatMessage {
   productSuggestions?: Product[];
   /** productSuggestions が、原因成分を含まない代わりの商品 */
   suggestionKind?: 'alternatives';
+  /** 代わりの商品にお店の商品があるときに表示するクレジット */
+  alternativeCredits?: PriceApiCredit[];
   singleAnalysis?: ProductAnalysisResult;
   differentialAnalysis?: DifferentialAnalysisResult;
   currentUseCheck?: CurrentUseCheckResult;

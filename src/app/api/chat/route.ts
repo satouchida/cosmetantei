@@ -21,7 +21,12 @@ import {
   summarizeProductResults,
 } from '@/lib/services/chat-replies';
 import { alternativeButtonLabel, classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
-import { alternativeRequest, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
+import {
+  alternativeRequest,
+  alternativeRequestFromProduct,
+  findAlternatives,
+  summarizeAlternatives,
+} from '@/lib/services/alternatives-service';
 import { researchPrices, summarizePriceResult, toPriceSearchQuery } from '@/lib/services/price-service';
 import { productSearchQuery } from '@/lib/services/web-research';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
@@ -118,7 +123,8 @@ async function handlePost(request: NextRequest) {
         | 'price_lookup'
         | 'check_current_use'
         | 'lookup_product'
-        | 'research_product';
+        | 'research_product'
+        | 'find_alternatives';
       selectedProduct?: Product;
       barcode?: string;
       label?: { text?: unknown; name?: unknown; brand?: unknown };
@@ -278,6 +284,19 @@ async function handlePost(request: NextRequest) {
       });
     }
 
+    // 2a-2. 分析した商品の「同じ種類で原因成分を含まない商品を探す」（ボタン操作）。サーバーで分析をやり直し、
+    //       種類と避ける成分を決める。お店に送るのは種類の名前と決まった語だけ（商品名・成分表示は送らない）
+    if (action === 'find_alternatives' && selectedProduct) {
+      // サーバーが持っていない製品（送られた内容のまま。入力した成分表示など）は、有料の調べものをしない
+      const req = { ...alternativeRequestFromProduct(selectedProduct), allowPaidLookups: selectedProduct !== sentProduct };
+      const { products, credits } = await findAlternatives(req);
+      return NextResponse.json({
+        reply: summarizeAlternatives(req, products),
+        ...(products.length > 0 && { productSuggestions: products, suggestionKind: 'alternatives', alternativeCredits: credits }),
+        quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
+      });
+    }
+
     // 2b. 分析した商品の価格（ボタン操作）。検索語はブランド名と商品名だけ
     // サーバーが持っている製品（調べて確かめた商品）だけ。送られた名前で費用のかかる検索をしない
     if (action === 'price_lookup' && sentProduct) {
@@ -390,10 +409,10 @@ async function handlePost(request: NextRequest) {
           quickReplies: ['🧴 肌荒れしたコスメを入力する', '🔍 商品名で検索する'],
         });
       }
-      const { products } = await findAlternatives(req);
+      const { products, credits } = await findAlternatives(req);
       return NextResponse.json({
         reply: summarizeAlternatives(req, products),
-        ...(products.length > 0 && { productSuggestions: products, suggestionKind: 'alternatives' }),
+        ...(products.length > 0 && { productSuggestions: products, suggestionKind: 'alternatives', alternativeCredits: credits }),
         quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
       });
     }

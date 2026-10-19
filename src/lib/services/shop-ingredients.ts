@@ -231,13 +231,14 @@ function hasWord(key: string, word: string): boolean {
   return new RegExp(`(?<![a-z0-9])${word}(?![a-z0-9])`).test(key);
 }
 
-function rakutenProduct(item: ShopItem, brand: IndexedBrand, label: NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>): Product {
+/** 楽天の商品説明から成分を読んだ製品（その返答にだけ使う。代わりの商品探しでも使う） */
+export function shopListingProduct(item: ShopItem, brandName: string, label: NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>): Product {
   const link = shopLink('rakuten', item.url);
   return {
     id: `${SHOP_TEXT_ID_PREFIX}rakuten_${item.code}`.slice(0, 120),
     // 商品名は API が返したまま（楽天の規約 第10条 (7)）
     name: item.name,
-    brand: brand.entry.name,
+    brand: brandName,
     country: 'JP',
     category: categoryFromText(withoutListingNoise(item.name)) ?? 'other',
     ...labelProductFields(label),
@@ -298,7 +299,7 @@ async function lookupInShops(productQuery: string): Promise<Product[]> {
     const label = labels[i];
     // 同じ成分の一覧（同じ商品の別のお店）は1つだけ
     if (!label || found.some((p) => p.ingredients.join('|') === label.ingredients.join('|'))) return;
-    found.push(rakutenProduct(item, resolved.brand, label));
+    found.push(shopListingProduct(item, resolved.brand.entry.name, label));
   });
   return found;
 }

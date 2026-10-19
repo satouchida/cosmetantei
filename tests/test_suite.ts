@@ -6290,3 +6290,188 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
     resetSpendCap();
   }
 });
+
+test('106. Alternatives from the shops: fixed search words and genre, ingredients checked cheapest first, same gate', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { alternativeGate } = await import('../src/lib/analyzer/ingredient-analyzer');
+
+  // 確かめ：エタノールを避けても、成分DBで防腐剤と分かるフェノキシエタノールでは除かない。エタノールそのものは除く
+  const gate = alternativeGate([{ nameJa: 'エタノール' }]);
+  const toner = (ingredients: string[]) => verifiedProduct({ id: `gate_${ingredients.join('')}`, category: 'toner', ingredients });
+  assert.ok(gate(toner(['水', 'BG', 'グリセリン', 'フェノキシエタノール']), { category: 'toner' }));
+  assert.ok(!gate(toner(['水', 'BG', 'エタノール', 'グリセリン']), { category: 'toner' }));
+  assert.ok(!gate(toner(['水', 'BG', 'グリセリン', 'フェノキシエタノール']), { category: 'sunscreen' }), 'Same kind only');
+  const { addProductToDynamicCache } = await import('../src/lib/data/cosmetics-db');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+
+  const clean = '水、BG、グリセリン、ベタイン、スクワラン、ペンチレングリコール、セラミドNP、ヒアルロン酸Na、フェノキシエタノール';
+  const caption = (list: string) => `やさしい化粧水です。<br>【全成分】<br>${list}<br>【使用方法】適量を手に取り…`;
+  // Yahoo! の JAN コードで見つかる、保存済みの確かめた製品
+  addProductToDynamicCache({
+    id: 'obf_4901301777777', name: 'ミノン アミノモイスト ローション', brand: 'ミノン', country: 'JP', category: 'toner',
+    barcode: '4901301777777', ingredients: ['水', 'BG', 'グリセリン', 'ベタイン', 'スクワラン', 'セラミドNP'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
+  });
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  const requests: URL[] = [];
+  // yahoo: 'ok' / 'wrongJan'（別の商品に、保存済みの製品の JAN コードが書かれている）/ 'down'
+  let yahooMode: 'ok' | 'wrongJan' | 'down' = 'ok';
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    requests.push(url);
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({ items: [
+        // 同じ製品の容量違い（後で出てくる 200ml と同じ製品）→ 1つにする
+        { itemName: 'ハダヤサシ 化粧水 無香料 400ml', itemCode: 'r:0', itemUrl: 'https://item.rakuten.co.jp/r/0/', availability: 1, itemCaption: caption('水') },
+        // 原因候補（香料）を含む → 出さない
+        { itemName: 'カオリ 化粧水 しっとり', itemCode: 'r:1', itemUrl: 'https://item.rakuten.co.jp/r/1/', availability: 1, itemPrice: 1500, taxFlag: 0, itemCaption: caption(`${clean}、香料`) },
+        // 別の種類（リップ） → 出さない
+        { itemName: 'うるおい リップクリーム', itemCode: 'r:2', itemUrl: 'https://item.rakuten.co.jp/r/2/', availability: 1, itemCaption: caption(clean) },
+        // 分析した製品そのもの → 出さない
+        { itemName: '【公式】キュレル 潤浸保湿 化粧水 III 150ml', itemCode: 'r:3', itemUrl: 'https://item.rakuten.co.jp/r/3/', availability: 1, itemCaption: caption(clean) },
+        // 読めない名前が多い（評価できた成分が8割に満たない）→ 出さない
+        { itemName: 'ナゾ 化粧水', itemCode: 'r:4', itemUrl: 'https://item.rakuten.co.jp/r/4/', availability: 1, itemCaption: caption('水、ホゲホゲ、フガフガ、モゲモゲ、ピヨピヨ、ポヨポヨ、ニャンニャン、ワンワン、BG') },
+        // 別の種類（シートマスク）→ 化粧水の候補には出さない。パックの候補には出す
+        { itemName: 'ハダヤサシ シートマスク 無香料 5枚', itemCode: 'r:6', itemUrl: 'https://item.rakuten.co.jp/r/6/', availability: 1, itemCaption: caption(clean) },
+        // 確かめられる → 出す
+        { itemName: '【公式】ハダヤサシ 化粧水 無香料 200ml', itemCode: 'r:5', itemUrl: 'https://item.rakuten.co.jp/r/5/', availability: 1, itemPrice: 1980, taxFlag: 0, mediumImageUrls: ['https://thumbnail.image.rakuten.co.jp/@0_mall/r/5.jpg'], itemCaption: caption(clean) },
+      ] });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') {
+      if (yahooMode === 'down') return new Response('error', { status: 503 });
+      if (yahooMode === 'wrongJan') {
+        return Response.json({ hits: [
+          { name: 'ベツモノ 化粧水 しっとり', code: 'y_9', url: 'https://store.shopping.yahoo.co.jp/s/y9.html', inStock: true, condition: 'new', brand: { name: 'ベツモノ' }, janCode: '04901301777777' },
+        ] });
+      }
+      return Response.json({ hits: [
+        { name: 'ミノン アミノモイスト ローション 150ml', code: 'y_1', url: 'https://store.shopping.yahoo.co.jp/s/y1.html', inStock: true, condition: 'new', brand: { name: 'ミノン' }, janCode: '4901301777777', price: 1650, priceLabel: { taxable: true } },
+      ] });
+    }
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    process.env.RAKUTEN_AFFILIATE_ID = '0a1b2c3d.4e5f6a7b.0a1b2c3e.8c9d0e1f';
+    resetSpendCap();
+    const result = await findShopAlternatives({
+      category: 'toner',
+      avoid: [{ nameJa: '香料' }],
+      terms: ['無香料'],
+      exclude: [{ id: 'obf_curel3', name: 'キュレル 潤浸保湿 化粧水 III' }],
+      limit: 3,
+    });
+    // お店に送るのは種類の名前と決まった語、ジャンルの ID だけ
+    const rakutenReq = requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!;
+    assert.strictEqual(rakutenReq.searchParams.get('keyword'), '化粧水 無香料');
+    assert.strictEqual(rakutenReq.searchParams.get('genreId'), '216307');
+    assert.strictEqual(requests.find((u) => u.hostname === 'shopping.yahooapis.jp')!.searchParams.get('genre_category_id'), '1764');
+    assert.strictEqual(result.status, 'ok');
+    assert.deepStrictEqual(result.products.map((p) => p.id).sort(), ['obf_4901301777777', 'shoptext_rakuten_r:5'].sort());
+    const fromCaption = result.products.find((p) => p.id === 'shoptext_rakuten_r:5')!;
+    assert.strictEqual(fromCaption.name, '【公式】ハダヤサシ 化粧水 無香料 200ml', 'Rakuten names are not altered');
+    assert.ok(fromCaption.shopLink?.sponsored && fromCaption.shopLink.href.startsWith('https://hb.afl.rakuten.co.jp/'), 'Rakuten links only through the affiliate');
+    assert.deepStrictEqual(fromCaption.shopPrice, { yen: 1980, taxIncluded: true });
+    const fromJan = result.products.find((p) => p.id === 'obf_4901301777777')!;
+    assert.strictEqual(fromJan.sharedSource, undefined, 'A saved, checked product is not marked as another site');
+    assert.deepStrictEqual(result.credits.sort(), ['rakuten', 'yahoo']);
+    // お店の価格・リンクは、保存済みの製品に書き戻さない（表示用の写しにだけ付ける）
+    const stored = COSMETICS_DATABASE.find((p) => p.id === 'obf_4901301777777')!;
+    assert.ok(!stored.shopPrice && !stored.shopLink && fromJan.shopPrice?.yen === 1650);
+    // 種類の語だけの名前（「化粧水」）を除いても、すべての化粧水を除かない
+    const generic = await findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [{ id: 'label_x', name: '化粧水' }], limit: 3 });
+    assert.ok(generic.products.some((p) => p.id.startsWith('shoptext_rakuten_')), JSON.stringify(generic.products.map((p) => p.id)));
+    // 出品者が別の商品に書いた JAN コードでは、保存済みの製品を出さない（先頭の 0 が違っても同じコード）
+    yahooMode = 'wrongJan';
+    const wrongJan = await findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 3 });
+    assert.ok(!wrongJan.products.some((p) => p.id === 'obf_4901301777777'), JSON.stringify(wrongJan.products.map((p) => p.id)));
+    // 片方のお店が失敗しても、もう片方で探す（クレジットは使ったお店だけ）
+    yahooMode = 'down';
+    const oneShop = await findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 3 });
+    assert.strictEqual(oneShop.status, 'ok');
+    assert.deepStrictEqual(oneShop.credits, ['rakuten']);
+    yahooMode = 'ok';
+
+    // 分析カードのボタン（チャットの find_alternatives）。サーバーで分析をやり直し、同じ手順で探す
+    const post = (body: unknown) =>
+      POST(new NextRequest('http://localhost/api/chat', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.250' }, body: JSON.stringify(body) })).then((r) => r.json());
+    // （保存済みの製品で3件そろう種類はお店に聞かないので、保存済みの無い種類（パック）で確かめる）
+    const scented = verifiedProduct({ id: 'web_scented_mask', brand: 'テスト', name: 'カオリ シートマスク', category: 'mask', ingredients: ['水', 'BG', 'グリセリン', '香料', 'リモネン'], ingredientSource: 'web_page', sourceUrl: 'https://www.kao.co.jp/x/' });
+    requests.length = 0;
+    const reply = await post({ action: 'find_alternatives', selectedProduct: scented });
+    assert.strictEqual(reply.suggestionKind, 'alternatives', JSON.stringify(reply).slice(0, 300));
+    // 保存済みの製品の後に、お店の商品が続く
+    assert.strictEqual(reply.productSuggestions.at(-1).id, 'shoptext_rakuten_r:6', JSON.stringify(reply.productSuggestions.map((p: Product) => p.id)));
+    assert.deepStrictEqual(reply.alternativeCredits, ['rakuten']);
+    // お店に送ったのは種類の名前と決まった語だけ（商品名・成分表示は送らない）
+    assert.strictEqual(requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!.searchParams.get('keyword'), 'パック 無香料');
+
+    // お店のキーが無ければ、今までの Web の探し方に戻る（お店には聞かない）
+    for (const k of ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID']) delete process.env[k];
+    requests.length = 0;
+    const noShops = await findShopAlternatives({ category: 'toner', avoid: [], terms: [], exclude: [], limit: 3 });
+    assert.strictEqual(noShops.status, 'unavailable');
+    assert.strictEqual(requests.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetSpendCap();
+  }
+});
+
+test('107. Alternatives: when the shops answer but too few pass the check, web research still runs', async () => {
+  const { findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const page = 'https://www.kao.co.jp/curel/products/alt-lip/';
+  const { AI, searches } = fakeWebSearchAI(() => [{ url: page }]);
+  const gemini = fakeGeminiPageReader(
+    [{ sourceUrl: page, brand: 'キュレル', name: 'キュレル リップケア バーム 無香料', category: 'lip', ingredients: ['ワセリン', 'スクワラン', 'ミツロウ'], ingredientsFoundOnPage: true }],
+    [page]
+  );
+  const shopCalls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'openapi.rakuten.co.jp' || url.hostname === 'shopping.yahooapis.jp') {
+      shopCalls.push(url.hostname);
+      // お店は答えるが、確かめられる商品は無い（説明に全成分が無い）
+      return url.hostname === 'openapi.rakuten.co.jp'
+        ? Response.json({ items: [{ itemName: 'ナゾ リップバーム', itemCode: 'n:1', itemUrl: 'https://item.rakuten.co.jp/n/1/', availability: 1, itemCaption: 'しっとりします。' }] })
+        : Response.json({ hits: [] });
+    }
+    return gemini.fetchFn(input as string, init as RequestInit);
+  }) as typeof fetch;
+  setGatewayEnv();
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    resetSpendCap();
+    const result = await withCloudflareEnv({ AI }, () =>
+      findAlternatives({ avoid: [{ nameJa: '香料' }], known: [], category: 'lip', excludeIds: [] })
+    );
+    assert.ok(shopCalls.length >= 1, 'The shops are asked first');
+    assert.strictEqual(searches.length, 1, 'Then web research runs, because the shops gave too few');
+    assert.strictEqual(result.researched, true);
+    assert.ok(result.products.some((p) => p.name === 'キュレル リップケア バーム 無香料'), JSON.stringify(result.products.map((p) => p.name)));
+    assert.deepStrictEqual(result.credits, [], 'No shop credit when no shop product is shown');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetSpendCap();
+  }
+});

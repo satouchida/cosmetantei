@@ -1,6 +1,8 @@
 import 'server-only';
-import { CulpritIngredient, KnownIngredient, Product, UserRoutineState } from '../types';
+import { CulpritIngredient, KnownIngredient, PriceApiCredit, Product, UserRoutineState } from '../types';
 import {
+  alternativeAvoidItems,
+  analyzeProduct,
   findMatchingKnownIngredient,
   findSafeAlternatives,
   performDifferentialAnalysis,
@@ -10,7 +12,9 @@ import {
   CATEGORY_LABELS_JA,
   categoryFromText,
   mostCommonCategory,
+  productCategory,
 } from '../analyzer/product-category';
+import { findShopAlternatives } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
 import { productIdentityKey, researchAlternativeCandidates } from './web-research';
 
@@ -34,6 +38,10 @@ export interface AlternativeRequest {
   unknownKind?: boolean;
   /** 候補から除く製品（肌荒れしたコスメ） */
   excludeIds: string[];
+  /** お店の候補から除く製品の名前（同じ製品・同じシリーズを、別のお店の商品として勧めない） */
+  excludeProducts?: (Pick<Product, 'id' | 'name'> & Partial<Pick<Product, 'barcode'>>)[];
+  /** お店で足りないとき、JAN コードで製品を調べてよいか（有料のことがある。既定は調べる） */
+  allowPaidLookups?: boolean;
 }
 
 /**
@@ -92,7 +100,42 @@ export function alternativeRequestFromRoutine(routine: UserRoutineState | undefi
     known,
     category: mostCommonCategory(routine.badProducts),
     excludeIds: routine.badProducts.map((p) => p.id),
+    excludeProducts: routine.badProducts,
   };
+}
+
+/**
+ * 1つの製品の分析から（分析カードの「同じ種類で原因成分を含まない商品を探す」）。サーバーで分析をやり直し、
+ * そのカードと同じ成分を避ける。種類が分からなければ探さない
+ */
+export function alternativeRequestFromProduct(product: Product): AlternativeRequest {
+  const analysis = analyzeProduct(product);
+  const avoid = alternativeAvoidItems(analysis.ingredients);
+  const known: KnownIngredient[] = [];
+  for (const a of avoid) {
+    const k = findMatchingKnownIngredient(a.nameJa) ?? (a.nameEn ? findMatchingKnownIngredient(a.nameEn) : undefined);
+    if (k && k.riskLevel !== 'safe' && !known.some((x) => x.id === k.id)) known.push(k);
+  }
+  const category = productCategory(product);
+  return {
+    avoid,
+    known,
+    category,
+    ...(!category && { unknownKind: true }),
+    excludeIds: [product.id],
+    excludeProducts: [product],
+  };
+}
+
+/** お店の検索語に足す決まった語（お店の商品名によく書かれる語だけ。多すぎると結果が減る） */
+function shopTerms(req: AlternativeRequest): string[] {
+  const terms = new Set<string>();
+  for (const k of req.known) {
+    if (k.category === 'fragrance' || k.category === 'essential_oil') terms.add('無香料');
+    else if (k.id === 'ethanol' || k.category === 'drying_alcohol') terms.add('アルコールフリー');
+    else if (k.category === 'uv_filter') terms.add('ノンケミカル');
+  }
+  return [...terms].slice(0, 2);
 }
 
 /** 検索語の中の成分の言い方（「無香料」「アルコールフリー」「〇〇不使用」） */
@@ -112,16 +155,20 @@ export function buildAlternativeQuery(req: AlternativeRequest): string {
 
 export interface AlternativeResult {
   products: Product[];
-  /** Web で探した（キャッシュ済みの候補だけでは足りなかった） */
+  /** Web で探した（キャッシュ済みの候補とお店の商品だけでは足りなかった） */
   researched: boolean;
+  /** お店の商品を出すときに表示するクレジット */
+  credits: PriceApiCredit[];
 }
 
 /**
- * 代わりの商品を探す。キャッシュ済みの確認済み製品から探し、足りなければ Web で候補を探してから、
- * 同じ確認（避ける成分・強い刺激成分を含まない、全成分が確認済み、同じ種類）をやり直す
+ * 代わりの商品を探す。キャッシュ済みの確認済み製品から探し、足りなければお店の商品検索で探す
+ * （docs/plans/alternative-recommendations.md の step 3）。それでも足りなければ（お店のキーが無い・失敗した・
+ * 確かめられる商品が少ない）、Web で候補を探してから同じ確認（避ける成分・強い刺激成分を含まない、全成分が
+ * 確認済み、同じ種類）をやり直す
  */
 export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_LIMIT): Promise<AlternativeResult> {
-  if (req.unknownKind) return { products: [], researched: false };
+  if (req.unknownKind) return { products: [], researched: false, credits: [] };
   // 同じ製品がブランド表記違いで重複して登録されていることがあるため、多めに取って1件にまとめる
   const check = () => {
     const unique: Product[] = [];
@@ -135,11 +182,34 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     return unique.slice(0, limit);
   };
   const local = check();
-  if (local.length >= limit) return { products: local, researched: false };
+  if (local.length >= limit) return { products: local, researched: false, credits: [] };
 
+  let shopProducts: Product[] = [];
+  let credits: PriceApiCredit[] = [];
+  if (req.category) {
+    const shop = await findShopAlternatives({
+      category: req.category,
+      avoid: req.avoid,
+      terms: shopTerms(req),
+      exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
+      limit: limit - local.length,
+      allowPaidLookups: req.allowPaidLookups ?? true,
+    });
+    shopProducts = shop.products;
+    credits = shop.credits;
+    if (local.length + shopProducts.length >= limit) return { products: [...local, ...shopProducts], researched: false, credits };
+  }
+
+  // お店で足りない（キーが無い・失敗した・確かめられる商品が少ない）ときは、Web で候補を探してから確かめ直す。
+  // 保存済みの製品（Web で見つけた製品を含む）を先に、お店の商品を後に並べる（同じ製品は1つだけ）
   const target = `敏感肌向けの${req.category ? CATEGORY_LABELS_JA[req.category] : 'スキンケア製品'}`;
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
-  return { products: check(), researched: true };
+  const checked = check();
+  const keys = new Set(checked.map((p) => productIdentityKey(p.brand, p.name)));
+  const extra = shopProducts.filter((p) => !checked.some((c) => c.id === p.id) && !keys.has(productIdentityKey(p.brand, p.name)));
+  const products = [...checked, ...extra].slice(0, limit);
+  // クレジットは、表示するお店の商品があるときだけ
+  return { products, researched: true, credits: products.some((p) => extra.includes(p)) ? credits : [] };
 }
 
 /** 返答で見せる、避けた成分の名前（最大3つ） */
