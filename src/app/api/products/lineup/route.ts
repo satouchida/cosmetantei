@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { apiRoute } from '@/lib/server/api-route';
+import { currentClients } from '@/lib/server/usage';
 import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';
 import { brandLineup } from '@/lib/services/shop-lineup';
 
@@ -14,7 +15,12 @@ import { brandLineup } from '@/lib/services/shop-lineup';
 const MAX_BRAND_LENGTH = 60;
 
 async function handleGet(request: NextRequest) {
-  if (await isRateLimited('search', getClientIp(request.headers))) {
+  // お店の API の回数（全員で1分 50 回）を1人で使い切らせないよう、IP とセッションのそれぞれで数える
+  const session = currentClients().find((c) => c.kind === 'session')?.key;
+  if (
+    (await isRateLimited('shop', getClientIp(request.headers))) ||
+    (session !== undefined && (await isRateLimited('shop_session', session)))
+  ) {
     return NextResponse.json({ error: RATE_LIMIT_MESSAGE_JA, products: [], credits: [] }, { status: 429 });
   }
   const name = (new URL(request.url).searchParams.get('brand') || '').trim().slice(0, MAX_BRAND_LENGTH);

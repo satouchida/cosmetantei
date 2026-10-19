@@ -7,7 +7,7 @@
  */
 
 // rakuten_api・yahoo_api はお店の API（無料）。金額は 0 で、1分あたりの件数だけを全体で数える（1秒に1回までの規約）
-export const SPEND_BUCKETS = ['web_search', 'gemini', 'workers_ai', 'rakuten_api', 'yahoo_api'] as const;
+export const SPEND_BUCKETS = ['web_search', 'gemini', 'workers_ai', 'rakuten_api', 'yahoo_api', 'open_beauty_facts'] as const;
 export type SpendBucket = (typeof SPEND_BUCKETS)[number];
 
 export interface SpendLimits {

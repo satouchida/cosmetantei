@@ -3,6 +3,8 @@ import { Product } from '../types';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-analyzer';
 import { callGemini, parseJsonLoose } from './gemini-client';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
+import { isPlainLabelText } from '../utils/safe-text';
+import { isJailbreakAttempt } from './gemini';
 import { mayRememberFailure } from '../server/usage';
 
 /**
@@ -49,8 +51,9 @@ ${JSON.stringify(names)}`;
 
 /** 訳として受け入れる形か（日本語を含む、または PEG-8・BG のような短い略号） */
 function isPlausibleJapaneseName(name: string): boolean {
-  // 文（「。」を含む）は成分名ではない
+  // 文（「。」を含む）・リンク・書式・見えない文字・指示のような文は成分名ではない（共有のキャッシュに入るため）
   if (!name || name.length > MAX_NAME_LENGTH || name.includes('。')) return false;
+  if (!isPlainLabelText(name) || isJailbreakAttempt(name)) return false;
   return JAPANESE.test(name) || (name.length <= MAX_CODE_LENGTH && /^[A-Z0-9][\w\-/.,]*$/.test(name));
 }
 

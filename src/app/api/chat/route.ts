@@ -57,7 +57,7 @@ async function priceReply(query: string | null, clientIp: string) {
 }
 
 const SINGLE_ANALYSIS_REPLIES = [
-  '🚨 このアイテムで肌荒れした（原因を特定）',
+  '🚨 このアイテムで肌荒れした（原因をさがす）',
   '✅ 普段安全に使えている（安全リストに追加）',
   '💴 この商品の価格を調べる',
 ];
@@ -172,7 +172,7 @@ async function handlePost(request: NextRequest) {
         reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
         quickReplies: [
-          '🚨 このアイテムで肌荒れした（原因を特定）',
+          '🚨 このアイテムで肌荒れした（原因をさがす）',
           '✅ 普段安全に使えている（安全リストに追加）',
           '📝 別の成分表示を入力する',
         ],
@@ -279,7 +279,7 @@ async function handlePost(request: NextRequest) {
       if (!routine || !hasBadProducts) {
         return NextResponse.json({
           reply:
-            '肌荒れ原因をあぶり出すには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「普段問題なく使えている安全なコスメ」もあると、共通の安全成分を除外して犯人成分を高精度に特定できます！',
+            '肌荒れ原因をあぶり出すには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「普段問題なく使えている安全なコスメ」もあると、共通の成分を除外して、原因になりうる成分の候補を絞り込めます。',
           quickReplies: ['🔍 肌荒れしたコスメを検索', '📸 バーコードをスキャン'],
         });
       }

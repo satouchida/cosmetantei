@@ -23,7 +23,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         </div>
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-ink leading-snug">肌荒れ成分の差分あぶり出し結果</h2>
-          <p className="text-xs text-ink-muted">安全なコスメに含まれる成分を除外し、原因成分を特定</p>
+          <p className="text-xs text-ink-muted">安全なコスメに含まれる成分を除外し、原因になりうる成分の候補をあぶり出します</p>
         </div>
       </div>
 

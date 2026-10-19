@@ -30,7 +30,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
           </div>
           <div>
             <h3 className="text-[15px] font-semibold flex flex-wrap items-center gap-1.5">
-              <span>原因成分を含まない安心の代替アイテム</span>
+              <span>原因候補の成分を含まない代わりの商品</span>
               <span className={badge('brand')}>Amazon</span>
               <span className={badge('neutral')}>PR</span>
             </h3>
@@ -43,7 +43,11 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {products.map((p) => {
-          const amazonUrl = p.amazonSearchUrl || `https://www.amazon.co.jp/s?k=${encodeURIComponent(p.brand + ' ' + p.name)}&tag=cosmetantei-22`;
+          // サーバーが作ったリンクでも、https の Amazon のものだけを使う（ほかはその場で作り直す）
+          const amazonUrl =
+            p.amazonSearchUrl && /^https:\/\/www\.amazon\.co\.jp\//.test(p.amazonSearchUrl)
+              ? p.amazonSearchUrl
+              : `https://www.amazon.co.jp/s?k=${encodeURIComponent(p.brand + ' ' + p.name)}&tag=cosmetantei-22`;
 
           return (
             <div

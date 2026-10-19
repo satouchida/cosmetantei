@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { parseLabelImage, readLabelImage, MAX_LABEL_IMAGE_BYTES } from '@/lib/services/label-reader';
-import { apiRoute } from '@/lib/server/api-route';
+import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 
 /** base64 は元の 4/3 倍。JSON の枠の分を足した上限 */
 const MAX_LABEL_REQUEST_BYTES = Math.ceil((MAX_LABEL_IMAGE_BYTES * 4) / 3) + 1024;
@@ -21,7 +21,11 @@ async function handlePost(request: NextRequest) {
   if (!Number.isFinite(declared) || declared <= 0 || declared > MAX_LABEL_REQUEST_BYTES) {
     return NextResponse.json({ error: '画像が大きすぎます。1.5MB までの写真を選んでください。' }, { status: 413 });
   }
-  const body = await request.json().catch(() => null);
+  // 申告された長さを信じず、上限まで読んだところでやめる（長さを偽った大きな本文で、メモリを使わせない）
+  const body = await readJsonBody(request, MAX_LABEL_REQUEST_BYTES);
+  if (body === TOO_LARGE) {
+    return NextResponse.json({ error: '画像が大きすぎます。1.5MB までの写真を選んでください。' }, { status: 413 });
+  }
   const image = parseLabelImage((body as { image?: unknown } | null)?.image);
   if (!image) {
     return NextResponse.json(

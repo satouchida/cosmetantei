@@ -45,6 +45,9 @@ interface AppBindings {
   PRICE_RATE_LIMITER?: RateLimiterLike;
   /** Turnstile の確認とセッションの発行（src/lib/server/session.ts） */
   SESSION_RATE_LIMITER?: RateLimiterLike;
+  /** お店の商品検索（無料だが全員で1分 50 回まで。1人で使い切らせない）。IP ごとと、セッションごと */
+  SHOP_RATE_LIMITER?: RateLimiterLike;
+  SHOP_SESSION_RATE_LIMITER?: RateLimiterLike;
   /** 有料の呼び出しの上限を全体で数える Durable Object（worker.ts の SpendCapObject） */
   SPEND_CAP?: DurableObjectNamespaceLike;
   USAGE?: AnalyticsEngineLike;
@@ -298,16 +301,18 @@ export async function cachePutJSON(key: string, value: unknown, ttlSeconds: numb
 
 // ---------- レート制限 ----------
 
-export type RateLimitBucket = 'ai' | 'search' | 'price' | 'session';
+export type RateLimitBucket = 'ai' | 'search' | 'price' | 'session' | 'shop' | 'shop_session';
 
 /** バインディングが無い環境用のフォールバック上限（1分あたり） */
-const FALLBACK_LIMITS: Record<RateLimitBucket, number> = { ai: 20, search: 60, price: 5, session: 10 };
+const FALLBACK_LIMITS: Record<RateLimitBucket, number> = { ai: 20, search: 60, price: 5, session: 10, shop: 20, shop_session: 6 };
 
 const RATE_LIMITER_BINDING: Record<RateLimitBucket, keyof AppBindings> = {
   ai: 'AI_RATE_LIMITER',
   search: 'SEARCH_RATE_LIMITER',
   price: 'PRICE_RATE_LIMITER',
   session: 'SESSION_RATE_LIMITER',
+  shop: 'SHOP_RATE_LIMITER',
+  shop_session: 'SHOP_SESSION_RATE_LIMITER',
 };
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const fallbackHistory = new BoundedCache<number[]>(5000, RATE_LIMIT_WINDOW_MS);

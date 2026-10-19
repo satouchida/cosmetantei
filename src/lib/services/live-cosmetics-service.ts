@@ -1,4 +1,5 @@
 import { Product } from '../types';
+import { reserveSpend } from '../server/spend-cap';
 import {
   addProductToDynamicCache,
   COSMETICS_DATABASE,
@@ -285,6 +286,8 @@ const OBF_TIMEOUT_MS = 4_000;
 export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<Product[]> {
   const clean = query.replace(/\u3000/g, ' ').trim();
   if (!clean || isGreetingOrConsultation(clean) || isNonCosmeticSearchQuery(clean)) return [];
+  // 検索 API の回数を全員で数える（1人の大量の検索で、OBF にこのアプリを止められないように。金額は 0）
+  if (!(await reserveSpend('open_beauty_facts', 0))) return [];
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), OBF_TIMEOUT_MS);
@@ -296,7 +299,7 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
 
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'CosmeTantei/1.0 (https://cosmetantei.com; contact@cosmetantei.com)',
+        'User-Agent': 'CosmeTantei/1.0 (https://cosmetantei.app; contact@cosmetantei.app)',
         Accept: 'application/json',
       },
       signal: controller.signal,

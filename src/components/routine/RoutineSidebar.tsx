@@ -198,7 +198,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           />
 
           {safeProducts.length === 0 ? (
-            <EmptyState>普段問題なく使えているコスメを追加すると、除外照合で原因特定が高精度になります</EmptyState>
+            <EmptyState>普段問題なく使えているコスメを追加すると、共通の成分を除外して、原因の候補を絞り込めます</EmptyState>
           ) : (
             <ul role="list" className="space-y-2">
               {safeProducts.map((p) => (

@@ -86,7 +86,7 @@ export const ChatContainer: React.FC = () => {
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: `🔍 こんにちは！肌荒れ成分特定サービス「コスメ探偵 (CosmeTantei)」です。\n\n今お使いの化粧品名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコード（JAN/UPC）をカメラで読み取ってください。\n\n「肌荒れしたコスメ」と「普段使える安全なコスメ」を比較して、肌荒れの原因成分（香料、エタノール、防腐剤、高濃度アクティブなど）をあぶり出し、その成分を含まない安心の代替アイテム（Amazonリンク付）をご提案します！`,
+      content: `🔍 こんにちは！肌荒れの原因になりうる成分を探すサービス「コスメ探偵 (CosmeTantei)」です。\n\n今お使いの化粧品名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコード（JAN/UPC）をカメラで読み取ってください。\n\n「肌荒れしたコスメ」と「普段使えているコスメ」を比較して、肌荒れの原因になりうる成分の候補（香料、エタノール、防腐剤、高濃度アクティブなど）をあぶり出し、その成分を含まない同じ種類の商品（Amazonリンク付）を探します。医療上の診断の代わりにはなりません。`,
       timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
@@ -727,7 +727,7 @@ export const ChatContainer: React.FC = () => {
           <div className="min-w-0">
             <h1 className="font-bold text-ink text-lg leading-tight tracking-tight truncate">コスメ探偵</h1>
             <p className="text-xs text-ink-muted hidden md:block truncate">
-              敏感肌の肌荒れ原因成分を特定・あぶり出すAIスキンケア相談
+              敏感肌の肌荒れの原因になりうる成分を探すAIスキンケア相談
             </p>
           </div>
         </div>

@@ -105,8 +105,13 @@ export interface GeminiRequest {
   /** 思考レベル。未指定なら getDefaultThinkingLevel() */
   thinkingLevel?: ThinkingLevel;
   timeoutMs?: number;
-  /** AI Gateway のキャッシュを使わない（価格など、古い応答を返してはいけないもの）。画像付きは常に使わない */
+  /**
+   * AI Gateway のキャッシュを使わない。今はすべての呼び出しでキャッシュを使わない（結果は KV に保存し、
+   * ゲートウェイに残った失敗の応答を返し続けないため）。呼び出し側の意図を残すために受け付ける
+   */
   skipCache?: boolean;
+  /** 著作物の引用に似ているとして止められた（RECITATION）ことを、null ではなく recitation: true で返す */
+  reportRecitation?: boolean;
   /**
    * 急がない仕事（成分の評価・翻訳）。1分あたりの上限の一部（SPEND_BACKGROUND_SHARE）だけを使い、
    * 残りをチャットの返事など利用者が待っている呼び出しのために空けておく
@@ -280,7 +285,9 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
         // 写真は開発用の AI_GATEWAY_LOG_PAYLOAD=true でもログに残さず、ゲートウェイのキャッシュも使わない
         'cf-aig-collect-log-payload':
           !req.images?.length && process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
-        ...(req.images?.length || req.skipCache ? { 'cf-aig-skip-cache': 'true' } : {}),
+        // ゲートウェイのキャッシュは使わない。結果は KV に保存しており、ゲートウェイに残った失敗の応答
+        // （安全性で止められた・途中で切れた応答も HTTP 200）を、期限まで全員に返し続けないように
+        'cf-aig-skip-cache': 'true',
         // ゲートウェイで再試行しない（再試行の分も課金されるが、上限には1回分しか確保していない）
         'cf-aig-max-attempts': '1',
       },
@@ -337,7 +344,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
       // 入力は課金済み（キャッシュから返ったものを除く）。理由を使用量の記録に残す
       if (outcome === 'ok') outcome = 'recitation';
       console.warn(`Gemini output blocked (RECITATION) for task ${req.task}`);
-      return req.urlContext ? { text: '', truncated: false, retrievedUrls: extractRetrievedUrls(data), recitation: true } : null;
+      if (req.urlContext) return { text: '', truncated: false, retrievedUrls: extractRetrievedUrls(data), recitation: true };
+      return req.reportRecitation ? { text: '', truncated: false, recitation: true } : null;
     }
 
     const truncated = finishReason === 'MAX_TOKENS';
@@ -369,8 +377,11 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
 
 /** 見積もりの前提（実際の金額は呼び出しの後に usageMetadata で直す） */
 const IMAGE_TOKENS = 2_000;
-/** URL context で読む1ページあたり（ページの文章は入力として課金される） */
-const URL_PAGE_TOKENS = 20_000;
+/**
+ * URL context で読む1ページあたり（ページの文章は入力として課金される）。実際の金額は呼び出しの後に直すが、
+ * 同時に読んでいる間は見積もりで数えるので、大きなお店のページでも上限を超えにくいよう高めにする
+ */
+const URL_PAGE_TOKENS = 50_000;
 /** maxOutputTokens が無い呼び出し（今は無い）の出力の見積もり */
 const DEFAULT_OUTPUT_TOKENS = 8_192;
 

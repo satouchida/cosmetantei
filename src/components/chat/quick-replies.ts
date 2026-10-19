@@ -38,7 +38,7 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
   '🧴 キュレルの泡洗顔を調べる': { kind: 'send', text: 'キュレル 泡洗顔料' },
   '💧 トリデンのセラムを調べる': { kind: 'send', text: 'トリデン セラム' },
 
-  '🚨 このアイテムで肌荒れした（原因を特定）': { kind: 'add_analyzed', list: 'bad' },
+  '🚨 このアイテムで肌荒れした（原因をさがす）': { kind: 'add_analyzed', list: 'bad' },
   '✅ 普段安全に使えている（安全リストに追加）': { kind: 'add_analyzed', list: 'safe' },
   '💴 この商品の価格を調べる': { kind: 'price_analyzed' },
 

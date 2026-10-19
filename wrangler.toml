@@ -7,10 +7,16 @@ compatibility_flags = ["nodejs_compat"]
 # Static Assets
 assets = { directory = ".open-next/assets", binding = "ASSETS" }
 
-# Custom Domain Configuration (cosmetantei)
+# Workers Logs（[usage] の費用の記録・エラーを保存して検索できるようにする）。ログには利用者の文章を出さない
+# （件数・ハッシュ・状態コードだけ。docs/walkthroughs/2026-10-14-cost-tracking.md）
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# 独自ドメイン（cosmetantei.app）。ドメインの zone をこの Cloudflare アカウントに追加してから有効にする
+# （zone が無いまま有効にすると deploy が失敗する）。有効にしたら、Turnstile のウィジェットにも cosmetantei.app を足す
 # routes = [
-#   { pattern = "cosmetantei.com/*", custom_domain = true },
-#   { pattern = "app.cosmetantei.com/*", custom_domain = true }
+#   { pattern = "cosmetantei.app", custom_domain = true }
 # ]
 
 # レート制限（src/lib/server/cloudflare.ts で使用）
@@ -36,6 +42,18 @@ simple = { limit = 5, period = 60 }
 name = "SESSION_RATE_LIMITER"
 namespace_id = "1005"
 simple = { limit = 10, period = 60 }
+
+# お店の商品検索（ブランドの製品一覧）。無料だが、楽天・Yahoo! の回数は全員で1分 50 回まで（1人で使い切らせない）。
+# IP は携帯の回線・会社で多くの人が同じになるので多めに、セッション（ブラウザ）ごとは少なく
+[[ratelimits]]
+name = "SHOP_RATE_LIMITER"
+namespace_id = "1006"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "SHOP_SESSION_RATE_LIMITER"
+namespace_id = "1007"
+simple = { limit = 6, period = 60 }
 
 # 有料の呼び出し（Gemini・Workers AI・Web 検索）の上限を、全世界で1つの Durable Object で厳密に数える
 # （src/lib/server/spend-cap.ts）。クラスは worker.ts から export している。上限は [vars] の SPEND_BUDGET_USD・SPEND_PER_MINUTE_*
@@ -102,6 +120,8 @@ SPEND_BACKGROUND_SHARE = "0.5"
 # 楽天・Yahoo! の API（無料）。アプリ ID ごとに1秒に1回までの規約に合わせ、全体で1分あたりの件数を数える
 SPEND_PER_MINUTE_RAKUTEN_API = "50"
 SPEND_PER_MINUTE_YAHOO_API = "50"
+# 1回の要求で確保してよい有料の呼び出しの見積もりの合計（ドル）。60 秒を過ぎたら新しい有料の呼び出しはしない
+SPEND_PER_REQUEST_USD = "0.3"
 # 楽天の API に送る Origin。楽天のアプリに登録したサイトでないと 403 になる
 RAKUTEN_API_ORIGIN = "https://cosmetantei.app"
 # 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）

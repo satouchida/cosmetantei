@@ -16,8 +16,25 @@ import {
   ProductAnalysisResult,
 } from '../types';
 import { callGemini, getGeminiModel, isGeminiConfigured } from './gemini-client';
-import { stripMarkdownEmphasis } from './gemini';
+import { isJailbreakAttempt, stripMarkdownEmphasis } from './gemini';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
+
+/**
+ * 返答に使えない言い切り（安全・効果を保証する、治ると言う）。指示を書き換えられた返答や、指示に従わない返答を、
+ * 利用者に見せない（このアプリは原因になりうる成分の候補を示すだけで、診断・保証はしない）
+ */
+const ASSURANCE_PATTERN = /必ず安全|絶対(?:に)?安全|100\s*[%％]\s*安全|安全(?:です|を)保証|治ります|治せます|完治|治療でき|副作用はありません|誰でも安心/g;
+/** 言い切りの直後に否定が続く文（「必ず安全とは限りません」「完治しません」）は、言い切りではない */
+const NEGATED_AFTER = /^[^。！!\n]{0,10}(?:ません|ない|限らない|できない)/;
+/** 「副作用はありません」は否定の形の言い切りなので、否定が続いても言い切りとして扱う */
+const ALWAYS_ASSURANCE = /^副作用はありません$/;
+
+export function hasAssurance(text: string): boolean {
+  for (const m of text.matchAll(ASSURANCE_PATTERN)) {
+    if (ALWAYS_ASSURANCE.test(m[0]) || !NEGATED_AFTER.test(text.slice((m.index ?? 0) + m[0].length))) return true;
+  }
+  return false;
+}
 
 /**
  * チャットの返答文
@@ -193,7 +210,14 @@ async function generateShortReply(
     .replace(/[（(]\s*\d+\s*文字\s*[）)]\s*$/, '')
     .trim();
   // リンク・書式・見えない文字を含む返答（指示に従っていない、またはリンクの埋め込み）は使わない
-  return text && text.length <= MAX_REPLY_LENGTH && isPlainReplyText(text) ? text : null;
+  // 保証・治療の言い切りや、指示の書き換えのような文を含む返答も使わない（決まった返答にする）
+  return text &&
+    text.length <= MAX_REPLY_LENGTH &&
+    isPlainReplyText(text) &&
+    !hasAssurance(text) &&
+    !isJailbreakAttempt(text)
+    ? text
+    : null;
 }
 
 function ingredientFacts(item: KnownIngredient) {

@@ -1,6 +1,6 @@
 import 'server-only';
 import { getBindings } from './cloudflare';
-import { BudgetClientKind, currentClients, markRefused } from './usage';
+import { adjustRequestSpend, BudgetClientKind, currentClients, markRefused, takeRequestSpend } from './usage';
 import { ClientLimit, MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod } from './spend-cap-core';
 
 /**
@@ -58,6 +58,8 @@ export const DEFAULT_PER_MINUTE: Record<SpendBucket, number> = {
   // 楽天・Yahoo! の API は、アプリ ID ごとに1秒に1回まで。全体で1分あたり 50 回にして余裕をもたせる
   rakuten_api: 50,
   yahoo_api: 50,
+  // Open Beauty Facts の検索 API は1分に10回まで（OBF の利用の決まり）。全員で数え、超えたら保存済みの製品だけで答える
+  open_beauty_facts: 10,
 };
 
 const PER_MINUTE_ENV: Record<SpendBucket, string> = {
@@ -66,6 +68,7 @@ const PER_MINUTE_ENV: Record<SpendBucket, string> = {
   workers_ai: 'SPEND_PER_MINUTE_WORKERS_AI',
   rakuten_api: 'SPEND_PER_MINUTE_RAKUTEN_API',
   yahoo_api: 'SPEND_PER_MINUTE_YAHOO_API',
+  open_beauty_facts: 'SPEND_PER_MINUTE_OPEN_BEAUTY_FACTS',
 };
 
 /** 急がない仕事が使える、1分あたりの上限の割合（SPEND_BACKGROUND_SHARE が無い・形が違うとき） */
@@ -172,10 +175,17 @@ export async function reserveSpend(
     return null;
   }
   const cost = Math.max(0, Math.ceil(costMicros));
+  // 1回の要求の見積もりの合計・時間の上限（無料のお店の API は数えない）
+  if (cost > 0 && !takeRequestSpend(cost)) {
+    markRefused();
+    console.warn(`${bucket} call skipped: per-request spend or time limit reached`);
+    return null;
+  }
   try {
     const target = await capTarget(`${bucket} call`);
     if (!target) {
       markRefused();
+      adjustRequestSpend(-cost);
       return null;
     }
     const clients: ClientLimit[] = currentClients().map((c) => ({ key: c.key, dayMicros: clientBudgetMicros(c.kind) }));
@@ -187,13 +197,17 @@ export async function reserveSpend(
             period?: SpendPeriod;
             reason?: unknown;
           });
-    // 断られた呼び出しの失敗を、全員の分の「失敗した検索」として覚えさせない
-    if (decision.allowed !== true) markRefused();
+    // 断られた呼び出しの失敗を、全員の分の「失敗した検索」として覚えさせない。この要求の見積もりの合計からも外す
+    if (decision.allowed !== true) {
+      markRefused();
+      adjustRequestSpend(-cost);
+    }
     return decision.allowed === true && decision.period
       ? { costMicros: cost, period: decision.period, clients: clients.map((c) => c.key) }
       : null;
   } catch (err) {
     markRefused();
+    adjustRequestSpend(-cost);
     console.error(`Spend cap check failed for ${bucket}; refusing the call:`, err instanceof Error ? err.message : err);
     return null;
   }
@@ -206,6 +220,8 @@ export async function reserveSpend(
 export async function settleSpend(ticket: SpendTicket, actualMicros: number): Promise<void> {
   if (!Number.isFinite(actualMicros)) return;
   const deltaMicros = Math.max(0, Math.ceil(actualMicros)) - ticket.costMicros;
+  // この要求の合計も実際の金額にする（1回の要求の上限を、見積もりではなく使った金額で数える）
+  adjustRequestSpend(deltaMicros);
   if (deltaMicros === 0) return;
   // 見積もりは高めにしてある。超えたら前提（URL のページのトークン数など）を見直す
   if (deltaMicros > 0) console.warn(`Spend estimate was low by ${deltaMicros} micro-USD; check the estimate assumptions.`);

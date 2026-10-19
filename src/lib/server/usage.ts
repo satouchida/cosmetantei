@@ -48,7 +48,30 @@ export interface BudgetClient {
   key: string;
 }
 
-const routeContext = new AsyncLocalStorage<{ route: string; clients: BudgetClient[]; refused?: boolean }>();
+const routeContext = new AsyncLocalStorage<{
+  route: string;
+  clients: BudgetClient[];
+  refused?: boolean;
+  /** 要求を受けた時刻と、この要求で確保した有料の呼び出しの見積もりの合計（1回の要求の上限に使う） */
+  startedAt: number;
+  reservedMicros: number;
+}>();
+
+/**
+ * 1回の要求で確保してよい有料の呼び出しの見積もりの合計（[vars] の SPEND_PER_REQUEST_USD、既定 $0.30）。
+ * 調べものの段が重なっても、1回の要求で利用者の1日の予算（$0.50）を使い切らないように。
+ * 製品を Web で調べる1回は、見積もりで約 $0.19〜0.29
+ */
+const DEFAULT_REQUEST_SPEND_USD = 0.3;
+function maxRequestSpendMicros(): number {
+  const usd = Number(process.env.SPEND_PER_REQUEST_USD);
+  return Math.round((Number.isFinite(usd) && usd > 0 ? usd : DEFAULT_REQUEST_SPEND_USD) * 1_000_000);
+}
+/**
+ * 要求を受けてから、新しい有料の呼び出しを始めてよい時間。ブラウザは 90 秒で待つのをやめる
+ * （src/lib/client/chat-request.ts）。ページの読み取りは最長 30 秒なので、60 秒までに始めれば間に合う
+ */
+export const REQUEST_PAID_CALL_DEADLINE_MS = 60_000;
 
 /**
  * API ルートの処理を包み、その中の有料の呼び出しにルート名と利用者（利用者ごとの1日の予算のキー）を付ける。
@@ -59,7 +82,8 @@ export function withUsageRoute<A extends unknown[], R>(
   handler: (...args: A) => Promise<R>,
   clients: BudgetClient[] = []
 ) {
-  return (...args: A): Promise<R> => routeContext.run({ route, clients }, () => handler(...args));
+  return (...args: A): Promise<R> =>
+    routeContext.run({ route, clients, startedAt: Date.now(), reservedMicros: 0 }, () => handler(...args));
 }
 
 export function currentUsageRoute(): string {
@@ -69,6 +93,25 @@ export function currentUsageRoute(): string {
 /** この有料の呼び出しを頼んだ利用者の予算のキー（API ルートの外・テストでは空） */
 export function currentClients(): BudgetClient[] {
   return routeContext.getStore()?.clients ?? [];
+}
+
+/**
+ * この要求でもう1回、この見積もりの有料の呼び出しをしてよいか（よければ合計に足す）。
+ * 1回の要求の見積もりの合計か、始めてよい時間を超えたら false。API ルートの外（テスト・バックグラウンド）では制限しない
+ */
+export function takeRequestSpend(costMicros: number): boolean {
+  const store = routeContext.getStore();
+  if (!store) return true;
+  if (Date.now() - store.startedAt > REQUEST_PAID_CALL_DEADLINE_MS) return false;
+  if (store.reservedMicros + costMicros > maxRequestSpendMicros()) return false;
+  store.reservedMicros += costMicros;
+  return true;
+}
+
+/** 確保した見積もりを取り消す・実際の金額に直す（負の値で減らす）。API ルートの外では何もしない */
+export function adjustRequestSpend(deltaMicros: number): void {
+  const store = routeContext.getStore();
+  if (store) store.reservedMicros = Math.max(0, store.reservedMicros + deltaMicros);
 }
 
 /** この要求の有料の呼び出しが、上限（利用者ごと・全体の予算・1分の件数）で断られた・数えられなかった（spend-cap.ts が付ける） */

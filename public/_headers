@@ -1,0 +1,11 @@
+# Workers Static Assets が直接返すファイル（/_next/static/*・public/*）に付けるヘッダー。
+# Worker を通る応答には next.config.mjs の SECURITY_HEADERS が付く（同じ内容にそろえる）
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Next.js のビルドのファイル（名前にハッシュが付くので、中身は変わらない）
+/_next/static/*
+  Cache-Control: public,max-age=31536000,immutable

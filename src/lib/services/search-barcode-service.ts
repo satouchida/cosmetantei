@@ -3,6 +3,18 @@ import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
+
+/** Open Beauty Facts の写真の URL：https で、OBF の画像サーバーのものだけ。それ以外は使わない */
+function obfImageUrl(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  try {
+    const u = new URL(raw);
+    const plain = u.protocol === 'https:' && !u.username && !u.password && !u.port;
+    return plain && /(^|\.)openbeautyfacts\.org$/.test(u.hostname) ? u.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
 import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS } from './web-research';
 import { mayRememberFailure } from '../server/usage';
 import { CATEGORY_SYNONYMS } from '../search/product-match';
@@ -174,7 +186,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
 
     const res = await fetch(`https://world.openbeautyfacts.org/api/v2/product/${cleanCode}.json`, {
       headers: {
-        'User-Agent': 'CosmeTantei/1.0 (https://cosmetantei.com; contact@cosmetantei.com)',
+        'User-Agent': 'CosmeTantei/1.0 (https://cosmetantei.app; contact@cosmetantei.app)',
         Accept: 'application/json',
       },
       signal: controller.signal,
@@ -226,7 +238,8 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
           country: country,
           category: 'other',
           barcode: cleanCode,
-          imageUrl: p.image_front_url || p.image_url,
+          // Open Beauty Facts の画像サーバーの https の写真だけ（ほかのサイトを利用者のブラウザから読ませない）
+          imageUrl: obfImageUrl(p.image_front_url || p.image_url),
           // 有効成分だけでは全成分がわからないため、その他の成分が無ければ医薬部外品の項目も使わない
           ...(label.ingredients.length > 0 && label),
           labelFormat: LABEL_FORMAT,

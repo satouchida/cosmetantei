@@ -29,3 +29,5 @@ jobs:
       - run: pnpm lint
       # テストは fetch と Cloudflare バインディングをスタブに置き換えて実行するため、秘密情報は不要
       - run: pnpm test
+      # ビルドでだけ見つかる失敗（App Router の決まり・サーバー専用のモジュールの読み込みなど）を、deploy の前に見つける
+      - run: pnpm build

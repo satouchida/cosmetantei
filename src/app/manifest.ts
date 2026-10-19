@@ -4,7 +4,10 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'コスメ探偵 (CosmeTantei)',
     short_name: 'コスメ探偵',
-    description: '肌荒れ・ヒリつき・赤みの原因成分を差分であぶり出すAIコスメ探偵。',
+    description: '化粧品の全成分を比べて、肌荒れ・ヒリつき・赤みの原因になりうる成分の候補を示すツール。',
+    id: '/',
+    lang: 'ja',
+    scope: '/',
     start_url: '/',
     display: 'standalone',
     background_color: '#f8faf9',

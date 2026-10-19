@@ -145,7 +145,13 @@ async function verifyTurnstileToken(
   try {
     const res = await fetch(SITEVERIFY_URL, {
       method: 'POST',
-      body: new URLSearchParams({ secret: config.secret, response: token }),
+      // 解いたブラウザの IP も渡す（別の場所で解いたトークンの使い回しを、Cloudflare が見分けやすくする）。
+      // Cloudflare が付けた IP だけ（無ければ渡さない）
+      body: new URLSearchParams({
+        secret: config.secret,
+        response: token,
+        ...(request.headers.get('cf-connecting-ip') && { remoteip: request.headers.get('cf-connecting-ip')! }),
+      }),
       signal: AbortSignal.timeout(SITEVERIFY_TIMEOUT_MS),
     });
     if (!res.ok) {

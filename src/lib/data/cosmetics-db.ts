@@ -36,6 +36,30 @@ export function isShareable(p: Product): boolean {
 /**
  * 外部APIやGoogle検索で取得した商品情報を動的キャッシュに追加・更新
  */
+/** 成分表示（全成分・有効成分）の中身が違うか */
+function hasDifferentIngredients(a: Product, b: Product): boolean {
+  const list = (p: Product) => [...p.ingredients, '|', ...(p.activeIngredientsJa ?? [])].join('\n');
+  return list(a) !== list(b);
+}
+
+/**
+ * next は prev の英語の成分表示を日本語に訳したものか（訳は後から有料で作る。訳した版は置き換えてよい）。
+ * 訳した版は元の英語を ingredientsEn に持つ（src/lib/services/ingredient-translate.ts）
+ */
+function isTranslationOf(prev: Product, next: Product): boolean {
+  return (
+    !!next.ingredientsEn &&
+    !prev.ingredientsEn &&
+    next.ingredientsEn.length === prev.ingredients.length &&
+    next.ingredientsEn.every((name, i) => name === prev.ingredients[i])
+  );
+}
+
+/** 確認済みの成分表示を、この内容で置き換えてはいけないか（同じ id で、訳ではない別の内容） */
+function isRejectedReplacement(prev: Product, next: Product): boolean {
+  return prev.id === next.id && hasDifferentIngredients(prev, next) && !isTranslationOf(prev, next);
+}
+
 export function addProductToDynamicCache(product: Product): Product {
   if (!isShareable(product)) return product;
   const existingIdx = RUNTIME_CACHE.findIndex(
@@ -54,6 +78,11 @@ export function addProductToDynamicCache(product: Product): Product {
     const existing = RUNTIME_CACHE[existingIdx];
     // 確認済みの成分データを AI 推定で上書きしない
     if (isVerifiedSource(existing) && !isVerifiedSource(enrichedProduct)) {
+      return existing;
+    }
+    // 同じ製品（同じページから作った同じ id）の確認済みの成分データを、別の内容で置き換えない
+    // （検索語の細工で同じページを読み違えさせ、全員の分析を変えさせない）
+    if (isVerifiedSource(existing) && isRejectedReplacement(existing, enrichedProduct)) {
       return existing;
     }
     RUNTIME_CACHE.splice(existingIdx, 1);
@@ -89,12 +118,17 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
   // 古い方式で分けた成分表示の製品は捨てる（次に調べたときに新しい方式で保存される）
   const raw = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY)) || [];
   const stored = raw.filter((p) => !hasStaleLabel(p));
-  // 既に同じ内容で登録済みなら書き込まない（1つのキーへの書き込みを減らす）。古い製品を捨てたときは書き込む
-  const unchanged = stored.length === raw.length && verified.every((v) =>
-    stored.some((s) => s.id === v.id && s.ingredients.join('|') === v.ingredients.join('|'))
-  );
-  if (unchanged) return;
-  const merged = [...verified, ...stored.filter((s) => !verified.some((v) => v.id === s.id))].slice(
+  // すでに保存した製品（同じ id）の成分表示は、別の内容で置き換えない（英語の成分表示を訳した版は置き換える）。
+  // 置き換えなかった製品は、新しい製品に押し出される（最大 300 件）まで残る。インデックス全体の期限は書き込むたびに延びる
+  const fresh = verified.filter((v) => !stored.some((s) => isRejectedReplacement(s, v)));
+  // 足す・変える製品が無く、古い製品も捨てていなければ書き込まない（1つのキーへの書き込みを減らす。
+  // 置き換えを断った製品を何度送られても、書き込みは起きない）
+  if (
+    stored.length === raw.length &&
+    fresh.every((v) => stored.some((s) => s.id === v.id && !hasDifferentIngredients(s, v)))
+  )
+    return;
+  const merged = [...fresh, ...stored.filter((s) => !fresh.some((v) => v.id === s.id))].slice(
     0,
     MAX_VERIFIED_PRODUCTS
   );
