@@ -6140,28 +6140,68 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
   assert.strictEqual(shop.cutIngredientBlock(`${'説明'.repeat(450)}【変更後】全成分：${label}`), null);
   // 「変更前」だけで、どれが今の処方か分からない説明は使わない
   assert.strictEqual(shop.cutIngredientBlock(`【変更前】全成分：${label}<br>内容量 150ml`), null);
+  // 2026-10-19 に楽天の実際の商品説明 20 件で見つけた書き方（文は作り直した例。お店の文は保存しない）
+  // 配合量・分類つき（「保湿成分:BG 4.48%」）は量と分類を外す。「1、2-ヘキサンジオール」は1つの名前
+  const quantified = await shop.ingredientsFromCaption(
+    '【成分】油性成分:スクワラン 4.00%、ミネラルオイル 2.00%保湿成分:BG 4.48%、グリセリン 4.00%、1、2-ヘキサンジオール 0.50%防腐剤:メチルパラベン 0.20%、フェノキシエタノール 0.10%増粘剤:キサンタンガム 0.03%pH調整剤:クエン酸Na 適量、クエン酸 適量基剤:水 全量を100%とする【注意事項】お肌に合わないときは使用を中止してください。'
+  );
+  assert.deepStrictEqual(quantified?.ingredients, ['スクワラン', 'ミネラルオイル', 'BG', 'グリセリン', '1,2-ヘキサンジオール', 'メチルパラベン', 'フェノキシエタノール', 'キサンタンガム', 'クエン酸Na', 'クエン酸', '水']);
+  // かぎかっこの「有効成分」「その他の成分」（医薬部外品）。有効成分を見落とさない
+  const bracketed = await shop.ingredientsFromCaption(
+    '【成分】「有効成分」トラネキサム酸2.00%「その他の成分」保湿成分:濃グリセリン8.00%、BG2.00%、トレハロース1.00%防腐剤:フェノキシエタノール0.20%、メチルパラベン0.20%増粘剤:キサンタンガム適量キレート剤:EDTA-2Na0.10%基剤:精製水全量を100%とする【注意事項】ご注意ください。'
+  );
+  assert.deepStrictEqual(bracketed?.activeIngredients, ['トラネキサム酸']);
+  assert.deepStrictEqual(bracketed?.ingredients, ['濃グリセリン', 'BG', 'トレハロース', 'フェノキシエタノール', 'メチルパラベン', 'キサンタンガム', 'EDTA-2Na', '精製水']);
+  // 名前の後ろの「*」の注は外す（フェノキシエタノールを見落とさない）。「*は「有効成分」」の説明は成分にしない
+  const footnoted = await shop.ingredientsFromCaption(
+    '【成分】有効成分:トラネキサム酸その他の成分:加水分解ヒアルロン酸*(ナノ化)、BG、グリセリン、ペンチレングリコール、DPG、PEG-8、エデト酸塩、クエン酸、フェノキシエタノール*2種のヒアルロン酸【注意事項】使用を中止すること。'
+  );
+  assert.strictEqual(footnoted?.ingredients.at(-1), 'フェノキシエタノール');
+  assert.ok(footnoted?.ingredients.includes('加水分解ヒアルロン酸(ナノ化)'));
+  const legend = await shop.ingredientsFromCaption(
+    '【成分】グリチルレチン酸ステアリル*、スクワラン、ワセリン、パルミチン酸デキストリン、無水ケイ酸、シリコーン樹脂、テトラデセン、トコフェロール、酸化チタン*は「有効成分」無表示は「その他の成分」【注意事項】高温のところにおかない。'
+  );
+  assert.ok(legend && !legend.ingredients.some((i) => /無表示|有効成分/.test(i)));
+  // 見出しの無い「成分」（文のすぐ後）。「注意事項」で終わる
+  const bare = await shop.ingredientsFromCaption(
+    '顔全体になじませます。成分アラントイン*、精製水、グリセリン、BG、ベタイン、ユーカリエキス、カルボマー、アルギニン、POE水添ヒマシ油、パラベン*は「有効成分」無表示は「その他の成分」注意事項肌に異常が生じていないかよく注意して使う。'
+  );
+  assert.deepStrictEqual(bare?.activeIngredients, ['アラントイン']);
+  assert.strictEqual(bare?.ingredients.at(-1), 'パラベン');
+  // 空白のあとの「メーカー」で終わる（住所を最後の成分にくっつけない）。くっついて「水」を落とすなら使わない
+  const maker = await shop.ingredientsFromCaption(`全成分 ${label}、トコフェロール、水 メーカーファンケル〒231-0000 横浜市 商品区分 化粧品`);
+  assert.strictEqual(maker?.ingredients.at(-1), '水');
+  // 分類の名前に成分名がくっついていても、成分名を消さない（消すくらいなら使わない）
+  const gluedLabel = await shop.ingredientsFromCaption(
+    '【成分】保湿成分:BG 4.00%、スクワラン 2.00%、ホホバ種子油 1.00%、トレハロース 1.00%、グリセリン防腐剤:メチルパラベン 0.20%、フェノキシエタノール 0.10%増粘剤:キサンタンガム 0.03%基剤:水 全量を100%とする【注意事項】ご注意ください。'
+  );
+  assert.ok(gluedLabel === null || gluedLabel.ingredients.some((i) => i.includes('グリセリン')), JSON.stringify(gluedLabel?.ingredients));
+  // 量があるときも、名前の数字は残す。数字と量がくっついて読めない一覧は使わない
+  const digits = await shop.ingredientsFromCaption(
+    '【成分】乳化剤:ポリソルベート80 0.50%、PEG-60水添ヒマシ油 1.00%、ナイロン-12 0.50%、1、2-ヘキサンジオール 0.50%保湿成分:BG 3.00%、グリセリン 2.00%、ベタイン 1.00%防腐剤:フェノキシエタノール 0.20%基剤:水 全量を100%とする【注意事項】ご注意ください。'
+  );
+  assert.ok(digits && ['ポリソルベート80', 'PEG-60水添ヒマシ油', 'ナイロン-12', '1,2-ヘキサンジオール'].every((n) => digits.ingredients.includes(n)), JSON.stringify(digits?.ingredients));
+  assert.strictEqual(await shop.ingredientsFromCaption('【成分】乳化剤:ナイロン-120.5%、BG 3.00%、グリセリン 2.00%、水 1.00%、ベタイン 1.00%、キサンタンガム 1.00%、スクワラン 1.00%、トレハロース 1.00%【注意事項】注意。'), null);
+  // 空白で区切られた文が最後の成分にくっついている（見出しの語は無い）：除くと「水」を落とすので使わない
+  assert.strictEqual(await shop.ingredientsFromCaption(`全成分 ${label}、トコフェロール、水 本品は肌に合わない場合があります<br>内容量 150ml`), null);
+  // 有効成分に文がくっついている・「*」の注に成分名が隠れているときも使わない
+  assert.strictEqual(await shop.ingredientsFromCaption(`【成分】有効成分:トラネキサム酸 本品は医薬品です その他の成分:${label}【注意事項】注意。`), null);
+  assert.strictEqual(await shop.ingredientsFromCaption(`【成分】${label}、BG*メチルパラベン、香料【注意事項】注意。`), null);
+  // 色ごとの一覧は、どれがこの商品か分からないので使わない
+  assert.strictEqual(shop.cutIngredientBlock(`全成分/ 【ホワイト】${label} 【ピンク】${label} ■原産国/日本製`), null);
   // 最後の成分に文がくっついていたら（除くと香料を見落とす）、一覧を使わない
   assert.strictEqual(await shop.ingredientsFromCaption(`全成分：${label}、香料 本品は医薬品ではありません。<br>内容量 150ml`), null);
-  // clef-flash：成分ではないと 75% 以上で言われた項目を除く（質問は項目の名前だけ）
+  // 宣伝・説明の語はコードで除く。AI（clef-flash）には聞かない（2026-10-19 の評価で、一覧の中の本物の成分を除いたため）
   const asked: unknown[] = [];
-  const AI = {
-    async run(_model: string, input: { questions: Record<string, { instructions: { item: string } }> }) {
-      asked.push(input);
-      const answers = Object.fromEntries(
-        Object.entries(input.questions).map(([id, q]) => [
-          id,
-          q.instructions.item === '保湿成分' || q.instructions.item === 'フェノキシエタノール'
-            ? { type: 'choice', choice: 'other', probabilities: { other: 0.9, ingredient: 0.1 } }
-            : { type: 'choice', choice: 'ingredient', probabilities: { ingredient: 0.95, other: 0.05 } },
-        ])
-      );
-      return { answers };
-    },
-  };
-  const withJunk = await withCloudflareEnv({ AI }, () => shop.ingredientsFromCaption(`全成分：${label}、保湿成分<br>内容量 150ml`));
-  assert.ok(withJunk && !withJunk.ingredients.includes('保湿成分') && withJunk.ingredients.length === 9);
-  assert.ok(withJunk.ingredients.includes('フェノキシエタノール'), 'Clef never removes a name the ingredient database knows');
-  assert.ok(!JSON.stringify(asked).includes('潤いを守る'), 'Clef sees item names only');
+  const AI = { async run(_model: string, input: unknown) { asked.push(input); return {}; } };
+  const withJunk = await withCloudflareEnv({ AI }, () =>
+    shop.ingredientsFromCaption(`全成分：${label}、保湿成分、ヒアルロン酸配合、無香料、日本製、150ml、トレオニン、TEA、PET、カンテン<br>内容量 150ml`)
+  );
+  assert.deepStrictEqual(withJunk?.ingredients.slice(-4), ['トレオニン', 'TEA', 'PET', 'カンテン'], JSON.stringify(withJunk?.ingredients));
+  assert.ok(!withJunk.ingredients.some((i) => /保湿成分|配合|無香料|日本製|150ml/.test(i)));
+  assert.strictEqual(asked.length, 0, 'No AI call while reading a caption');
+  // 見出しが重なった説明（「成分成分水、…」）でも、最初の成分は「水」
+  assert.strictEqual((await shop.ingredientsFromCaption(`ください。成分成分水、${label}<br>内容量 70g`))?.ingredients[0], '水');
 
   // お店の API：送るのはブランド名と種類の語だけ（入力の「III」「とてもしっとり」は送らない）
   const saved = addProductToDynamicCache({

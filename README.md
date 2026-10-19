@@ -35,8 +35,8 @@ full ingredient lists, points out the likely causes, and suggests products witho
 - **Shop prices and brand lineups:** Rakuten Ichiba and Yahoo! Shopping item search APIs when
   their keys are set, otherwise the shops' product pages.
 - **Ingredients from the shops first** (`src/lib/services/shop-ingredients.ts`): before paid web
-  research, Yahoo! JAN codes are matched to saved products and Rakuten captions are read (cut,
-  cleaned, filtered by clef-flash). Rakuten lists are used for that reply only, under Rakuten's
+  research, Yahoo! JAN codes are matched to saved products and Rakuten captions are read (cut
+  out and cleaned by fixed rules, with no AI call). Rakuten lists are used for that reply only, under Rakuten's
   terms. [Plan](docs/plans/shop-ingredients.md).
 - **Turnstile** checks the browser once and starts a signed session (`src/lib/server/session.ts`).
 - **Routine image** (`src/lib/routine-share.ts`, `src/lib/client/routine-image.ts`): マイルーティン
