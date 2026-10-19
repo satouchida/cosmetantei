@@ -5,7 +5,13 @@ import {
   getServicePurposeExplanation,
   BARCODE_PATTERN,
 } from '@/lib/services/search-barcode-service';
-import { analyzeProduct, checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
+import {
+  analyzeProduct,
+  checkCurrentUse,
+  hasVerifiedIngredients,
+  isPlaceholderIngredient,
+  performDifferentialAnalysis,
+} from '@/lib/analyzer/ingredient-analyzer';
 import { Product, UserRoutineState } from '@/lib/types';
 import {
   answerIngredientQuestion,
@@ -62,6 +68,19 @@ const SINGLE_ANALYSIS_REPLIES = [
   '💴 この商品の価格を調べる',
 ];
 
+/** 成分が分からなかった製品の分析のあと。比べるリストに入れても使えないので、成分を調べ直す方法を出す */
+const NO_INGREDIENTS_REPLIES = ['🔎 Webで成分を調べ直す', '📸 バーコードをスキャンする', '📝 成分表示を入力する'];
+
+/** 成分が1つも分からない製品（「成分情報は確認できませんでした」だけの製品も） */
+const hasNoIngredients = (product: Product): boolean => product.ingredients.every(isPlaceholderIngredient);
+
+/** 1つの製品の分析のあとのボタン。成分が分からなかった製品（入力した成分表示を除く）は調べ直す方法 */
+function singleAnalysisReplies(product: Product, more: string): string[] {
+  return hasNoIngredients(product) && !isUserLabelProduct(product)
+    ? [...NO_INGREDIENTS_REPLIES, more]
+    : [...SINGLE_ANALYSIS_REPLIES, more];
+}
+
 /**
  * 本文の上限。3つの比較リスト（各 20 件）の製品を送ってもふつうは 100KB に届かない。
  * 何十 MB もの本文でアイソレートのメモリ（128MB）を使い切らせないように、それより大きい本文は読まない
@@ -98,7 +117,8 @@ async function handlePost(request: NextRequest) {
         | 'analyze_label'
         | 'price_lookup'
         | 'check_current_use'
-        | 'lookup_product';
+        | 'lookup_product'
+        | 'research_product';
       selectedProduct?: Product;
       barcode?: string;
       label?: { text?: unknown; name?: unknown; brand?: unknown };
@@ -147,7 +167,7 @@ async function handlePost(request: NextRequest) {
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis, targetBarcode),
         singleAnalysis: analysis,
-        quickReplies: [...SINGLE_ANALYSIS_REPLIES, '🔍 他のコスメも調べる'],
+        quickReplies: singleAnalysisReplies(product, '🔍 他のコスメも調べる'),
       });
     }
 
@@ -185,7 +205,43 @@ async function handlePost(request: NextRequest) {
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
-        quickReplies: [...SINGLE_ANALYSIS_REPLIES, '🔍 別のコスメを調べる'],
+        quickReplies: singleAnalysisReplies(selectedProduct, '🔍 別のコスメを調べる'),
+      });
+    }
+
+    // 2-2. 成分が分からなかった製品を、ブランド名と商品名で Web で調べ直す（ボタン操作。有料・予算内）。
+    //      前に調べて全成分が無かった結果のキャッシュは使わない。全成分が見つかった製品だけを候補に出す
+    if (action === 'research_product' && selectedProduct) {
+      // 入力した成分表示は Web では調べない（ボタンも出さない）
+      if (isUserLabelProduct(selectedProduct)) {
+        return NextResponse.json({
+          reply: '入力した成分表示の商品は Web では調べません。',
+          quickReplies: ['📝 成分表示を入力する', '🔍 別のコスメを調べる'],
+        });
+      }
+      // 別の人が調べて、サーバーにもう全成分がある製品なら、その分析を返す
+      if (!hasNoIngredients(selectedProduct)) {
+        const analysis = analyzeProduct(selectedProduct);
+        return NextResponse.json({
+          reply: summarizeProductAnalysis(analysis),
+          singleAnalysis: analysis,
+          quickReplies: singleAnalysisReplies(selectedProduct, '🔍 別のコスメを調べる'),
+        });
+      }
+      const query = productSearchQuery(selectedProduct);
+      const found = query
+        ? (await searchCosmeticsLive(query, 6, { webResearch: true, retryEmpty: true })).filter(hasVerifiedIngredients)
+        : [];
+      if (found.length === 0) {
+        return NextResponse.json({
+          reply: 'Web でも、この商品の全成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
+          quickReplies: ['📸 バーコードをスキャンする', '📝 成分表示を入力する', '🔍 別のコスメを調べる'],
+        });
+      }
+      return NextResponse.json({
+        reply: summarizeProductResults(found),
+        productSuggestions: found,
+        quickReplies: ['🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは安全に使えた', '🔍 別のキーワードで調べる'],
       });
     }
 

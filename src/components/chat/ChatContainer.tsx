@@ -14,6 +14,8 @@ import { PriceResultCard } from './PriceResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
 import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
 import { RoutineSidebar } from '../routine/RoutineSidebar';
+import { RoutineExportDialog } from '../routine/RoutineExportDialog';
+import { RoutineImportDialog } from '../routine/RoutineImportDialog';
 import {
   Camera,
   Send,
@@ -42,6 +44,16 @@ import {
   subscribeCurrentUse,
   updateCurrentUse,
 } from '@/lib/current-use';
+import {
+  decodeShareFragment,
+  isEmptySnapshot,
+  parseRoutine,
+  readPngText,
+  ROUTINE_PNG_KEYWORD,
+  RoutineSnapshot,
+  shareFragment,
+} from '@/lib/routine-share';
+import { MAX_ROUTINE_PRODUCTS } from '@/lib/product-validation';
 
 let messageSequence = 0;
 
@@ -62,6 +74,59 @@ const WAIT_MESSAGE = '前の返答を待っています。届いてから、も�
 const DEFAULT_LOADING_TEXT = '成分データベースを解析中...';
 /** 検索候補のトレイの id（入力欄の aria-controls） */
 const SEARCH_TRAY_ID = 'search-tray';
+/** 画像から QR コードを読むときに html5-qrcode が使う要素（画面には出さない） */
+const ROUTINE_QR_READER_ID = 'routine-qr-reader';
+/** 読み込む画像の上限（巨大なファイルを読まない）。作る画像は 1080×1350 なので、スクリーンショットでも十分入る */
+const MAX_ROUTINE_IMAGE_BYTES = 8_000_000;
+/** 画素数の上限。小さなファイルで巨大な大きさを書いた画像を、QR コードを探すために描かない */
+const MAX_ROUTINE_IMAGE_PIXELS = 16_000_000;
+const IMPORT_FAILED = 'この画像からマイルーティンを読み込めませんでした。コスメ探偵で作った画像を選んでください。';
+
+/** 画像から、マイルーティンを読む。ファイルの中のデータを先に、無ければ QR コードを読む */
+async function readRoutineImage(file: File): Promise<{ snapshot: RoutineSnapshot; namesOnly: boolean } | null> {
+  if (file.size > MAX_ROUTINE_IMAGE_BYTES) return null;
+  const now = currentTime();
+  const text = readPngText(new Uint8Array(await file.arrayBuffer()), ROUTINE_PNG_KEYWORD);
+  const fromFile = text ? parseRoutine(text, now) : null;
+  if (fromFile) return { snapshot: fromFile, namesOnly: false };
+  if (!(await hasReadableSize(file))) return null;
+  const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
+  const reader = new Html5Qrcode(ROUTINE_QR_READER_ID, { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
+  try {
+    const fragment = shareFragment(await reader.scanFile(file, false));
+    const fromQr = fragment ? await decodeShareFragment(fragment, now) : null;
+    return fromQr ? { snapshot: fromQr, namesOnly: true } : null;
+  } catch {
+    return null;
+  } finally {
+    reader.clear();
+  }
+}
+
+/** 画像の大きさ（縦×横）が上限内か。大きさは画像の頭から分かる（全体を描く前に確かめる） */
+async function hasReadableSize(file: File): Promise<boolean> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('not an image'));
+    });
+    return img.naturalWidth * img.naturalHeight <= MAX_ROUTINE_IMAGE_PIXELS;
+  } catch {
+    return false;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** 今のリストに足す（同じ製品はどのリストにあっても足さない。1つのリストは上限まで） */
+function appendProducts(list: Product[], incoming: Product[], taken: Set<string>): Product[] {
+  const added = incoming.filter((p) => !taken.has(p.id));
+  for (const p of added) taken.add(p.id);
+  return [...list, ...added].slice(0, MAX_ROUTINE_PRODUCTS);
+}
 
 type ReplyField = 'productSuggestions' | 'singleAnalysis' | 'differentialAnalysis' | 'priceResult' | 'quickReplies';
 
@@ -102,6 +167,10 @@ export const ChatContainer: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isLabelInputOpen, setIsLabelInputOpen] = useState(false);
+  // 画像で保存・共有するとき、開いた時点の内容（開いている間にリストが変わっても画像を作り直さない）
+  const [routineExport, setRoutineExport] = useState<{ snapshot: RoutineSnapshot; culprits: string[] } | null>(null);
+  // 読み込む前に確かめてもらうルーティン
+  const [routineImport, setRoutineImport] = useState<{ snapshot: RoutineSnapshot; namesOnly: boolean } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -375,6 +444,16 @@ export const ChatContainer: React.FC = () => {
     );
   };
 
+  /** 成分が分からなかった商品を、ブランド名と商品名で Web で調べ直す。全成分が見つかった製品を候補として出す */
+  const handleResearchProduct = async (label: string, product: Product) => {
+    await runChatAction(
+      label,
+      { action: 'research_product', selectedProduct: product },
+      (data) => pickReply(data, ['productSuggestions', 'quickReplies']),
+      { loadingText: 'Webで成分を調べています（1分ほどかかることがあります）...' }
+    );
+  };
+
   /** 分析した商品の販売価格を調べる（サーバーはブランド名と商品名だけで検索する） */
   const handlePriceLookup = async (label: string, product: Product) => {
     await runChatAction(
@@ -555,6 +634,12 @@ export const ChatContainer: React.FC = () => {
         else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
       }
+      case 'research_analyzed': {
+        const product = sourceMessage.singleAnalysis?.product;
+        if (product) handleResearchProduct(label, product);
+        else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
+        return;
+      }
       case 'pick_from_cards':
         appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
@@ -666,6 +751,85 @@ export const ChatContainer: React.FC = () => {
     });
     showToast('テストデータを読み込みました！「差分分析」を実行できます');
   };
+
+  /** 画像で保存・共有する。気をつけたい成分は、最近の差分分析の結果から */
+  const handleExportImage = () => {
+    const latest = [...messages].reverse().find((m) => m.differentialAnalysis)?.differentialAnalysis;
+    setIsSidebarOpen(false);
+    setRoutineExport({
+      snapshot: { badProducts: routine.badProducts, safeProducts: routine.safeProducts, currentUse },
+      culprits: latest?.culprits.map((c) => c.nameJa) ?? [],
+    });
+  };
+
+  const offerImport = (found: { snapshot: RoutineSnapshot; namesOnly: boolean } | null) => {
+    if (!found || isEmptySnapshot(found.snapshot)) {
+      showToast(IMPORT_FAILED);
+      return;
+    }
+    setIsSidebarOpen(false);
+    setRoutineImport(found);
+  };
+
+  // 画像を読んでいる間に、別の画像を選んでも読まない（QR コードを読む要素は1つ）
+  const importingRef = useRef(false);
+  const handleImportImage = async (file: File) => {
+    if (importingRef.current) return;
+    importingRef.current = true;
+    showToast('画像を読み込んでいます…');
+    try {
+      offerImport(await readRoutineImage(file).catch(() => null));
+    } finally {
+      importingRef.current = false;
+    }
+  };
+
+  /** 共有のリンク（#r=...）・QR コードから読み込む */
+  const importFromFragment = async (fragment: string) => {
+    const snapshot = await decodeShareFragment(fragment, currentTime());
+    offerImport(snapshot && { snapshot, namesOnly: true });
+  };
+
+  const applyImport = (mode: 'append' | 'replace') => {
+    if (!routineImport) return;
+    const { snapshot } = routineImport;
+    if (mode === 'replace') {
+      setRoutine({ badProducts: snapshot.badProducts, safeProducts: snapshot.safeProducts });
+      updateCurrentUse(() => snapshot.currentUse.slice(0, MAX_CURRENT_USE));
+    } else {
+      // 最新のリストに足す。肌荒れ・安全のリストは、どちらかにある製品を足さない（同じ製品が両方に入らないように）
+      setRoutine((prev) => {
+        const taken = new Set([...prev.badProducts, ...prev.safeProducts].map((p) => p.id));
+        return {
+          badProducts: appendProducts(prev.badProducts, snapshot.badProducts, taken),
+          safeProducts: appendProducts(prev.safeProducts, snapshot.safeProducts, taken),
+        };
+      });
+      updateCurrentUse((prev) => {
+        const ids = new Set(prev.map((e) => e.product.id));
+        return [...prev, ...snapshot.currentUse.filter((e) => !ids.has(e.product.id))].slice(0, MAX_CURRENT_USE);
+      });
+    }
+    setRoutineImport(null);
+    showToast('マイルーティンを読み込みました');
+  };
+
+  // 共有のリンク（https://cosmetantei.app/#r=...）で開いたら、読み込むか確かめる。リンクの部分はアドレスから消す。
+  // 開いているページでリンクを押したとき（# の後ろだけが変わり、読み込み直さない）も同じ
+  useEffect(() => {
+    const onHash = () => {
+      const fragment = shareFragment(window.location.hash);
+      if (!fragment) return;
+      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+      void decodeShareFragment(fragment, currentTime()).then((snapshot) => {
+        if (snapshot && !isEmptySnapshot(snapshot)) setRoutineImport({ snapshot, namesOnly: true });
+        else showToast(IMPORT_FAILED);
+      });
+    };
+    onHash();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const routineCount = routine.badProducts.length + routine.safeProducts.length + currentUse.length;
   const isTrayVisible = isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== '';
@@ -1083,6 +1247,8 @@ export const ChatContainer: React.FC = () => {
               setIsScannerOpen(true);
             }}
             onLoadPreset={handleLoadPreset}
+            onExportImage={handleExportImage}
+            onImportImage={(file) => void handleImportImage(file)}
           />
         </div>
       </div>
@@ -1094,6 +1260,13 @@ export const ChatContainer: React.FC = () => {
         fallbackFocus={() => scanButtonRef.current}
         onScanSuccess={(barcode) => {
           // 応答待ちならスキャナーを開いたまま理由を出す（読めたバーコードを黙って捨てない）
+          // コスメ探偵のマイルーティンの QR コードなら、読み込むか確かめる
+          const fragment = shareFragment(barcode);
+          if (fragment) {
+            setIsScannerOpen(false);
+            void importFromFragment(fragment);
+            return true;
+          }
           if (busyRef.current) return WAIT_MESSAGE;
           void handleBarcodeScanned(barcode);
           return true;
@@ -1106,6 +1279,28 @@ export const ChatContainer: React.FC = () => {
         onSubmit={handleLabelSubmit}
         fallbackFocus={() => labelButtonRef.current}
       />
+
+      {routineExport && (
+        <RoutineExportDialog
+          snapshot={routineExport.snapshot}
+          culprits={routineExport.culprits}
+          onClose={() => setRoutineExport(null)}
+          fallbackFocus={() => menuButtonRef.current}
+        />
+      )}
+      {routineImport && (
+        <RoutineImportDialog
+          snapshot={routineImport.snapshot}
+          namesOnly={routineImport.namesOnly}
+          hasCurrentLists={routineCount > 0}
+          typedLabelsLost={[...routine.badProducts, ...routine.safeProducts, ...routine.currentlyUsing].filter((p) => !isPersistable(p)).length}
+          onImport={applyImport}
+          onClose={() => setRoutineImport(null)}
+          fallbackFocus={() => menuButtonRef.current}
+        />
+      )}
+      {/* 画像の QR コードを読むときに html5-qrcode が使う（画面には出さない） */}
+      <div id={ROUTINE_QR_READER_ID} hidden />
     </div>
   );
 };

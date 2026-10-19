@@ -421,7 +421,8 @@ export async function fetchDynamicTrendingCosmetics(
 export async function searchCosmeticsLive(
   query: string,
   limit = 6,
-  options: { webResearch?: boolean; openBeautyFacts?: boolean } = {}
+  // retryEmpty: Web リサーチで、前に全成分が見つからなかった結果のキャッシュを使わない（利用者が調べ直しを頼んだとき）
+  options: { webResearch?: boolean; openBeautyFacts?: boolean; retryEmpty?: boolean } = {}
 ): Promise<Product[]> {
   const clean = query ? query.replace(/\u3000/g, ' ').trim() : '';
 
@@ -466,12 +467,19 @@ export async function searchCosmeticsLive(
     !collected.some((p) => hasVerifiedIngredientList(p) && namesProduct(p, productQuery)) &&
     !isNonCosmeticSearchQuery(clean)
   ) {
-    const webResults = await researchProducts(productQuery, Math.min(limit, 4));
+    const webResults = await researchProducts(productQuery, Math.min(limit, 4), { retryEmpty: options.retryEmpty });
     // 調べた製品を先に置く（Web リサーチは、検索語を名前に含む確認済みの候補が無いときだけ行うので、
     // ここまでの候補より合っている。後ろに置くと、同じブランドの候補で件数が埋まり切り捨てられる）
-    const found = webResults.filter(
-      (w) => isActualCosmeticProduct(w) && !collected.some((c) => c.id === w.id || c.name === w.name)
-    );
+    const found: Product[] = [];
+    for (const w of webResults.filter(isActualCosmeticProduct)) {
+      const i = collected.findIndex((c) => c.id === w.id || c.name === w.name);
+      if (i >= 0) {
+        // 同じ製品で成分が無い候補（前に調べて全成分が無かった等）は、全成分が見つかった結果で置き換える
+        if (hasVerifiedIngredientList(collected[i]) || !hasVerifiedIngredientList(w)) continue;
+        collected.splice(i, 1);
+      }
+      found.push(w);
+    }
     collected.unshift(...found);
   }
 

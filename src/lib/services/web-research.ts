@@ -1,6 +1,6 @@
 import 'server-only';
 import { Product } from '../types';
-import { addProductToDynamicCache, rememberVerifiedProducts } from '../data/cosmetics-db';
+import { addProductToDynamicCache, isVerifiedSource, rememberVerifiedProducts } from '../data/cosmetics-db';
 import {
   cacheGetJSON,
   cachePutJSON,
@@ -531,6 +531,12 @@ async function translateCachedLabels(cacheKey: string, cached: Product[], limit:
   return translated;
 }
 
+/** 全成分が取れた製品があるか（取れなかった製品は出典が無く、「成分情報は確認できませんでした」だけを持つ） */
+const hasAnyIngredients = (products: Product[]): boolean => products.some(isVerifiedSource);
+
+/** 同じ検索語の調べ直し（retryEmpty）でキャッシュを使わないのは、この時間に1回まで（全員で数える） */
+const RETRY_COOLDOWN_SECONDS = 10 * 60;
+
 /** 一時的な失敗の印（この利用者が自分の1日の上限に達して失敗したときは付けない） */
 async function rememberResearchFailure(cacheKey: string): Promise<void> {
   if (mayRememberFailure()) await cachePutJSON(`${cacheKey}:fail`, true, RESEARCH_FAIL_TTL_SECONDS);
@@ -552,13 +558,24 @@ async function registerProducts(products: Product[], { fresh }: { fresh: boolean
  * 商品名で Web を調べ、出典ページから製品名と全成分を取り出す（T1）
  * productQuery は toProductSearchQuery() を通した商品名であること
  */
-export async function researchProducts(productQuery: string, limit = 4): Promise<Product[]> {
+export async function researchProducts(
+  productQuery: string,
+  limit = 4,
+  { retryEmpty = false }: { retryEmpty?: boolean } = {}
+): Promise<Product[]> {
   if (!isGeminiConfigured()) return [];
 
   // v2: 医薬部外品の有効成分・「他 n成分」を読み取るようにした
   const cacheKey = await hashedCacheKey('webfacts:v2', productQuery.normalize('NFKC').toLowerCase());
   const cached = await cacheGetJSON<Product[]>(cacheKey);
-  if (cached) return registerProducts(await translateCachedLabels(cacheKey, cached, limit), { fresh: false });
+  // 調べ直しを頼まれたときは、全成分が1つも無かった結果のキャッシュを使わない。
+  // 同じ検索語では RETRY_COOLDOWN_SECONDS に1回まで（何度押しても、有料の調べものは増えない）
+  let usable = !!cached;
+  if (cached && retryEmpty && !hasAnyIngredients(cached) && !(await cacheGetJSON<boolean>(`${cacheKey}:retry`))) {
+    await cachePutJSON(`${cacheKey}:retry`, true, RETRY_COOLDOWN_SECONDS);
+    usable = false;
+  }
+  if (cached && usable) return registerProducts(await translateCachedLabels(cacheKey, cached, limit), { fresh: false });
   if (await cacheGetJSON<boolean>(`${cacheKey}:fail`)) return [];
 
   const pages = await searchAndReadProducts(`${productQuery} 全成分`, productQuery);
@@ -572,7 +589,8 @@ export async function researchProducts(productQuery: string, limit = 4): Promise
   const unique = await translateEnglishLabels(uniqueProducts(await keepRealBrands(candidates)));
 
   if (unique.length > 0) {
-    await cachePutJSON(cacheKey, unique, FACTS_TTL_SECONDS);
+    // 全成分が1つも取れなかった結果は短く（ページが更新されたり、別のページが見つかったりする）
+    await cachePutJSON(cacheKey, unique, hasAnyIngredients(unique) ? FACTS_TTL_SECONDS : FACTS_MISS_TTL_SECONDS);
   } else if (candidates.length === 0) {
     // ページを読んで該当製品が無かったときだけ「見つからない」を短期間保持する。
     // ブランド判定で全て外れた場合は Clef の一時的な不調もありうるので保存しない

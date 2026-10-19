@@ -35,6 +35,13 @@ full ingredient lists, points out the likely causes, and suggests products witho
 - **Shop prices and brand lineups:** Rakuten Ichiba and Yahoo! Shopping item search APIs when
   their keys are set, otherwise the shops' product pages.
 - **Turnstile** checks the browser once and starts a signed session (`src/lib/server/session.ts`).
+- **Routine image** (`src/lib/routine-share.ts`, `src/lib/client/routine-image.ts`): マイルーティン
+  can be saved or shared as one PNG, entirely in the browser.
+  - The PNG holds the lists (with ingredients) in its file data.
+  - A QR code holds a `https://cosmetantei.app/#r=...` link with product ids and names. It still
+    works after a social network strips the file data, and the `#` part never reaches the server.
+  - Labels the user typed or photographed are never exported.
+  - Design: [plan](docs/plans/routine-image.md).
 - **Cloudflare bindings** (`wrangler.toml`):
 
   | Binding | Kind | Purpose |

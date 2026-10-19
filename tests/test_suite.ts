@@ -5801,3 +5801,196 @@ test('101. A brand-new Turnstile session gets a smaller budget under the same ke
     }
   }
 });
+
+test('102. A product without ingredients offers a web re-search that skips the cached empty result', async () => {
+  const { researchProducts } = await import('../src/lib/services/web-research');
+  const { getQuickReplyAction } = await import('../src/components/chat/quick-replies');
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+
+  // 分析のあとのボタン：成分が無い製品は調べ直す方法、成分がある製品はいつもどおり
+  const post = (body: unknown) =>
+    POST(
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.240' },
+        body: JSON.stringify(body),
+      })
+    ).then((r) => r.json());
+  const empty: Product = { id: 'obf_no_label', brand: 'テスト', name: '成分なし化粧水', category: 'toner', country: 'JP', ingredients: [] };
+  const noLabel = await post({ action: 'analyze_single', selectedProduct: empty, routine: { badProducts: [], safeProducts: [] } });
+  assert.strictEqual(noLabel.singleAnalysis.overallRiskLevel, 'insufficient_data');
+  assert.ok(noLabel.quickReplies.includes('🔎 Webで成分を調べ直す'), JSON.stringify(noLabel.quickReplies));
+  assert.ok(!noLabel.quickReplies.includes('🚨 このアイテムで肌荒れした（原因をさがす）'), 'No list buttons for a product with nothing to compare');
+  assert.deepStrictEqual(getQuickReplyAction('🔎 Webで成分を調べ直す'), { kind: 'research_analyzed' });
+  const labeled = await post({
+    action: 'analyze_single',
+    selectedProduct: verifiedProduct({ brand: 'テスト', name: '成分あり化粧水', ingredients: ['水', 'グリセリン'] }),
+    routine: { badProducts: [], safeProducts: [] },
+  });
+  assert.ok(!labeled.quickReplies.includes('🔎 Webで成分を調べ直す'));
+
+  // 全成分が無かった結果のキャッシュ：ふつうの検索は使い、調べ直しは使わない
+  const url = 'https://shop.example.com/item/empty';
+  const { AI, searches } = fakeWebSearchAI(() => [{ url }]);
+  const { fetchFn, prompts } = fakeGeminiPageReader(
+    [{ sourceUrl: url, brand: 'リサーチブランド', name: 'カラ 化粧水', category: 'toner', ingredients: [], ingredientsFoundOnPage: false }],
+    [url]
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = fetchFn;
+  setGatewayEnv();
+  try {
+    const first = await withCloudflareEnv({ AI }, () => researchProducts('カラ 化粧水', 4));
+    assert.deepStrictEqual(first.map((p) => p.ingredients), [['成分情報は確認できませんでした']]);
+    await withCloudflareEnv({ AI }, () => researchProducts('カラ 化粧水', 4));
+    assert.strictEqual(searches.length, 1, 'A plain search reuses the cached result');
+    await withCloudflareEnv({ AI }, () => researchProducts('カラ 化粧水', 4, { retryEmpty: true }));
+    assert.strictEqual(searches.length, 2, 'A re-search request skips a cached result without ingredients');
+    assert.strictEqual(prompts.length, 2);
+    await withCloudflareEnv({ AI }, () => researchProducts('カラ 化粧水', 4, { retryEmpty: true }));
+    assert.strictEqual(searches.length, 2, 'One re-search per query per 10 minutes, for everyone');
+
+    // ボタンから：前は全成分が無かった製品を調べ直し、全成分が見つかった製品を候補に出す
+    // （メモリにある同じ名前の、成分の無い製品に負けない）
+    const page = 'https://brand.example.jp/kara2';
+    const search2 = fakeWebSearchAI(() => [{ url: page }]);
+    const item = { sourceUrl: page, brand: 'リサーチブランド', name: 'カラ2 化粧水', category: 'toner' };
+    globalThis.fetch = fakeGeminiPageReader([{ ...item, ingredients: [], ingredientsFoundOnPage: false }], [page]).fetchFn;
+    const [before] = await withCloudflareEnv({ AI: search2.AI }, () => researchProducts('リサーチブランド カラ2 化粧水', 4));
+    assert.strictEqual(hasVerifiedIngredients(before), false);
+    globalThis.fetch = fakeGeminiPageReader([{ ...item, ingredients: ['水', 'ＢＧ', 'グリセリン'], ingredientsFoundOnPage: true }], [page]).fetchFn;
+    const again = await withCloudflareEnv({ AI: search2.AI }, () =>
+      post({ action: 'research_product', selectedProduct: before })
+    );
+    assert.deepStrictEqual(again.productSuggestions?.map((p: Product) => p.ingredients), [['水', 'BG', 'グリセリン']], JSON.stringify(again));
+    assert.strictEqual(search2.searches.length, 2);
+
+    // 入力した成分表示は Web で調べない
+    const typed = await withCloudflareEnv({ AI: search2.AI }, () =>
+      post({ action: 'research_product', selectedProduct: { ...empty, id: 'label_x', ingredientSource: 'user_label' } })
+    );
+    assert.ok(!typed.productSuggestions);
+    assert.strictEqual(search2.searches.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('103. Routine image data: file data and QR link round-trip; typed labels, prices and forged payloads are dropped', async () => {
+  const share = await import('../src/lib/routine-share');
+  const now = Date.UTC(2026, 9, 19, 12);
+  const bad = verifiedProduct({ id: 'web_bad1', brand: 'ブランドA', name: '刺激の美容液', ingredients: ['水', '香料'] });
+  const safe = { ...verifiedProduct({ id: 'obf_safe1', brand: 'ブランドB', name: 'やさしい化粧水' }), shopPrice: { yen: 1200, taxIncluded: true } };
+  const typed = verifiedProduct({ id: 'label_1', name: '入力した成分表示', ingredientSource: 'user_label' });
+  const snapshot = {
+    badProducts: [bad, typed],
+    safeProducts: [safe],
+    currentUse: [{ product: safe, addedAt: now - 1000 }],
+  };
+
+  // ファイルの中のデータ：成分つきで戻る。入力した成分表示・価格は入れない
+  assert.strictEqual(share.excludedCount(snapshot), 1);
+  const text = share.serializeRoutine(snapshot, now);
+  assert.ok(!text.includes('入力した成分表示') && !text.includes('shopPrice'), text);
+  const back = share.parseRoutine(text, now);
+  assert.ok(back);
+  assert.deepStrictEqual(back.badProducts.map((p) => p.ingredients), [['水', '香料']]);
+  assert.deepStrictEqual(back.safeProducts.map((p) => p.id), ['obf_safe1']);
+  assert.strictEqual(back.currentUse[0].addedAt, now - 1000);
+  assert.strictEqual(share.parseRoutine('{"app":"other","v":1}', now), null);
+  assert.strictEqual(share.parseRoutine('not json', now), null);
+  // 未来の日付・リンクの入った名前・重複は受け付けない
+  const forged = JSON.stringify({
+    app: 'cosmetantei',
+    v: 1,
+    bad: [bad, bad, { ...bad, id: 'x2', name: 'https://evil.example/ 化粧水' }],
+    safe: [],
+    current: [{ product: safe, addedAt: now + 86_400_000 }],
+  });
+  const cleaned = share.parseRoutine(forged, now);
+  assert.deepStrictEqual(cleaned?.badProducts.map((p) => p.id), ['web_bad1']);
+  assert.strictEqual(cleaned?.currentUse[0].addedAt, now);
+
+  // PNG の中のデータ（iTXt）。IEND の前に入れ、読み戻せる。ほかの PNG・壊れたデータは null
+  const chunk = (type: string, data: number[] = []) => [0, 0, 0, data.length, ...Buffer.from(type), ...data, 0, 0, 0, 0];
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...chunk('IHDR', [0, 0, 0, 1]), ...chunk('IEND')]);
+  const withData = share.addPngText(png, share.ROUTINE_PNG_KEYWORD, text);
+  assert.ok(withData);
+  assert.strictEqual(share.readPngText(withData, share.ROUTINE_PNG_KEYWORD), text);
+  assert.strictEqual(share.readPngText(withData, 'other-keyword'), null);
+  assert.strictEqual(share.readPngText(png, share.ROUTINE_PNG_KEYWORD), null);
+  assert.strictEqual(share.addPngText(new Uint8Array([1, 2, 3]), 'k', 't'), null);
+  const corrupted = withData.slice();
+  corrupted[withData.length - 20] ^= 0xff;
+  assert.strictEqual(share.readPngText(corrupted, share.ROUTINE_PNG_KEYWORD), null, 'A bad CRC is not read');
+
+  // QR コードのリンク：ID・ブランド名・商品名だけ。サイトの # の後ろに入る
+  const link = await share.encodeShareLink(snapshot);
+  assert.ok(link && link.startsWith('https://cosmetantei.app/#r='), link ?? '');
+  assert.ok(link.length <= share.MAX_SHARE_URL_BYTES);
+  assert.strictEqual(share.shareFragment(link), link.slice(link.indexOf('#')));
+  assert.strictEqual(share.shareFragment('https://evil.example/#r=abc'), null, 'Only links to this site');
+  assert.strictEqual(share.shareFragment('4901234567894'), null, 'A barcode is not a share link');
+  const fromLink = await share.decodeShareFragment(share.shareFragment(link)!, now);
+  assert.deepStrictEqual(fromLink?.badProducts.map((p) => [p.id, p.brand, p.name, p.ingredients.length]), [['web_bad1', 'ブランドA', '刺激の美容液', 0]]);
+  assert.deepStrictEqual(fromLink?.currentUse.map((e) => [e.product.id, e.addedAt]), [['obf_safe1', now]]);
+
+  // 入りきらなければ null。壊れた・巨大に展開されるデータは読まない
+  // 圧縮で縮まない（ばらばらの）ID・名前
+  const random = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (n) => n.toString(16).padStart(2, '0')).join('');
+  const many = Array.from({ length: 20 }, () => verifiedProduct({ id: `web_${random()}`, brand: random(), name: random() }));
+  assert.strictEqual(await share.encodeShareLink({ badProducts: many, safeProducts: many, currentUse: [] }), null);
+  assert.strictEqual(await share.decodeShareFragment('#r=!!!', now), null);
+  assert.strictEqual(await share.decodeShareFragment('#r=AAAA', now), null);
+  const bomb = new Uint8Array(await new Response(new Blob(['['.repeat(200_000)]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  const bombText = Buffer.from(bomb).toString('base64url');
+  assert.ok(bombText.length < 4000, `bomb payload is ${bombText.length} chars`);
+  assert.strictEqual(await share.decodeShareFragment(`#r=${bombText}`, now), null, 'Output is capped while inflating');
+
+  // ほかの人の画像から：知らない項目・リンク・価格は持ち込まず、成分の名前も普通の文字だけ
+  const hostile = JSON.stringify({
+    app: 'cosmetantei',
+    v: 1,
+    bad: [{ ...bad, shopLink: { href: 'https://evil.example/', sponsored: false }, amazonSearchUrl: 'https://evil.example/', descriptionJa: '<b>x</b>', extra: 1 }],
+    safe: [
+      { ...safe, id: 'obf_link', ingredients: ['水', 'https://evil.example/'] },
+      bad, // 肌荒れにもある製品は、安全に入れない
+      ...Array.from({ length: 30 }, (_, i) => verifiedProduct({ id: `obf_many_${i}` })),
+    ],
+    current: [],
+  }).replace('"extra":1', '"extra":1,"__proto__":{"polluted":true}');
+  const imported = share.parseRoutine(hostile, now);
+  assert.ok(imported);
+  assert.deepStrictEqual(Object.keys(imported.badProducts[0]).sort(), ['brand', 'category', 'country', 'id', 'ingredientSource', 'ingredients', 'name']);
+  assert.ok(!imported.safeProducts.some((p) => p.id === 'obf_link' || p.id === 'web_bad1'), 'Links in ingredients and the same product in both lists are dropped');
+  assert.strictEqual(imported.safeProducts.length, 20, 'Capped at MAX_ROUTINE_PRODUCTS');
+  assert.strictEqual(({} as Record<string, unknown>).polluted, undefined);
+  // 入力した成分表示の ID は、リンクからも読まない
+  const refs = { v: 1, b: [['label_1', 'B', '入力'], ['web_ok', 'B', 'OK'], ['x', 1, 'bad'], ['y', 'B', 'z'.repeat(201)]], s: [['web_ok', 'B', 'OK']], c: 'no' };
+  const packed = new Uint8Array(await new Response(new Blob([JSON.stringify(refs)]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  const fromRefs = await share.decodeShareFragment(`#r=${Buffer.from(packed).toString('base64url')}`, now);
+  assert.deepStrictEqual(fromRefs?.badProducts.map((p) => p.id), ['web_ok']);
+  assert.deepStrictEqual(fromRefs?.safeProducts, [], 'A product in both lists stays in 肌荒れ only');
+  assert.deepStrictEqual(fromRefs?.currentUse, []);
+  // リンクはこのサイト（https）だけ
+  assert.strictEqual(share.shareFragment('http://cosmetantei.app/#r=abc'), null);
+  assert.strictEqual(share.shareFragment('https://cosmetantei.app.evil.com/#r=abc'), null);
+  // キーワードが前だけ同じ別のデータは読まない。絵文字・サロゲートペアの名前もそのまま戻る
+  const other = share.addPngText(png, `${share.ROUTINE_PNG_KEYWORD}2`, text);
+  assert.ok(other);
+  assert.strictEqual(share.readPngText(other, share.ROUTINE_PNG_KEYWORD), null);
+  const emoji = share.addPngText(png, share.ROUTINE_PNG_KEYWORD, '𠮷野家🧴');
+  assert.ok(emoji);
+  assert.strictEqual(share.readPngText(emoji, share.ROUTINE_PNG_KEYWORD), '𠮷野家🧴');
+  // 長さが PNG を超える項目で止まる（例外にしない）
+  const broken = png.slice();
+  broken[11] = 0xff;
+  assert.strictEqual(share.readPngText(broken, share.ROUTINE_PNG_KEYWORD), null);
+
+  // QR コード：上限の長さのリンクでも1マス 4px 以上（SNS で縮められても読める）
+  const { qrCellSize } = await import('../src/lib/client/routine-image');
+  const longest = `https://cosmetantei.app/#r=${'A'.repeat(share.MAX_SHARE_URL_BYTES - 'https://cosmetantei.app/#r='.length)}`;
+  assert.ok(qrCellSize(longest) >= 4, `cell ${qrCellSize(longest)}px`);
+});

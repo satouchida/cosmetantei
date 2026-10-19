@@ -1,9 +1,23 @@
 'use client';
 
-import React, { type RefObject } from 'react';
+import React, { useRef, type RefObject } from 'react';
 import { UserRoutineState } from '@/lib/types';
 import { CurrentUseEntry, isPersistable, STALE_AFTER_MONTHS } from '@/lib/current-use';
-import { AlertTriangle, ShieldCheck, Trash2, Sparkles, RefreshCw, Barcode, Layers, CalendarClock, ClipboardList, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ShieldCheck,
+  Trash2,
+  Sparkles,
+  RefreshCw,
+  Barcode,
+  Layers,
+  CalendarClock,
+  ClipboardList,
+  X,
+  ImageDown,
+  ImageUp,
+} from 'lucide-react';
+import { buttonTonal } from '../ui/design';
 import type { Product } from '@/lib/types';
 
 interface RoutineSidebarProps {
@@ -21,6 +35,10 @@ interface RoutineSidebarProps {
   onRunDifferential: () => void;
   onOpenScanner: () => void;
   onLoadPreset: (presetType: 'sample_irritation' | 'clear') => void;
+  /** マイルーティンを画像で保存・共有する */
+  onExportImage: () => void;
+  /** 保存した・共有された画像からマイルーティンを読み込む */
+  onImportImage: (file: File) => void;
   /** スマホの引き出しを閉じる（デスクトップでは閉じるボタンを出さない） */
   onClose: () => void;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
@@ -38,10 +56,14 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
   onRunDifferential,
   onOpenScanner,
   onLoadPreset,
+  onExportImage,
+  onImportImage,
   onClose,
   closeButtonRef,
 }) => {
   const { badProducts, safeProducts } = routine;
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const isEmpty = badProducts.length + safeProducts.length + currentUse.length === 0;
 
   return (
     <aside
@@ -225,6 +247,31 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             <Barcode className="w-5 h-5" aria-hidden />
             <span>JANバーコードをスキャン</span>
           </button>
+
+          {/* バックアップ・共有（画像。docs/plans/routine-image.md） */}
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={onExportImage} disabled={isEmpty} className={buttonTonal}>
+              <ImageDown className="w-5 h-5 shrink-0" aria-hidden />
+              <span>画像で保存・共有</span>
+            </button>
+            <button type="button" onClick={() => importInputRef.current?.click()} className={buttonTonal}>
+              <ImageUp className="w-5 h-5 shrink-0" aria-hidden />
+              <span>画像から読み込む</span>
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              tabIndex={-1}
+              aria-hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) onImportImage(file);
+              }}
+            />
+          </div>
 
           {/* 開発用：本番のビルドには出さない */}
           {process.env.NODE_ENV !== 'production' && (
