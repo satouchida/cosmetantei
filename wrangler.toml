@@ -17,6 +17,8 @@ routes = [
 ]
 # workers.dev のアドレスも開発用に残す（routes を書くと、書かない限り止まる）。検索には出さない（next.config.mjs の noindex）
 workers_dev = true
+# 版ごとのプレビュー用アドレス（<版>-cosmetantei.….workers.dev）は使わない。noindex の対象外のアドレスを増やさない
+preview_urls = false
 
 # Workers Logs（[usage] の費用の記録・エラーを保存して検索できるようにする）。ログには利用者の文章を出さない
 # （件数・ハッシュ・状態コードだけ。docs/walkthroughs/2026-10-14-cost-tracking.md）
