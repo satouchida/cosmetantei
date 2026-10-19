@@ -1,6 +1,6 @@
 # Plan: export マイルーティン as an image, import it back, share it
 
-Written 2026-10-19. Status: implemented 2026-10-19 (not yet committed).
+Written 2026-10-19. Status: implemented 2026-10-19 (`33682d8`).
 
 ## What the owner asked for
 
