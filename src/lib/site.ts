@@ -1,8 +1,15 @@
 /** 公開する URL（canonical・OGP・sitemap・robots の基準。workers.dev のアドレスは検索に出さない） */
 export const SITE_URL = 'https://cosmetantei.app';
 
-/** Amazon アソシエイト・プログラム運営規約で、サイトに表示することになっている文言（サイドバーの下・規約のページ） */
-export const AMAZON_ASSOCIATE_STATEMENT = 'Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。';
+/** Amazon アソシエイト・プログラム運営規約（第5条）で決まっている文言。変えない（「適格販売」は Amazon の用語） */
+const AMAZON_ASSOCIATE_STATEMENT = 'Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。';
+
+/**
+ * サイトに出すアフィリエイトの表示（サイドバーの下・規約のページの下・利用規約第11条）。
+ * Amazon の文言はそのまま先に置き、楽天アフィリエイトとバリューコマース（Yahoo!ショッピングへのリンク）は別の文にする。
+ * wrangler.toml でほかの ASP のリンク（@cosme・Yahoo! の別の ASP）を使うときは、こことプライバシーポリシーに足す（test 109）
+ */
+export const AFFILIATE_DISCLOSURE = `${AMAZON_ASSOCIATE_STATEMENT}また、楽天アフィリエイトおよびバリューコマース（Yahoo!ショッピング）のアフィリエイトプログラムを利用しており、紹介した商品の購入により報酬を得ることがあります。`;
 
 /**
  * 利用規約・プライバシーポリシーの版（制定日・改定日）。ページの日付と、同意の確認（src/lib/consent.ts）の両方に使う。

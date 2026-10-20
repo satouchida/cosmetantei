@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ExternalLink, LegalPage } from '@/components/legal/LegalPage';
-import { AMAZON_ASSOCIATE_STATEMENT, formatLegalDate, LEGAL_VERSION } from '@/lib/site';
+import { AFFILIATE_DISCLOSURE, formatLegalDate, LEGAL_VERSION } from '@/lib/site';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/terms-of-service.md（git には入れない）
 export const metadata: Metadata = {
@@ -135,8 +135,8 @@ export default function TermsPage() {
           本サービスは、アフィリエイト広告プログラム（Amazonアソシエイト・プログラム、楽天アフィリエイト、バリューコマース等）を利用しており、商品候補や販売リンクの掲載・クリックによって紹介料または手数料等の報酬を得る場合があります。
         </li>
         <li>
-          <strong>【Amazonアソシエイト・プログラムに関する明示】</strong>
-          {AMAZON_ASSOCIATE_STATEMENT}
+          <strong>【Amazonアソシエイト・プログラム等に関する明示】</strong>
+          {AFFILIATE_DISCLOSURE}
         </li>
         <li>
           <strong>【ステマ規制・PR表記の遵守】</strong>

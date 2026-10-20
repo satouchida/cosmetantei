@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { AMAZON_ASSOCIATE_STATEMENT } from '@/lib/site';
+import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 
 /** 利用規約・プライバシーポリシーの見出しと本文の体裁 */
 export const LegalPage: React.FC<{ title: string; enactedOn: string; children: React.ReactNode }> = ({
@@ -42,7 +42,7 @@ export const LegalPage: React.FC<{ title: string; enactedOn: string; children: R
     <footer className="border-t border-sand-200 bg-white">
       <div className="max-w-[760px] mx-auto px-4 py-4">
         <LegalLinks />
-        <p className="text-xs text-ink-muted">{AMAZON_ASSOCIATE_STATEMENT}</p>
+        <p className="text-xs text-ink-muted">{AFFILIATE_DISCLOSURE}</p>
       </div>
     </footer>
   </div>

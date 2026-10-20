@@ -145,6 +145,7 @@ TRUSTED_SITES_MODE = "shadow"
 RAKUTEN_AFFILIATE_ID = "3ce8fce4.34db538d.3ce8fce5.5c648f7b"
 # Yahoo!ショッピング：バリューコマースの MyLink（{url} に商品ページの URL が入る）
 YAHOO_AFFILIATE_LINK_TEMPLATE = "https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=3784886&pid=892728177&vc_url={url}"
+# 使うときは、アフィリエイトの表示（src/lib/site.ts の AFFILIATE_DISCLOSURE）とプライバシーポリシーにも ASP を足す
 # COSME_AFFILIATE_LINK_TEMPLATE = "ASP のリンクの雛形（{url} に商品ページの URL が入る）"
 
 # Gemini の APIキーはアプリに持たせず、AI Gateway の Provider Keys（Google AI Studio）に保存しています。

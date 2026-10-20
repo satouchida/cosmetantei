@@ -6521,11 +6521,20 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   const terms = read('src/app/terms/page.tsx');
   const privacy = read('src/app/privacy/page.tsx');
   // Amazon アソシエイト・プログラム運営規約の指定の文言と、Open Beauty Facts（ODbL）の帰属表示
-  const { AMAZON_ASSOCIATE_STATEMENT } = await import('../src/lib/site');
-  assert.strictEqual(AMAZON_ASSOCIATE_STATEMENT, 'Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。');
-  assert.ok(terms.includes('{AMAZON_ASSOCIATE_STATEMENT}'));
+  // Amazon の文言は規約で決まった形のまま先頭に置き、楽天・バリューコマースは別の文
+  const { AFFILIATE_DISCLOSURE } = await import('../src/lib/site');
+  assert.ok(AFFILIATE_DISCLOSURE.startsWith('Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。また、'));
+  assert.ok(AFFILIATE_DISCLOSURE.includes('楽天アフィリエイト') && AFFILIATE_DISCLOSURE.includes('バリューコマース（Yahoo!ショッピング）'));
+  assert.strictEqual(AFFILIATE_DISCLOSURE.match(/適格販売/g)?.length, 1, '「適格販売」 is Amazon\'s term only');
+  assert.ok(terms.includes('{AFFILIATE_DISCLOSURE}'));
   // サイトの画面にも出す（サイドバーの下・規約のページの下）
-  assert.match(read('src/components/routine/RoutineSidebar.tsx'), /\{AMAZON_ASSOCIATE_STATEMENT\}/);
+  assert.match(read('src/components/routine/RoutineSidebar.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
+  // /privacy では、ページの下が唯一の表示
+  assert.match(read('src/components/legal/LegalPage.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
+  // 表示に書いた ASP と、実際のリンクの設定が合っている（ほかの ASP に変えたら、表示とポリシーも直す）
+  const wrangler = read('wrangler.toml');
+  assert.match(wrangler, /^YAHOO_AFFILIATE_LINK_TEMPLATE = "https:\/\/ck\.jp\.ap\.valuecommerce\.com\//m, 'Yahoo! links go through ValueCommerce');
+  assert.doesNotMatch(wrangler, /^COSME_AFFILIATE_LINK_TEMPLATE\s*=/m, '@cosme affiliate links are not disclosed yet');
   // 無償のサービスなので、規約に損害賠償・免責の定めは置かない
   assert.doesNotMatch(terms, /責任|免責|賠償/);
   assert.ok(terms.includes('Open Database License (ODbL) 1.0'));
