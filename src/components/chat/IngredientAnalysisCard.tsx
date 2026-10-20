@@ -5,6 +5,7 @@ import { ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/li
 import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
+import { MedicalNotice } from './MedicalNotice';
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { productCategory } from '@/lib/analyzer/product-category';
@@ -549,7 +550,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           </p>
           <p className="text-sage-800 font-medium leading-relaxed">
             <span aria-hidden>💡 </span>アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
-              '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。'}
+              '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、腕の内側などの目立たない部分で試してから使用してください。'}
           </p>
           {selectedIngredient.wheatDerived && (
             <p className={panel('caution', 'small')}>
@@ -658,6 +659,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           <span>同じ種類で原因候補の成分を含まない商品を探す</span>
         </button>
       )}
+
+      <MedicalNotice subject="この成分チェック" />
 
       {/* Routine Quick Actions */}
       <div className="pt-3 border-t border-sand-200 grid grid-cols-1 sm:grid-cols-3 gap-2">

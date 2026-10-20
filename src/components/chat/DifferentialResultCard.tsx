@@ -5,6 +5,7 @@ import { DifferentialAnalysisResult } from '@/lib/types';
 import { AlertCircle, CheckCircle2, Flame, ShieldAlert, Sparkles } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { PairFindingList } from './PairFindingList';
+import { MedicalNotice } from './MedicalNotice';
 import { card, panel, RISK_SCALE, riskBadge } from '../ui/design';
 
 interface DifferentialResultCardProps {
@@ -144,10 +145,8 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         </section>
       )}
 
-      {/* 結果だけが共有されても伝わるよう、カードの中にいつも出す（docs/review/legal-review-by-gemini.md） */}
-      <p className="text-xs text-ink-muted leading-relaxed">
-        ※本分析は、入力された全成分表示を機械的に比べた結果で、接触皮膚炎などの原因を医学的に特定・診断するものではありません。皮膚に異常がある場合や症状が続く場合は、皮膚科専門医にご相談ください。
-      </p>
+      {/* 結果だけが共有されても伝わるよう、カードの中にいつも出す */}
+      <MedicalNotice subject="この差分分析" />
     </div>
   );
 };

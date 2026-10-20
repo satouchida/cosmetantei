@@ -604,7 +604,7 @@ export function performDifferentialAnalysis(
       reasonJa: matched
         ? matched.reasonJa
         : safeProducts.length > 0
-          ? '普段使えている安全なアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。'
+          ? '普段使えているアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。'
           : '刺激性のデータがない成分です。普段問題なく使えているコスメと比較すると、候補かどうかを絞り込めます。',
       foundInProducts: c.foundInProducts,
       absenceConfirmedInSafeCount: safeProducts.length,
@@ -656,7 +656,7 @@ export function performDifferentialAnalysis(
       '赤みやヒリつきが引くまでは、普段トラブルなく使えている最小限の保湿アイテム（セラミドやワセリン等）だけにして、肌を休ませましょう。症状が続くときは皮膚科専門医にご相談ください。'
     );
   } else {
-    summaryJa = '肌荒れした製品と安全な製品の間で顕著な成分の差異が見つかりませんでした。';
+    summaryJa = '肌荒れした製品と普段使えている製品の間で顕著な成分の差異が見つかりませんでした。';
     adviceJa.push('成分そのものではなく、使用量・摩擦・肌のバリア状態の低下・または併用による刺激の可能性があります。');
   }
 

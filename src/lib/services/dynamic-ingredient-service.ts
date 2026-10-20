@@ -571,7 +571,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       category: 'other',
       riskLevel: 'safe',
       reasonJa: '化粧水やジェルのとろみ・粘度を安定させ、肌に塗布した際の摩擦を軽減する高分子ポリマーです。',
-      sensitiveSkinAdviceJa: '分子量が非常に大きいため皮膚内に浸透せず、アレルギーや刺激のリスクは極めて低いです。敏感肌でも安全に使用できます。',
+      sensitiveSkinAdviceJa: '分子量が大きいため角層に浸透しにくく、刺激になりにくい成分とされています。肌に合わないと感じたときは使用を控えてください。',
     };
   }
 
@@ -590,7 +590,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       category: 'potent_active',
       riskLevel: 'active_caution',
       reasonJa: '古い角質（タンパク質）や過剰な角栓（皮脂）を選択的に分解し、ざらつきやくすみをオフする酵素成分です。',
-      sensitiveSkinAdviceJa: '角質分解作用があるため、肌がデリケートな時期や連日使用すると角層が薄くなりヒリつきを感じる場合があります。週1〜2回のスペシャルケアが安全です。',
+      sensitiveSkinAdviceJa: '古い角質を分解する性質があるため、肌がデリケートな時期や連日使用すると角層に負担がかかりヒリつきを感じる場合があります。週1〜2回程度を目安に、肌の様子を見ながら使うことが推奨されます。',
     };
   }
 
@@ -755,7 +755,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
     category: 'other',
     riskLevel: 'unknown',
     reasonJa: 'この成分はコスメ探偵の成分データに登録がなく、刺激性を評価できていません。',
-    sensitiveSkinAdviceJa: '安全とも危険とも判断できないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、パッチテストを行ってから使用してください。',
+    sensitiveSkinAdviceJa: '刺激性や肌との相性を判断できないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、腕の内側などの目立たない部分で試してから使用してください。',
   };
 }
 

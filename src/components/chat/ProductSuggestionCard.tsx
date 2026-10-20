@@ -81,9 +81,13 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
 
   return (
     <div className="my-3 space-y-2.5">
-      <p className="text-sm font-semibold text-ink-muted">
-        {isAlternatives ? '避けたい成分を含まないコスメ:' : '該当するコスメ（タップして選択）:'}
-      </p>
+      {/* 代わりの商品は販売ページ・Amazon へのアフィリエイトのリンクを含むので、冒頭に「PR」を出す（ステマ規制の運用基準） */}
+      <div className="flex items-center gap-1.5">
+        <p className="text-sm font-semibold text-ink-muted">
+          {isAlternatives ? '避けたい成分を含まないコスメ:' : '該当するコスメ（タップして選択）:'}
+        </p>
+        {isAlternatives && <span className={badge('neutral')}>PR</span>}
+      </div>
       {isAlternatives && anyFromWeb && (
         <p className="text-xs text-ink-muted leading-relaxed">
           「Web検索」の商品は、Web検索で見つけたページの全成分表示を読み取り、アプリで成分を確かめたものです。出典のページと、購入時のパッケージの表示もご確認ください。

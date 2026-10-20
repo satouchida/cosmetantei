@@ -6480,7 +6480,10 @@ test('108. Wording: no safety guarantees or diagnostic claims in the app text (l
   const fs = await import('node:fs');
   const path = await import('node:path');
   // 薬機法・適正広告基準（安全性の保証）、医師法（原因の特定・診断）、効能の逸脱。コメントの中は除く
-  const BANNED = /安全なコスメ|安全リスト|安全に使え|安心設計|低刺激・安心|原因成分フリー|原因成分をあぶり出|真の原因|抗炎症成分|改善アドバイス|安全と確認できている|成分の特定/;
+  // 2026-10-20 の第2次レビューで足した：安全な(アイテム|製品|もの)・安全に使用・が安全です・ヘッダーの「安全 N点」・
+  // 安全とも危険とも・パッチテストを勧める文・最大級の表現・皮膚内への浸透
+  const BANNED =
+    /安全な(?:コスメ|アイテム|製品|もの)|安全リスト|安全に使え|安全に使用|が安全です|安全\s*\{routine|安全とも危険とも|パッチテストを行って|極めて低い|皮膚内に浸透|角層が薄く|安心設計|低刺激・安心|低刺激な成分|原因成分フリー|原因成分をあぶり出|真の原因|抗炎症成分|改善アドバイス|安全と確認できている|成分の特定/;
   const files: string[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

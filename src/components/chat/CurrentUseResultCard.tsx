@@ -5,6 +5,7 @@ import { CurrentUseCheckResult } from '@/lib/types';
 import { CalendarClock, CheckCircle2, Layers } from 'lucide-react';
 import { STALE_AFTER_MONTHS } from '@/lib/current-use';
 import { PairFindingList } from './PairFindingList';
+import { MedicalNotice } from './MedicalNotice';
 import { card, panel } from '../ui/design';
 
 interface CurrentUseResultCardProps {
@@ -46,6 +47,8 @@ export const CurrentUseResultCard: React.FC<CurrentUseResultCardProps> = ({ resu
           </p>
         </div>
       )}
+
+      <MedicalNotice subject="この組み合わせのチェック" />
     </div>
   );
 };

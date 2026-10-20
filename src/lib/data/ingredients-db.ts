@@ -681,7 +681,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     aliases: ['アラントイン', 'allantoin'],
     category: 'soothing',
     riskLevel: 'safe',
-    reasonJa: '肌荒れを防ぐ目的で配合される低刺激な成分です。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    reasonJa: '肌荒れを防ぐ目的で配合される成分で、刺激の報告は少ない成分です。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
     sensitiveSkinAdviceJa: '肌荒れ防止をうたう医薬部外品の有効成分として使われます。',
     sources: [REF.cirAllantoin],
     reviewedAt: REVIEWED,
