@@ -1,6 +1,7 @@
 import { Product } from './types';
 import { isShopListingProduct, isUserLabelProduct } from './product-source';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
+import { createBrowserStore } from './client/browser-store';
 
 /**
  * 「今使っているコスメ」のリスト（ブラウザ側）。
@@ -71,67 +72,33 @@ export function serializeCurrentUse(entries: CurrentUseEntry[]): string {
   return JSON.stringify(entries.filter((e) => isPersistable(e.product)));
 }
 
-// ブラウザの中の保存先（useSyncExternalStore で読む）。保存できない環境でも、このページを開いている間は
-// メモリの値を使う。入力した成分表示の製品はメモリにだけ持つ
+// ブラウザの中の保存先（useSyncExternalStore で読む。src/lib/client/browser-store.ts）。保存できない環境でも、
+// このページを開いている間はメモリの値を使う。入力した成分表示の製品はメモリにだけ持つ
 const EMPTY: CurrentUseEntry[] = [];
-let memory: CurrentUseEntry[] | null = null;
-/** 保存に失敗した（メモリにしか無い製品がある）。ほかのタブの値で上書きしない */
-let persistFailed = false;
-const listeners = new Set<() => void>();
+const store = createBrowserStore<CurrentUseEntry[]>({
+  key: CURRENT_USE_STORAGE_KEY,
+  parse: parseCurrentUse,
+  serialize: serializeCurrentUse,
+  // ほかのタブで変えたときは保存された値を読み直す（このタブで追加した、保存しない製品は後ろに残す）
+  merge: (stored, current) => {
+    const kept = (current ?? []).filter((e) => !isPersistable(e.product));
+    return [...stored.filter((e) => !kept.some((k) => k.product.id === e.product.id)), ...kept].slice(0, MAX_CURRENT_USE);
+  },
+});
 
-function readStorage(): CurrentUseEntry[] {
-  try {
-    return parseCurrentUse(window.localStorage.getItem(CURRENT_USE_STORAGE_KEY));
-  } catch {
-    return [];
-  }
-}
-
-function notify(): void {
-  for (const listener of listeners) listener();
-}
-
-/** ほかのタブで変えたときは保存された値を読み直す（このタブで追加した、保存しない製品は残す） */
-function onStorage(event: StorageEvent): void {
-  if ((event.key !== CURRENT_USE_STORAGE_KEY && event.key !== null) || persistFailed) return;
-  const kept = (memory ?? []).filter((e) => !isPersistable(e.product));
-  const stored = readStorage().filter((e) => !kept.some((k) => k.product.id === e.product.id));
-  memory = [...stored, ...kept].slice(0, MAX_CURRENT_USE);
-  notify();
-}
-
-export function subscribeCurrentUse(listener: () => void): () => void {
-  if (listeners.size === 0) window.addEventListener('storage', onStorage);
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0) window.removeEventListener('storage', onStorage);
-  };
-}
-
-export function getCurrentUseSnapshot(): CurrentUseEntry[] {
-  if (memory === null) memory = readStorage();
-  return memory;
-}
+export const subscribeCurrentUse = store.subscribe;
+export const getCurrentUseSnapshot = store.getSnapshot;
+export const setCurrentUse = store.set;
 
 /** サーバーでの描画では空（保存はブラウザにしか無い） */
 export function getCurrentUseServerSnapshot(): CurrentUseEntry[] {
   return EMPTY;
 }
 
-export function setCurrentUse(entries: CurrentUseEntry[]): void {
-  memory = entries;
-  try {
-    window.localStorage.setItem(CURRENT_USE_STORAGE_KEY, serializeCurrentUse(entries));
-    persistFailed = false;
-  } catch {
-    // 保存できない環境では、このページを開いている間だけ使う
-    persistFailed = true;
-  }
-  notify();
-}
-
 /** 最新のリストから変える（再描画の前に2回押されても、先の変更を消さない） */
 export function updateCurrentUse(change: (prev: CurrentUseEntry[]) => CurrentUseEntry[]): void {
   setCurrentUse(change(getCurrentUseSnapshot()));
 }
+
+/** テスト用：保存先を読み直す状態に戻す */
+export const resetCurrentUseForTests = store.resetForTests;

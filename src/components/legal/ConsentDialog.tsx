@@ -6,9 +6,9 @@ import { giveConsent } from '@/lib/consent';
 
 /**
  * 初めて開いたときの確認画面。利用規約・プライバシーポリシーと Cookie の使用に同意してから使ってもらう。
- * 閉じるボタンは置かない。規約のページは新しいタブで開き、この画面は残す。
- * Escape はふつう無視されるが、ブラウザが閉じてしまう場合（Chrome は操作の無いまま Escape を続けると閉じる）は
- * 開き直す（同意しないまま使えるようにしない）
+ * 閉じるボタンは置かず、Escape でも閉じない（dismissible={false}）。規約のページは新しいタブで開き、この画面は残す。
+ * それでもブラウザが閉じてしまったとき（Chrome は操作の無いまま Escape を続けると閉じる）だけ、開き直す
+ * （同意しないまま使えるようにしない）
  */
 export const ConsentDialog: React.FC = () => {
   const [opened, reopen] = React.useReducer((n: number) => n + 1, 0);
@@ -19,7 +19,7 @@ export const ConsentDialog: React.FC = () => {
     headingRef.current?.focus();
   }, [opened]);
   return (
-    <ModalDialog key={opened} labelledBy="consent-title" onClose={reopen} sheet>
+    <ModalDialog key={opened} labelledBy="consent-title" onClose={reopen} dismissible={false} sheet>
       <div className="p-5 space-y-3 text-sm leading-relaxed">
         <h2 id="consent-title" ref={headingRef} tabIndex={-1} className="text-lg font-bold text-ink outline-none">
           ご利用の前に

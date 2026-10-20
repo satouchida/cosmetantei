@@ -200,11 +200,25 @@ function withTimeout(init: RequestInit | undefined, timeoutMs: number | undefine
   return { ...init, signal: init?.signal ? anySignal([init.signal, timeout]) : timeout };
 }
 
+/** 同意する前の要求への応答の文（チャット等は、失敗の応答の error をそのまま出す） */
+export const CONSENT_REQUIRED_MESSAGE =
+  '利用規約とプライバシーポリシー（Cookie の使用を含む）に同意すると使えます。画面の確認で「同意して利用を始める」を押してください。';
+
+/** 同意する前の要求には、サーバーに送らずにこの応答を返す（Cookie も Turnstile も始めない） */
+function consentRequiredResponse(): Response {
+  return new Response(JSON.stringify({ error: CONSENT_REQUIRED_MESSAGE }), {
+    status: 403,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 /**
  * API を呼ぶ（body は文字列にしておく。頼み直すときに同じ本文を送るため）。
- * timeoutMs は1回の要求ごとの上限（チェックボックスを押してもらう間は数えない）。超えたら TimeoutError
+ * timeoutMs は1回の要求ごとの上限（チェックボックスを押してもらう間は数えない）。超えたら TimeoutError。
+ * 利用規約・Cookie の使用に同意する前は送らない（src/lib/consent.ts）
  */
 export async function apiFetch(input: string, init?: RequestInit, options: { timeoutMs?: number } = {}): Promise<Response> {
+  if (!hasConsented()) return consentRequiredResponse();
   const epoch = sessionEpoch;
   const res = await fetch(input, withTimeout(init, options.timeoutMs));
   if (res.status !== 401) return res;

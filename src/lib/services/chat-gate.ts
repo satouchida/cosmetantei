@@ -88,6 +88,14 @@ export const QUICK_REPLY_INTENTS: Readonly<Record<string, GateIntent>> = {
 export const QUICK_REPLY_LABELS: ReadonlySet<string> = new Set(Object.keys(QUICK_REPLY_INTENTS));
 
 /**
+ * 画面からは消えたが、更新前に開いたままのタブから届くボタンの文言（Clef を呼ばずに無料で判定する）。
+ * 2026-11-20 を過ぎたら消してよい（2026-10-20 に「おすすめの低刺激アイテムは？」の文言を変えた）
+ */
+const RETIRED_QUICK_REPLY_INTENTS: Readonly<Record<string, GateIntent>> = {
+  '💡 おすすめの低刺激アイテムは？': 'find_alternative',
+};
+
+/**
  * 成分の解説のあとに出すボタンで使う成分名。最初の名前だけ
  * （「メチルイソチアゾリノン (MI/MIT)」→「メチルイソチアゾリノン」、「ツボクサエキス / マデカッソシド」→「ツボクサエキス」）
  */
@@ -108,6 +116,7 @@ const ALTERNATIVE_BUTTON = /^🔍 (.{1,40})が入っていないコスメを探�
 export function quickReplyIntent(text: string): GateIntent | undefined {
   const fixed = Object.hasOwn(QUICK_REPLY_INTENTS, text) ? QUICK_REPLY_INTENTS[text] : undefined;
   if (fixed) return fixed;
+  if (Object.hasOwn(RETIRED_QUICK_REPLY_INTENTS, text)) return RETIRED_QUICK_REPLY_INTENTS[text];
   const name = ALTERNATIVE_BUTTON.exec(text)?.[1];
   if (name && KNOWN_INGREDIENTS.some((item) => buttonIngredientName(item) === name)) return 'find_alternative';
   return undefined;

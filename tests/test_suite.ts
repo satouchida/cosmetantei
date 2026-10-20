@@ -5584,8 +5584,13 @@ test('95. Chat client: server error text is shown, unreadable replies and networ
   const empty = await toChatResult(new Response('', { status: 429 }));
   assert.ok(!empty.ok && empty.message.includes('1分ほど'));
 
-  // 時間切れ・通信エラー
+  // 時間切れ・通信エラー（同意した後の要求）
   const realFetch = globalThis.fetch;
+  const { giveConsent, resetConsentForTests } = await import('../src/lib/consent');
+  const browser = fakeBrowser();
+  browser.install();
+  resetConsentForTests();
+  giveConsent();
   try {
     globalThis.fetch = (async () => {
       throw new DOMException('timed out', 'TimeoutError');
@@ -5605,6 +5610,8 @@ test('95. Chat client: server error text is shown, unreadable replies and networ
     assert.ok(signal instanceof AbortSignal, 'Each chat request carries a timeout signal');
   } finally {
     globalThis.fetch = realFetch;
+    browser.uninstall();
+    resetConsentForTests();
   }
 
   // 画面のコード：/api/chat の応答を直接 res.json() で読まない（共通の postChat を通す）
@@ -6501,7 +6508,8 @@ test('108. Wording: no safety guarantees or diagnostic claims in the app text (l
       .split('\n')
       .map((line) => line.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, ''));
     code.forEach((line, i) => {
-      if (BANNED.test(line)) found.push(`${path.relative(process.cwd(), file)}:${i + 1}: ${line.trim().slice(0, 80)}`);
+      // 更新前に開いたままのタブから届くボタンの文言（画面には出さない。src/lib/services/chat-gate.ts）
+      if (BANNED.test(line.replace("'💡 おすすめの低刺激アイテムは？'", ''))) found.push(`${path.relative(process.cwd(), file)}:${i + 1}: ${line.trim().slice(0, 80)}`);
     });
   }
   assert.deepStrictEqual(found, []);
@@ -6535,8 +6543,16 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   // 同意の確認画面：同意の保存先はポリシーに書いたもの。同意する前は Turnstile もセッションの Cookie も始めない
   const { CONSENT_STORAGE_KEY } = await import('../src/lib/consent');
   assert.ok(privacy.includes(CONSENT_STORAGE_KEY));
-  assert.match(read('src/lib/client/api-fetch.ts'), /if \(!hasConsented\(\)\) return false;/);
-  assert.match(read('src/components/chat/ChatContainer.tsx'), /\{!consented && <ConsentDialog \/>\}/);
+  // 規約の日付と同意の版は1か所（LEGAL_VERSION）から。同意する前の動きは test 111
+  const { CONSENT_VERSION } = await import('../src/lib/consent');
+  const { LEGAL_VERSION, formatLegalDate } = await import('../src/lib/site');
+  assert.strictEqual(CONSENT_VERSION, LEGAL_VERSION);
+  assert.strictEqual(formatLegalDate('2026-10-20'), '2026年10月20日');
+  assert.strictEqual(formatLegalDate('2027-01-05'), '2027年1月5日');
+  for (const page of [terms, privacy]) {
+    assert.ok(page.includes('enactedOn={formatLegalDate(LEGAL_VERSION)}'), 'The page date comes from LEGAL_VERSION');
+    assert.doesNotMatch(page, /enactedOn="/);
+  }
   assert.ok(buildAmazonAffiliateUrl('テスト', '化粧水').includes('tag=cosmetantei22-22'));
   assert.ok(privacy.includes('tag=cosmetantei22-22'));
   assert.ok(privacy.includes('HttpOnly') && privacy.includes('Secure'));
@@ -6558,4 +6574,245 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   assert.ok(sitemap.some((u) => u.endsWith('/terms')) && sitemap.some((u) => u.endsWith('/privacy')));
   const links = read('src/components/legal/LegalPage.tsx');
   assert.ok(links.includes('href="/terms"') && links.includes('href="/privacy"'));
+});
+
+/**
+ * ブラウザの保存先（localStorage と storage イベント）の代わり。otherTab はほかのタブで変えたときの再現
+ * （key が null は「サイトデータを消した」）
+ */
+function fakeBrowser(options: { failGet?: boolean; failSet?: boolean } = {}) {
+  const data = new Map<string, string>();
+  const handlers = new Set<(event: { key: string | null }) => void>();
+  const win = {
+    localStorage: {
+      getItem(key: string) {
+        if (options.failGet) throw new Error('blocked');
+        return data.get(key) ?? null;
+      },
+      setItem(key: string, value: string) {
+        if (options.failSet) throw new Error('quota');
+        data.set(key, String(value));
+      },
+      removeItem(key: string) {
+        data.delete(key);
+      },
+    },
+    addEventListener(type: string, handler: (event: { key: string | null }) => void) {
+      if (type === 'storage') handlers.add(handler);
+    },
+    removeEventListener(type: string, handler: (event: { key: string | null }) => void) {
+      if (type === 'storage') handlers.delete(handler);
+    },
+  };
+  return {
+    data,
+    handlers,
+    options,
+    otherTab(key: string | null, value?: string) {
+      if (key === null) data.clear();
+      else if (value === undefined) data.delete(key);
+      else data.set(key, value);
+      for (const handler of [...handlers]) handler({ key });
+    },
+    install() {
+      (globalThis as { window?: unknown }).window = win;
+    },
+    uninstall() {
+      delete (globalThis as { window?: unknown }).window;
+    },
+  };
+}
+
+test('110. Products in use now: the browser store (lazy read, other tabs, failed saves, products kept only in memory)', async () => {
+  const {
+    CURRENT_USE_STORAGE_KEY: KEY,
+    MAX_CURRENT_USE,
+    getCurrentUseSnapshot,
+    resetCurrentUseForTests,
+    setCurrentUse,
+    subscribeCurrentUse,
+  } = await import('../src/lib/current-use');
+  const p = (id: string, extra: Partial<Product> = {}): Product => ({
+    id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients: ['水'], ...extra,
+  });
+  const added = new Date(2026, 6, 14).getTime();
+  const entry = (product: Product) => ({ product, addedAt: added });
+  const ids = () => getCurrentUseSnapshot().map((e) => e.product.id);
+  const browser = fakeBrowser();
+  browser.install();
+  resetCurrentUseForTests();
+  try {
+    // 最初に読むときだけ保存先を読み、同じ配列を返し続ける（useSyncExternalStore が再描画を繰り返さない）
+    browser.data.set(KEY, JSON.stringify([entry(p('E'))]));
+    const first = getCurrentUseSnapshot();
+    assert.deepStrictEqual(ids(), ['E']);
+    browser.data.set(KEY, JSON.stringify([entry(p('Z'))]));
+    assert.strictEqual(getCurrentUseSnapshot(), first, 'Read once, then the same array');
+
+    let notified = 0;
+    const unsubscribe = subscribeCurrentUse(() => (notified += 1));
+    assert.strictEqual(browser.handlers.size, 1, 'Listens to other tabs while subscribed');
+
+    // 変える：入力した成分表示はメモリにだけ持ち、保存しない
+    const label = p('L', { ingredientSource: 'user_label' });
+    setCurrentUse([entry(p('E')), entry(label)]);
+    assert.strictEqual(notified, 1);
+    assert.deepStrictEqual(ids(), ['E', 'L']);
+    assert.deepStrictEqual(JSON.parse(browser.data.get(KEY)!).map((e: { product: Product }) => e.product.id), ['E']);
+
+    // ほかのキーの変更は無視する
+    const before = getCurrentUseSnapshot();
+    browser.otherTab('another-key', 'x');
+    assert.strictEqual(notified, 1);
+    assert.strictEqual(getCurrentUseSnapshot(), before);
+
+    // ほかのタブで変えた：保存された値を読み、このタブにしか無い製品は後ろに残す
+    browser.otherTab(KEY, JSON.stringify([entry(p('S1')), entry(p('S2'))]));
+    assert.strictEqual(notified, 2);
+    assert.deepStrictEqual(ids(), ['S1', 'S2', 'L']);
+    // 同じ ID なら、このタブの製品を残す
+    setCurrentUse([entry(p('S1', { ingredientSource: 'user_label' }))]);
+    browser.otherTab(KEY, JSON.stringify([entry(p('S1')), entry(p('S3'))]));
+    assert.deepStrictEqual(ids(), ['S3', 'S1']);
+    assert.strictEqual(getCurrentUseSnapshot()[1].product.ingredientSource, 'user_label');
+    // サイトデータを消した（key が null）：保存されていた製品は消え、このタブにしか無い製品は残る
+    browser.otherTab(null);
+    assert.deepStrictEqual(ids(), ['S1']);
+    // 上限：保存された製品が先。合わせて上限を超えたら、このタブにしか無い製品から落ちる
+    setCurrentUse([entry(label)]);
+    const full = Array.from({ length: MAX_CURRENT_USE }, (_, i) => entry(p(`M${i}`)));
+    browser.otherTab(KEY, JSON.stringify(full));
+    assert.strictEqual(getCurrentUseSnapshot().length, MAX_CURRENT_USE);
+    assert.ok(!ids().includes('L'));
+
+    // 保存に失敗したら、メモリの値で動き、ほかのタブの値で上書きしない
+    browser.options.failSet = true;
+    const notifiedBefore = notified;
+    setCurrentUse([entry(p('F1'))]);
+    assert.strictEqual(notified, notifiedBefore + 1);
+    assert.deepStrictEqual(ids(), ['F1']);
+    browser.otherTab(KEY, JSON.stringify([entry(p('O1'))]));
+    assert.deepStrictEqual(ids(), ['F1'], 'A failed save is not overwritten by another tab');
+    assert.strictEqual(notified, notifiedBefore + 1);
+    // 保存できるようになったら、またほかのタブに合わせる
+    browser.options.failSet = false;
+    setCurrentUse([entry(p('F2'))]);
+    browser.otherTab(KEY, JSON.stringify([entry(p('O2'))]));
+    assert.deepStrictEqual(ids(), ['O2']);
+
+    unsubscribe();
+    assert.strictEqual(browser.handlers.size, 0, 'Stops listening when nobody subscribes');
+
+    // 保存先を読めない環境：空のリスト
+    browser.options.failGet = true;
+    resetCurrentUseForTests();
+    assert.deepStrictEqual(ids(), []);
+  } finally {
+    browser.uninstall();
+    resetCurrentUseForTests();
+  }
+});
+
+test('111. Consent: stored per terms version, revoked when site data is cleared, and nothing is sent before it', async () => {
+  const { CONSENT_STORAGE_KEY: KEY, CONSENT_VERSION, giveConsent, hasConsented, getConsentServerSnapshot, resetConsentForTests, subscribeConsent } =
+    await import('../src/lib/consent');
+  const { apiFetch, CONSENT_REQUIRED_MESSAGE } = await import('../src/lib/client/api-fetch');
+  const { postChat } = await import('../src/lib/client/chat-request');
+  const { quickReplyIntent } = await import('../src/lib/services/chat-gate');
+  const realFetch = globalThis.fetch;
+  const g = globalThis as { document?: unknown };
+  const browser = fakeBrowser();
+  browser.install();
+  resetConsentForTests();
+  const calls: string[] = [];
+  try {
+    // サーバーで描くときは「まだ分からない」（画面は操作させない）
+    assert.strictEqual(getConsentServerSnapshot(), null);
+
+    // 同意する前：API にも /api/session にも送らず、同意を求める文を返す（Cookie も Turnstile も始めない）
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    assert.strictEqual(hasConsented(), false);
+    const blocked = await apiFetch('/api/products/search?q=x');
+    assert.strictEqual(blocked.status, 403);
+    assert.strictEqual((await blocked.json()).error, CONSENT_REQUIRED_MESSAGE);
+    assert.deepStrictEqual(await postChat({ message: 'x' }), { ok: false, status: 403, message: CONSENT_REQUIRED_MESSAGE });
+    assert.strictEqual(calls.length, 0, 'Nothing is sent before consent');
+
+    // 同意：版を保存し、購読している画面に知らせる
+    let notified = 0;
+    const unsubscribe = subscribeConsent(() => (notified += 1));
+    giveConsent();
+    assert.strictEqual(hasConsented(), true);
+    assert.strictEqual(browser.data.get(KEY), CONSENT_VERSION);
+    assert.strictEqual(notified, 1);
+
+    // 同意した後：401 なら Turnstile を解いて /api/session でセッションを始め、頼み直す
+    const element = () => ({ style: {}, setAttribute() {}, append() {}, appendChild() {}, remove() {}, isConnected: true, textContent: '' });
+    g.document = { createElement: element, querySelector: () => null, body: { appendChild() {} }, head: { appendChild() {} } };
+    (globalThis as unknown as { window: { turnstile?: unknown } }).window.turnstile = {
+      render(_slot: unknown, options: { callback: (token: string) => void }) {
+        options.callback('token');
+        return 'widget';
+      },
+      remove() {},
+    };
+    let sessionStarted = false;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === '/api/session') {
+        sessionStarted = true;
+        return new Response('{}', { status: 200 });
+      }
+      return sessionStarted
+        ? new Response('{"ok":true}', { status: 200 })
+        : new Response(JSON.stringify({ verify: { siteKey: 'site-key' } }), { status: 401 });
+    }) as typeof fetch;
+    const res = await apiFetch('/api/analyze', { method: 'POST', body: '{}' });
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(calls, ['/api/analyze', '/api/session', '/api/analyze']);
+
+    // ほかのタブでサイトデータを消した：同意していない状態に戻り、また送らなくなる
+    browser.otherTab(null);
+    assert.strictEqual(hasConsented(), false);
+    assert.strictEqual(notified, 2);
+    calls.length = 0;
+    assert.strictEqual((await apiFetch('/api/analyze')).status, 403);
+    assert.strictEqual(calls.length, 0);
+    // ほかのタブで同意した：このタブも同意した状態に
+    browser.otherTab(KEY, CONSENT_VERSION);
+    assert.strictEqual(hasConsented(), true);
+    // 規約の版が違う（規約を変えた）：もう一度確認する
+    browser.otherTab(KEY, '2000-01-01');
+    assert.strictEqual(hasConsented(), false);
+    unsubscribe();
+
+    // 保存できない環境：このページを開いている間だけ同意した状態。ほかのタブの変更で取り消さない
+    browser.options.failSet = true;
+    resetConsentForTests();
+    const unsubscribeFailed = subscribeConsent(() => {});
+    giveConsent();
+    assert.strictEqual(hasConsented(), true);
+    assert.strictEqual(browser.handlers.size, 1, 'Still listening to other tabs');
+    browser.otherTab(null);
+    assert.strictEqual(hasConsented(), true, 'A failed save is not revoked by another tab');
+    unsubscribeFailed();
+    // 保存先を読めない：同意していない状態から始める
+    browser.options.failSet = false;
+    browser.options.failGet = true;
+    resetConsentForTests();
+    assert.strictEqual(hasConsented(), false);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete g.document;
+    browser.uninstall();
+    resetConsentForTests();
+  }
+
+  // 更新前に開いたままのタブの、文言を変える前のボタン：無料の判定のまま
+  assert.strictEqual(quickReplyIntent('💡 原因候補を含まないアイテムは？'), 'find_alternative');
+  assert.strictEqual(quickReplyIntent('💡 おすすめの低刺激アイテムは？'), 'find_alternative');
 });

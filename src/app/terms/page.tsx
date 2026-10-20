@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ExternalLink, LegalPage } from '@/components/legal/LegalPage';
-import { AMAZON_ASSOCIATE_STATEMENT } from '@/lib/site';
+import { AMAZON_ASSOCIATE_STATEMENT, formatLegalDate, LEGAL_VERSION } from '@/lib/site';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/terms-of-service.md（git には入れない）
 export const metadata: Metadata = {
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="コスメ探偵（CosmeTantei） 利用規約" enactedOn="2026年10月20日">
+    <LegalPage title="コスメ探偵（CosmeTantei） 利用規約" enactedOn={formatLegalDate(LEGAL_VERSION)}>
       <p>
         この利用規約（以下「本規約」といいます。）は、コスメ探偵（以下「当サービス」といいます。）の運営者（以下「当方」といいます。）が提供するウェブサービス「コスメ探偵（CosmeTantei）」（https://cosmetantei.app、以下「本サイト」といいます。）の利用条件を定めるものです。利用者の皆さま（以下「ユーザー」といいます。）は、本規約に同意した上で本サービスをご利用ください。
       </p>

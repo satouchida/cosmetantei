@@ -1,59 +1,33 @@
+import { createBrowserStore } from './client/browser-store';
+import { LEGAL_VERSION } from './site';
+
 /**
  * 利用規約・プライバシーポリシー（Cookie の使用を含む）への同意。初めて開いたときの確認画面で同意してもらう。
  * この端末のブラウザ（localStorage）に、同意した規約の版だけを保存する。規約を変えて版を上げたら、もう一度確認する。
- * 同意する前は Turnstile を読み込まず、セッションの Cookie も発行しない（src/lib/client/api-fetch.ts）
+ * 同意する前は API を呼ばず、Turnstile も読み込まず、セッションの Cookie も発行しない（src/lib/client/api-fetch.ts）。
+ * ほかのタブでサイトデータを消したときは、同意していない状態に戻る（src/lib/client/browser-store.ts）
  */
 
-/** 規約の版（制定日・改定日）。src/app/terms・src/app/privacy の日付と合わせる */
-export const CONSENT_VERSION = '2026-10-20';
+export const CONSENT_VERSION = LEGAL_VERSION;
 export const CONSENT_STORAGE_KEY = 'cosmetantei:consent:v1';
 
-// 保存できない環境（プライベートブラウズ等）でも、このページを開いている間は同意したものとして使う
-let memory: boolean | null = null;
-const listeners = new Set<() => void>();
+const store = createBrowserStore<boolean>({
+  key: CONSENT_STORAGE_KEY,
+  parse: (raw) => raw === CONSENT_VERSION,
+  serialize: (agreed) => (agreed ? CONSENT_VERSION : ''),
+});
 
-function readStorage(): boolean {
-  try {
-    return window.localStorage.getItem(CONSENT_STORAGE_KEY) === CONSENT_VERSION;
-  } catch {
-    return false;
-  }
-}
+export const subscribeConsent = store.subscribe;
+export const hasConsented = store.getSnapshot;
 
-/** ほかのタブで同意したら、このタブの確認画面も閉じる */
-function onStorage(event: StorageEvent): void {
-  if (event.key !== CONSENT_STORAGE_KEY && event.key !== null) return;
-  if (readStorage()) {
-    memory = true;
-    for (const listener of listeners) listener();
-  }
-}
-
-export function subscribeConsent(listener: () => void): () => void {
-  if (listeners.size === 0) window.addEventListener('storage', onStorage);
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0) window.removeEventListener('storage', onStorage);
-  };
-}
-
-export function hasConsented(): boolean {
-  if (memory === null) memory = readStorage();
-  return memory;
-}
-
-/** サーバーでの描画では確認画面を出さない（同意はブラウザにしか無い。表示はブラウザで判断する） */
-export function getConsentServerSnapshot(): boolean {
-  return true;
+/** サーバーでの描画では「まだ分からない」（同意はブラウザにしか無い）。分かるまで画面は操作させない */
+export function getConsentServerSnapshot(): boolean | null {
+  return null;
 }
 
 export function giveConsent(): void {
-  memory = true;
-  try {
-    window.localStorage.setItem(CONSENT_STORAGE_KEY, CONSENT_VERSION);
-  } catch {
-    // 保存できない環境では、このページを開いている間だけ
-  }
-  for (const listener of listeners) listener();
+  store.set(true);
 }
+
+/** テスト用：保存先を読み直す状態に戻す */
+export const resetConsentForTests = store.resetForTests;

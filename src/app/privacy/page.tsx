@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { ExternalLink, LegalPage, LegalTable } from '@/components/legal/LegalPage';
+import { formatLegalDate, LEGAL_VERSION } from '@/lib/site';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/privacy-policy.md（git には入れない。原稿との違いはその冒頭に記載）。
 // 書いてある内容（Cookie の属性・保存するもの・送り先）は実装と合わせる：src/lib/server/session.ts、
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="コスメ探偵（CosmeTantei） プライバシーポリシー" enactedOn="2026年10月20日">
+    <LegalPage title="コスメ探偵（CosmeTantei） プライバシーポリシー" enactedOn={formatLegalDate(LEGAL_VERSION)}>
       <p>
         コスメ探偵（以下「当サービス」といいます。）の運営者（以下「当方」といいます。）は、ウェブサービス「コスメ探偵（CosmeTantei）」（https://cosmetantei.app、以下「本サイト」といいます。）において取り扱う利用者の情報（以下「利用者情報」といいます。）の保護について、個人情報の保護に関する法律（以下「個人情報保護法」といいます。）、電気通信事業法、関連法令、およびガイドラインを遵守し、以下のとおりプライバシーポリシー（以下「本ポリシー」といいます。）を定めます。
       </p>

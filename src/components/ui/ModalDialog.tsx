@@ -12,6 +12,11 @@ interface ModalDialogProps {
   className?: string;
   /** 開いたボタンが閉じたときに見えなくなっている場合（スマホの引き出しの中など）に、代わりにフォーカスを移す先 */
   fallbackFocus?: () => HTMLElement | null;
+  /**
+   * false：Escape で閉じない（onClose も呼ばない）。それでもブラウザが閉じてしまったとき（Android の戻る操作等）だけ
+   * onClose を呼ぶ。同意の確認画面のように、閉じずに答えてもらうダイアログに使う
+   */
+  dismissible?: boolean;
   children: React.ReactNode;
 }
 
@@ -24,7 +29,15 @@ function isFocusable(el: HTMLElement | null): el is HTMLElement {
  * Material 3 のモーダル。ブラウザの <dialog> を showModal() で開くので、
  * フォーカスは中に閉じ込められ、後ろの画面は操作も読み上げもされず、Escape で閉じられる
  */
-export function ModalDialog({ labelledBy, onClose, sheet = false, className = '', fallbackFocus, children }: ModalDialogProps) {
+export function ModalDialog({
+  labelledBy,
+  onClose,
+  sheet = false,
+  className = '',
+  fallbackFocus,
+  dismissible = true,
+  children,
+}: ModalDialogProps) {
   const ref = useRef<HTMLDialogElement | null>(null);
   // 閉じるときの最新の値を使う（effect は開いたときに1回だけ動く）
   const fallbackRef = useRef(fallbackFocus);
@@ -55,10 +68,15 @@ export function ModalDialog({ labelledBy, onClose, sheet = false, className = ''
     <dialog
       ref={ref}
       aria-labelledby={labelledBy}
+      // 閉じないダイアログでは Escape キーそのものを止める（Chrome は、操作の無いまま開いたダイアログを
+      // cancel を出さずに閉じるため、onCancel では止められない）
+      onKeyDown={dismissible ? undefined : (e) => {
+        if (e.key === 'Escape') e.preventDefault();
+      }}
       onCancel={(e) => {
         // ブラウザに閉じさせず、親の状態で閉じる（開閉の状態を一か所にする）
         e.preventDefault();
-        onClose();
+        if (dismissible) onClose();
       }}
       onClose={(e) => {
         // ブラウザが先に閉じた場合（Escape を続けて押したときなど）も親の状態を合わせる。

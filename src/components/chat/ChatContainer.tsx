@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChatMessage,
   Product,
@@ -337,11 +338,13 @@ export const ChatContainer: React.FC = () => {
   });
   // 今使っているコスメはこの端末のブラウザに保存する（src/lib/current-use.ts）
   const currentUse = useSyncExternalStore(subscribeCurrentUse, getCurrentUseSnapshot, getCurrentUseServerSnapshot);
+  // 利用規約・Cookie の使用への同意（src/lib/consent.ts）。null はまだ分からない（サーバーで描いた直後）
   const consented = useSyncExternalStore(subscribeConsent, hasConsented, getConsentServerSnapshot);
-  // 同意したら入力欄へ（同意の画面を開いたボタンは無いので、閉じても戻す先が無い）
+  // 確認画面で同意したら入力欄へ（確認画面を開いたボタンは無いので、閉じても戻す先が無い）。
+  // 前に同意していた人が開いたとき（null → true）はフォーカスを動かさない
   const wasConsented = useRef(consented);
   useEffect(() => {
-    if (!wasConsented.current && consented) inputRef.current?.focus();
+    if (wasConsented.current === false && consented) inputRef.current?.focus();
     wasConsented.current = consented;
   }, [consented]);
   const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
@@ -1015,9 +1018,11 @@ export const ChatContainer: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-dvh bg-surface text-ink font-sans">
-      {/* 初めて開いたとき：利用規約・プライバシーポリシーと Cookie の使用への同意 */}
-      {!consented && <ConsentDialog />}
+    // 同意を確かめるまで（サーバーで描いた直後を含む）は、画面を操作も読み上げもさせない（inert）
+    <div inert={consented !== true} className="flex flex-col h-dvh bg-surface text-ink font-sans">
+      {/* 初めて開いたとき：利用規約・プライバシーポリシーと Cookie の使用への同意。
+          inert の外に置く（inert の中のダイアログは押せない）。同意していないと分かるのはブラウザだけなので、document がある */}
+      {consented === false && createPortal(<ConsentDialog />, document.body)}
       {/* Snackbar（Material 3：画面下、入力欄の上） */}
       {/* 読み上げ用のライブリージョンは常に置いておく（中身ごと追加すると読み上げられないことがある） */}
       <div role="status" className="sr-only">
@@ -1468,7 +1473,7 @@ export const ChatContainer: React.FC = () => {
 
       {/* Barcode Scanner Modal */}
       <BarcodeScannerModal
-        isOpen={consented && isScannerOpen}
+        isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         fallbackFocus={() => scanButtonRef.current}
         onScanSuccess={(barcode) => {
@@ -1492,13 +1497,13 @@ export const ChatContainer: React.FC = () => {
       />
 
       <LabelInputModal
-        isOpen={consented && isLabelInputOpen}
+        isOpen={isLabelInputOpen}
         onClose={() => setIsLabelInputOpen(false)}
         onSubmit={handleLabelSubmit}
         fallbackFocus={() => labelButtonRef.current}
       />
 
-      {consented && routineExport && (
+      {routineExport && (
         <RoutineExportDialog
           snapshot={routineExport.snapshot}
           culprits={routineExport.culprits}
@@ -1507,7 +1512,7 @@ export const ChatContainer: React.FC = () => {
         />
       )}
       {/* 共有されたルーティンの読み込み（#r=…）は、同意するまで出さない（同意の画面の上に重ねない） */}
-      {consented && routineImport && (
+      {consented === true && routineImport && (
         <RoutineImportDialog
           snapshot={routineImport.snapshot}
           namesOnly={routineImport.namesOnly}
