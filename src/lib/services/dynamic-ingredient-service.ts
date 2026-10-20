@@ -291,7 +291,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       category: 'other',
       riskLevel: 'low_caution',
       reasonJa: '植物を水蒸気蒸留したときに得られる芳香蒸留水（花水）などで、植物の香りの成分を微量に含みます。',
-      sensitiveSkinAdviceJa: '精油と同じ香りの成分を微量に含むため、香料や精油で肌荒れしやすい方は気にしておくと安心です。',
+      sensitiveSkinAdviceJa: '精油と同じ香りの成分を微量に含むため、香料や精油で肌荒れしやすい方は、気にしておくとよいでしょう。',
     };
   }
 
@@ -497,7 +497,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       nameEn: 'Mild Surfactant (Betaine / Amino Acid)',
       category: 'other',
       riskLevel: 'safe',
-      reasonJa: '皮脂を取りすぎず、アミノ酸や両性イオンの力でマイルドに洗浄する低刺激な界面活性剤です。キメ細やかな泡立ちを補助します。',
+      reasonJa: '皮脂を取りすぎにくい、アミノ酸系・両性の比較的穏やかな洗浄成分（界面活性剤）です。キメ細やかな泡立ちを補助します。',
       sensitiveSkinAdviceJa: '硫酸系の洗浄成分よりバリア機能を壊しにくく、乾燥肌や敏感肌の洗顔料・シャンプーに多く使われます。',
     };
   }
@@ -744,7 +744,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       category: 'other',
       riskLevel: 'low_caution',
       reasonJa: '植物や発酵由来の美容成分（ポリフェノール・アミノ酸・ビタミン等）を含み、肌のキメや透明感をサポートします。',
-      sensitiveSkinAdviceJa: '天然由来成分ですが、植物固有の成分に対して稀にアレルギー反応を起こす体質の方もいます。初めて使う際はパッチテストを行うと安心です。',
+      sensitiveSkinAdviceJa: '天然由来成分ですが、植物固有の成分に対して稀にアレルギー反応を起こす体質の方もいます。初めて使う際は、腕の内側などで試してから使うことをおすすめします。',
     };
   }
 

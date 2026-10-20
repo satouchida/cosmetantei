@@ -196,7 +196,7 @@ export const ChatContainer: React.FC = () => {
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: `🔍 こんにちは！肌荒れの原因になりうる成分を探すサービス「コスメ探偵 (CosmeTantei)」です。\n\n今お使いの化粧品名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコード（JAN/UPC）をカメラで読み取ってください。\n\n「肌荒れしたコスメ」と「普段使えているコスメ」を比較して、肌荒れの原因になりうる成分の候補（香料、エタノール、防腐剤、高濃度アクティブなど）をあぶり出し、その成分を含まない同じ種類の商品（Amazonリンク付）を探します。医療上の診断の代わりにはなりません。`,
+      content: `🔍 こんにちは！肌荒れの原因になりうる成分を探すサービス「コスメ探偵 (CosmeTantei)」です。\n\n今お使いの化粧品名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコード（JAN/UPC）をカメラで読み取ってください。\n\n「肌荒れしたコスメ」と「普段使えているコスメ」を比較して、肌荒れの原因になりうる成分の候補（香料、エタノール、防腐剤、高濃度アクティブなど）を絞り込み、その成分を含まない同じ種類の商品（販売ページ・Amazonへのリンク付き。PR）を探します。医療上の診断の代わりにはなりません。`,
       timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
@@ -631,14 +631,14 @@ export const ChatContainer: React.FC = () => {
   /** 安全リストに追加する。追加した場合は true、すでに登録済みなら false */
   const handleAddToSafe = (product: Product): boolean => {
     if (routine.safeProducts.some((p) => p.id === product.id)) {
-      showToast(`すでに安全リストに登録されています`, 'error');
+      showToast(`すでに「普段使えているコスメ」に登録されています`, 'error');
       return false;
     }
     setRoutine((prev) => ({
       ...prev,
       safeProducts: [...prev.safeProducts, product],
     }));
-    showToast(`「${product.name}」を【安全なコスメ】に追加しました`);
+    showToast(`「${product.name}」を【普段使えているコスメ】に追加しました`);
     return true;
   };
 
@@ -748,7 +748,7 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(
             label,
             added
-              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。普段問題なく使えているコスメも追加して「差分分析」を実行すると、肌荒れの原因になった可能性のある成分をあぶり出せます。`
+              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。普段問題なく使えているコスメも追加して「差分分析」を実行すると、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
               : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。普段問題なく使えているコスメも追加して「差分分析」を実行できます。`,
             ['✅ 普段使えているコスメを入力する']
           );
@@ -757,8 +757,8 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(
             label,
             added
-              ? `「${product.name}」を【安全なコスメ】に追加しました。肌荒れしたコスメも追加して「差分分析」を実行すると、原因成分をあぶり出せます。`
-              : `「${product.name}」はすでに【安全なコスメ】に登録されています。肌荒れしたコスメを追加して「差分分析」を実行できます。`,
+              ? `「${product.name}」を【普段使えているコスメ】に追加しました。肌荒れしたコスメも追加して「差分分析」を実行すると、原因になりうる成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【普段使えているコスメ】に登録されています。肌荒れしたコスメを追加して「差分分析」を実行できます。`,
             ['🧴 肌荒れしたコスメを入力する']
           );
         }
@@ -785,7 +785,7 @@ export const ChatContainer: React.FC = () => {
         return;
       case 'reset':
         handleLoadPreset('clear');
-        appendLocalExchange(label, '比較リスト（肌荒れしたコスメ・安全なコスメ）を空にしました。', [
+        appendLocalExchange(label, '比較リスト（肌荒れしたコスメ・普段使えているコスメ）を空にしました。', [
           '🧴 肌荒れしたコスメを入力する',
         ]);
         return;
@@ -802,10 +802,10 @@ export const ChatContainer: React.FC = () => {
   const handleRunDifferential = async () => {
     if (routine.badProducts.length === 0) return;
     await runChatAction(
-      `⚡️ 肌荒れコスメ（${routine.badProducts.map((p) => p.name).join('、')}）の原因成分をあぶり出してください`,
+      `⚡️ 肌荒れコスメ（${routine.badProducts.map((p) => p.name).join('、')}）の、原因になりうる成分の候補を絞り込んでください`,
       { action: 'differential', routine },
       (data) => pickReply(data, ['differentialAnalysis', 'quickReplies']),
-      { loadingText: '原因成分をあぶり出しています...' }
+      { loadingText: '原因候補の成分を絞り込んでいます...' }
     );
   };
 

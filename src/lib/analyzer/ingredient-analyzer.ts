@@ -456,7 +456,7 @@ export function analyzeProduct(
   } else if (isEstimatedFromMarketplaces) {
     summaryJa = 'Amazon / 楽天市場 / Olive Young / Sephora 等の公開情報から成分を探索・補完して解析しています。';
   } else if (overallRiskLevel === 'safe') {
-    summaryJa = '刺激になりやすい成分は見当たらず、敏感肌にも配慮されたマイルドな処方です。';
+    summaryJa = '刺激になりやすい成分は見当たりませんでした。肌に合うかは人によって違うため、初めて使うときは少量から試してください。';
   } else if (overallRiskLevel === 'caution') {
     // 見つかった種類を書く（紫外線吸収剤だけの日焼け止めを「アルコール・防腐剤」とは言わない）
     const kinds = [
@@ -605,7 +605,7 @@ export function performDifferentialAnalysis(
         ? matched.reasonJa
         : safeProducts.length > 0
           ? '普段使えている安全なアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。'
-          : '刺激性のデータがない成分です。安全に使えているコスメと比較すると、候補かどうかを絞り込めます。',
+          : '刺激性のデータがない成分です。普段問題なく使えているコスメと比較すると、候補かどうかを絞り込めます。',
       foundInProducts: c.foundInProducts,
       absenceConfirmedInSafeCount: safeProducts.length,
     };
@@ -637,8 +637,8 @@ export function performDifferentialAnalysis(
     // 安全なコスメが無いと比較による絞り込みはできないため、そのことを明示する
     summaryJa =
       safeProducts.length > 0
-        ? `安全なアイテムと比較した結果、肌荒れ原因の有力候補として「${topCulprits.join('、')}」など ${culprits.length} 個の特有成分があぶり出されました。`
-        : `安全に使えているコスメが未登録のため、比較による絞り込みはしていません。肌荒れしたコスメの成分のうち「${topCulprits.join('、')}」など ${culprits.length} 個を候補として挙げています。安全に使えているコスメを追加すると、候補を絞り込めます。`;
+        ? `普段使えているアイテムと比較した結果、肌トラブルの要因になった可能性のある成分として「${topCulprits.join('、')}」など ${culprits.length} 個の成分が候補に挙がりました。`
+        : `普段使えているコスメが未登録のため、比較による絞り込みはしていません。肌荒れしたコスメの成分のうち「${topCulprits.join('、')}」など ${culprits.length} 個を候補として挙げています。普段使えているコスメを追加すると、候補を絞り込めます。`;
 
     const highRisks = culprits.filter(
       (c) => c.riskLevel === 'high_irritant' || c.riskLevel === 'moderate_irritant'
@@ -653,7 +653,7 @@ export function performDifferentialAnalysis(
       '今後のコスメ選びでは、これらの成分を含まない「無香料・アルコールフリー・低刺激設計」の製品を優先することをおすすめします。'
     );
     adviceJa.push(
-      '赤みやヒリつきが引くまでは、安全と確認できている最小限の保湿アイテム（セラミドやワセリン等）のみで肌を休ませましょう。'
+      '赤みやヒリつきが引くまでは、普段トラブルなく使えている最小限の保湿アイテム（セラミドやワセリン等）だけにして、肌を休ませましょう。症状が続くときは皮膚科専門医にご相談ください。'
     );
   } else {
     summaryJa = '肌荒れした製品と安全な製品の間で顕著な成分の差異が見つかりませんでした。';

@@ -22,8 +22,8 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
           <Flame className="w-[18px] h-[18px]" aria-hidden />
         </div>
         <div className="min-w-0">
-          <h2 className="text-lg font-semibold text-ink leading-snug">肌荒れ成分の差分あぶり出し結果</h2>
-          <p className="text-xs text-ink-muted">安全なコスメに含まれる成分を除外し、原因になりうる成分の候補をあぶり出します</p>
+          <h2 className="text-lg font-semibold text-ink leading-snug">差分分析の結果（原因候補の成分）</h2>
+          <p className="text-xs text-ink-muted">普段問題なく使えているコスメに含まれる成分を除外し、原因になりうる成分の候補を絞り込みます</p>
         </div>
       </div>
 
@@ -46,7 +46,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         <div className={panel('safe')}>
           <h3 className="font-semibold text-emerald-800 flex items-center gap-1 mb-1">
             <CheckCircle2 className="w-4 h-4" aria-hidden />
-            <span>安全に使えているコスメ ({safeProducts.length}品)</span>
+            <span>普段使えているコスメ ({safeProducts.length}品)</span>
           </h3>
           {safeProducts.length > 0 ? (
             <ul className="list-disc pl-5 text-ink space-y-0.5">
@@ -57,7 +57,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
               ))}
             </ul>
           ) : (
-            <p className="text-ink-muted">安全なコスメが未登録（登録するとより精度向上）</p>
+            <p className="text-ink-muted">普段使えているコスメが未登録（登録すると候補を絞り込めます）</p>
           )}
         </div>
       </div>
@@ -69,7 +69,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
       <section>
         <h3 className="text-[15px] font-semibold mb-2 flex items-center gap-1.5">
           <ShieldAlert className="w-4 h-4 text-rose-700" aria-hidden />
-          <span>あぶり出された疑わしい成分</span>
+          <span>原因候補の成分</span>
         </h3>
 
         {culprits.length === 0 ? (
@@ -134,7 +134,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         <section className={`${panel('safe')} space-y-1.5`}>
           <h3 className="flex items-center gap-1.5 font-semibold text-emerald-900">
             <Sparkles className="w-4 h-4" aria-hidden />
-            <span>スキンケア改善アドバイス</span>
+            <span>スキンケア見直しのヒント</span>
           </h3>
           <ul className="space-y-1 list-disc pl-5">
             {adviceJa.map((adv, idx) => (
@@ -143,6 +143,11 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
           </ul>
         </section>
       )}
+
+      {/* 結果だけが共有されても伝わるよう、カードの中にいつも出す（docs/review/legal-review-by-gemini.md） */}
+      <p className="text-xs text-ink-muted leading-relaxed">
+        ※本分析は、入力された全成分表示を機械的に比べた結果で、接触皮膚炎などの原因を医学的に特定・診断するものではありません。皮膚に異常がある場合や症状が続く場合は、皮膚科専門医にご相談ください。
+      </p>
     </div>
   );
 };

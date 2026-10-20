@@ -278,7 +278,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   const getOverallBadge = (): { title: string; tone: Tone; icon: typeof ShieldCheck } => {
     switch (overallRiskLevel) {
       case 'safe':
-        return { title: '低刺激・安心設計', tone: 'safe', icon: ShieldCheck };
+        return { title: '刺激になりやすい成分なし（目安）', tone: 'safe', icon: ShieldCheck };
       case 'caution':
         return { title: '敏感肌はやや注意', tone: 'caution', icon: AlertTriangle };
       case 'warning':
@@ -655,7 +655,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
           className={`w-full ${buttonSecondary} ${busyLook}`}
         >
           <Search className="w-4 h-4" aria-hidden />
-          <span>同じ種類で原因成分を含まない商品を探す</span>
+          <span>同じ種類で原因候補の成分を含まない商品を探す</span>
         </button>
       )}
 
@@ -670,7 +670,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         {onAddToSafeRoutine && (
           <button type="button" onClick={onAddToSafeRoutine} className={`${routineActionWide} ${routineAction.safe}`}>
             <ShieldCheck className="w-4 h-4" aria-hidden />
-            <span>「安全なコスメ」に登録</span>
+            <span>「普段使えているコスメ」に登録</span>
           </button>
         )}
         {onAddToCurrentRoutine && (

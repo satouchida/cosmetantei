@@ -118,7 +118,7 @@ export const RISK_SCALE: Record<IngredientRiskLevel, { label: string; mark: stri
     pill: 'bg-white text-ink-muted border-sand-300 border-dashed hover:bg-surface-container-low',
   },
   safe: {
-    label: '低刺激・安心',
+    label: '刺激の報告が少ない',
     mark: '',
     badge: 'bg-tint-safe text-emerald-800 border-emerald-300',
     pill: 'bg-white text-ink border-sand-200 hover:bg-surface-container-low',

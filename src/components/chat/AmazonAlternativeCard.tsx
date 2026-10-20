@@ -74,7 +74,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                 <div className="mt-2 flex flex-wrap gap-1">
                   <span className={badge('safe')}>
                     <ShieldCheck className="w-3 h-3" aria-hidden />
-                    <span>原因成分フリー</span>
+                    <span>原因候補の成分を含まない</span>
                   </span>
                   {p.fragranceFree && (
                     <span className={badge('neutral')}>無香料</span>

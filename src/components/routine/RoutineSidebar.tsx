@@ -81,14 +81,14 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             <h2 id="routine-drawer-title" className="font-semibold text-ink text-lg leading-tight truncate">
               マイルーティン管理
             </h2>
-            <p className="text-xs text-ink-muted truncate">コスメを登録して刺激成分を比較・あぶり出し</p>
+            <p className="text-xs text-ink-muted truncate">コスメを登録して、原因になりうる成分の候補を比較で絞り込み</p>
           </div>
         </div>
         <div className="flex items-center shrink-0">
           <button
             type="button"
             onClick={() => onLoadPreset('clear')}
-            title="肌荒れしたコスメ・安全なコスメのリストを空にする（今使っているコスメはそのまま）"
+            title="肌荒れしたコスメ・普段使えているコスメのリストを空にする（今使っているコスメはそのまま）"
             aria-label="比較リストをクリア（今使っているコスメはそのまま）"
             className="min-h-12 px-3 rounded-lg text-sm font-semibold text-ink-muted hover:text-rose-700 hover:bg-tint-warning flex items-center gap-1 transition-colors"
           >
@@ -221,7 +221,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
         <section className="space-y-2">
           <SectionHeading
             icon={<ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden />}
-            title="安全に使えているコスメ"
+            title="普段使えているコスメ"
             count={safeProducts.length}
             countClassName="bg-tint-safe text-emerald-800"
           />
@@ -237,7 +237,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                     accentClassName="border-l-emerald-600"
                     brandClassName="text-emerald-800"
                     onRemove={() => onRemoveSafe(p.id)}
-                    removeLabel={`「${p.name}」を安全に使えているコスメから削除`}
+                    removeLabel={`「${p.name}」を普段使えているコスメから削除`}
                   />
                 </li>
               ))}
@@ -304,7 +304,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           className={`w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors ${busyLook}`}
         >
           <Sparkles className="w-5 h-5" aria-hidden />
-          <span>原因成分をあぶり出す (差分分析)</span>
+          <span>原因候補の成分を絞り込む (差分分析)</span>
         </button>
         <p id="differential-hint" className="text-xs text-ink-muted text-center">
           {badProducts.length === 0

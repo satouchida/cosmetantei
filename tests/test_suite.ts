@@ -1553,7 +1553,7 @@ test('47. Quick-reply buttons: UI actions stay in the browser; only research req
     if (label.includes('バーコード')) assert.strictEqual(action.kind, 'scanner', label);
   }
   assert.deepStrictEqual(getQuickReplyAction('⚡️ メラノCCで赤みが出た'), { kind: 'send', text: 'メラノCC' });
-  assert.deepStrictEqual(getQuickReplyAction('✅ 普段安全に使えている（安全リストに追加）'), { kind: 'add_analyzed', list: 'safe' });
+  assert.deepStrictEqual(getQuickReplyAction('✅ 普段問題なく使えている（リストに追加）'), { kind: 'add_analyzed', list: 'safe' });
   assert.strictEqual(getQuickReplyAction('🚨 この中のアイテムで肌荒れした').kind, 'pick_from_cards');
 });
 
@@ -6474,4 +6474,32 @@ test('107. Alternatives: when the shops answer but too few pass the check, web r
     }
     resetSpendCap();
   }
+});
+
+test('108. Wording: no safety guarantees or diagnostic claims in the app text (legal review 2026-10-20)', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  // 薬機法・適正広告基準（安全性の保証）、医師法（原因の特定・診断）、効能の逸脱。コメントの中は除く
+  const BANNED = /安全なコスメ|安全リスト|安全に使え|安心設計|低刺激・安心|原因成分フリー|原因成分をあぶり出|真の原因|抗炎症成分|改善アドバイス|安全と確認できている|成分の特定/;
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.tsx?$/.test(entry.name)) files.push(full);
+    }
+  };
+  walk(path.join(process.cwd(), 'src'));
+  const found: string[] = [];
+  for (const file of files) {
+    const code = fs
+      .readFileSync(file, 'utf-8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .map((line) => line.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, ''));
+    code.forEach((line, i) => {
+      if (BANNED.test(line)) found.push(`${path.relative(process.cwd(), file)}:${i + 1}: ${line.trim().slice(0, 80)}`);
+    });
+  }
+  assert.deepStrictEqual(found, []);
 });

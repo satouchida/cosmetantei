@@ -33,7 +33,7 @@ const PROMPT_PRODUCT_NAME = '調べたい化粧品の名前（ブランド名＋
 const PROMPT_BAD_PRODUCT =
   '肌荒れしたコスメの名前を入力してください。候補が表示されたら「肌荒れした」を選ぶと、比較リストに追加されます。';
 const PROMPT_SAFE_PRODUCT =
-  '普段問題なく使えているコスメの名前を入力してください。候補が表示されたら「安全に使えた」を選ぶと、比較リストに追加されます。';
+  '普段問題なく使えているコスメの名前を入力してください。候補が表示されたら「普段使えている」を選ぶと、比較リストに追加されます。';
 
 const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
   // 例として表示している商品は、商品名だけを送る（検索に余計な文言を含めない）
@@ -43,13 +43,13 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
   '💧 トリデンのセラムを調べる': { kind: 'send', text: 'トリデン セラム' },
 
   '🚨 このアイテムで肌荒れした（原因をさがす）': { kind: 'add_analyzed', list: 'bad' },
-  '✅ 普段安全に使えている（安全リストに追加）': { kind: 'add_analyzed', list: 'safe' },
+  '✅ 普段問題なく使えている（リストに追加）': { kind: 'add_analyzed', list: 'safe' },
   '💴 この商品の価格を調べる': { kind: 'price_analyzed' },
   '🔎 Webで成分を調べ直す': { kind: 'research_analyzed' },
   '🔁 もう一度送る': { kind: 'retry' },
 
   '🚨 この中のアイテムで肌荒れした': { kind: 'pick_from_cards' },
-  '✅ この中のアイテムは安全に使えた': { kind: 'pick_from_cards' },
+  '✅ この中のアイテムは問題なく使えた': { kind: 'pick_from_cards' },
 
   '🔄 リセットする': { kind: 'reset' },
 
@@ -75,4 +75,4 @@ export function getQuickReplyAction(label: string): QuickReplyAction {
 
 /** 候補カードから選んでもらう案内文 */
 export const PICK_FROM_CARDS_HINT =
-  '上の候補カードにある「肌荒れした」「安全に使えた」ボタンから、該当するコスメを選んでください。選んだコスメは比較リストに追加されます。';
+  '上の候補カードにある「肌荒れした」「普段使えている」ボタンから、該当するコスメを選んでください。選んだコスメは比較リストに追加されます。';

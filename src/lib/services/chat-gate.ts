@@ -122,7 +122,7 @@ export const GATE_REPLIES: Readonly<Record<Exclude<GateScope, 'in_scope'>, { rep
   },
   free_conversation: {
     reply:
-      'コスメ探偵は、化粧品の成分チェック、肌荒れの原因になった成分の特定、その成分を含まない代わりの商品探し、販売価格の確認を行うサービスです。調べたい化粧品名や成分名を入力してください。',
+      'コスメ探偵は、化粧品の成分チェック、肌荒れの要因になった可能性のある成分の絞り込み、その成分を含まない代わりの商品探し、販売価格の確認を行うサービスです。調べたい化粧品名や成分名を入力してください。',
     quickReplies: ['🔍 キュレルの泡洗顔を調べる', '📸 バーコードをスキャンする'],
   },
   injection: {
@@ -212,7 +212,7 @@ async function classifyWithClef(message: string): Promise<ClefVerdict | null> {
   const response = await runWorkersAI(clefModelId(model), {
     model,
     state: {
-      app: '敏感肌向けの化粧品成分チェッカー「コスメ探偵」。化粧品の成分を調べ、肌荒れの原因になった可能性のある成分を化粧品同士の比較で特定し、その成分を含まない代わりの商品や販売価格を探す。医療相談や雑談は受け付けない',
+      app: '敏感肌向けの化粧品成分チェッカー「コスメ探偵」。化粧品の成分を調べ、肌荒れの原因になった可能性のある成分を化粧品同士の比較で推定して絞り込み、その成分を含まない代わりの商品や販売価格を探す。医療相談や雑談は受け付けない',
       userMessage: message,
     },
     questions: {

@@ -1,7 +1,7 @@
 export type CountryOrigin = 'JP' | 'KR' | 'US' | 'EU';
 
 export type IngredientRiskLevel = 
-  | 'safe'            // 🟢 低刺激・安心成分
+  | 'safe'            // 🟢 刺激の報告が少ない成分
   | 'low_caution'     // 🟡 軽度の注意（個人差あり）
   | 'moderate_irritant'// 🟠 敏感肌には刺激になりやすい
   | 'high_irritant'   // 🔴 高リスクアレルゲン等
@@ -193,7 +193,7 @@ export interface DifferentialAnalysisResult {
   sharedIngredients: string[];
   summaryJa: string;
   adviceJa: string[];
-  safeAlternatives: Product[]; // 疑わしい成分を含まない安心のAmazonおすすめ商品
+  safeAlternatives: Product[]; // 原因候補の成分と強い刺激成分を含まない、同じ種類の商品
 }
 
 /** 販売ページで確認した価格（T4。キャッシュしない） */
@@ -254,5 +254,5 @@ export interface UserRoutineState {
   /** 今使っているコスメ（組み合わせチェックに使う。ブラウザにだけ保存し、追加した日もブラウザが持つ） */
   currentlyUsing: Product[];
   badProducts: Product[];    // 肌荒れしたコスメ
-  safeProducts: Product[];   // 問題なく使えている安全なコスメ
+  safeProducts: Product[];   // 普段問題なく使えているコスメ
 }

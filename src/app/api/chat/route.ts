@@ -69,7 +69,7 @@ async function priceReply(query: string | null, clientIp: string) {
 
 const SINGLE_ANALYSIS_REPLIES = [
   '🚨 このアイテムで肌荒れした（原因をさがす）',
-  '✅ 普段安全に使えている（安全リストに追加）',
+  '✅ 普段問題なく使えている（リストに追加）',
   '💴 この商品の価格を調べる',
 ];
 
@@ -199,7 +199,7 @@ async function handlePost(request: NextRequest) {
         singleAnalysis: analysis,
         quickReplies: [
           '🚨 このアイテムで肌荒れした（原因をさがす）',
-          '✅ 普段安全に使えている（安全リストに追加）',
+          '✅ 普段問題なく使えている（リストに追加）',
           '📝 別の成分表示を入力する',
         ],
       });
@@ -249,7 +249,7 @@ async function handlePost(request: NextRequest) {
       return NextResponse.json({
         reply: summarizeProductResults(found),
         productSuggestions: found,
-        quickReplies: ['🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは安全に使えた', '🔍 別のキーワードで調べる'],
+        quickReplies: ['🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは問題なく使えた', '🔍 別のキーワードで調べる'],
       });
     }
 
@@ -280,7 +280,7 @@ async function handlePost(request: NextRequest) {
       return NextResponse.json({
         reply: summarizeProductResults(found),
         productSuggestions: found,
-        quickReplies: ['🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは安全に使えた', '🔍 別のキーワードで調べる'],
+        quickReplies: ['🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは問題なく使えた', '🔍 別のキーワードで調べる'],
       });
     }
 
@@ -356,7 +356,7 @@ async function handlePost(request: NextRequest) {
       if (!routine || !hasBadProducts) {
         return NextResponse.json({
           reply:
-            '肌荒れ原因をあぶり出すには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「普段問題なく使えている安全なコスメ」もあると、共通の成分を除外して、原因になりうる成分の候補を絞り込めます。',
+            '原因になりうる成分の候補を絞り込むには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「普段問題なく使えているコスメ」もあると、共通の成分を除外して、原因になりうる成分の候補を絞り込めます。',
           quickReplies: ['🔍 肌荒れしたコスメを検索', '📸 バーコードをスキャン'],
         });
       }
@@ -405,7 +405,7 @@ async function handlePost(request: NextRequest) {
       if (!req) {
         return NextResponse.json({
           reply:
-            '避けたい成分（例：香料、エタノール）か、商品の種類（例：化粧水）を入力してください。肌荒れしたコスメを登録して原因成分をあぶり出すと、その成分を含まない商品を探せます。',
+            '避けたい成分（例：香料、エタノール）か、商品の種類（例：化粧水）を入力してください。肌荒れしたコスメを登録して原因候補の成分を絞り込むと、その成分を含まない商品を探せます。',
           quickReplies: ['🧴 肌荒れしたコスメを入力する', '🔍 商品名で検索する'],
         });
       }
@@ -437,7 +437,7 @@ async function handlePost(request: NextRequest) {
     }
     const quickReplies = [
       '🚨 この中のアイテムで肌荒れした',
-      '✅ この中のアイテムは安全に使えた',
+      '✅ この中のアイテムは問題なく使えた',
       '📸 バーコードで読み取る',
       '🔍 別のキーワードで調べる',
     ];
