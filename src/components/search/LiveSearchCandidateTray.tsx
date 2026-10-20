@@ -156,7 +156,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
           {/* 件数の読み上げは、常に置いてある入力欄側のステータスが行う（ここは開くたびに作り直されるため） */}
           <h2 id={id ? `${id}-title` : undefined} className="text-sm font-semibold text-ink">
             {candidates.length > 0
-              ? `${query ? `「${query}」に関連するコスメ候補` : 'おすすめの低刺激コスメ候補'} (${candidates.length}件)`
+              ? `${query ? `「${query}」に関連するコスメ候補` : 'よく調べられているコスメ候補'} (${candidates.length}件)`
               : 'ブランドを選ぶと、そのブランドの製品に絞り込めます'}
           </h2>
           {candidates.length > 0 && (

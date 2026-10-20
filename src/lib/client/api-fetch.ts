@@ -7,6 +7,8 @@
  * - 確認できなければ、最初の 401 の応答をそのまま返す（呼び出し側のエラー表示になる）
  */
 
+import { hasConsented } from '@/lib/consent';
+
 const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 /** チェックボックスを押してもらう時間も含めた、確認を待つ上限 */
 const VERIFY_TIMEOUT_MS = 120_000;
@@ -147,6 +149,8 @@ async function solveTurnstile(siteKey: string): Promise<string | null> {
 /** Turnstile を解いてセッションを始める（同時の呼び出しは同じ確認を待つ） */
 function verifyBrowser(siteKey: string): Promise<boolean> {
   verifying ??= (async () => {
+    // 利用規約・Cookie の使用に同意する前は、Turnstile を読み込まず、セッションの Cookie も発行しない
+    if (!hasConsented()) return false;
     const token = await solveTurnstile(siteKey);
     if (!token) return false;
     const res = await fetch('/api/session', {

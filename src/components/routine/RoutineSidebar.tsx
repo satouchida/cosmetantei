@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, type RefObject } from 'react';
+import { AMAZON_ASSOCIATE_STATEMENT } from '@/lib/site';
 import { UserRoutineState } from '@/lib/types';
 import { CurrentUseEntry, isPersistable, STALE_AFTER_MONTHS } from '@/lib/current-use';
 import {
@@ -311,6 +312,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             ? '肌荒れしたコスメを1点以上登録すると実行できます'
             : `登録した${badProducts.length + safeProducts.length}点のコスメから共通点・除外成分を解析します`}
         </p>
+        <p className="text-[11px] text-ink-muted text-center">{AMAZON_ASSOCIATE_STATEMENT}</p>
       </div>
     </aside>
   );

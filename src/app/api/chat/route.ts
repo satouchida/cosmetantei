@@ -366,7 +366,7 @@ async function handlePost(request: NextRequest) {
       return NextResponse.json({
         reply: await explainCulprits(diffResult),
         differentialAnalysis: diffResult,
-        quickReplies: ['💡 おすすめの低刺激アイテムは？', '🔍 別のコスメを追加する', '🔄 リセットする'],
+        quickReplies: ['💡 原因候補を含まないアイテムは？', '🔍 別のコスメを追加する', '🔄 リセットする'],
       });
     }
 

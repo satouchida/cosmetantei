@@ -83,7 +83,7 @@ const INTENTS: GateIntent[] = [
  * テストでアプリの全ボタンがどちらかで扱われていることを確認している
  */
 export const QUICK_REPLY_INTENTS: Readonly<Record<string, GateIntent>> = {
-  '💡 おすすめの低刺激アイテムは？': 'find_alternative',
+  '💡 原因候補を含まないアイテムは？': 'find_alternative',
 };
 export const QUICK_REPLY_LABELS: ReadonlySet<string> = new Set(Object.keys(QUICK_REPLY_INTENTS));
 

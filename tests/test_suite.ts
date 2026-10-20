@@ -1245,7 +1245,7 @@ test('39. Chat gate modes: enforce is the default; off and quick replies skip Cl
       assert.strictEqual(calls.length, 0, 'off mode must not call Clef');
 
       process.env.CHAT_GATE_MODE = 'enforce';
-      const qr = await classifyChatMessage('💡 おすすめの低刺激アイテムは？');
+      const qr = await classifyChatMessage('💡 原因候補を含まないアイテムは？');
       assert.deepStrictEqual([qr.source, qr.scope, qr.intent], ['quick_reply', 'in_scope', 'find_alternative']);
       assert.strictEqual(calls.length, 0, 'Quick replies must not call Clef');
 
@@ -1541,7 +1541,7 @@ test('47. Quick-reply buttons: UI actions stay in the browser; only research req
 
   assert.deepStrictEqual(
     [...QUICK_REPLY_LABELS].sort(),
-    ['💡 おすすめの低刺激アイテムは？'],
+    ['💡 原因候補を含まないアイテムは？'],
     'Only research requests are sent to the server as-is'
   );
 
@@ -2305,7 +2305,7 @@ test('63. Alternatives: the search query uses only DB names and fixed words; the
   assert.deepStrictEqual(fromRoutine.known.map((k) => k.id).sort(), ['ethanol', 'fragrance']);
   assert.strictEqual(fromRoutine.category, 'toner');
   assert.deepStrictEqual(fromRoutine.excludeIds, ['alt_bad_1']);
-  assert.strictEqual(alternativeRequest('💡 おすすめの低刺激アイテムは？', routine)?.category, 'toner');
+  assert.strictEqual(alternativeRequest('💡 原因候補を含まないアイテムは？', routine)?.category, 'toner');
   assert.strictEqual(alternativeRequest('クリームでおすすめは？', routine)?.category, 'cream');
   assert.deepStrictEqual(alternativeRequest('パラベンが入っていないクリーム', routine)?.known.map((k) => k.id), ['parabens']);
   assert.strictEqual(alternativeRequestFromRoutine({ currentlyUsing: [], badProducts: [], safeProducts: [] }), null);
@@ -2559,7 +2559,7 @@ test('66. Chat route: price and alternative requests reach their services with a
             method: 'POST',
             headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.66' },
             body: JSON.stringify({
-              message: '💡 おすすめの低刺激アイテムは？',
+              message: '💡 原因候補を含まないアイテムは？',
               routine: { currentlyUsing: [], badProducts: [{ ...verifiedProduct({ id: 'bad_cat' }), category }], safeProducts: [] },
             }),
           })
@@ -3053,7 +3053,7 @@ test('71. Products from the browser: the server copy wins; sent data stays out o
     }
 
     // 代わりの商品探し（比較リストから）も、送られた製品を共有の場所に入れない
-    await call({ AI, APP_CACHE }, { message: '💡 おすすめの低刺激アイテムは？', routine: { badProducts: [unknown], safeProducts: [], currentlyUsing: [] } });
+    await call({ AI, APP_CACHE }, { message: '💡 原因候補を含まないアイテムは？', routine: { badProducts: [unknown], safeProducts: [], currentlyUsing: [] } });
 
     // 送られた製品は共有のキャッシュ（メモリ・KV）に入らない。書き換えはサーバーの製品を上書きしない
     assert.ok(!COSMETICS_DATABASE.some((p) => p.id === 'obf_unknown_71'), 'Sent products never join the shared product cache');
@@ -6483,7 +6483,7 @@ test('108. Wording: no safety guarantees or diagnostic claims in the app text (l
   // 2026-10-20 の第2次レビューで足した：安全な(アイテム|製品|もの)・安全に使用・が安全です・ヘッダーの「安全 N点」・
   // 安全とも危険とも・パッチテストを勧める文・最大級の表現・皮膚内への浸透
   const BANNED =
-    /安全な(?:コスメ|アイテム|製品|もの)|安全リスト|安全に使え|安全に使用|が安全です|安全\s*\{routine|安全とも危険とも|パッチテストを行って|極めて低い|皮膚内に浸透|角層が薄く|安心設計|低刺激・安心|低刺激な成分|原因成分フリー|原因成分をあぶり出|真の原因|抗炎症成分|改善アドバイス|安全と確認できている|成分の特定/;
+    /安全な(?:コスメ|アイテム|製品|もの)|安全リスト|安全に使え|安全に使用|が安全です|安全\s*\{routine|安全とも危険とも|パッチテストを行って|極めて低い|皮膚内に浸透|角層が薄く|安心設計|低刺激・安心|低刺激な成分|低刺激設計|低刺激アイテム|低刺激コスメ|低刺激薬用|原因成分フリー|原因成分をあぶり出|真の原因|抗炎症成分|改善アドバイス|安全と確認できている|成分の特定/;
   const files: string[] = [];
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -6505,4 +6505,57 @@ test('108. Wording: no safety guarantees or diagnostic claims in the app text (l
     });
   }
   assert.deepStrictEqual(found, []);
+});
+
+test('109. Terms and privacy pages: required notices, and the facts they state match the code', async () => {
+  const fs = await import('node:fs');
+  const read = (file: string) => fs.readFileSync(file, 'utf-8');
+  const terms = read('src/app/terms/page.tsx');
+  const privacy = read('src/app/privacy/page.tsx');
+  // Amazon アソシエイト・プログラム運営規約の指定の文言と、Open Beauty Facts（ODbL）の帰属表示
+  const { AMAZON_ASSOCIATE_STATEMENT } = await import('../src/lib/site');
+  assert.strictEqual(AMAZON_ASSOCIATE_STATEMENT, 'Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。');
+  assert.ok(terms.includes('{AMAZON_ASSOCIATE_STATEMENT}'));
+  // サイトの画面にも出す（サイドバーの下・規約のページの下）
+  assert.match(read('src/components/routine/RoutineSidebar.tsx'), /\{AMAZON_ASSOCIATE_STATEMENT\}/);
+  // 無償のサービスなので、規約に損害賠償・免責の定めは置かない
+  assert.doesNotMatch(terms, /責任|免責|賠償/);
+  assert.ok(terms.includes('Open Database License (ODbL) 1.0'));
+  // 医師法17条：診断ではないこと
+  assert.ok(terms.includes('医学的に特定・診断・治療・予防するものではありません'));
+
+  // プライバシーポリシーに書いた Cookie・保存先・アフィリエイトの識別子は、実装と同じ
+  const session = read('src/lib/server/session.ts');
+  assert.match(session, /SESSION_COOKIE = '__Host-session'/);
+  assert.match(session, /SESSION_TTL_SECONDS = 24 \* 60 \* 60/);
+  assert.match(session, /HttpOnly; Secure; SameSite=Strict/);
+  assert.ok(privacy.includes('SameSite=Strict') && privacy.includes('有効期間：24時間'));
+  const { CURRENT_USE_STORAGE_KEY } = await import('../src/lib/current-use');
+  assert.ok(privacy.includes(CURRENT_USE_STORAGE_KEY));
+  // 同意の確認画面：同意の保存先はポリシーに書いたもの。同意する前は Turnstile もセッションの Cookie も始めない
+  const { CONSENT_STORAGE_KEY } = await import('../src/lib/consent');
+  assert.ok(privacy.includes(CONSENT_STORAGE_KEY));
+  assert.match(read('src/lib/client/api-fetch.ts'), /if \(!hasConsented\(\)\) return false;/);
+  assert.match(read('src/components/chat/ChatContainer.tsx'), /\{!consented && <ConsentDialog \/>\}/);
+  assert.ok(buildAmazonAffiliateUrl('テスト', '化粧水').includes('tag=cosmetantei22-22'));
+  assert.ok(privacy.includes('tag=cosmetantei22-22'));
+  assert.ok(privacy.includes('HttpOnly') && privacy.includes('Secure'));
+  assert.match(read('next.config.mjs'), /Strict-Transport-Security/);
+  // 販売ページへのリンクは Referer を送らない。ポリシーに「遷移元のアドレスを送る」と書かない
+  for (const f of ['AmazonAlternativeCard', 'PriceResultCard', 'ProductSuggestionCard', 'ProductSourceLink']) {
+    assert.match(read(`src/components/chat/${f}.tsx`), /noreferrer/);
+  }
+  assert.match(read('src/components/search/LiveSearchCandidateTray.tsx'), /noreferrer/);
+  assert.ok(privacy.includes('rel="noreferrer"') && !privacy.includes('遷移元のサイトのアドレス'));
+  // KV に保存する期間の上限（ブランド名の確認結果 90日・製品情報 30日）とポリシーの記載
+  assert.match(read('src/lib/services/brand-check.ts'), /BRAND_VERDICT_TTL_SECONDS = 60 \* 60 \* 24 \* 90;/);
+  assert.ok(privacy.includes('最長90日') && privacy.includes('最長30日'));
+
+  // 外部送信規律：トップ画面から1回の操作で届く（コメントにしたものは数えない）・サイトマップにも載せる
+  const chat = read('src/components/chat/ChatContainer.tsx').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.match(chat, /<LegalLinks\b/);
+  const sitemap = (await import('../src/app/sitemap')).default().map((e) => e.url);
+  assert.ok(sitemap.some((u) => u.endsWith('/terms')) && sitemap.some((u) => u.endsWith('/privacy')));
+  const links = read('src/components/legal/LegalPage.tsx');
+  assert.ok(links.includes('href="/terms"') && links.includes('href="/privacy"'));
 });

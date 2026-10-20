@@ -1,7 +1,11 @@
 import type { MetadataRoute } from 'next';
 import { SITE_URL } from '@/lib/site';
 
-/** ページは1つだけ。更新日は書かない（実際の更新日を持っていないため） */
+/** トップと規約のページ。更新日は書かない（実際の更新日を持っていないため） */
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [{ url: `${SITE_URL}/`, changeFrequency: 'weekly', priority: 1 }];
+  return [
+    { url: `${SITE_URL}/`, changeFrequency: 'weekly', priority: 1 },
+    { url: `${SITE_URL}/terms`, changeFrequency: 'yearly', priority: 0.3 },
+    { url: `${SITE_URL}/privacy`, changeFrequency: 'yearly', priority: 0.3 },
+  ];
 }

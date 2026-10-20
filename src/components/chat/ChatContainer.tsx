@@ -56,6 +56,9 @@ import {
   RoutineSnapshot,
   shareFragment,
 } from '@/lib/routine-share';
+import { LegalLinks } from '@/components/legal/LegalPage';
+import { ConsentDialog } from '@/components/legal/ConsentDialog';
+import { getConsentServerSnapshot, hasConsented, subscribeConsent } from '@/lib/consent';
 import { MAX_ROUTINE_PRODUCTS } from '@/lib/product-validation';
 
 let messageSequence = 0;
@@ -334,6 +337,13 @@ export const ChatContainer: React.FC = () => {
   });
   // 今使っているコスメはこの端末のブラウザに保存する（src/lib/current-use.ts）
   const currentUse = useSyncExternalStore(subscribeCurrentUse, getCurrentUseSnapshot, getCurrentUseServerSnapshot);
+  const consented = useSyncExternalStore(subscribeConsent, hasConsented, getConsentServerSnapshot);
+  // 同意したら入力欄へ（同意の画面を開いたボタンは無いので、閉じても戻す先が無い）
+  const wasConsented = useRef(consented);
+  useEffect(() => {
+    if (!wasConsented.current && consented) inputRef.current?.focus();
+    wasConsented.current = consented;
+  }, [consented]);
   const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
   useEffect(() => {
     routineRef.current = routine;
@@ -882,7 +892,7 @@ export const ChatContainer: React.FC = () => {
       alcoholFree: true,
       ingredients: ['アラントイン', 'グリチルリチン酸ジカリウム', '精製水', '高精製ワセリン'],
       amazonSearchUrl: 'https://www.amazon.co.jp/s?k=イハダ+薬用ローション&tag=cosmetantei22-22',
-      descriptionJa: 'サンプルデータ：低刺激薬用化粧水',
+      descriptionJa: 'サンプルデータ：薬用化粧水',
     };
 
     setRoutine({
@@ -1006,6 +1016,8 @@ export const ChatContainer: React.FC = () => {
 
   return (
     <div className="flex flex-col h-dvh bg-surface text-ink font-sans">
+      {/* 初めて開いたとき：利用規約・プライバシーポリシーと Cookie の使用への同意 */}
+      {!consented && <ConsentDialog />}
       {/* Snackbar（Material 3：画面下、入力欄の上） */}
       {/* 読み上げ用のライブリージョンは常に置いておく（中身ごと追加すると読み上げられないことがある） */}
       <div role="status" className="sr-only">
@@ -1402,6 +1414,7 @@ export const ChatContainer: React.FC = () => {
                 }}
               />
               </div>
+              <LegalLinks className="justify-center -mb-2" />
             </div>
           </div>
         </main>
@@ -1455,7 +1468,7 @@ export const ChatContainer: React.FC = () => {
 
       {/* Barcode Scanner Modal */}
       <BarcodeScannerModal
-        isOpen={isScannerOpen}
+        isOpen={consented && isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         fallbackFocus={() => scanButtonRef.current}
         onScanSuccess={(barcode) => {
@@ -1479,13 +1492,13 @@ export const ChatContainer: React.FC = () => {
       />
 
       <LabelInputModal
-        isOpen={isLabelInputOpen}
+        isOpen={consented && isLabelInputOpen}
         onClose={() => setIsLabelInputOpen(false)}
         onSubmit={handleLabelSubmit}
         fallbackFocus={() => labelButtonRef.current}
       />
 
-      {routineExport && (
+      {consented && routineExport && (
         <RoutineExportDialog
           snapshot={routineExport.snapshot}
           culprits={routineExport.culprits}
@@ -1493,7 +1506,8 @@ export const ChatContainer: React.FC = () => {
           fallbackFocus={() => menuButtonRef.current}
         />
       )}
-      {routineImport && (
+      {/* 共有されたルーティンの読み込み（#r=…）は、同意するまで出さない（同意の画面の上に重ねない） */}
+      {consented && routineImport && (
         <RoutineImportDialog
           snapshot={routineImport.snapshot}
           namesOnly={routineImport.namesOnly}

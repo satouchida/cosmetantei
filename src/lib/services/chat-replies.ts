@@ -58,7 +58,7 @@ const RISK_LABELS_JA: Record<IngredientRiskLevel, string> = {
   moderate_irritant: '敏感肌には刺激になりやすい',
   active_caution: '濃度や併用によって刺激になりうるアクティブ成分',
   low_caution: '軽度の注意（個人差あり）',
-  safe: '低刺激',
+  safe: '刺激の報告が少ない',
   unknown: '刺激性のデータなし',
 };
 
