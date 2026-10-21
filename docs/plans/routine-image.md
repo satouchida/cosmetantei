@@ -4,7 +4,7 @@ Written 2026-10-19. Status: implemented 2026-10-19 (`33682d8`).
 
 ## What the owner asked for
 
-- Export マイルーティン管理 as one image.
+- Export マイルーティン as one image.
 - Import that image when coming back in a new session. Today the 肌荒れ and 安全 lists live only
   while the page is open.
 - Share the image on social media.
@@ -46,7 +46,7 @@ Off means neither the QR code nor the file data is added, so the image is a pict
 with the browser's saved list. A note says how many were left out.
 
 **Import:**
-- **From a picked image:** 「画像から読み込む」 reads the file data first; if there is none, it
+- **From a picked image:** 「保存した画像から読み込む」 reads the file data first; if there is none, it
   decodes the QR code with html5-qrcode, which the barcode scanner already uses.
 - **From a link:** opening a `#r=` link, or scanning the QR with the in-app scanner, imports it
   too. The `#r=` part is then removed from the address bar.
@@ -70,7 +70,7 @@ with the browser's saved list. A note says how many were left out.
 - `src/lib/client/routine-image.ts`: canvas drawing, the QR code (`qrcode-generator`, one small
   dependency).
 - `src/components/routine/RoutineExportDialog.tsx` and `RoutineImportDialog.tsx`.
-- Sidebar: a 「バックアップ・共有」 section with 「画像で保存・共有」 and 「画像から読み込む」.
+- Sidebar: a 「バックアップ・共有」 section with 「リストを画像で保存・共有」 and a smaller text button 「保存した画像から読み込む」.
 - `ChatContainer`:
   - the import handler (append or replace);
   - the `#r=` link on page load;

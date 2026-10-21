@@ -6527,8 +6527,8 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   assert.ok(AFFILIATE_DISCLOSURE.includes('楽天アフィリエイト') && AFFILIATE_DISCLOSURE.includes('バリューコマース（Yahoo!ショッピング）'));
   assert.strictEqual(AFFILIATE_DISCLOSURE.match(/適格販売/g)?.length, 1, '「適格販売」 is Amazon\'s term only');
   assert.ok(terms.includes('{AFFILIATE_DISCLOSURE}'));
-  // サイトの画面にも出す（サイドバーの下・規約のページの下）
-  assert.match(read('src/components/routine/RoutineSidebar.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
+  // サイトの画面にも出す（会話の最後・規約のページの下）。スマホで引き出しを開かなくても見える位置
+  assert.match(read('src/components/chat/ChatContainer.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
   // /privacy では、ページの下が唯一の表示
   assert.match(read('src/components/legal/LegalPage.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
   // 表示に書いた ASP と、実際のリンクの設定が合っている（ほかの ASP に変えたら、表示とポリシーも直す）
@@ -6824,4 +6824,84 @@ test('111. Consent: stored per terms version, revoked when site data is cleared,
   // 更新前に開いたままのタブの、文言を変える前のボタン：無料の判定のまま
   assert.strictEqual(quickReplyIntent('💡 原因候補を含まないアイテムは？'), 'find_alternative');
   assert.strictEqual(quickReplyIntent('💡 おすすめの低刺激アイテムは？'), 'find_alternative');
+});
+
+test('112. Quick reply chips: the leading emoji is shown as a line icon, and the label that is handled stays the same', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { CLIENT_HANDLED_LABELS, splitQuickReplyIcon } = await import('../src/components/chat/quick-replies');
+  const { QUICK_REPLY_LABELS } = await import('../src/lib/services/chat-gate');
+  // 画面とサーバーが出すボタンの文言（先頭が絵文字のもの）
+  const sources = ['src/app/api/chat/route.ts', 'src/components/chat/ChatContainer.tsx', 'src/lib/services/chat-replies.ts']
+    .map((f) => readFileSync(f, 'utf8'))
+    .join('\n');
+  const fromSource = [...sources.matchAll(/'(\p{Extended_Pictographic}\u{FE0F}? [^'\n]+)'/gu)].map((m) => m[1]);
+  const labels = [...CLIENT_HANDLED_LABELS, ...QUICK_REPLY_LABELS, ...fromSource];
+  assert.ok(fromSource.length > 10);
+  for (const label of labels) {
+    const { icon, text } = splitQuickReplyIcon(label);
+    assert.ok(icon, `No icon for ${label}`);
+    assert.ok(!/^\p{Extended_Pictographic}|^\s/u.test(text), `Emoji or space left in ${text}`);
+  }
+  assert.ok(splitQuickReplyIcon('⚡ メラノCC').icon, '⚡ without the variation selector');
+  // 表にない絵文字・絵文字のない文言は、そのまま文字に残す
+  assert.deepStrictEqual(splitQuickReplyIcon('🧪 テスト'), { icon: null, text: '🧪 テスト' });
+  assert.deepStrictEqual(splitQuickReplyIcon('価格を調べる'), { icon: null, text: '価格を調べる' });
+  assert.deepStrictEqual(splitQuickReplyIcon('🔍'), { icon: null, text: '🔍' }, 'An emoji-only label keeps its text');
+});
+
+test('113. API credits: one component keeps the published snippets, and no other screen uses inline styles', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const credits = readFileSync('src/components/ui/ApiCredits.tsx', 'utf8');
+  const flat = credits.replace(/\s+/g, ' ');
+  // Yahoo! はスニペットの HTML の改変を禁止している（https://developer.yahoo.co.jp/attribution/）
+  assert.ok(
+    flat.includes(`<span style={{ margin: '15px 15px 15px 15px' }}> <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a> </span>`),
+    'Yahoo! snippet is kept as published'
+  );
+  assert.ok(flat.includes('<a href="https://developers.rakuten.com/" target="_blank"> Supported by Rakuten Developers </a>'));
+  // 色を薄くしない・極端に小さくしない（外側の指定も、スニペットに受け継がれる）
+  assert.doesNotMatch(credits, /text-ink-muted|text-gray-|text-xs|text-\[/, 'Credits keep the normal text color and a readable size');
+  // flex の中に置くとスニペットの margin が上下にも効いてずれる
+  assert.doesNotMatch(credits, /["'`][^"'`\n]*\b(inline-)?(flex|grid)\b[^"'`\n]*["'`]/, 'No flex or grid class around the snippets');
+
+  for (const file of [
+    'src/components/search/LiveSearchCandidateTray.tsx',
+    'src/components/chat/ProductSuggestionCard.tsx',
+    'src/components/chat/PriceResultCard.tsx',
+  ]) {
+    const src = readFileSync(file, 'utf8');
+    assert.ok(src.includes('<ApiCredits credits={credits} />'), `${file} uses ApiCredits`);
+    assert.ok(!src.includes('Attribution Snippet'), `${file} has no copy of a snippet`);
+  }
+  // インラインの style はクレジットのスニペットだけ（画面の崩れのもとになるので）
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(`${dir}/${e.name}`) : /\.tsx$/.test(e.name) ? [`${dir}/${e.name}`] : []
+    );
+  const withStyle = walk('src').filter((f) => readFileSync(f, 'utf8').includes('style={{'));
+  assert.deepStrictEqual(withStyle, ['src/components/ui/ApiCredits.tsx']);
+});
+
+test('114. Screen gallery: every screen component is shown in /dev/gallery, which only opens in development', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const gallery = readFileSync('src/app/dev/gallery/Gallery.tsx', 'utf8');
+  // 画面ではないもの・ほかの画面の中にだけ出るもの（その画面で確かめる）
+  const notScreens: Record<string, string> = {
+    'chat/ChatContainer': 'the whole app (checked at /)',
+    'chat/MessageCardBoundary': 'error boundary, no layout of its own',
+    'chat/MedicalNotice': 'inside the result cards',
+    'chat/PairFindingList': 'inside DifferentialResultCard and CurrentUseResultCard',
+    'chat/ProductSourceLink': 'inside the cards',
+    'legal/LegalPage': 'checked at /terms and /privacy',
+    'ui/ApiCredits': 'inside the tray and the cards',
+    'ui/ModalDialog': 'inside the dialogs',
+    'ui/emoji': 'helper',
+  };
+  const components = readdirSync('src/components', { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith('.tsx'))
+    .map((f) => f.replace(/\.tsx$/, '').replaceAll('\\', '/'));
+  const missing = components.filter((c) => !notScreens[c] && !gallery.includes(`from '@/components/${c}'`));
+  assert.deepStrictEqual(missing, [], 'Add new screens to src/app/dev/gallery/Gallery.tsx (README: Responsive check)');
+  // 開発のとき以外は 404
+  assert.match(readFileSync('src/app/dev/gallery/page.tsx', 'utf8'), /if \(process\.env\.NODE_ENV !== 'development'\) notFound\(\);/);
 });

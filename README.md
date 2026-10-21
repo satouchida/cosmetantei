@@ -139,10 +139,34 @@ pnpm dev
 | `pnpm test` | Test suite, offline: `fetch` and Cloudflare bindings are stubbed (`tsx --conditions=react-server --test tests/test_suite.ts`) |
 | `pnpm typecheck` | `tsc --noEmit` |
 | `pnpm lint` | ESLint |
+| `pnpm check:responsive` | Layout check at 7 screen sizes, with `pnpm dev` running (see [Responsive check](#responsive-check)) |
 | `pnpm build` | Next production build |
 | `pnpm build:cloudflare` | Build the Worker into `.open-next/` |
 | `pnpm preview` | Build output run locally in `workerd` |
 | `pnpm deploy` | Build and deploy to Cloudflare (`opennextjs-cloudflare deploy`) |
+
+### Responsive check
+
+`/dev/gallery` (only under `pnpm dev`; 404 in any other environment) shows every screen with
+sample data from `src/lib/dev/gallery-fixtures.ts`, without calling any API. With `pnpm dev`
+running, `pnpm check:responsive` opens each gallery screen plus `/`, `/terms` and `/privacy`
+at 320, 360, iPhone (WebKit), phone landscape, tablet, desktop and 200% text. It reports
+sideways scrolling, content that spills out or is cut off, overlapping text, and tap targets
+under 44px. Screenshots and `report.json` go to `responsive-report/`, which is gitignored.
+Exit codes: 0 means no problems, 1 means layout problems, 2 means the check couldn't run.
+Filter with `-- --only=<screen>` or `-- --size=<size>`. `-- --self-test` checks the checker
+itself against a page with planted defects; run it after changing the detection rules.
+
+- **A new screen or card** goes into `src/app/dev/gallery/Gallery.tsx` with fixtures that
+  include long names. Test 114 fails when a component under `src/components` is missing.
+- **Run it before deploying**, and after any layout change.
+- **Long words:** `body` sets `overflow-wrap: anywhere`, so long English names and URLs wrap
+  everywhere. Don't add `whitespace-nowrap` to text that can be long.
+- **Japanese button labels** break at `<wbr />` points (`肌荒れ<wbr />した`), not mid-word.
+- **The three routine buttons** stack when their card is narrower than 16rem. This is a
+  container query, so the parent element needs `@container`.
+
+The plan and history are in [docs/plans/responsive-design.md](docs/plans/responsive-design.md).
 
 ### Version pins
 

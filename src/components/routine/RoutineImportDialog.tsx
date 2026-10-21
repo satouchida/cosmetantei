@@ -73,7 +73,7 @@ export function RoutineImportDialog({
         {hasCurrentLists ? (
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => onImport('append')} className={buttonPrimaryCompact}>
-              今のリストに追加
+              今の<wbr />リストに<wbr />追加
             </button>
             <button type="button" onClick={() => onImport('replace')} className={buttonSecondaryCompact}>
               置き換える

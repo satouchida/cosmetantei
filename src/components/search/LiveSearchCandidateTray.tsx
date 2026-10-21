@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ApiCredits } from '../ui/ApiCredits';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
@@ -12,6 +13,8 @@ import {
   innerCard,
   routineAction,
   routineActionCompact,
+  routineActionGrid,
+  cardActionsBox,
   busyLook,
 } from '../ui/design';
 
@@ -101,7 +104,7 @@ const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
           href={product.shopLink.href}
           target="_blank"
           rel={product.shopLink.sponsored ? 'noopener noreferrer sponsored nofollow' : 'noopener noreferrer nofollow'}
-          className="mt-1 inline-flex items-center gap-1 min-h-12 pr-2 text-sm font-semibold text-sage-700 hover:text-sage-900 underline underline-offset-2"
+          className="mt-1 inline-flex flex-wrap items-center gap-1 min-h-12 pr-2 text-sm font-semibold text-sage-700 hover:text-sage-900 underline underline-offset-2"
         >
           {product.shopLink.sponsored && (
             <span className={badge('neutral')}>PR</span>
@@ -132,6 +135,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
   id,
 }) => {
   if (!isOpen || (candidates.length === 0 && brands.length === 0)) return null;
+  const hasSponsored = candidates.some((p) => p.shopLink?.sponsored);
 
   return (
     <div
@@ -204,7 +208,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
 
       {/* Candidates List / Cards Grid */}
       {candidates.length > 0 && (
-        <div className="p-3 max-h-[min(420px,50dvh)] overflow-y-auto">
+        <ScrollWithFade className="max-h-[min(420px,50dvh)]">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {candidates.map((product) => {
               return (
@@ -216,9 +220,9 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                     <ShopProductSummary product={product} />
                   ) : (
                     <div>
-                      <div className="flex items-center justify-between gap-1 mb-1">
+                      <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
                         <span className={badge('neutral')}>{countryLabel(product.country)}</span>
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
                           {product.isQuasiDrug && (
                             <span className={badge('brand')}>医薬部外品</span>
                           )}
@@ -248,7 +252,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                   )}
 
                   {/* Card Actions */}
-                  <div className="mt-3 pt-3 border-t border-sand-200 space-y-2">
+                  <div className={`mt-3 ${cardActionsBox}`}>
                     <button
                       type="button"
                       onClick={() => onSelectProduct(product)}
@@ -257,11 +261,11 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                       className={`w-full ${buttonPrimary} ${busyLook}`}
                     >
                       <Sparkles className="w-4 h-4" aria-hidden />
-                      <span>成分を詳しくチェック</span>
+                      <span>成分を<wbr />詳しく<wbr />チェック</span>
                     </button>
                     {/* 成分の分からない製品はリストに入れない（比較・組み合わせのチェックに使えない） */}
                     {product.ingredients.length > 0 && (
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className={routineActionGrid}>
                         <button
                           type="button"
                           onClick={() => onAddToBad(product)}
@@ -269,7 +273,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                           className={`${routineActionCompact} ${routineAction.bad}`}
                         >
                           <AlertTriangle className="w-4 h-4" aria-hidden />
-                          <span>肌荒れした</span>
+                          <span>肌荒れ<wbr />した</span>
                         </button>
                         <button
                           type="button"
@@ -278,7 +282,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                           className={`${routineActionCompact} ${routineAction.safe}`}
                         >
                           <ShieldCheck className="w-4 h-4" aria-hidden />
-                          <span>普段使えている</span>
+                          <span>普段<wbr />使えている</span>
                         </button>
                         <button
                           type="button"
@@ -287,7 +291,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                           className={`${routineActionCompact} ${routineAction.current}`}
                         >
                           <Layers className="w-4 h-4" aria-hidden />
-                          <span>今使っている</span>
+                          <span>今<wbr />使っている</span>
                         </button>
                       </div>
                     )}
@@ -296,37 +300,52 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
               );
             })}
           </div>
-        </div>
+        </ScrollWithFade>
       )}
 
-      {candidates.some((p) => p.shopLink?.sponsored) && (
-        <p className="px-4 pb-1 text-xs text-ink-muted">
-          PR：「PR」と書かれた「商品ページ」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
-        </p>
-      )}
-
-      {credits.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 px-4 pb-2 text-xs text-ink-muted">
-          {credits.includes('rakuten') && (
-            <>
-              {/* Rakuten Web Services Attribution Snippet FROM HERE */}
-              <a href="https://developers.rakuten.com/" target="_blank" lang="en">
-                Supported by Rakuten Developers
-              </a>
-              {/* Rakuten Web Services Attribution Snippet TO HERE */}
-            </>
+      {/* 候補の一覧（スクロールする）と区切って、PR の説明とクレジットを置く */}
+      {(hasSponsored || credits.length > 0) && (
+        <div className="px-4 pt-2 pb-2 border-t border-sand-200 space-y-1">
+          {hasSponsored && (
+            <p className="text-xs text-ink-muted">
+              PR：「PR」と書かれた「商品ページ」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
+            </p>
           )}
-          {credits.includes('yahoo') && (
-            <>
-              {/* Begin Yahoo! JAPAN Web Services Attribution Snippet */}
-              <span style={{ margin: '15px 15px 15px 15px' }}>
-                <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
-              </span>
-              {/* End Yahoo! JAPAN Web Services Attribution Snippet */}
-            </>
-          )}
+          <ApiCredits credits={credits} />
         </div>
       )}
     </div>
   );
 };
+
+/**
+ * スクロールする枠。下にまだ続きがあるあいだ、下端をぼかして示す（最後まで見たら消す）。
+ * ぼかしの位置（-bottom-3・-mx-3）は枠の余白 p-3 に合わせてあるので、余白はここで決める。使う側は高さだけ渡す
+ */
+function ScrollWithFade({ className, children }: { className: string; children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [hasMore, setHasMore] = React.useState(false);
+  const update = React.useCallback(() => {
+    const el = ref.current;
+    if (el) setHasMore(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  }, []);
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    update();
+    // 候補が増えたり、画面の幅が変わったりして高さが変わったときも確かめ直す
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [update]);
+
+  return (
+    <div ref={ref} onScroll={update} className={`p-3 overflow-y-auto ${className}`}>
+      {children}
+      {hasMore && (
+        <div aria-hidden className="sticky -bottom-3 h-10 -mt-10 -mx-3 pointer-events-none bg-linear-to-t from-white to-transparent" />
+      )}
+    </div>
+  );
+}

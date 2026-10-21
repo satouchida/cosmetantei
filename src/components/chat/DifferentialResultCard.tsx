@@ -88,7 +88,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
               return (
                 <li key={i} className="p-3 bg-white rounded-xl border border-sand-200 space-y-1.5">
                   <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 min-w-0">
                       <span
                         aria-hidden
                         className="w-6 h-6 shrink-0 rounded-full bg-surface-container text-ink font-semibold text-xs flex items-center justify-center"

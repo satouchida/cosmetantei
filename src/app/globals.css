@@ -89,6 +89,14 @@ body {
   background: var(--color-surface);
   font-feature-settings: "palt";
   -webkit-font-smoothing: antialiased;
+  /*
+    空白のない長い英字（商品名・ブランド名・URL）も、入りきらないときは折り返す。
+    anywhere は break-word と違い、flex の中の要素も長い語の幅より縮められる（横にはみ出さない）。
+    日本語の折り返しは変わらない（docs/plans/responsive-design.md の F1）。
+    価格・数字も、箱より長いときだけ途中で折り返す（ふつうの大きさでは箱に入る。文字 200% で入らないときは、
+    はみ出すより折り返すほうがよい。nowrap にしない）
+  */
+  overflow-wrap: anywhere;
 }
 
 @keyframes fadeIn {

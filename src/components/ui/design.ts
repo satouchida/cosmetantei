@@ -13,8 +13,12 @@ export const card = 'bg-white rounded-2xl border border-sand-200 shadow-xs';
 export const innerCard = 'bg-white rounded-xl border border-sand-200';
 
 // 余白などはクラスを後から足して上書きしない（Tailwind はクラスの書き順でなく CSS の順で決まる）。違う大きさは別の定数にする
+// 狭い画面で折り返すとき：語の途中では切らず（break-keep）、空白・句読点・ラベルに入れた <wbr /> の位置で、
+// 行の長さをそろえて折り返す（「成分を<wbr />詳しく<wbr />チェック」→「成分を詳しく／チェック」）。
+// <wbr /> の無い長いラベルや、それでも入らない幅のときは、はみ出す位置で文字の間で切れる（body の overflow-wrap: anywhere）。
+// 折り返しうるラベル（2 列のボタン・カードの中のボタン）には <wbr /> を入れる
 const buttonBase =
-  'min-h-12 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed';
+  'min-h-12 inline-flex items-center justify-center gap-2 text-sm font-semibold break-keep text-balance transition-colors disabled:cursor-not-allowed';
 const primaryLook =
   'rounded-2xl bg-primary text-on-primary shadow-xs hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none';
 const secondaryLook =
@@ -75,7 +79,8 @@ const badgeTones: Record<Tone, string> = {
   brand: 'bg-brand-badge text-on-brand-badge border-amber-200',
 };
 
-const badgeBase = 'inline-flex items-center gap-1 shrink-0 whitespace-nowrap rounded-full border font-semibold';
+// 1行に収まる幅があれば1行。カードより広いときだけ中で折り返す（nowrap だと狭い画面ではみ出す）
+const badgeBase = 'inline-flex items-center gap-1 shrink-0 max-w-full rounded-full border font-semibold';
 
 /** 小さなラベル（丸いバッジ）。large は結果の判定など目立たせるもの */
 export function badge(tone: Tone, size: 'regular' | 'large' = 'regular'): string {
@@ -142,9 +147,26 @@ export const routineAction = {
   current: 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200',
 } as const;
 
-/** 登録ボタン 3 つを並べるとき（アイコンの下にラベル）。狭い画面（320px）ではラベルを折り返す */
+/**
+ * カードの下の操作の枠（区切り線の下）。登録ボタンの並べ方（routineActionGrid）はこの枠の幅で決まるので、
+ * @container を付けてある。上の余白は使う側で足す
+ */
+export const cardActionsBox = 'pt-3 border-t border-sand-200 space-y-2 @container';
+
+/**
+ * 登録ボタン 3 つを並べる枠。カードの幅（画面の幅ではない）で決める：16rem 以上なら横に 3 つ、
+ * それより狭いカード（320px の画面のチャットのカードなど）では縦に積む。cardActionsBox の中に置くこと
+ * （@container の枠が無いと、いつも縦に積む）
+ */
+export const routineActionGrid = 'grid grid-cols-1 @min-[16rem]:grid-cols-3 gap-2';
+
+/**
+ * 登録ボタン（routineActionGrid の中）。横に 3 つのときはアイコンの下にラベル、縦に積むときはアイコンの横にラベル。
+ * ラベルは語の途中では切らず（break-keep）、ラベルに入れた <wbr /> の位置で折り返す（「肌荒れ<wbr />した」→「肌荒れ／した」）。
+ * それでも入らない幅のときだけ、はみ出す位置で切る（overflow-wrap: anywhere）
+ */
 export const routineActionCompact =
-  'flex flex-col items-center justify-center gap-0.5 min-h-12 py-1.5 px-1 text-center leading-tight break-keep [overflow-wrap:anywhere] border rounded-xl text-xs font-semibold transition-colors';
+  'flex flex-row @min-[16rem]:flex-col items-center justify-center gap-1.5 @min-[16rem]:gap-0.5 min-h-12 py-1.5 px-1 text-center leading-tight break-keep text-balance [overflow-wrap:anywhere] border rounded-xl text-xs font-semibold transition-colors';
 
 /** 登録ボタンを横長で並べるとき */
 export const routineActionWide =

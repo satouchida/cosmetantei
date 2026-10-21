@@ -14,7 +14,7 @@ import { CurrentUseResultCard } from './CurrentUseResultCard';
 import { PriceResultCard } from './PriceResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
 import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
-import { RoutineSidebar } from '../routine/RoutineSidebar';
+import { DIFFERENTIAL_LABEL, RoutineSidebar } from '../routine/RoutineSidebar';
 import { RoutineExportDialog } from '../routine/RoutineExportDialog';
 import { RoutineImportDialog } from '../routine/RoutineImportDialog';
 import {
@@ -30,6 +30,15 @@ import {
   CalendarClock,
   ScanBarcode,
   ClipboardList,
+  ChevronRight,
+  Sparkles,
+  Search,
+  Droplet,
+  Zap,
+  JapaneseYen,
+  RotateCcw,
+  Lightbulb,
+  type LucideIcon,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
@@ -37,7 +46,8 @@ import { apiFetch } from '@/lib/client/api-fetch';
 import { ChatResponse, postChat } from '@/lib/client/chat-request';
 import { MessageCardBoundary } from './MessageCardBoundary';
 import { withHiddenEmoji, withoutEmoji } from '../ui/emoji';
-import { getQuickReplyAction, PICK_FROM_CARDS_HINT } from './quick-replies';
+import { busyLook } from '../ui/design';
+import { getQuickReplyAction, PICK_FROM_CARDS_HINT, splitQuickReplyIcon, type QuickReplyIconName } from './quick-replies';
 import {
   getCurrentUseServerSnapshot,
   getCurrentUseSnapshot,
@@ -58,6 +68,7 @@ import {
   shareFragment,
 } from '@/lib/routine-share';
 import { LegalLinks } from '@/components/legal/LegalPage';
+import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 import { ConsentDialog } from '@/components/legal/ConsentDialog';
 import { getConsentServerSnapshot, hasConsented, subscribeConsent } from '@/lib/consent';
 import { MAX_ROUTINE_PRODUCTS } from '@/lib/product-validation';
@@ -77,6 +88,20 @@ function messageMeta(prefix: string): { id: string; timestamp: number } {
 }
 
 /** 応答待ちの間に、ほかのサーバーへの操作が押されたときの案内 */
+/** クイック返信ボタンの先頭に出す、線のアイコン（ヘッダーのボタンと同じ部品をそろえる） */
+const QUICK_REPLY_ICON_COMPONENTS: Readonly<Record<QuickReplyIconName, LucideIcon>> = {
+  scan: ScanBarcode,
+  label: FileText,
+  search: Search,
+  product: Droplet,
+  flare: Zap,
+  bad: AlertTriangle,
+  safe: CheckCircle2,
+  price: JapaneseYen,
+  retry: RotateCcw,
+  idea: Lightbulb,
+};
+
 const WAIT_MESSAGE = '前の返答を待っています。届いてから、もう一度お試しください。';
 const DEFAULT_LOADING_TEXT = '成分データベースを解析中...';
 /** 検索候補のトレイの id（入力欄の aria-controls） */
@@ -200,7 +225,7 @@ export const ChatContainer: React.FC = () => {
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: `🔍 こんにちは！肌荒れの原因になりうる成分を探すサービス「コスメ探偵 (CosmeTantei)」です。\n\n今お使いの化粧品名（日本・韓国・アメリカ製品対応）を入力するか、パッケージのバーコード（JAN/UPC）をカメラで読み取ってください。\n\n「肌荒れしたコスメ」と「普段使えているコスメ」を比較して、肌荒れの原因になりうる成分の候補（香料、エタノール、防腐剤、高濃度アクティブなど）を絞り込み、その成分を含まない同じ種類の商品（販売ページ・Amazonへのリンク付き。PR）を探します。日常の化粧品選びの参考情報で、医療上の診断の代わりにはなりません。肌に異常があるときは皮膚科専門医にご相談ください。`,
+      content: `🔍 肌荒れの原因になりうる成分の候補を調べるサービスです。化粧品名（日本・韓国・アメリカ製品対応）を入力するか、バーコードを読み取ってください。\n\n肌荒れしたコスメと普段使えているコスメを比べて候補を絞り込み、その成分を含まない商品（販売ページへのリンク付き。PR）を探します。医療上の診断ではありません。肌に異常があるときは皮膚科専門医にご相談ください。`,
       timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
@@ -761,8 +786,8 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(
             label,
             added
-              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。普段問題なく使えているコスメも追加して「差分分析」を実行すると、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。普段問題なく使えているコスメも追加して「差分分析」を実行できます。`,
+              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。普段問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。普段問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
             ['✅ 普段使えているコスメを入力する']
           );
         } else {
@@ -770,8 +795,8 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(
             label,
             added
-              ? `「${product.name}」を【普段使えているコスメ】に追加しました。肌荒れしたコスメも追加して「差分分析」を実行すると、原因になりうる成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【普段使えているコスメ】に登録されています。肌荒れしたコスメを追加して「差分分析」を実行できます。`,
+              ? `「${product.name}」を【普段使えているコスメ】に追加しました。肌荒れしたコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、原因になりうる成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【普段使えているコスメ】に登録されています。肌荒れしたコスメを追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
             ['🧴 肌荒れしたコスメを入力する']
           );
         }
@@ -820,6 +845,12 @@ export const ChatContainer: React.FC = () => {
       (data) => pickReply(data, ['differentialAnalysis', 'quickReplies']),
       { loadingText: '原因候補の成分を絞り込んでいます...' }
     );
+  };
+
+  /** 画面のボタンから差分分析を始める（応答待ちなら案内だけ出す） */
+  const requestDifferential = () => {
+    if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
+    void handleRunDifferential();
   };
 
   /** 今使っているコスメの組み合わせを調べる（サーバーはルールだけで判定する） */
@@ -902,7 +933,7 @@ export const ChatContainer: React.FC = () => {
       badProducts: [sampleMelano],
       safeProducts: [sampleCurel, sampleIhada],
     });
-    showToast('テストデータを読み込みました！「差分分析」を実行できます');
+    showToast(`テストデータを読み込みました！「${DIFFERENTIAL_LABEL}」を押せます`);
   };
 
   /** 画像で保存・共有する。気をつけたい成分は、最近の差分分析の結果から */
@@ -1135,9 +1166,10 @@ export const ChatContainer: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Stream Section */}
         <main inert={isDrawerModal} className="flex-1 flex flex-col min-w-0 bg-surface">
-          {/* スマホ：登録状況とカルテ（ルーティン引き出し）を開くボタン */}
+          {/* スマホ：登録状況とマイルーティン（引き出し）を開くボタン。肌荒れしたコスメがあれば、ここから差分分析も始められる */}
           <div className="lg:hidden px-3 pt-3">
-            <div className="max-w-[720px] mx-auto bg-white rounded-xl border border-sand-200 shadow-xs pl-3 pr-1 py-1 flex items-center justify-between gap-2">
+            <div className="max-w-[720px] mx-auto bg-white rounded-xl border border-sand-200 shadow-xs">
+            <div className="pl-3 pr-1 py-1 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-8 h-8 rounded-full bg-tint-safe text-emerald-700 flex items-center justify-center shrink-0">
                   <ClipboardList className="w-[18px] h-[18px]" aria-hidden />
@@ -1151,10 +1183,25 @@ export const ChatContainer: React.FC = () => {
                 onClick={() => setIsSidebarOpen(true)}
                 aria-controls="routine-drawer"
                 aria-expanded={isSidebarOpen}
-                className="min-h-12 px-3 rounded-lg text-sage-700 hover:bg-surface-container text-sm font-semibold flex items-center gap-1 shrink-0"
+                className="min-h-12 pl-3 pr-2 rounded-lg text-sage-700 hover:bg-surface-container text-sm font-semibold flex items-center gap-0.5 shrink-0"
               >
-                カルテを開く
+                マイルーティン
+                <ChevronRight className="w-4 h-4" aria-hidden />
               </button>
+            </div>
+            {routine.badProducts.length > 0 && (
+              <div className="px-2 pb-2">
+                <button
+                  type="button"
+                  onClick={requestDifferential}
+                  aria-disabled={isLoading || undefined}
+                  className={`w-full min-h-12 px-4 bg-primary hover:bg-primary-active text-on-primary rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${busyLook}`}
+                >
+                  <Sparkles className="w-5 h-5" aria-hidden />
+                  <span>{DIFFERENTIAL_LABEL}</span>
+                </button>
+              </div>
+            )}
             </div>
           </div>
 
@@ -1172,7 +1219,16 @@ export const ChatContainer: React.FC = () => {
               </p>
               <button
                 type="button"
-                onClick={() => setIsSidebarOpen(true)}
+                onClick={() => {
+                  setIsSidebarOpen(true);
+                  // 今使っているコスメはリストの下のほうにあるので、開いたら（閉じるボタンにフォーカスが移ったあとで）
+                  // 見出しへフォーカスと表示を送る
+                  requestAnimationFrame(() => {
+                    const section = document.getElementById('current-use-section');
+                    section?.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true });
+                    section?.scrollIntoView({ block: 'start', inline: 'nearest' });
+                  });
+                }}
                 aria-label="今使っているコスメを確認する"
                 className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg text-sm font-semibold"
               >
@@ -1261,6 +1317,9 @@ export const ChatContainer: React.FC = () => {
                     <div className="mt-3 pt-3 pb-1 border-t border-sand-200 flex flex-wrap gap-2">
                       {msg.quickReplies.map((qr, i) => {
                         const used = usedActions.has(`${msg.id}|${qr}`);
+                        // 先頭の絵文字は、ほかの画面と同じ線のアイコンで見せる（押したときは元の文言で処理する）
+                        const { icon: qrIconName, text: qrText } = splitQuickReplyIcon(qr);
+                        const QrIcon = qrIconName && QUICK_REPLY_ICON_COMPONENTS[qrIconName];
                         return (
                           <button
                             key={i}
@@ -1269,10 +1328,13 @@ export const ChatContainer: React.FC = () => {
                             // 応答待ち・調べ済みでもフォーカスを失わないよう disabled にはせず、押したら案内を出す。
                             // 文字は薄くしない（押せるボタンなので、文字のコントラストを保つ）
                             aria-disabled={isLoading || used || undefined}
-                            className="max-w-full min-h-12 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:text-ink-muted aria-disabled:bg-surface-container-low aria-disabled:border-dashed aria-disabled:cursor-not-allowed aria-disabled:hover:bg-surface-container-low aria-disabled:hover:border-sand-300"
+                            className="max-w-full min-h-12 inline-flex items-center gap-1.5 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:text-ink-muted aria-disabled:bg-surface-container-low aria-disabled:border-dashed aria-disabled:cursor-not-allowed aria-disabled:hover:bg-surface-container-low aria-disabled:hover:border-sand-300"
                           >
-                            {withHiddenEmoji(qr)}
-                            {used && <span className="ml-1 text-xs font-normal">（調べ済み）</span>}
+                            {QrIcon && <QrIcon className="w-4 h-4 shrink-0 text-sage-700" aria-hidden />}
+                            <span>
+                              {withHiddenEmoji(qrText)}
+                              {used && <span className="ml-1 text-xs font-normal">（調べ済み）</span>}
+                            </span>
                           </button>
                         );
                       })}
@@ -1312,6 +1374,9 @@ export const ChatContainer: React.FC = () => {
                 </button>
               </div>
             )}
+
+            {/* アフィリエイトの表示：会話の最後に置き、スマホでも引き出しを開かずに見えるようにする（入力欄の下に固定すると画面を狭めるので、流れの中に置く） */}
+            <p className="max-w-[720px] mx-auto pt-2 text-xs text-ink-muted text-center">{AFFILIATE_DISCLOSURE}</p>
 
             <div ref={messagesEndRef} />
           </div>
@@ -1459,10 +1524,6 @@ export const ChatContainer: React.FC = () => {
               if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
               closeSidebar();
               handleRunDifferential();
-            }}
-            onOpenScanner={() => {
-              setIsSidebarOpen(false);
-              setIsScannerOpen(true);
             }}
             onLoadPreset={handleLoadPreset}
             onExportImage={handleExportImage}

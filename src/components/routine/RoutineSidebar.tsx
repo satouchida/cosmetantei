@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useRef, type RefObject } from 'react';
-import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 import { UserRoutineState } from '@/lib/types';
 import { CurrentUseEntry, isPersistable, STALE_AFTER_MONTHS } from '@/lib/current-use';
 import {
@@ -10,7 +9,8 @@ import {
   Trash2,
   Sparkles,
   RefreshCw,
-  Barcode,
+  CheckCircle2,
+  Circle,
   Layers,
   CalendarClock,
   ClipboardList,
@@ -20,6 +20,9 @@ import {
 } from 'lucide-react';
 import { busyLook, buttonTonal } from '../ui/design';
 import type { Product } from '@/lib/types';
+
+/** 差分分析を始めるボタンの文言（サイドバーとスマホの登録状況バー、案内の文で同じにする） */
+export const DIFFERENTIAL_LABEL = '肌荒れの原因候補を調べる';
 
 interface RoutineSidebarProps {
   routine: UserRoutineState;
@@ -34,7 +37,6 @@ interface RoutineSidebarProps {
   onConfirmCurrent: (productId: string) => void;
   onCheckCurrentUse: () => void;
   onRunDifferential: () => void;
-  onOpenScanner: () => void;
   onLoadPreset: (presetType: 'sample_irritation' | 'clear') => void;
   /** 応答を待っている（調べる操作は押しても受け付けず、案内が出る） */
   busy?: boolean;
@@ -57,7 +59,6 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
   onConfirmCurrent,
   onCheckCurrentUse,
   onRunDifferential,
-  onOpenScanner,
   onLoadPreset,
   onExportImage,
   onImportImage,
@@ -80,9 +81,9 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           <ClipboardList className="w-[22px] h-[22px] shrink-0 text-primary" aria-hidden />
           <div className="min-w-0">
             <h2 id="routine-drawer-title" className="font-semibold text-ink text-lg leading-tight truncate">
-              マイルーティン管理
+              マイルーティン
             </h2>
-            <p className="text-xs text-ink-muted truncate">コスメを登録して、原因になりうる成分の候補を比較で絞り込み</p>
+            <p className="text-xs text-ink-muted truncate">比べて原因候補を絞り込みます</p>
           </div>
         </div>
         <div className="flex items-center shrink-0">
@@ -100,7 +101,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            aria-label="マイルーティン管理を閉じる"
+            aria-label="マイルーティンを閉じる"
             className="lg:hidden w-12 h-12 flex items-center justify-center rounded-full text-ink hover:bg-surface-container transition-colors"
           >
             <X className="w-6 h-6" aria-hidden />
@@ -109,8 +110,64 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* 今使っているコスメ（組み合わせチェック） */}
+        {/* 🚨 Bad Products Section */}
         <section className="space-y-2">
+          <SectionHeading
+            icon={<AlertTriangle className="w-4 h-4 text-rose-600" aria-hidden />}
+            title="肌荒れしたコスメ"
+            count={badProducts.length}
+            countClassName="bg-tint-warning text-rose-700"
+          />
+
+          {badProducts.length === 0 ? (
+            <EmptyState>チャットでコスメを検索、またはバーコードを読み取って追加</EmptyState>
+          ) : (
+            <ul role="list" className="space-y-2">
+              {badProducts.map((p) => (
+                <li key={p.id}>
+                  <ProductRow
+                    product={p}
+                    accentClassName="border-l-rose-600"
+                    brandClassName="text-rose-700"
+                    onRemove={() => onRemoveBad(p.id)}
+                    removeLabel={`「${p.name}」を肌荒れしたコスメから削除`}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* ✅ Safe Products Section */}
+        <section className="space-y-2">
+          <SectionHeading
+            icon={<ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden />}
+            title="普段使えているコスメ"
+            count={safeProducts.length}
+            countClassName="bg-tint-safe text-emerald-800"
+          />
+
+          {safeProducts.length === 0 ? (
+            <EmptyState>普段問題なく使えているコスメを追加すると、共通の成分を除外して、原因の候補を絞り込めます</EmptyState>
+          ) : (
+            <ul role="list" className="space-y-2">
+              {safeProducts.map((p) => (
+                <li key={p.id}>
+                  <ProductRow
+                    product={p}
+                    accentClassName="border-l-emerald-600"
+                    brandClassName="text-emerald-800"
+                    onRemove={() => onRemoveSafe(p.id)}
+                    removeLabel={`「${p.name}」を普段使えているコスメから削除`}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 今使っているコスメ（組み合わせチェック） */}
+        <section id="current-use-section" className="space-y-2 scroll-mt-4">
           <SectionHeading
             icon={<Layers className="w-4 h-4 text-sky-700" aria-hidden />}
             title="今使っているコスメ"
@@ -190,81 +247,20 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           )}
         </section>
 
-        {/* 🚨 Bad Products Section */}
-        <section className="space-y-2">
-          <SectionHeading
-            icon={<AlertTriangle className="w-4 h-4 text-rose-600" aria-hidden />}
-            title="肌荒れしたコスメ"
-            count={badProducts.length}
-            countClassName="bg-tint-warning text-rose-700"
-          />
-
-          {badProducts.length === 0 ? (
-            <EmptyState>チャットでコスメを検索、またはバーコードをスキャンして追加</EmptyState>
-          ) : (
-            <ul role="list" className="space-y-2">
-              {badProducts.map((p) => (
-                <li key={p.id}>
-                  <ProductRow
-                    product={p}
-                    accentClassName="border-l-rose-600"
-                    brandClassName="text-rose-700"
-                    onRemove={() => onRemoveBad(p.id)}
-                    removeLabel={`「${p.name}」を肌荒れしたコスメから削除`}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* ✅ Safe Products Section */}
-        <section className="space-y-2">
-          <SectionHeading
-            icon={<ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden />}
-            title="普段使えているコスメ"
-            count={safeProducts.length}
-            countClassName="bg-tint-safe text-emerald-800"
-          />
-
-          {safeProducts.length === 0 ? (
-            <EmptyState>普段問題なく使えているコスメを追加すると、共通の成分を除外して、原因の候補を絞り込めます</EmptyState>
-          ) : (
-            <ul role="list" className="space-y-2">
-              {safeProducts.map((p) => (
-                <li key={p.id}>
-                  <ProductRow
-                    product={p}
-                    accentClassName="border-l-emerald-600"
-                    brandClassName="text-emerald-800"
-                    onRemove={() => onRemoveSafe(p.id)}
-                    removeLabel={`「${p.name}」を普段使えているコスメから削除`}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={onOpenScanner}
-            className="w-full min-h-12 px-5 bg-white hover:bg-tint-safe text-primary border-[1.5px] border-primary rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors"
-          >
-            <Barcode className="w-5 h-5" aria-hidden />
-            <span>JANバーコードをスキャン</span>
-          </button>
-
-          {/* バックアップ・共有（画像。docs/plans/routine-image.md） */}
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={onExportImage} disabled={isEmpty} className={buttonTonal}>
+        {/* バックアップ・共有（画像。docs/plans/routine-image.md）。読み込みはまれなので、文字だけのボタンにする */}
+        <div className="space-y-1">
+          <div>
+            <button type="button" onClick={onExportImage} disabled={isEmpty} className={`w-full ${buttonTonal}`}>
               <ImageDown className="w-5 h-5 shrink-0" aria-hidden />
-              <span>画像で保存・共有</span>
+              <span>リストを<wbr />画像で<wbr />保存・共有</span>
             </button>
-            <button type="button" onClick={() => importInputRef.current?.click()} className={buttonTonal}>
-              <ImageUp className="w-5 h-5 shrink-0" aria-hidden />
-              <span>画像から読み込む</span>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              className="w-full min-h-11 px-3 rounded-xl text-sm text-ink-muted hover:text-ink hover:underline inline-flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <ImageUp className="w-4 h-4 shrink-0" aria-hidden />
+              <span>保存した画像から読み込む</span>
             </button>
             <input
               ref={importInputRef}
@@ -305,14 +301,17 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           className={`w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors ${busyLook}`}
         >
           <Sparkles className="w-5 h-5" aria-hidden />
-          <span>原因候補の成分を絞り込む (差分分析)</span>
+          <span>{DIFFERENTIAL_LABEL}</span>
         </button>
-        <p id="differential-hint" className="text-xs text-ink-muted text-center">
-          {badProducts.length === 0
-            ? '肌荒れしたコスメを1点以上登録すると実行できます'
-            : `登録した${badProducts.length + safeProducts.length}点のコスメから共通点・除外成分を解析します`}
-        </p>
-        <p className="text-[11px] text-ink-muted text-center">{AFFILIATE_DISCLOSURE}</p>
+        {/* 押せるようになるまでの手順（①は必須、②は任意） */}
+        <ul id="differential-hint" role="list" className="text-xs text-ink-muted space-y-0.5">
+          <ChecklistItem done={badProducts.length > 0}>
+            肌荒れしたコスメ {badProducts.length}点（1点以上）
+          </ChecklistItem>
+          <ChecklistItem done={safeProducts.length > 0} optional>
+            普段使えているコスメ {safeProducts.length}点（任意・あると候補を絞り込めます）
+          </ChecklistItem>
+        </ul>
       </div>
     </aside>
   );
@@ -331,12 +330,38 @@ function SectionHeading({
 }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
+      {/* tabIndex -1：画面のボタンからこの見出しへフォーカスを送れるように（Tab の順番には入らない） */}
+      <h3 tabIndex={-1} className="flex items-center gap-1.5 text-[15px] font-semibold text-ink outline-none">
         {icon}
         <span>{title}</span>
       </h3>
-      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${countClassName}`}>{count}点</span>
+      {/* 0点のときは色をつけない（赤の 0 がエラーに見えないように） */}
+      <span
+        className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-semibold ${
+          count === 0 ? 'bg-surface-container text-ink-muted' : countClassName
+        }`}
+      >
+        {count}点
+      </span>
     </div>
+  );
+}
+
+function ChecklistItem({ done, optional = false, children }: { done: boolean; optional?: boolean; children: React.ReactNode }) {
+  return (
+    <li className="flex items-center gap-1.5">
+      {done ? (
+        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-700" aria-hidden />
+      ) : (
+        <Circle className="w-4 h-4 shrink-0 text-gray-500" aria-hidden />
+      )}
+      <span>
+        {/* 説明文として続けて読まれるので、必須・任意の別と区切りの「。」を入れる */}
+        <span className="sr-only">{done ? '済み：' : optional ? '任意・未：' : '必須・未：'}</span>
+        {children}
+        <span className="sr-only">。</span>
+      </span>
+    </li>
   );
 }
 

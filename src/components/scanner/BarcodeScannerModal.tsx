@@ -289,7 +289,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
             {/* Viewfinder overlay */}
             <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-              <div className="w-64 h-32 border-2 border-emerald-400 rounded-lg shadow-[0_0_15px_rgba(52,211,153,0.5)] relative">
+              <div className="w-64 max-w-[85%] h-32 border-2 border-emerald-400 rounded-lg shadow-[0_0_15px_rgba(52,211,153,0.5)] relative">
                 <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-500 -mt-1 -ml-1" />
                 <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-500 -mt-1 -mr-1" />
                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-500 -mb-1 -ml-1" />

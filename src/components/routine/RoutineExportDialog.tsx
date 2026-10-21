@@ -166,7 +166,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
                 }}
                 className={buttonSecondaryCompact}
               >
-                もう一度作る
+                もう一度<wbr />作る
               </button>
             </div>
           ) : (
@@ -199,7 +199,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
             className={`${canShare ? buttonSecondaryCompact : buttonPrimaryCompact} ${canShare ? '' : 'col-span-2'}`}
           >
             <Download className="w-5 h-5" aria-hidden />
-            画像を保存
+            画像を<wbr />保存
           </button>
         </div>
         <p role="status" className="text-xs text-ink-muted min-h-4">

@@ -4,7 +4,7 @@ import React from 'react';
 import { Product } from '@/lib/types';
 import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
-import { badge, buttonPrimary, innerCard, panel } from '../ui/design';
+import { badge, buttonPrimaryCompact, innerCard, panel } from '../ui/design';
 import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 
@@ -25,11 +25,11 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
   return (
     <section className={`my-3 space-y-3 text-ink ${panel('safe', 'roomy')}`}>
       <div className="flex items-start justify-between">
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-2 min-w-0">
           <div className="w-8 h-8 shrink-0 rounded-full bg-primary text-on-primary flex items-center justify-center">
             <ShoppingBag className="w-4 h-4" aria-hidden />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-[15px] font-semibold flex flex-wrap items-center gap-1.5">
               <span>原因候補の成分を含まない代わりの商品</span>
               <span className={badge('neutral')}>PR</span>
@@ -90,9 +90,10 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                   href={amazonUrl}
                   target="_blank"
                   rel="noopener noreferrer sponsored nofollow"
-                  className={`w-full ${buttonPrimary}`}
+                  // 2列のカードの中なので左右の余白の小さいボタン（文字を大きくした画面でも入るように）
+                  className={`w-full ${buttonPrimaryCompact}`}
                 >
-                  <span>Amazonで詳細・価格を見る</span>
+                  <span>Amazonで<wbr />詳細・価格を<wbr />見る</span>
                   <ExternalLink className="w-4 h-4" aria-hidden />
                   <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                 </a>

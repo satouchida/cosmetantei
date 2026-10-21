@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ApiCredits } from '../ui/ApiCredits';
 import { PriceApiCredit, Product } from '@/lib/types';
 import { AlertTriangle, ShieldCheck, Layers, Search, ExternalLink } from 'lucide-react';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
@@ -16,6 +17,8 @@ import {
   innerCard,
   routineAction,
   routineActionCompact,
+  routineActionGrid,
+  cardActionsBox,
   textLink,
 } from '../ui/design';
 
@@ -101,7 +104,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
               className={`${innerCard} p-3.5 shadow-xs flex flex-col justify-between text-ink`}
             >
               <div>
-                <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
                   <span className={badge('neutral')}>{countryLabel(p.country, true)}</span>
                   <div className="flex flex-wrap items-center justify-end gap-1">
                     <WebSearchBadge product={p} />
@@ -181,7 +184,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
               )}
 
               {/* Action Buttons */}
-              <div className="mt-3.5 pt-3 border-t border-sand-200 space-y-2">
+              <div className={`mt-3.5 ${cardActionsBox}`}>
                 <button
                   type="button"
                   onClick={() => onSelectToAnalyze(p)}
@@ -191,9 +194,9 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   className={`w-full ${buttonPrimary} ${busyLook}`}
                 >
                   <Search className="w-4 h-4" aria-hidden />
-                  <span>成分を詳しくチェック</span>
+                  <span>成分を<wbr />詳しく<wbr />チェック</span>
                 </button>
-                <div className="grid grid-cols-3 gap-2">
+                <div className={routineActionGrid}>
                   <button
                     type="button"
                     onClick={() => onAddToBad(p)}
@@ -201,7 +204,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                     className={`${routineActionCompact} ${routineAction.bad}`}
                   >
                     <AlertTriangle className="w-4 h-4" aria-hidden />
-                    <span>肌荒れした</span>
+                    <span>肌荒れ<wbr />した</span>
                   </button>
                   <button
                     type="button"
@@ -210,7 +213,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                     className={`${routineActionCompact} ${routineAction.safe}`}
                   >
                     <ShieldCheck className="w-4 h-4" aria-hidden />
-                    <span>普段使えている</span>
+                    <span>普段<wbr />使えている</span>
                   </button>
                   <button
                     type="button"
@@ -219,7 +222,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                     className={`${routineActionCompact} ${routineAction.current}`}
                   >
                     <Layers className="w-4 h-4" aria-hidden />
-                    <span>今使っている</span>
+                    <span>今<wbr />使っている</span>
                   </button>
                 </div>
               </div>
@@ -232,28 +235,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
           PR：「販売ページを見る」「Amazonで探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。
         </p>
       )}
-      {credits.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
-          {credits.includes('rakuten') && (
-            <>
-              {/* Rakuten Web Services Attribution Snippet FROM HERE */}
-              <a href="https://developers.rakuten.com/" target="_blank" lang="en">
-                Supported by Rakuten Developers
-              </a>
-              {/* Rakuten Web Services Attribution Snippet TO HERE */}
-            </>
-          )}
-          {credits.includes('yahoo') && (
-            <>
-              {/* Begin Yahoo! JAPAN Web Services Attribution Snippet */}
-              <span style={{ margin: '15px 15px 15px 15px' }}>
-                <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
-              </span>
-              {/* End Yahoo! JAPAN Web Services Attribution Snippet */}
-            </>
-          )}
-        </div>
-      )}
+      <ApiCredits credits={credits} />
     </div>
   );
 };

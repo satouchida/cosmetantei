@@ -6,6 +6,8 @@
 
 # testing
 /coverage
+# pnpm check:responsive のスクリーンショットと結果
+/responsive-report/
 
 # next.js
 /.next/

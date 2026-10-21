@@ -73,6 +73,42 @@ export function getQuickReplyAction(label: string): QuickReplyAction {
   return Object.hasOwn(ACTIONS, label) ? ACTIONS[label] : { kind: 'server' };
 }
 
+/**
+ * ボタンの先頭の絵文字の代わりに見せる、線のアイコンの種類（部品は画面側で選ぶ。
+ * このファイルはサーバーのテストからも読むので、lucide-react を読み込まない）
+ */
+export type QuickReplyIconName = 'scan' | 'label' | 'search' | 'product' | 'flare' | 'bad' | 'safe' | 'price' | 'retry' | 'idea';
+
+/** 先頭の絵文字（異体字セレクタ U+FE0F は外して引く） */
+const QUICK_REPLY_ICONS: Readonly<Record<string, QuickReplyIconName>> = {
+  '📸': 'scan',
+  '📷': 'scan',
+  '📝': 'label',
+  '🔍': 'search',
+  '🔎': 'search',
+  '🧴': 'product',
+  '💧': 'product',
+  '⚡': 'flare',
+  '🚨': 'bad',
+  '✅': 'safe',
+  '💴': 'price',
+  '🔁': 'retry',
+  '🔄': 'retry',
+  '💡': 'idea',
+};
+
+/**
+ * ボタンの文言を、先頭のアイコンと文字に分ける（見た目だけ。押したときの処理は元の文言で決める）。
+ * 表にない絵文字はそのまま文字に残す
+ */
+export function splitQuickReplyIcon(label: string): { icon: QuickReplyIconName | null; text: string } {
+  const m = /^(\p{Extended_Pictographic})\u{FE0F}?\s*/u.exec(label);
+  const icon = m ? QUICK_REPLY_ICONS[m[1]] : undefined;
+  // 絵文字だけの文言は分けない（ボタンの文字が空にならないように）
+  const rest = m ? label.slice(m[0].length) : '';
+  return icon && rest.trim() ? { icon, text: rest } : { icon: null, text: label };
+}
+
 /** 候補カードから選んでもらう案内文 */
 export const PICK_FROM_CARDS_HINT =
   '上の候補カードにある「肌荒れした」「普段使えている」ボタンから、該当するコスメを選んでください。選んだコスメは比較リストに追加されます。';

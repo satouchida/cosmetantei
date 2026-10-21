@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ApiCredits } from '../ui/ApiCredits';
 import { PriceResult } from '@/lib/types';
 import { ExternalLink, Tag } from 'lucide-react';
 import { badge, buttonPrimary, buttonSecondaryCompact, card, innerCard } from '../ui/design';
@@ -37,7 +38,7 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
         <div className="w-8 h-8 shrink-0 rounded-full bg-primary text-on-primary flex items-center justify-center">
           <Tag className="w-4 h-4" aria-hidden />
         </div>
-        <div>
+        <div className="min-w-0">
           <h2 className="text-[15px] font-semibold">
             販売価格（{checkedAt}時点）
             {sponsored && (
@@ -112,28 +113,7 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
         </p>
       )}
 
-      {credits.length > 0 && (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
-          {credits.includes('rakuten') && (
-            <>
-              {/* Rakuten Web Services Attribution Snippet FROM HERE */}
-              <a href="https://developers.rakuten.com/" target="_blank" lang="en">
-                Supported by Rakuten Developers
-              </a>
-              {/* Rakuten Web Services Attribution Snippet TO HERE */}
-            </>
-          )}
-          {credits.includes('yahoo') && (
-            <>
-              {/* Begin Yahoo! JAPAN Web Services Attribution Snippet */}
-              <span style={{ margin: '15px 15px 15px 15px' }}>
-                <a href="https://developer.yahoo.co.jp/sitemap/">Webサービス by Yahoo! JAPAN</a>
-              </span>
-              {/* End Yahoo! JAPAN Web Services Attribution Snippet */}
-            </>
-          )}
-        </div>
-      )}
+      <ApiCredits credits={credits} />
     </div>
   );
 };
