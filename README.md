@@ -217,6 +217,13 @@ pnpm run deploy
   out**. Enable it once the domain's zone is in the Cloudflare account; deploying with it enabled
   before then fails. Then add `cosmetantei.app` to the Turnstile widget's hostnames. The widget
   also needs the `workers.dev` hostname if that address is used.
+- **Gemini key:** the Gemini API key used through AI Gateway must belong to a Google project with
+  billing turned on (paid tier). The privacy policy says the data sent to Gemini isn't used for
+  training, which is true only on the paid tier. Check this whenever the key is replaced.
+- **Terms changes:** changing the terms or the privacy policy means setting `LEGAL_VERSION` in
+  `src/lib/site.ts` to the release date. Every user then sees the consent dialog again. Pass
+  `revisedOn={formatLegalDate(LEGAL_VERSION)}` on each page that changed, so it shows 最終改定日.
+  `LEGAL_ENACTED` (the 制定日) never changes.
 - **Rollback:** use Wrangler's `rollback` command (`pnpm exec wrangler rollback --help`).
 - **CI** (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull requests:
   `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm lint`, `pnpm test` and `pnpm build`.

@@ -11,11 +11,15 @@ const AMAZON_ASSOCIATE_STATEMENT = 'Amazonのアソシエイトとして、コ�
  */
 export const AFFILIATE_DISCLOSURE = `${AMAZON_ASSOCIATE_STATEMENT}また、楽天アフィリエイトおよびバリューコマース（Yahoo!ショッピング）のアフィリエイトプログラムを利用しており、紹介した商品の購入により報酬を得ることがあります。`;
 
+/** 利用規約・プライバシーポリシーの制定日（変えない） */
+export const LEGAL_ENACTED = '2026-10-20';
+
 /**
- * 利用規約・プライバシーポリシーの版（制定日・改定日）。ページの日付と、同意の確認（src/lib/consent.ts）の両方に使う。
- * 規約を変えたらこの日付を変える：ページの日付が変わり、同意した人にももう一度確認する
+ * 利用規約・プライバシーポリシーの版（最後に変えた日）。ページの日付と、同意の確認（src/lib/consent.ts）の両方に使う。
+ * 規約を変えたらこの日付を変える：変えたページの「最終改定日」が変わり、同意した人にももう一度確認する
+ * （2026-10-22：利用規約の第3条第5項・第4条第1項・第9条・第9条の2）
  */
-export const LEGAL_VERSION = '2026-10-20';
+export const LEGAL_VERSION = '2026-10-22';
 
 /** '2026-10-20' → '2026年10月20日' */
 export function formatLegalDate(version: string): string {

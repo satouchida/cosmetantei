@@ -468,7 +468,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     aliases: ['アスコルビン酸', 'l-アスコルビン酸', 'ascorbic acid', 'l-ascorbic acid', 'ビタミンc'],
     category: 'potent_active',
     riskLevel: 'active_caution',
-    reasonJa: '肌に浸透させるには pH 3.5未満の酸性処方が必要なため、高濃度の製品では塗ったときにピリピリ感や赤みが出やすくなります。',
+    reasonJa: '角層まで届かせるには pH 3.5未満の酸性処方が必要なため、高濃度の製品では塗ったときにピリピリ感や赤みが出やすくなります。',
     sensitiveSkinAdviceJa: '刺激を感じる場合は、安定型のビタミンC誘導体（3-O-エチルアスコルビン酸、アスコルビルグルコシド等）を使った製品が選択肢になります。',
     sources: [REF.vitaminCAbsorption],
     reviewedAt: REVIEWED,
@@ -636,7 +636,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
   },
 
   // ==========================================
-  // 🟢 鎮静・バリア・保湿成分
+  // 🟢 肌を整える・うるおいを保つ成分（化粧品の効能の範囲の言葉で書く。鎮静・修復・抗炎症は使わない）
   // ==========================================
   {
     id: 'ceramides',
@@ -645,7 +645,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     aliases: ['セラミド', 'セラミドnp', 'セラミドap', 'セラミドeop', 'セラミドns', 'セラミド2', 'セラミド3', 'セラミド6ii', 'セラミド1', 'ceramide np', 'ceramide ap', 'ceramide eop'],
     category: 'barrier_support',
     riskLevel: 'safe',
-    reasonJa: '角層の細胞間脂質の主成分と同じ構造の成分で、肌のバリアを支えます。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    reasonJa: '角層の細胞間脂質の主成分と同じ構造の成分で、角層のうるおいを保ちます。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
     sensitiveSkinAdviceJa: '乾燥しやすい肌の保湿成分としてよく使われます。',
     sources: [REF.cirCeramides],
     reviewedAt: REVIEWED,
@@ -693,7 +693,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     aliases: ['ツボクサエキス', 'ツボクサ葉エキス', 'マデカッソシド', 'アシアチコシド', 'マデカシン酸', 'アシアチン酸', 'センテラエキス', 'centella asiatica extract', 'madecassoside', 'asiaticoside', 'cica'],
     category: 'soothing',
     riskLevel: 'safe',
-    reasonJa: 'ツボクサ由来の成分。主成分のトリテルペン（マデカッソシド等）に、炎症を抑え傷の治りを助ける働きが報告されています。',
+    reasonJa: 'ツボクサ由来の成分で、マデカッソシド等のトリテルペンを含みます。化粧品では肌を整える目的で配合されます。',
     sensitiveSkinAdviceJa: '肌荒れケアをうたう製品に配合されます。人での臨床データはまだ多くありません。',
     sources: [REF.centellaReview, REF.jciaQuasiDrugNames],
     reviewedAt: REVIEWED,
@@ -717,7 +717,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     aliases: ['ナイアシンアミド', 'ニコチン酸アミド', 'niacinamide', 'nicotinamide'],
     category: 'barrier_support',
     riskLevel: 'safe',
-    reasonJa: 'ビタミンB3の一種で、肌のバリア機能を支える成分として配合されます。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
+    reasonJa: 'ビタミンB3の一種で、肌を整える成分として配合されます。米国の安全性評価（CIR）は化粧品での使用を安全としています。',
     sensitiveSkinAdviceJa: 'ナイアシン（ニコチン酸）と違い、顔のほてり（フラッシング）は起こしにくい成分です。高濃度の製品で刺激を感じる人もいます。',
     sources: [REF.cirNiacinamide, REF.nicotinamideVsNiacin],
     reviewedAt: REVIEWED,
@@ -753,7 +753,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     aliases: ['グリセリン', '濃グリセリン', 'glycerin', 'glycerine', 'glycerol'],
     category: 'moisturizer',
     riskLevel: 'safe',
-    reasonJa: '代表的な水溶性の保湿剤。角層の水分を保ち、バリアの回復を助けることが報告されています。',
+    reasonJa: '代表的な水溶性の保湿剤。角層の水分を保ち、肌にうるおいを与えます。',
     sensitiveSkinAdviceJa: '乾燥肌向けの多くの製品の基本成分です。',
     sources: [REF.glycerolReview],
     reviewedAt: REVIEWED,

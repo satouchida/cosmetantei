@@ -295,7 +295,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   const IconComponent = badge.icon;
 
   const getPillStyle = (ing: AnalyzedIngredient) => {
-    // 鎮静・バリアを助ける成分は安全の緑で目立たせる
+    // 肌を整える・うるおいを保つ成分は安全の緑で目立たせる
     if (ing.riskLevel === 'safe' && (ing.category === 'soothing' || ing.category === 'barrier_support')) {
       return 'bg-tint-safe text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-semibold';
     }
@@ -426,7 +426,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         <section className="space-y-2">
           <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-emerald-800">
             <Sparkles className="w-4 h-4" aria-hidden />
-            <span>鎮静・バリア修復サポート成分</span>
+            <span>肌を整える・うるおいを保つ成分</span>
           </h3>
           <ul role="list" className="space-y-1.5">
             {soothingHighlightsJa.map((h, i) => (

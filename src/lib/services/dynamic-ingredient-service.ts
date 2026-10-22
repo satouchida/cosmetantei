@@ -6,6 +6,7 @@ import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare
 import { BoundedCache } from '../utils/bounded-cache';
 import { mayRememberFailure } from '../server/usage';
 import { isPlainReplyText } from '../utils/safe-text';
+import { hasProhibitedClaim, PROMPT_WORDING_RULES } from '../wording';
 import { normalizeIngredientName } from '../utils/ingredient-name';
 
 /**
@@ -876,13 +877,14 @@ const ITEM_RULES = `出力する項目:
   - "safe" にするのは、刺激性・アレルギー性について広く確立した知見があり、敏感肌でも問題が少ないと言える成分だけ
   - 迷うとき・知見が乏しいときは "low_caution" か "unknown"
 - reasonJa: 配合目的と、肌への作用・影響についての明快な解説（1〜2文）
-- sensitiveSkinAdviceJa: 敏感肌・肌荒れ時の使用に関する一般的な注意（1〜2文）
+- sensitiveSkinAdviceJa: 敏感肌の人が使うときの一般的な注意（1〜2文）。肌の手当ての方法は書かない
 - evidenceJa: 評価の根拠の種類（例：「公的な安全性評価」「パッチテストの報告」「皮膚科学の一般的な知見」）を1文で。
   確実に知っている根拠の種類だけを書き、参照できない文献・機関名・論文名・著者・年・URL を作らない。
   確かな根拠が無ければ「確かな根拠を確認できていません」と書く
 
 【厳格な禁止ルール】
 - 個人の肌への適合・診断・治療は書かない。「必ず安全」「問題ない」「治る」のように断定せず、「一般に」「報告があります」のように書く
+${PROMPT_WORDING_RULES}
 - URL・ドメイン名・商品名・ブランド名・宣伝を含めない
 - Markdown の記法（**、*、#、箇条書き、リンク）は含めない。必要な強調には「」や【】を使う`;
 
@@ -919,6 +921,27 @@ const ITEM_SCHEMA = {
 /** 共有してよい文章か（新しい応答にも KV から読んだ値にも同じ基準を使う） */
 function isShareableText(s: unknown, maxLength: number): s is string {
   return typeof s === 'string' && s.length > 0 && s.length <= maxLength && isPlainReplyText(s);
+}
+
+/** 使わない表現（src/lib/wording.ts）を含む解説の代わりに出す文 */
+const PERMITTED_FALLBACK_TEXT = {
+  reasonJa: 'この成分の解説は、表示の基準に合わなかったため表示していません。',
+  sensitiveSkinAdviceJa: '肌に合わないと感じたときは使用を中止してください。',
+  evidenceJa: '確かな根拠を確認できていません',
+} as const;
+
+/**
+ * 使わない表現を含む文だけを決まった文に置き換える。評価（riskLevel）は残す
+ * （文の表現のせいで、刺激の注意の評価まで捨てない）。根拠を置き換えた「安全」は「未評価」にする。
+ * 新しい応答にも、この基準を足す前に保存した解説にも使う
+ */
+function withPermittedWording(item: KnownIngredient): KnownIngredient {
+  const fields = ['reasonJa', 'sensitiveSkinAdviceJa', 'evidenceJa'] as const;
+  if (!fields.some((f) => hasProhibitedClaim(item[f] ?? ''))) return item;
+  const fixed = { ...item };
+  for (const f of fields) if (hasProhibitedClaim(item[f] ?? '')) fixed[f] = PERMITTED_FALLBACK_TEXT[f];
+  if (fixed.riskLevel === 'safe' && fixed.evidenceJa !== item.evidenceJa) fixed.riskLevel = 'unknown';
+  return fixed;
 }
 
 function isStoredExplanation(v: unknown): v is KnownIngredient {
@@ -1016,8 +1039,9 @@ async function cachedExplanation(cacheInput: string, kvKey: string): Promise<Kno
   if (inMemory) return inMemory;
   const stored = await cacheGetJSON<unknown>(kvKey);
   if (!isStoredExplanation(stored)) return undefined;
-  AI_EXPLANATION_CACHE.set(cacheInput, stored);
-  return stored;
+  const usable = withPermittedWording(stored);
+  AI_EXPLANATION_CACHE.set(cacheInput, usable);
+  return usable;
 }
 
 /**
@@ -1050,7 +1074,7 @@ function toSharedExplanation(parsed: unknown, kvKey: string): KnownIngredient | 
     ? (item.category as IngredientCategory)
     : 'other';
 
-  return {
+  return withPermittedWording({
     // id にも送った人の表記を入れない（キーのハッシュから作る）
     id: `ai_${kvKey.slice(AI_EXPLANATION_KEY_PREFIX.length + 1, AI_EXPLANATION_KEY_PREFIX.length + 17)}`,
     nameJa,
@@ -1061,7 +1085,7 @@ function toSharedExplanation(parsed: unknown, kvKey: string): KnownIngredient | 
     reasonJa,
     sensitiveSkinAdviceJa,
     evidenceJa,
-  };
+  });
 }
 
 /** Gemini を呼んで共有の評価・解説を保存した結果。failed: 呼んだが使える応答が無かった */

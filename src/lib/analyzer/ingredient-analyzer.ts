@@ -7,6 +7,8 @@ import { findPairFindings, PairContext } from './pair-rules';
 import { designatedNote, findDesignatedEntry } from './jp-designated';
 import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
 import { mostCommonCategory, productCategory } from './product-category';
+import { ordinaryIngredients, quasiDrugActives } from '../quasi-drug';
+import { withoutSafetyRating } from '../wording';
 import {
   AnalyzedIngredient,
   CulpritIngredient,
@@ -182,15 +184,16 @@ export function isPlaceholderIngredient(raw: string): boolean {
 }
 
 /**
- * 分析する成分。医薬部外品は有効成分も含める。
+ * 分析する成分。医薬部外品は有効成分も含める。医薬部外品の印が無い製品の有効成分の一覧は、ほかの成分として数える
+ * （有効成分の印を付けない。src/lib/quasi-drug.ts）。
  * 有効成分とその他の成分の両方に書かれた成分（業界の自主基準で両方に書く）や重複は1回だけ数える
  */
 export function labelIngredients(product: Product): { raw: string; isActive: boolean }[] {
   const seen = new Set<string>();
   const list: { raw: string; isActive: boolean }[] = [];
   const groups: [string[], boolean][] = [
-    [product.activeIngredientsJa ?? [], true],
-    [product.ingredients, false],
+    [quasiDrugActives(product), true],
+    [ordinaryIngredients(product), false],
   ];
   for (const [items, isActive] of groups) {
     for (const raw of items) {
@@ -323,7 +326,7 @@ export function unratedIngredientNames(analysis: ProductAnalysisResult): string[
 }
 
 /**
- * 単一製品の全成分を解析し、リスク度・注意成分・鎮静成分を抽出する
+ * 単一製品の全成分を解析し、リスク度・注意成分・肌を整える成分を抽出する
  * aiEvaluations（正規化した成分名 → AI の評価）があれば、成分DBとルールで「未評価」の成分にだけ使う
  */
 export function analyzeProduct(
@@ -409,7 +412,7 @@ export function analyzeProduct(
     } else if (matched.riskLevel === 'active_caution') {
       warningsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
     } else if (matched.category === 'soothing' || matched.category === 'barrier_support') {
-      soothingHighlightsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
+      soothingHighlightsJa.push(`【${matched.nameJa}】${aiLabel}: ${withoutSafetyRating(matched.reasonJa)}`);
     }
   }
 
@@ -653,7 +656,8 @@ export function performDifferentialAnalysis(
       '今後のコスメ選びでは、これらの成分を含まない製品（無香料・アルコールフリーなど）を候補にして、初めて使うときは腕の内側などの目立たない部分で試してください。'
     );
     adviceJa.push(
-      '赤みやヒリつきが引くまでは、普段トラブルなく使えている最小限の保湿アイテム（セラミドやワセリン等）だけにして、肌を休ませましょう。症状が続くときは皮膚科専門医にご相談ください。'
+      // 肌の手当ての仕方は書かない（医師法第17条。利用規約の第3条と同じ言い方）
+      '赤みやヒリつきなどがあるときは使用を中止し、皮膚科専門医にご相談ください。'
     );
   } else {
     summaryJa = '肌荒れした製品と普段使えている製品の間で顕著な成分の差異が見つかりませんでした。';

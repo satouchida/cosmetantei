@@ -25,6 +25,8 @@ function fail(message) {
 
 const args = {};
 for (const a of process.argv.slice(2)) {
+  // pnpm check:responsive -- --only=… では「--」がそのまま渡される
+  if (a === '--') continue;
   if (a === '--self-test') {
     args.selfTest = true;
     continue;

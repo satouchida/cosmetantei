@@ -25,8 +25,8 @@ export type IngredientCategory =
   | 'preservative'       // 防腐剤・抗菌剤
   | 'uv_filter'          // 紫外線吸収剤
   | 'potent_active'      // レチノール・ピーリング酸・高濃度VC
-  | 'soothing'           // 抗炎症・鎮静成分（CICA、アラントイン等）
-  | 'barrier_support'    // バリア修復（セラミド、コレステロール等）
+  | 'soothing'           // 肌を整える成分（CICA、アラントイン等）
+  | 'barrier_support'    // うるおいを保つ成分（セラミド、コレステロール等）
   | 'moisturizer'        // 保湿成分（ヒアルロン酸、グリセリン等）
   | 'other';
 

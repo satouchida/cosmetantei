@@ -7,8 +7,10 @@ import { AlertTriangle, ShieldCheck, Layers, Search, ExternalLink } from 'lucide
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { getDisplayBrand } from '@/lib/display-brand';
 import { productSourceInfo } from '@/lib/product-source';
+import { quasiDrugActives } from '@/lib/quasi-drug';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
 import {
+  activesLine,
   badge,
   busyLook,
   buttonPrimary,
@@ -98,6 +100,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {products.map((p) => {
+          const actives = quasiDrugActives(p);
           return (
             <div
               key={p.id}
@@ -135,9 +138,9 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                 </div>
                 <ProductSourceLink product={p} className="mt-1" />
 
-                {p.activeIngredientsJa && p.activeIngredientsJa.length > 0 && (
-                  <div className="mt-1.5 text-xs text-emerald-900 bg-tint-safe px-2 py-1 rounded-lg">
-                    <span className="font-semibold">有効成分:</span> {p.activeIngredientsJa.join(', ')}
+                {actives.length > 0 && (
+                  <div className={`mt-1.5 ${activesLine}`}>
+                    <span className="font-semibold">有効成分:</span> {actives.join(', ')}
                   </div>
                 )}
 

@@ -4,9 +4,11 @@ import { ArrowLeft } from 'lucide-react';
 import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 
 /** 利用規約・プライバシーポリシーの見出しと本文の体裁 */
-export const LegalPage: React.FC<{ title: string; enactedOn: string; children: React.ReactNode }> = ({
+/** revisedOn：最後に改定した日（制定日と同じ、または改定していないページでは渡さない） */
+export const LegalPage: React.FC<{ title: string; enactedOn: string; revisedOn?: string; children: React.ReactNode }> = ({
   title,
   enactedOn,
+  revisedOn,
   children,
 }) => (
   <div className="min-h-screen bg-surface text-ink">
@@ -23,7 +25,10 @@ export const LegalPage: React.FC<{ title: string; enactedOn: string; children: R
     </header>
     <main className="max-w-[760px] mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold text-ink">{title}</h1>
-      <p className="mt-1 text-sm text-ink-muted">制定日：{enactedOn}</p>
+      <p className="mt-1 text-sm text-ink-muted">
+        制定日：{enactedOn}
+        {revisedOn && revisedOn !== enactedOn && <>　最終改定日：{revisedOn}</>}
+      </p>
       <div
         className={[
           'mt-6 space-y-4 text-[15px] leading-relaxed',

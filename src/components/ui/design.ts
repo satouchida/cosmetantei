@@ -12,6 +12,9 @@ export const card = 'bg-white rounded-2xl border border-sand-200 shadow-xs';
 /** カード内の小さなカード（商品・成分の 1 件） */
 export const innerCard = 'bg-white rounded-xl border border-sand-200';
 
+/** 医薬部外品の「有効成分:」の行。承認の区分を示すだけなので、安全の緑ではなく中立の色にする */
+export const activesLine = 'text-xs text-ink bg-surface-container-low px-2 py-1 rounded-lg';
+
 // 余白などはクラスを後から足して上書きしない（Tailwind はクラスの書き順でなく CSS の順で決まる）。違う大きさは別の定数にする
 // 狭い画面で折り返すとき：語の途中では切らず（break-keep）、空白・句読点・ラベルに入れた <wbr /> の位置で、
 // 行の長さをそろえて折り返す（「成分を<wbr />詳しく<wbr />チェック」→「成分を詳しく／チェック」）。

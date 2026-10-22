@@ -5,7 +5,9 @@ import { ApiCredits } from '../ui/ApiCredits';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
+import { ordinaryIngredients, quasiDrugActives } from '@/lib/quasi-drug';
 import {
+  activesLine,
   badge,
   buttonPrimary,
   countryLabel,
@@ -211,6 +213,8 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
         <ScrollWithFade className="max-h-[min(420px,50dvh)]">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {candidates.map((product) => {
+              const actives = quasiDrugActives(product);
+              const listed = actives.length > 0 ? [] : ordinaryIngredients(product);
               return (
                 <div
                   key={product.id}
@@ -239,13 +243,17 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                         {product.name}
                       </h3>
 
-                      {product.activeIngredientsJa && product.activeIngredientsJa.length > 0 ? (
-                        <div className="mt-1 text-xs text-emerald-900 truncate bg-tint-safe px-2 py-1 rounded-lg">
-                          有効成分: {product.activeIngredientsJa.join(', ')}
+                      {actives.length > 0 ? (
+                        <div className={`mt-1 ${activesLine}`}>
+                          {/* 2 行で切る箱は余白の内側に置く（余白に 3 行目がのぞかない） */}
+                          <div className="line-clamp-2">
+                            <span className="font-semibold">有効成分:</span> {actives.join(', ')}
+                          </div>
                         </div>
-                      ) : product.ingredients.length > 0 ? (
+                      ) : listed.length > 0 ? (
                         <div className="mt-1 text-xs text-ink-muted truncate">
-                          主成分: {product.ingredients.slice(0, 3).join(', ')}
+                          {/* 先頭の 3 つを出すだけ（医薬部外品の「その他の成分」は配合量の順とは限らないので「主成分」とは書かない） */}
+                          全成分（先頭3つ）: {listed.slice(0, 3).join(', ')}
                         </div>
                       ) : null}
                     </div>

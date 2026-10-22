@@ -254,7 +254,7 @@ export function summarizePriceResult(result: PriceResult): string {
   });
   const tax = cheapest.taxIncluded === true ? '（税込）' : cheapest.taxIncluded === false ? '（税抜）' : '';
   return [
-    `「${q}」の販売価格を${result.offers.length}件確認しました（${time}時点）。最も安いのは${sellerLabel(cheapest)}の「${cheapest.productName}」で${cheapest.priceYen.toLocaleString('ja-JP')}円${tax}です。`,
+    `「${q}」の販売価格を${result.offers.length}件確認しました（${time}時点）。今回確認できた中では、${sellerLabel(cheapest)}の「${cheapest.productName}」が最も安く、${cheapest.priceYen.toLocaleString('ja-JP')}円${tax}です。`,
     '容量や送料はお店によって違います。価格や在庫は変わることがあるため、購入前に販売ページでご確認ください。',
   ].join('\n\n');
 }
