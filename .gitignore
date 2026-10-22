@@ -51,3 +51,8 @@ AGENTS.md
 /docs/terms-and-privacy-drafts.md
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
+
+# 手元専用（Claude Code のローカル設定・Gemini による法務レビューの作業メモ）
+/.claude/
+/legal-review-by-gemini
+/docs/review/legal-review-by-gemini.md
