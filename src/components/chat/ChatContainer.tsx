@@ -1239,7 +1239,9 @@ export const ChatContainer: React.FC = () => {
           </div>
 
           {/* Messages Scroll Area */}
-          <div className="flex-1 overflow-y-auto px-3 py-4 sm:p-6 space-y-4">
+          {/* relative：読み上げ用の sr-only（position: absolute）をこの中に収める。無いとページ全体が伸び、
+              カードにフォーカスしたときにチャットではなくページがスクロールして画面が空になる */}
+          <div className="relative flex-1 overflow-y-auto px-3 py-4 sm:p-6 space-y-4">
             {messages.map((msg) => (
               <div
                 key={msg.id}

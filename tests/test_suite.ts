@@ -7042,3 +7042,14 @@ test('117. Display wording: neutral 有効成分 line, no 「主成分」, no sa
   assert.ok(analyzer.includes('赤みやヒリつきなどがあるときは使用を中止し、皮膚科専門医にご相談ください。'));
   assert.ok(!analyzer.includes('ワセリン等'));
 });
+
+test('118. Layout: scroll areas are positioned, so sr-only text cannot stretch the page (live check 2026-10-22)', async () => {
+  const { readFileSync } = await import('node:fs');
+  // sr-only は position: absolute。位置を決める親が無いとページの外まで伸び、カードへのフォーカスでページ全体がスクロールする
+  for (const file of ['src/components/chat/ChatContainer.tsx', 'src/components/routine/RoutineSidebar.tsx', 'src/components/search/LiveSearchCandidateTray.tsx']) {
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/className=\{?[`"]([^`"]*\boverflow-y-auto\b[^`"]*)[`"]/g)) {
+      assert.match(m[1], /\brelative\b/, `${file}: ${m[1]}`);
+    }
+  }
+});

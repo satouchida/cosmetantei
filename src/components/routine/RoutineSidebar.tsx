@@ -109,7 +109,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="relative flex-1 overflow-y-auto p-4 space-y-6">
         {/* 🚨 Bad Products Section */}
         <section className="space-y-2">
           <SectionHeading

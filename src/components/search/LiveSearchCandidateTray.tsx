@@ -349,7 +349,7 @@ function ScrollWithFade({ className, children }: { className: string; children: 
   }, [update]);
 
   return (
-    <div ref={ref} onScroll={update} className={`p-3 overflow-y-auto ${className}`}>
+    <div ref={ref} onScroll={update} className={`relative p-3 overflow-y-auto ${className}`}>
       {children}
       {hasMore && (
         <div aria-hidden className="sticky -bottom-3 h-10 -mt-10 -mx-3 pointer-events-none bg-linear-to-t from-white to-transparent" />
