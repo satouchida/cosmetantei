@@ -7053,3 +7053,20 @@ test('118. Layout: scroll areas are positioned, so sr-only text cannot stretch t
     }
   }
 });
+
+test('119. Share card: description stays within the compliance wording and names no country (2026-10-22)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { hasProhibitedClaim } = await import('../src/lib/wording');
+  const layout = readFileSync('src/app/layout.tsx', 'utf8');
+  const description = layout.match(/const DESCRIPTION =\s*'([^']+)'/)?.[1] ?? '';
+  assert.ok(description.length > 0);
+  // og:description と twitter:description も同じ文
+  assert.ok(/openGraph: \{[^}]*description: DESCRIPTION/.test(layout) && /twitter: \{[^}]*description: DESCRIPTION/.test(layout));
+  assert.ok(description.includes('候補') && description.includes('医療上の診断ではありません') && description.includes('皮膚科専門医'));
+  assert.ok(!/日本|韓国|アメリカ|欧州|J-Beauty|K-Beauty|JAN/.test(description), description);
+  assert.ok(!/安全|治|改善|効く|効果/.test(description), description);
+  assert.ok(!hasProhibitedClaim(description));
+  for (const alt of ['src/app/opengraph-image.alt.txt', 'src/app/twitter-image.alt.txt']) {
+    assert.ok(!/日本|韓国|アメリカ|安全/.test(readFileSync(alt, 'utf8')), alt);
+  }
+});

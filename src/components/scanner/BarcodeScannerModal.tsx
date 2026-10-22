@@ -268,7 +268,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <Camera className="w-4 h-4" aria-hidden />
             </div>
             <div>
-              <h2 id="barcode-scanner-title" className="font-semibold text-ink text-lg leading-tight">バーコード（JAN/UPC）読取</h2>
+              <h2 id="barcode-scanner-title" className="font-semibold text-ink text-lg leading-tight">バーコード読取</h2>
               <p className="text-xs text-ink-muted">カメラ、画像ファイル、または番号入力で即時取得</p>
             </div>
           </div>
@@ -297,7 +297,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="absolute top-1/2 left-0 right-0 h-[2px] bg-red-400/80 animate-pulse motion-reduce:animate-none" />
               </div>
               <span className="mt-3 text-xs text-white/90 bg-black/60 px-3 py-1 rounded-full font-medium">
-                JAN (45/49), 韓国 (880), UPC対応
+                バーコードを枠に合わせてください
               </span>
             </div>
 
