@@ -106,13 +106,6 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
               className={`${innerCard} p-3.5 shadow-xs flex flex-col justify-between text-ink`}
             >
               <div>
-                <div className="flex flex-wrap items-center justify-end gap-1 mb-1.5 empty:hidden">
-                  <WebSearchBadge product={p} />
-                  {p.isQuasiDrug && (
-                    <span className={badge('brand')}>医薬部外品</span>
-                  )}
-                </div>
-
                 <div className="flex items-start gap-2.5">
                   {isAlternatives && p.imageUrl && <ShopPhoto src={p.imageUrl} />}
                   <div className="min-w-0">
@@ -134,25 +127,31 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                 </div>
                 <ProductSourceLink product={p} className="mt-1" />
 
-                {actives.length > 0 && (
-                  <div className={`mt-1.5 ${activesLine}`}>
-                    <span className="font-semibold">有効成分:</span> {actives.join(', ')}
-                  </div>
-                )}
-
-                <div className="mt-2 flex flex-wrap gap-1">
+                {/* バッジは名前の下にまとめる（上に置くと、バッジのないカードと隣どうしでブランド名の高さがずれる） */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-1 empty:hidden">
+                  <WebSearchBadge product={p} />
+                  {p.isQuasiDrug && (
+                    <span className={badge('brand')}>医薬部外品</span>
+                  )}
                   {p.fragranceFree && (
                     <span className={badge('neutral')}>無香料</span>
                   )}
                   {p.alcoholFree && (
                     <span className={badge('neutral')}>アルコールフリー</span>
                   )}
-                  {p.barcode && (
-                    <span className="text-xs text-ink-muted font-mono">
-                      JAN:{p.barcode}
-                    </span>
-                  )}
                 </div>
+
+                {actives.length > 0 && (
+                  <div className={`mt-1.5 ${activesLine}`}>
+                    <span className="font-semibold">有効成分:</span> {actives.join(', ')}
+                  </div>
+                )}
+
+                {p.barcode && (
+                  <div className="mt-2 text-xs text-ink-muted font-mono">
+                    JAN:{p.barcode}
+                  </div>
+                )}
               </div>
 
               {/* 代わりの商品：販売ページ（アフィリエイトのリンク）と Amazon の検索 */}

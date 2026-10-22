@@ -373,6 +373,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 onChange={(e) => setManualCode(e.target.value)}
                 aria-label="バーコード番号"
                 inputMode="numeric"
+                autoComplete="off"
                 className="w-full h-12 pl-9 pr-3 text-sm border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary"
               />
             </div>

@@ -223,7 +223,15 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                     <ShopProductSummary product={product} />
                   ) : (
                     <div>
-                      <div className="flex flex-wrap items-center gap-1 mb-1 empty:hidden">
+                      <div className="text-xs font-semibold text-sage-700 truncate">
+                        {getDisplayBrand(product.brand, product.name)}
+                      </div>
+                      <h3 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
+                        {product.name}
+                      </h3>
+
+                      {/* バッジは名前の下（ProductSuggestionCard と同じ並び） */}
+                      <div className="mt-1 flex flex-wrap items-center gap-1 empty:hidden">
                         {product.isQuasiDrug && (
                           <span className={badge('brand')}>医薬部外品</span>
                         )}
@@ -231,13 +239,6 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                           <span className={badge('neutral')}>無香料</span>
                         )}
                       </div>
-
-                      <div className="text-xs font-semibold text-sage-700 truncate">
-                        {getDisplayBrand(product.brand, product.name)}
-                      </div>
-                      <h3 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
-                        {product.name}
-                      </h3>
 
                       {actives.length > 0 ? (
                         <div className={`mt-1 ${activesLine}`}>
