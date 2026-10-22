@@ -15,7 +15,6 @@ import {
   busyLook,
   buttonPrimary,
   buttonSecondary,
-  countryLabel,
   innerCard,
   routineAction,
   routineActionCompact,
@@ -107,14 +106,11 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
               className={`${innerCard} p-3.5 shadow-xs flex flex-col justify-between text-ink`}
             >
               <div>
-                <div className="flex flex-wrap items-center justify-between gap-1.5 mb-1.5">
-                  <span className={badge('neutral')}>{countryLabel(p.country, true)}</span>
-                  <div className="flex flex-wrap items-center justify-end gap-1">
-                    <WebSearchBadge product={p} />
-                    {p.isQuasiDrug && (
-                      <span className={badge('brand')}>医薬部外品</span>
-                    )}
-                  </div>
+                <div className="flex flex-wrap items-center justify-end gap-1 mb-1.5 empty:hidden">
+                  <WebSearchBadge product={p} />
+                  {p.isQuasiDrug && (
+                    <span className={badge('brand')}>医薬部外品</span>
+                  )}
                 </div>
 
                 <div className="flex items-start gap-2.5">

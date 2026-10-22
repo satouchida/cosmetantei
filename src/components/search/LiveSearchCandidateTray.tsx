@@ -10,7 +10,6 @@ import {
   activesLine,
   badge,
   buttonPrimary,
-  countryLabel,
   iconButton,
   innerCard,
   routineAction,
@@ -224,16 +223,13 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                     <ShopProductSummary product={product} />
                   ) : (
                     <div>
-                      <div className="flex flex-wrap items-center justify-between gap-1 mb-1">
-                        <span className={badge('neutral')}>{countryLabel(product.country)}</span>
-                        <div className="flex flex-wrap items-center gap-1">
-                          {product.isQuasiDrug && (
-                            <span className={badge('brand')}>医薬部外品</span>
-                          )}
-                          {product.fragranceFree && (
-                            <span className={badge('neutral')}>無香料</span>
-                          )}
-                        </div>
+                      <div className="flex flex-wrap items-center gap-1 mb-1 empty:hidden">
+                        {product.isQuasiDrug && (
+                          <span className={badge('brand')}>医薬部外品</span>
+                        )}
+                        {product.fragranceFree && (
+                          <span className={badge('neutral')}>無香料</span>
+                        )}
                       </div>
 
                       <div className="text-xs font-semibold text-sage-700 truncate">

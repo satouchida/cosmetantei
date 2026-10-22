@@ -174,19 +174,3 @@ export const routineActionCompact =
 /** 登録ボタンを横長で並べるとき */
 export const routineActionWide =
   'min-h-12 inline-flex items-center justify-center gap-1.5 px-3 border rounded-xl text-sm font-semibold transition-colors';
-
-/** 国のバッジ（旗と文字で示し、色は付けない） */
-export function countryLabel(country: string, long = false): string {
-  switch (country) {
-    case 'JP':
-      return long ? '🇯🇵 日本 (J-Beauty)' : '🇯🇵 日本';
-    case 'KR':
-      return long ? '🇰🇷 韓国 (K-Beauty)' : '🇰🇷 韓国';
-    case 'US':
-      return long ? '🇺🇸 アメリカ (US)' : '🇺🇸 アメリカ';
-    case 'EU':
-      return long ? '🇪🇺 欧州 (EU)' : '🇪🇺 欧州';
-    default:
-      return '🌐 コスメ';
-  }
-}

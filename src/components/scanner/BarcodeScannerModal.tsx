@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ModalDialog } from '../ui/ModalDialog';
-import { badge, buttonPrimary, buttonSecondary, iconButton, panel } from '../ui/design';
+import { buttonPrimary, buttonSecondary, iconButton, panel } from '../ui/design';
 import {
   Camera,
   X,
@@ -248,12 +248,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   };
 
   const sampleBarcodes = [
-    { name: 'キュレル 泡洗顔 (日本)', code: '4901301272133', badge: '🇯🇵 J-Beauty' },
-    { name: 'メラノCC プレミアム美容液', code: '4987241169146', badge: '🇯🇵 J-Beauty' },
-    { name: 'トリデン ダイブインセラム', code: '8809640730092', badge: '🇰🇷 K-Beauty' },
-    { name: 'VT CICA スージングマスク', code: '8809695670868', badge: '🇰🇷 K-Beauty' },
-    { name: 'セラヴィ 保湿クリーム', code: '3606000537736', badge: '🇺🇸 US' },
-    { name: 'ポーラチョイス 2% BHA', code: '0655439020107', badge: '🇺🇸 US' },
+    { name: 'キュレル 泡洗顔', code: '4901301272133' },
+    { name: 'メラノCC プレミアム美容液', code: '4987241169146' },
+    { name: 'トリデン ダイブインセラム', code: '8809640730092' },
+    { name: 'VT CICA スージングマスク', code: '8809695670868' },
+    { name: 'セラヴィ 保湿クリーム', code: '3606000537736' },
+    { name: 'ポーラチョイス 2% BHA', code: '0655439020107' },
   ];
 
   if (!isOpen) return null;
@@ -399,13 +399,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     onClick={() => handleSuccess(s.code)}
                     className="text-left min-h-12 p-2 rounded-xl border border-sand-200 hover:border-emerald-500 hover:bg-tint-safe transition-colors text-xs bg-white"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-ink truncate">
-                        {s.name}
-                      </span>
-                      <span className={badge('neutral')}>
-                        {s.badge}
-                      </span>
+                    <div className="font-semibold text-ink truncate">
+                      {s.name}
                     </div>
                     <span className="text-xs text-ink-muted font-mono">{s.code}</span>
                   </button>
