@@ -4,6 +4,7 @@
  * - アプリが書いた一覧。ブランド名は事実なので、JCIA・cosmetic-info.jp などの一覧は写していない
  * - kana: 名前と読みが違うとき（漢字・英字のブランド）の読み。ひらがな・カタカナどちらでもよい（照合で同じになる）
  * - aliases: 英字表記・別の書き方。製品の brand 欄にこれらのどれかがあれば、そのブランドの製品とみなす
+ * - maker: 会社名でもあるブランド。brand 欄が「花王 / キュレル」なら、表示はブランドの「キュレル」にする
  * - 載っていないブランドも、調べた製品のブランド名から候補に出る（src/lib/services/brand-suggest.ts）
  */
 
@@ -11,11 +12,12 @@ export interface BrandEntry {
   name: string;
   kana?: string;
   aliases?: string[];
+  maker?: true;
 }
 
 export const BRANDS_JP: BrandEntry[] = [
   // 資生堂
-  { name: '資生堂', kana: 'しせいどう', aliases: ['SHISEIDO'] },
+  { name: '資生堂', kana: 'しせいどう', aliases: ['SHISEIDO'], maker: true },
   { name: 'エリクシール', aliases: ['ELIXIR'] },
   { name: 'アネッサ', aliases: ['ANESSA'] },
   { name: 'dプログラム', kana: 'ディープログラム', aliases: ['d program'] },
@@ -29,13 +31,13 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: '専科', kana: 'せんか', aliases: ['SENKA'] },
   { name: 'イハダ', aliases: ['IHADA'] },
   // 花王・カネボウ
-  { name: '花王', kana: 'かおう', aliases: ['Kao'] },
+  { name: '花王', kana: 'かおう', aliases: ['Kao'], maker: true },
   { name: 'キュレル', aliases: ['Curel', 'Curél'] },
   { name: 'ビオレ', aliases: ['Biore', 'Bioré'] },
   { name: 'ソフィーナ', aliases: ['SOFINA'] },
   { name: 'エスト', aliases: ['est'] },
   { name: 'ニベア', aliases: ['NIVEA'] }, // バイヤスドルフのブランド。日本ではニベア花王が販売
-  { name: 'カネボウ', aliases: ['KANEBO'] },
+  { name: 'カネボウ', aliases: ['KANEBO'], maker: true },
   { name: 'ルナソル', aliases: ['LUNASOL'] },
   { name: 'ケイト', aliases: ['KATE'] },
   { name: 'コフレドール', aliases: ['COFFRET D\'OR'] },
@@ -46,7 +48,7 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'アリィー', aliases: ['ALLIE'] },
   { name: 'エビータ', aliases: ['EVITA'] },
   // コーセー
-  { name: 'コーセー', aliases: ['KOSE', 'KOSÉ'] },
+  { name: 'コーセー', aliases: ['KOSE', 'KOSÉ'], maker: true },
   { name: '雪肌精', kana: 'せっきせい', aliases: ['SEKKISEI'] },
   { name: 'コスメデコルテ', aliases: ['COSME DECORTE'] },
   { name: 'ジルスチュアート', aliases: ['JILL STUART'] },
@@ -60,12 +62,12 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'アディクション', aliases: ['ADDICTION'] },
   { name: 'カルテHD', kana: 'カルテエイチディー', aliases: ['Carté HD'] },
   // ポーラ・オルビス
-  { name: 'ポーラ', aliases: ['POLA'] },
+  { name: 'ポーラ', aliases: ['POLA'], maker: true },
   { name: 'オルビス', aliases: ['ORBIS'] },
   { name: 'ディセンシア', aliases: ['DECENCIA'] },
   { name: 'THREE', kana: 'スリー' },
   // ロート製薬
-  { name: 'ロート製薬', kana: 'ろーとせいやく', aliases: ['ROHTO', 'ロート'] },
+  { name: 'ロート製薬', kana: 'ろーとせいやく', aliases: ['ROHTO', 'ロート'], maker: true },
   { name: '肌ラボ', kana: 'はだらぼ', aliases: ['Hada Labo', 'ハダラボ'] },
   { name: 'メラノCC', kana: 'めらのしーしー', aliases: ['Melano CC'] },
   { name: 'オバジ', aliases: ['Obagi'] },

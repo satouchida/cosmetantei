@@ -253,9 +253,26 @@ async function handlePost(request: NextRequest) {
       });
     }
 
-    // 2a. お店の商品検索の製品（入力途中の候補。JAN コードなし）の成分を調べる（ボタン操作）。
-    //     検索語はブランド名と、飾りを外した商品名だけ。保存済みの製品に無ければ Web リサーチ（有料・予算内）
+    // 2a. お店の商品検索の製品（入力途中の候補）の成分を調べる（ボタン操作）。JAN コードがあれば、まずバーコードで。
+    //     見つからなければ商品名で：検索語はブランド名と、飾りを外した商品名だけ。保存済みの製品に無ければ
+    //     Web リサーチ（有料・予算内）
     if (action === 'lookup_product' && selectedProduct && selectedProduct.id.startsWith('shop_')) {
+      // バーコードは、数字を入力したときと同じ照合（個人の文章ではない）。お店に確かめる前に調べてよい
+      // （送られた製品の barcode 欄は検証していないので、文字列のときだけ使う）
+      const sentBarcode: unknown = selectedProduct.barcode;
+      const shopBarcode = typeof sentBarcode === 'string' ? sentBarcode.replace(/[\s\-_]/g, '') : '';
+      const triedBarcode = BARCODE_PATTERN.test(shopBarcode);
+      const fromBarcode = triedBarcode ? await lookupByBarcode(shopBarcode) : null;
+      // 全成分の無い結果（Open Beauty Facts に JAN だけある）は使わず、商品名で調べる
+      const byBarcode = fromBarcode && !hasNoIngredients(fromBarcode) ? fromBarcode : null;
+      if (byBarcode) {
+        const analysis = analyzeProduct(byBarcode);
+        return NextResponse.json({
+          reply: summarizeProductAnalysis(analysis, shopBarcode),
+          singleAnalysis: analysis,
+          quickReplies: singleAnalysisReplies(byBarcode, '🔍 他のコスメも調べる'),
+        });
+      }
       // ブラウザから届いた名前は使わない。一覧のブランドの製品として、お店がいま返す製品だけを認め、
       // その名前（サーバーが取り直したもの）で調べる。お店の API は無料（呼び出しは全体で数える）
       const brand = findBrand(selectedProduct.brand, buildBrandIndex(COSMETICS_DATABASE));
@@ -272,9 +289,14 @@ async function handlePost(request: NextRequest) {
       const query = shopProductQuery(listed);
       const found = query ? await searchCosmeticsLive(query, 6, { webResearch: true }) : [];
       if (found.length === 0) {
+        // バーコードで調べた後なら、バーコードの読み取りは勧めない
         return NextResponse.json({
-          reply: 'この商品の成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
-          quickReplies: ['📸 バーコードをスキャンする', '📝 成分表示を入力する', '🔍 別のコスメを調べる'],
+          reply: triedBarcode
+            ? 'この商品の成分表示は、バーコードでも商品名でも見つかりませんでした。パッケージの成分表示を入力してください。'
+            : 'この商品の成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
+          quickReplies: triedBarcode
+            ? ['📝 成分表示を入力する', '🔍 別のコスメを調べる']
+            : ['📸 バーコードをスキャンする', '📝 成分表示を入力する', '🔍 別のコスメを調べる'],
         });
       }
       return NextResponse.json({

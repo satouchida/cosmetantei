@@ -565,22 +565,25 @@ export const ChatContainer: React.FC = () => {
     if (!textToSend) inputRef.current?.focus();
   };
 
-  const handleBarcodeScanned = async (barcode: string, label?: string) => {
+  const handleBarcodeScanned = async (barcode: string) => {
     setIsScannerOpen(false);
     await runChatAction(
-      label ?? `📷 バーコード（${barcode}）をスキャンしました`,
+      `📷 バーコード（${barcode}）をスキャンしました`,
       { action: 'barcode_lookup', barcode, routine },
       (data) => pickReply(data, ['singleAnalysis', 'quickReplies']),
       { loadingText: `バーコードの商品を調べています${LONG_WAIT_NOTE}...` }
     );
   };
 
-  /** お店の商品検索の製品（JAN コードなし）の成分を、商品名で調べる。見つかった製品を候補として出す */
+  /**
+   * お店の商品検索の製品の成分を調べる。サーバーは JAN コードがあればまずバーコードで調べ（見つかれば分析）、
+   * 無ければ・見つからなければ商品名で調べて、見つかった製品を候補として出す
+   */
   const lookupShopProduct = async (product: Product) => {
     await runChatAction(
       `「${product.name}」の成分を詳しく知りたい`,
       { action: 'lookup_product', selectedProduct: product },
-      (data) => pickReply(data, ['productSuggestions', 'quickReplies']),
+      (data) => pickReply(data, ['singleAnalysis', 'productSuggestions', 'quickReplies']),
       { loadingText: 'Webで成分を調べています（1分ほどかかることがあります）...' }
     );
   };
@@ -639,10 +642,9 @@ export const ChatContainer: React.FC = () => {
   };
 
   const handleSelectProductToAnalyze = async (product: Product) => {
-    // お店の商品検索の製品は成分が分からない。JAN コードがあればバーコードで、無ければ名前で調べる
+    // お店の商品検索の製品は成分が分からない。サーバーがバーコード、商品名の順に調べる
     if (product.id.startsWith('shop_')) {
-      if (product.barcode) await handleBarcodeScanned(product.barcode, `「${product.name}」の成分を詳しく知りたい`);
-      else await lookupShopProduct(product);
+      await lookupShopProduct(product);
       return;
     }
     await runChatAction(

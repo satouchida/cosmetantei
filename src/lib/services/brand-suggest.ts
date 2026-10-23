@@ -197,3 +197,32 @@ export function findBrand(name: string, brands: IndexedBrand[]): IndexedBrand | 
   const key = searchKey(name);
   return (key && brands.find((b) => searchKey(b.entry.name) === key)) || null;
 }
+
+// ---------- 表示 ----------
+
+/** 一覧のブランドの、名前・読み・別の書き方のキー → ブランド */
+let seedByKey: Map<string, BrandEntry> | null = null;
+
+/**
+ * brand 欄の書き方の揺れ（「Curel」「キュレル / curel」「花王 / キュレル」）を、一覧のブランド名にそろえる（表示だけ）。
+ * 「/」「,」「、」で区切ったどの部分も、一覧のブランドの名前・読み・別の書き方と同じときだけ。
+ * 語の一部では照らさない（「Kate Somerville」をケイトにしない）。会社名とブランド名が並んでいればブランド名。
+ * 一覧に無い部分がある・会社でないブランドが2つ以上ある → null（brand 欄のまま表示する）
+ */
+export function listedBrandName(brandField: string): string | null {
+  if (!seedByKey) {
+    seedByKey = new Map();
+    for (const b of SEED_INDEX) for (const k of b.keys) if (!seedByKey.has(k)) seedByKey.set(k, b.entry);
+  }
+  const found = new Set<BrandEntry>();
+  for (const part of brandField.split(/[/／,，、]/)) {
+    const key = searchKey(part);
+    if (!key) continue;
+    const entry = seedByKey.get(key);
+    if (!entry) return null;
+    found.add(entry);
+  }
+  const brands = [...found].filter((e) => !e.maker);
+  const shown = brands.length > 0 ? brands : [...found];
+  return shown.length === 1 ? shown[0].name : null;
+}

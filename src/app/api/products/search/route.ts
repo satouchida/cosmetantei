@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isActualCosmeticProduct, searchCosmeticsLive } from '@/lib/services/search-barcode-service';
 import { brandProducts, BrandSuggestion, buildBrandIndex, resolveBrand, suggestBrands } from '@/lib/services/brand-suggest';
-import { searchKey } from '@/lib/search/product-match';
+import { onePerBarcode, searchKey } from '@/lib/search/product-match';
 import {
   cacheGetJSON,
   cachePutJSON,
@@ -50,16 +50,16 @@ async function handleGet(request: NextRequest) {
   // brand: 検索語の先頭のブランドと残りの語。ブラウザはこれで、お店の製品一覧（/api/products/lineup）を取って絞り込む
   const brand = resolved ? { name: resolved.brand.entry.name, rest: resolved.rest } : null;
   // 保存済みの製品は毎回読み直す（キャッシュには外部の結果だけを入れ、新しく調べた製品がすぐ出るように）
+  // 同じ JAN の製品（ブランドの製品と検索結果の両方にある、別のサイトで調べたもの）は1つにする
   const withBrandFirst = (external: Product[]) => {
-    const out = byBrand.slice(0, limit);
+    const out = [...byBrand];
     for (const p of external) {
-      if (out.length >= limit) break;
       if (!out.some((r) => r.id === p.id)) out.push(p);
     }
-    return out;
+    return onePerBarcode(out, isVerified).slice(0, limit);
   };
   // 保存済みのブランドの製品だけで足りるなら、外部に問い合わせない
-  if (byBrand.length >= limit) {
+  if (onePerBarcode(byBrand, isVerified).length >= limit) {
     return NextResponse.json({ query: q, results: withBrandFirst([]), brands, brand });
   }
 

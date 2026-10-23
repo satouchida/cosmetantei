@@ -71,10 +71,12 @@ async function inspectPage() {
     return `${parts.join(' > ')}${text ? ` 「${text}」` : ''}`;
   };
   const hiddenFromView = (el) => {
-    for (let e = el; e; e = e.parentElement) {
+    for (let e = el, child = null; e; child = e, e = e.parentElement) {
       const cs = getComputedStyle(e);
       if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return true;
       if (e.classList?.contains('sr-only')) return true;
+      // 閉じた details の中身（summary 以外）。Chrome は content-visibility で隠すので、display では分からない
+      if (e.tagName === 'DETAILS' && !e.open && child && child.tagName !== 'SUMMARY') return true;
     }
     return false;
   };

@@ -4396,7 +4396,8 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
           headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           action: 'lookup_product',
-          selectedProduct: { ...lineup.products[1], id: 'shop_rakuten_forged', name: '私の頬が赤くなった化粧水' },
+          // バーコードは先に照合する（数字の入力と同じ）ので外す。バーコードつきは test 123
+          selectedProduct: { ...lineup.products[1], id: 'shop_rakuten_forged', name: '私の頬が赤くなった化粧水', barcode: undefined },
         }),
       })
     );
@@ -7202,5 +7203,137 @@ test('122. Analysis card: ingredients outside the Japanese standard are marked, 
   for (const t of texts) {
     assert.ok(!/試して|刺激になりにくい/.test(t), t);
     assert.ok(!hasProhibitedClaim(t), t);
+  }
+});
+
+test('123. Live review fixes: shop cards looked up by barcode then name, one card per JAN code, one spelling per listed brand, shorter green box (2026-10-23)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { POST } = await import('../src/app/api/chat/route');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { onePerBarcode } = await import('../src/lib/search/product-match');
+  const { getDisplayBrand } = await import('../src/lib/display-brand');
+  const { NextRequest } = await import('next/server');
+  const base = { country: 'JP', category: 'cream', descriptionJa: '' } as const;
+  const originalFetch = globalThis.fetch;
+  const sent: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input);
+    sent.push(`${decodeURIComponent(url)} ${typeof init?.body === 'string' ? init.body : ''}`);
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  const post = (selectedProduct: unknown) =>
+    POST(
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'lookup_product', selectedProduct }),
+      })
+    );
+  try {
+    // 1. お店の製品の JAN コードが保存済みの製品にあれば、外へ問い合わせずにその製品を分析する
+    addProductToDynamicCache({
+      ...base,
+      id: 't123_milk',
+      brand: 'Curel',
+      name: 'キュレル 潤浸保湿 乳液',
+      barcode: '4901301236173',
+      ingredients: ['水', 'グリセリン'],
+      ingredientSource: 'web_page',
+    });
+    const shopCard = { ...base, id: 'shop_yahoo_store_9', brand: 'キュレル', name: 'キュレル 潤浸保湿 乳液 120ml', barcode: '4901301236173', ingredients: [] };
+    const hit = (await (await post(shopCard)).json()) as { singleAnalysis?: { product: { id: string } } };
+    assert.strictEqual(hit.singleAnalysis?.product.id, 't123_milk');
+    assert.strictEqual(sent.length, 0, 'A saved barcode: no outside call');
+
+    // 2. 分からないバーコード：商品名の検索へ進むが、ブラウザから届いた名前は外へ送らない（お店が返さない製品）
+    const forged = (await (
+      await post({ ...shopCard, id: 'shop_rakuten_forged', name: '私の頬が赤くなった化粧水', barcode: '4901301999990' })
+    ).json()) as { singleAnalysis?: unknown; productSuggestions?: unknown };
+    assert.strictEqual(forged.singleAnalysis, undefined);
+    assert.strictEqual(forged.productSuggestions, undefined);
+    assert.ok(sent.every((s) => !s.includes('頬')), 'The name sent by the browser never leaves the server');
+    // バーコードで見つかっても全成分が無ければ（成分の代わりの文だけ）、分析にせず商品名の検索へ進む
+    addProductToDynamicCache({
+      ...base,
+      id: 't123_no_list',
+      brand: 'キュレル',
+      name: 'キュレル 潤浸保湿 美容液',
+      barcode: '4901301000099',
+      ingredients: ['成分情報はGoogle検索およびオンラインマーケットプレイスより補完'],
+    });
+    const noList = (await (await post({ ...shopCard, id: 'shop_yahoo_store_99', barcode: '4901301000099' })).json()) as {
+      singleAnalysis?: unknown;
+    };
+    assert.strictEqual(noList.singleAnalysis, undefined, 'No analysis of a placeholder list');
+    // barcode 欄は検証していないので、文字列でなければ使わない（エラーにしない）
+    assert.strictEqual((await post({ ...shopCard, id: 'shop_rakuten_odd', barcode: 4901301236173 })).status, 200);
+
+    // 3. 同じ JAN（先頭の 0 は無視）は1つ。全成分を確認したものを、前の方の位置に残す。違う JAN・JAN なしはまとめない
+    const p = (id: string, barcode?: string, verified = false) => ({
+      ...base,
+      id,
+      brand: 'キュレル',
+      name: id,
+      barcode,
+      ingredients: verified ? ['水'] : [],
+    });
+    assert.deepStrictEqual(
+      onePerBarcode(
+        [p('a', '04901301236173'), p('c', '4901301413277'), p('b', '4901301236173', true), p('d'), p('e')],
+        (x) => x.ingredients.length > 0
+      ).map((x) => x.id),
+      ['b', 'c', 'd', 'e']
+    );
+    // 検索結果でも：kao-kirei.com と cosme.net の同じ乳液は1枚、JAN の違う乳液は残す
+    addProductToDynamicCache({
+      ...base,
+      id: 't123_milk_net',
+      brand: '花王 / キュレル',
+      name: 'キュレル 潤浸保湿 乳液 本体',
+      barcode: '4901301236173',
+      ingredients: ['水', 'グリセリン'],
+      ingredientSource: 'web_page',
+    });
+    addProductToDynamicCache({
+      ...base,
+      id: 't123_milk_renewed',
+      brand: 'キュレル / curel',
+      name: 'キュレル 潤浸保湿 乳液 リニューアル',
+      barcode: '4901301413277',
+      ingredients: ['水', 'グリセリン'],
+      ingredientSource: 'web_page',
+    });
+    const found = await searchCosmeticsLive('キュレル 潤浸保湿 乳液', 6, { openBeautyFacts: false });
+    const ids = found.map((x) => x.id).filter((id) => id.startsWith('t123_'));
+    assert.strictEqual(ids.filter((id) => id === 't123_milk' || id === 't123_milk_net').length, 1, ids.join());
+    assert.ok(ids.includes('t123_milk_renewed'), ids.join());
+
+    // 4. ブランドの表示：一覧のブランドの名前にそろえる。語の一部では照らさない。会社名とブランド名ならブランド名
+    const shown = (brand: string) => getDisplayBrand(brand, '乳液');
+    assert.strictEqual(shown('Curel'), 'キュレル');
+    assert.strictEqual(shown('キュレル / curel'), 'キュレル');
+    assert.strictEqual(shown('花王 / キュレル'), 'キュレル');
+    assert.strictEqual(shown('ロート製薬, 肌ラボ'), '肌ラボ');
+    assert.strictEqual(shown('Kao'), '花王');
+    assert.strictEqual(shown('KATE'), 'ケイト');
+    assert.strictEqual(shown('Kate Somerville'), 'Kate Somerville');
+    assert.strictEqual(shown('花王 / キュレル / ビオレ'), '花王 / キュレル / ビオレ', 'Two brands: as written');
+    assert.strictEqual(shown('花王 / 知らないブランド'), '花王 / 知らないブランド', 'An unlisted part: as written');
+
+    // 5. ブラウザ：お店の製品はすべて lookup_product（分析も候補も受け取る）。緑の欄は2つまで出し、残りは開いて読む
+    const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+    assert.ok(!chat.includes('handleBarcodeScanned(product.barcode'));
+    assert.ok(chat.includes("pickReply(data, ['singleAnalysis', 'productSuggestions', 'quickReplies'])"));
+    const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+    assert.ok(card.includes('const SOOTHING_SHOWN = 2;'));
+    const box = card.slice(card.indexOf('soothingHighlightsJa.length > 0'), card.indexOf('aiIngredients.length > 0 &&'));
+    assert.ok(box.indexOf('soothingHighlightsJa.slice(0, SOOTHING_SHOWN)') < box.indexOf('<details>'));
+    assert.ok(box.indexOf('<details>') < box.indexOf('soothingHighlightsJa.slice(SOOTHING_SHOWN)'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const id of ['t123_milk', 't123_milk_net', 't123_milk_renewed', 't123_no_list']) {
+      const i = COSMETICS_DATABASE.findIndex((x) => x.id === id);
+      if (i >= 0) COSMETICS_DATABASE.splice(i, 1);
+    }
   }
 });

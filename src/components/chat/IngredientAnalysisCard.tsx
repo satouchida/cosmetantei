@@ -82,6 +82,9 @@ function adviceFor(ing: AnalyzedIngredient): string {
   );
 }
 
+/** 肌を整える・うるおいを保つ成分のうち、開かずに見える数 */
+const SOOTHING_SHOWN = 2;
+
 /** 1回目で評価できなかったとき、もう1回頼むまでの時間（見つけたばかりの製品が、ほかのサーバーに届くのを待つ） */
 const AI_RETRY_DELAY_MS = 4_000;
 /** AI の評価・解説の1回の要求の上限。超えたら中断して、もう一度頼めるようにする */
@@ -471,13 +474,28 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             <Sparkles className="w-4 h-4" aria-hidden />
             <span>肌を整える・うるおいを保つ成分</span>
           </h3>
+          {/* スマホで全成分リストが画面の外に押し出されないよう、最初の2つだけ出し、残りは開いて読む */}
           <ul role="list" className="space-y-1.5">
-            {soothingHighlightsJa.map((h, i) => (
+            {soothingHighlightsJa.slice(0, SOOTHING_SHOWN).map((h, i) => (
               <li key={i} className={panel('safe')}>
                 {h}
               </li>
             ))}
           </ul>
+          {soothingHighlightsJa.length > SOOTHING_SHOWN && (
+            <details>
+              <summary className="py-3 cursor-pointer text-sm leading-5 font-semibold text-emerald-800">
+                ほか{soothingHighlightsJa.length - SOOTHING_SHOWN}成分の説明
+              </summary>
+              <ul role="list" className="space-y-1.5">
+                {soothingHighlightsJa.slice(SOOTHING_SHOWN).map((h, i) => (
+                  <li key={i} className={panel('safe')}>
+                    {h}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </section>
       )}
 

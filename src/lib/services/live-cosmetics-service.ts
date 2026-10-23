@@ -16,7 +16,7 @@ import { isShopListingProduct } from '../product-source';
 import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
-import { rankProducts, searchKey } from '../search/product-match';
+import { onePerBarcode, rankProducts, searchKey } from '../search/product-match';
 
 /**
  * 検索文字列の正規化（全角半角・大文字小文字・不要記号の統一）
@@ -517,7 +517,8 @@ export async function searchCosmeticsLive(
   // お店の商品名は変えずに表示するので、【公式】・送料無料などの飾りを外した名前で、コスメかどうかを確かめる
   const isCosmetic = (p: Product) =>
     isActualCosmeticProduct(isShopListingProduct(p) ? { ...p, name: withoutListingNoise(p.name) } : p);
-  const validProducts = collected.filter(isCosmetic).slice(0, limit);
+  // 別のサイトで調べた同じ JAN の製品は1つにする（全成分を確認したものを残す）
+  const validProducts = onePerBarcode(collected, hasVerifiedIngredientList).filter(isCosmetic).slice(0, limit);
 
   // E. Clef による検索語との照合（SEARCH_FILTER_MODE。既定は off）。空の検索・挨拶は照合しない
   return filterSearchResults(clean && !isGreetingOrConsultation(clean) ? clean : '', validProducts);

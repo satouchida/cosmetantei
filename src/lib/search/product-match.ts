@@ -103,3 +103,25 @@ export function rankProducts(products: Product[], query: string, isVerified: (p:
   // sort は安定なので、同じ点数なら元の順（新しく調べた製品が先）
   return matched.sort((a, b) => b.score - a.score).map((s) => s.product);
 }
+
+/**
+ * 同じ JAN コードの製品を1つにする（別のサイトで調べた同じ製品が、候補に2回出ないように）。
+ * 残すのは全成分を確認した最初のもの、無ければ最初のもの。前の方の位置に置く。
+ * バーコードの無い製品・違うバーコードの製品はまとめない（詰め替え・リニューアルは JAN が違う。名前だけでは比べない）
+ */
+export function onePerBarcode(products: Product[], isVerified: (p: Product) => boolean = () => false): Product[] {
+  const out: Product[] = [];
+  const at = new Map<string, number>();
+  for (const p of products) {
+    // lookupByBarcode と同じく、数字だけにして先頭の 0 を外して比べる
+    const code = (p.barcode ?? '').replace(/[^0-9]/g, '').replace(/^0+/, '');
+    const i = code ? at.get(code) : undefined;
+    if (i === undefined) {
+      if (code) at.set(code, out.length);
+      out.push(p);
+    } else if (!isVerified(out[i]) && isVerified(p)) {
+      out[i] = p;
+    }
+  }
+  return out;
+}
