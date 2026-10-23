@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
+import { productLabel } from '@/lib/display-brand';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { ChatResponse, postChat } from '@/lib/client/chat-request';
 import { MessageCardBoundary } from './MessageCardBoundary';
@@ -648,7 +649,7 @@ export const ChatContainer: React.FC = () => {
       return;
     }
     await runChatAction(
-      `「${product.brand} ${product.name}」の成分を詳しく知りたい`,
+      `「${productLabel(product)}」の成分を詳しく知りたい`,
       { action: 'analyze_single', selectedProduct: product, routine },
       (data) => pickReply(data, ['singleAnalysis', 'quickReplies'])
     );

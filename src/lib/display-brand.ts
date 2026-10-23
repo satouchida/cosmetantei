@@ -1,4 +1,5 @@
 import { listedBrandName } from './services/brand-suggest';
+import type { Product } from './types';
 
 /**
  * UI表示用の安全なブランド名取得（クライアントでも使えるよう、サーバー専用モジュールに依存しない）
@@ -21,4 +22,10 @@ export function getDisplayBrand(
     }
   }
   return '実在コスメ';
+}
+
+/** 「ブランド 商品名」。商品名にブランド名（「ちふれ化粧品 / ちふれ」のどれか）が入っていれば商品名だけ */
+export function productLabel(p: Pick<Product, 'brand' | 'name'>): string {
+  const tokens = p.brand.split(/[/／・|,、]/).map((t) => t.trim()).filter((t) => t.length >= 2);
+  return tokens.some((t) => p.name.includes(t)) ? p.name : [p.brand, p.name].filter(Boolean).join(' ');
 }

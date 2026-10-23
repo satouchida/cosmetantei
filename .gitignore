@@ -48,6 +48,7 @@ AGENTS.md
 
 # 規約・プライバシーポリシーの原稿（公開版は src/app/terms・src/app/privacy）
 /docs/legal/
+/docs/legal/pre-publish-legal-audit-report.md
 /docs/terms-and-privacy-drafts.md
 # Playwright CLI output (may contain credentials)
 .playwright-cli/

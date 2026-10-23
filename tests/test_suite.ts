@@ -7337,3 +7337,122 @@ test('123. Live review fixes: shop cards looked up by barcode then name, one car
     }
   }
 });
+
+test('124. Second live review: no ingredient-less candidates from a shop card, honest no-data reply, brand once, no ふるさと納税 listings (2026-10-23)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { POST } = await import('../src/app/api/chat/route');
+  const { brandLineup, shopProductQuery } = await import('../src/lib/services/shop-lineup');
+  const { buildBrandIndex, findBrand } = await import('../src/lib/services/brand-suggest');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { summarizeProductAnalysis } = await import('../src/lib/services/chat-replies');
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { NOT_SINGLE_ITEM } = await import('../src/lib/services/price-service');
+  const { productLabel } = await import('../src/lib/display-brand');
+  const { hasProhibitedClaim } = await import('../src/lib/wording');
+  const { noIngredientsLotion } = await import('../src/lib/dev/gallery-fixtures');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { NextRequest } = await import('next/server');
+
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({
+        items: [
+          { itemName: '【ふるさと納税】花王 キュレル 潤浸保湿 乳液 120ml', itemCode: 'furusato:1', itemUrl: 'https://item.rakuten.co.jp/furusato/1/', availability: 1, itemPrice: 10000 },
+          { itemName: 'キュレル ぷるぷる化粧水テスト 150ml', itemCode: 'kao:7', itemUrl: 'https://item.rakuten.co.jp/kao/7/', availability: 1, itemPrice: 1500 },
+        ],
+      });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') return Response.json({ hits: [] });
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    resetSpendCap();
+
+    // ふるさと納税の返礼品は、お店の候補に出さない（名前は変えず、飛ばすだけ）
+    assert.ok(NOT_SINGLE_ITEM.test('【ふるさと納税】花王 キュレル 潤浸保湿 乳液 120ml'));
+    assert.ok(NOT_SINGLE_ITEM.test('キュレル 乳液 返礼品'));
+    assert.ok(!NOT_SINGLE_ITEM.test('キュレル 潤浸保湿 乳液 120ml'));
+    const curel = findBrand('キュレル', buildBrandIndex([]))!;
+    const lineup = await brandLineup(curel);
+    assert.deepStrictEqual(
+      lineup.products.map((p) => p.id),
+      ['shop_rakuten_kao:7']
+    );
+
+    // お店の商品名で調べて、成分の分からない製品しか無ければ、候補に出さず「見つからない」と返す
+    addProductToDynamicCache({
+      id: 't124_no_list',
+      brand: 'キュレル',
+      name: 'キュレル ぷるぷる化粧水テスト',
+      country: 'JP',
+      category: 'toner',
+      descriptionJa: '',
+      ingredients: ['成分情報はGoogle検索およびオンラインマーケットプレイスより補完'],
+      isEstimatedFromMarketplaces: true,
+    });
+    const query = shopProductQuery(lineup.products[0])!;
+    assert.ok(
+      (await searchCosmeticsLive(query, 6, { webResearch: true })).some((p) => p.id === 't124_no_list'),
+      'Before the filter, the search finds the product without a list'
+    );
+    const res = await POST(
+      new NextRequest('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'lookup_product', selectedProduct: lineup.products[0] }),
+      })
+    );
+    const data = (await res.json()) as { reply: string; productSuggestions?: unknown; quickReplies?: string[] };
+    assert.strictEqual(data.productSuggestions, undefined);
+    assert.ok(data.reply.includes('見つかりませんでした'), data.reply);
+    assert.ok(data.quickReplies?.includes('📝 成分表示を入力する'));
+
+    // 全成分が分からない製品の返答：「確認しました」と書かず、カードの説明を繰り返さない
+    const noData = analyzeProduct(noIngredientsLotion);
+    assert.strictEqual(noData.overallRiskLevel, 'insufficient_data');
+    for (const reply of [summarizeProductAnalysis(noData), summarizeProductAnalysis(noData, '4901234567894')]) {
+      assert.ok(reply.includes('全成分は見つかりませんでした'), reply);
+      assert.ok(!reply.includes('成分を確認しました') && !reply.includes(noData.summaryJa), reply);
+      assert.ok(!hasProhibitedClaim(reply), reply);
+    }
+    // 成分はあるが、評価できた成分が少ない製品（判定できないのは同じ）は「確認しました」と理由のまま
+    const fewRated = analyzeProduct({ ...noIngredientsLotion, ingredients: ['ゾゾゾ', 'ポポポ', 'ラララ', '水'] });
+    assert.strictEqual(fewRated.overallRiskLevel, 'insufficient_data');
+    assert.ok(fewRated.ingredients.length > 0);
+    const fewReply = summarizeProductAnalysis(fewRated);
+    assert.ok(fewReply.includes('成分を確認しました') && fewReply.includes(fewRated.summaryJa), fewReply);
+    assert.ok(!fewReply.includes('全成分は見つかりませんでした'), fewReply);
+    // 成分のある製品は今までどおり
+    assert.ok(summarizeProductAnalysis(analyzeProduct({ ...noIngredientsLotion, ingredients: ['水', 'グリセリン'] })).includes('成分を確認しました'));
+
+    // 「ブランド 商品名」：商品名にブランド名があれば商品名だけ
+    assert.strictEqual(productLabel({ brand: 'セタフィル', name: 'セタフィル モイスチャライジングローション' }), 'セタフィル モイスチャライジングローション');
+    assert.strictEqual(productLabel({ brand: '花王 / キュレル', name: 'キュレル 潤浸保湿 乳液' }), 'キュレル 潤浸保湿 乳液');
+    assert.strictEqual(productLabel({ brand: 'キュレル', name: '潤浸保湿 乳液' }), 'キュレル 潤浸保湿 乳液');
+
+    // ブラウザ：送る文はブランドを1回だけ。成分が無ければ全成分リストを出さない
+    const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+    assert.ok(chat.includes('`「${productLabel(product)}」の成分を詳しく知りたい`'));
+    assert.ok(!chat.includes('`「${product.brand} ${product.name}」'));
+    const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+    assert.match(card, /\{ingredients\.length > 0 && \(\s*<section>\s*<div[^>]*>\s*<h3[^>]*>全成分リスト/);
+    const replies = readFileSync('src/lib/services/chat-replies.ts', 'utf8');
+    assert.ok(!replies.includes('function productLabel'), 'One copy, in display-brand.ts');
+  } finally {
+    globalThis.fetch = originalFetch;
+    const i = COSMETICS_DATABASE.findIndex((p) => p.id === 't124_no_list');
+    if (i >= 0) COSMETICS_DATABASE.splice(i, 1);
+    for (const k of SHOP_ENV) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+    resetSpendCap();
+  }
+});

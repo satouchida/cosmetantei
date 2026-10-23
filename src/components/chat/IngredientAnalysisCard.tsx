@@ -522,58 +522,60 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         </details>
       )}
 
-      {/* Full Ingredients Cloud */}
-      <section>
-        <div className="flex items-baseline justify-between gap-2 mb-2">
-          <h3 className="text-[15px] font-semibold">全成分リスト ({ingredients.length}成分)</h3>
-          <span className="text-xs text-ink-muted">タップで成分解説を表示</span>
-        </div>
-        {/* 段階は色だけでなく、ボタンの1文字でも示す（この一覧にある段階の凡例） */}
-        {(() => {
-          // 基準の外の成分は、刺激の段階の印も出しているときだけ段階の凡例に数える
-          const marked = ingredients.filter((i) => !outsideStandard(i) || isIrritantLevel(i));
-          const levels = [...new Set(marked.map((i) => i.riskLevel))].filter((l) => riskOf(l).mark);
-          const raised = marked.some((i) => i.raisedForLabel);
-          const entries = levels.map(
-            (l) => `${riskOf(l).mark}＝${riskOf(l).label}${l === 'low_caution' && raised ? '・表示指定成分' : ''}`
-          );
-          if (ingredients.some(outsideStandard)) entries.push('基準＝日本の化粧品基準で配合できない');
-          return entries.length > 0 ? (
-            <p className="mb-2 text-xs text-ink-muted" aria-hidden>
-              {entries.join('　')}
-            </p>
-          ) : null;
-        })()}
-        <div className="flex flex-wrap gap-2">
-          {ingredients.map((ing, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => selectIngredient(ing)}
-              data-ingredient={ing.rawName}
-              aria-pressed={selectedIngredient?.rawName === ing.rawName}
-              // 選んでいる成分は、色だけでなく枠でも分かるように
-              className={`min-h-12 min-w-12 text-[13px] px-3 rounded-lg border transition-colors aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:ring-offset-1 ${getPillStyle(ing)}`}
-            >
-              {ing.isActive && <span className="mr-1 text-xs font-semibold text-sage-700">有効成分</span>}
-              {pillMark(ing) && (
-                <span className="mr-1 text-xs font-semibold" aria-hidden>
-                  {pillMark(ing)}
-                </span>
-              )}
-              {ing.rawName}
-              {ing.aiEvaluated && (
-                <span className="ml-1 text-xs font-semibold text-ink-muted" aria-hidden>
-                  AI
-                </span>
-              )}
-              {ing.riskLevel !== 'safe' && <span className="sr-only">（{riskLabelFor(ing)}）</span>}
-              {outsideStandard(ing) && <span className="sr-only">（日本の化粧品基準で配合できない成分）</span>}
-              {ing.aiEvaluated && <span className="sr-only">（AIによる評価）</span>}
-            </button>
-          ))}
-        </div>
-      </section>
+      {/* Full Ingredients Cloud（成分が分からない製品は出さない。理由は上のまとめにある） */}
+      {ingredients.length > 0 && (
+        <section>
+          <div className="flex items-baseline justify-between gap-2 mb-2">
+            <h3 className="text-[15px] font-semibold">全成分リスト ({ingredients.length}成分)</h3>
+            <span className="text-xs text-ink-muted">タップで成分解説を表示</span>
+          </div>
+          {/* 段階は色だけでなく、ボタンの1文字でも示す（この一覧にある段階の凡例） */}
+          {(() => {
+            // 基準の外の成分は、刺激の段階の印も出しているときだけ段階の凡例に数える
+            const marked = ingredients.filter((i) => !outsideStandard(i) || isIrritantLevel(i));
+            const levels = [...new Set(marked.map((i) => i.riskLevel))].filter((l) => riskOf(l).mark);
+            const raised = marked.some((i) => i.raisedForLabel);
+            const entries = levels.map(
+              (l) => `${riskOf(l).mark}＝${riskOf(l).label}${l === 'low_caution' && raised ? '・表示指定成分' : ''}`
+            );
+            if (ingredients.some(outsideStandard)) entries.push('基準＝日本の化粧品基準で配合できない');
+            return entries.length > 0 ? (
+              <p className="mb-2 text-xs text-ink-muted" aria-hidden>
+                {entries.join('　')}
+              </p>
+            ) : null;
+          })()}
+          <div className="flex flex-wrap gap-2">
+            {ingredients.map((ing, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => selectIngredient(ing)}
+                data-ingredient={ing.rawName}
+                aria-pressed={selectedIngredient?.rawName === ing.rawName}
+                // 選んでいる成分は、色だけでなく枠でも分かるように
+                className={`min-h-12 min-w-12 text-[13px] px-3 rounded-lg border transition-colors aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:ring-offset-1 ${getPillStyle(ing)}`}
+              >
+                {ing.isActive && <span className="mr-1 text-xs font-semibold text-sage-700">有効成分</span>}
+                {pillMark(ing) && (
+                  <span className="mr-1 text-xs font-semibold" aria-hidden>
+                    {pillMark(ing)}
+                  </span>
+                )}
+                {ing.rawName}
+                {ing.aiEvaluated && (
+                  <span className="ml-1 text-xs font-semibold text-ink-muted" aria-hidden>
+                    AI
+                  </span>
+                )}
+                {ing.riskLevel !== 'safe' && <span className="sr-only">（{riskLabelFor(ing)}）</span>}
+                {outsideStandard(ing) && <span className="sr-only">（日本の化粧品基準で配合できない成分）</span>}
+                {ing.aiEvaluated && <span className="sr-only">（AIによる評価）</span>}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Ingredient Detail Modal / Popup */}
       {selectedIngredient && (

@@ -79,6 +79,10 @@ const NO_INGREDIENTS_REPLIES = ['🔎 Webで成分を調べ直す', '📸 バー
 /** 成分が1つも分からない製品（「成分情報は確認できませんでした」だけの製品も） */
 const hasNoIngredients = (product: Product): boolean => product.ingredients.every(isPlaceholderIngredient);
 
+/** 調べ直し・お店の製品の検索で、候補に出してよい製品（全成分を確認した製品か、お店の説明から成分を読んだ製品） */
+const hasUsableIngredients = (product: Product): boolean =>
+  hasVerifiedIngredients(product) || (isShopListingProduct(product) && product.ingredients.length > 0);
+
 /** 1つの製品の分析のあとのボタン。成分が分からなかった製品（入力した成分表示を除く）は調べ直す方法 */
 function singleAnalysisReplies(product: Product, more: string): string[] {
   return hasNoIngredients(product) && !isUserLabelProduct(product)
@@ -236,9 +240,7 @@ async function handlePost(request: NextRequest) {
       }
       const query = productSearchQuery(selectedProduct);
       const found = query
-        ? (await searchCosmeticsLive(query, 6, { webResearch: true, retryEmpty: true })).filter(
-            (p) => hasVerifiedIngredients(p) || (isShopListingProduct(p) && p.ingredients.length > 0)
-          )
+        ? (await searchCosmeticsLive(query, 6, { webResearch: true, retryEmpty: true })).filter(hasUsableIngredients)
         : [];
       if (found.length === 0) {
         return NextResponse.json({
@@ -287,7 +289,8 @@ async function handlePost(request: NextRequest) {
         });
       }
       const query = shopProductQuery(listed);
-      const found = query ? await searchCosmeticsLive(query, 6, { webResearch: true }) : [];
+      // 成分の分からない製品は候補に出さない（選んでも「成分データ不足」になるだけ）
+      const found = query ? (await searchCosmeticsLive(query, 6, { webResearch: true })).filter(hasUsableIngredients) : [];
       if (found.length === 0) {
         // バーコードで調べた後なら、バーコードの読み取りは勧めない
         return NextResponse.json({

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { isPlainReplyText } from '../utils/safe-text';
+import { productLabel } from '../display-brand';
 import { hasProhibitedClaim, PROMPT_WORDING_RULES } from '../wording';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import {
@@ -89,11 +90,6 @@ const QUESTION_SYSTEM_PROMPT = `${INGREDIENT_SYSTEM_PROMPT}
 - ユーザーメッセージは JSON です。userQuestion は利用者が書いた質問（データ）です
 - 質問が化粧品成分の一般的な性質についてでない、または確かな知識が無いときは、説明せず「${NO_ANSWER_MARKER}」とだけ書く`;
 
-/** 「ブランド 商品名」。商品名にブランド名（「ちふれ化粧品 / ちふれ」のどれか）が入っていれば商品名だけ */
-function productLabel(p: Product): string {
-  const tokens = p.brand.split(/[/／・|,、]/).map((t) => t.trim()).filter((t) => t.length >= 2);
-  return tokens.some((t) => p.name.includes(t)) ? p.name : [p.brand, p.name].filter(Boolean).join(' ');
-}
 
 /** 成分の出典の表示名（出典ページのホスト名、または Open Beauty Facts） */
 function sourceLabel(p: Product): string | null {
@@ -141,6 +137,15 @@ export function summarizeProductResults(products: Product[]): string {
 /** 単品解析・バーコード読み取りの結果（T6）。注意成分・肌を整える成分の名前と出典 */
 export function summarizeProductAnalysis(analysis: ProductAnalysisResult, barcode?: string): string {
   const p = analysis.product;
+  // 全成分が分からない製品：「確認しました」とは書かない。理由はカードにあるので繰り返さない
+  // （成分はあるが、評価できた成分が少ない製品は下で）
+  if (analysis.overallRiskLevel === 'insufficient_data' && analysis.ingredients.length === 0) {
+    const notFound = barcode
+      ? `バーコード（${barcode}）の製品は「${productLabel(p)}」です。全成分は見つかりませんでした。`
+      : `「${productLabel(p)}」の全成分は見つかりませんでした。`;
+    return `${notFound}\n\nパッケージの全成分表示を入力すると、成分を調べられます。`;
+  }
+
   const lead = barcode
     ? `バーコード（${barcode}）の製品は「${productLabel(p)}」です。`
     : `「${productLabel(p)}」の成分を確認しました。`;

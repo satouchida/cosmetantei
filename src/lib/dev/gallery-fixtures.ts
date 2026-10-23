@@ -33,6 +33,18 @@ export const importedCream: Product = {
   amazonSearchUrl: AMAZON,
 };
 
+/** 全成分が見つからなかった製品（お店の商品名で調べて、成分の無い候補だけだったときなど） */
+export const noIngredientsLotion: Product = {
+  id: 'gallery_no_ingredients',
+  name: 'モイスチャライジングローション 591ml',
+  brand: 'テストブランド',
+  country: 'US',
+  category: 'toner',
+  ingredients: ['成分情報はGoogle検索およびオンラインマーケットプレイスより補完'],
+  isEstimatedFromMarketplaces: true,
+  amazonSearchUrl: AMAZON,
+};
+
 /** 楽天の商品説明から成分を読んだ製品（出典のリンクはアフィリエイトのリンク） */
 export const rakutenListing: Product = {
   id: `${SHOP_TEXT_ID_PREFIX}rakuten_gallery`,
