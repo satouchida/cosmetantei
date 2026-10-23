@@ -7,6 +7,7 @@ import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
 import { MedicalNotice } from './MedicalNotice';
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
+import { mildCautionNames } from '@/lib/caution-reason';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { productCategory } from '@/lib/analyzer/product-category';
 import { NETWORK_MESSAGE, TIMEOUT_MESSAGE } from '@/lib/client/chat-request';
@@ -316,6 +317,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     labelReferences,
     outsideJpStandard,
   } = analysis;
+  const mildNames = mildCautionNames(analysis);
 
   const getOverallBadge = (): { title: string; tone: Tone; icon: typeof ShieldCheck } => {
     switch (overallRiskLevel) {
@@ -375,6 +377,13 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 
       {/* Summary Box */}
       <p className="text-sm leading-relaxed">{summaryJa}</p>
+      {/* 「やや注意」の理由が軽度の注意の成分だけのときは、その名前を出す（注意・刺激成分の枠には出ない）。
+          軽い段階なので、色の付いた枠にはしない */}
+      {mildNames.length > 0 && (
+        <p className="text-sm leading-relaxed">
+          {riskOf('low_caution').label}の成分（{mildNames.length}成分）: {mildNames.join('、')}
+        </p>
+      )}
 
       {/* 成分データに無い成分の AI の評価（読み上げで知らせる枠は先に置いておく） */}
       {/* 空のときは間隔を取らない（親の space-y の下余白を消す） */}
@@ -526,7 +535,10 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       {ingredients.length > 0 && (
         <section>
           <div className="flex items-baseline justify-between gap-2 mb-2">
-            <h3 className="text-[15px] font-semibold">全成分リスト ({ingredients.length}成分)</h3>
+            {/* 件数の途中で折り返さない（「(8成」「分)」にしない） */}
+            <h3 className="text-[15px] font-semibold">
+              全成分リスト <span className="whitespace-nowrap">({ingredients.length}成分)</span>
+            </h3>
             <span className="text-xs text-ink-muted">タップで成分解説を表示</span>
           </div>
           {/* 段階は色だけでなく、ボタンの1文字でも示す（この一覧にある段階の凡例） */}

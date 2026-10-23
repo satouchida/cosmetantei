@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { analyzeProduct, checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
 import {
+  aiRatedLotion,
+  aiRatings,
   importedCream,
   longJapanese,
   longLatinName,
@@ -35,6 +37,7 @@ export default async function GalleryPage({
     analysisLatin: analyzeProduct(longLatinName),
     analysisStandard: analyzeProduct(importedCream),
     analysisNoData: analyzeProduct(noIngredientsLotion),
+    analysisAI: analyzeProduct(aiRatedLotion, aiRatings),
     differential: performDifferentialAnalysis(routineProducts.bad, routineProducts.safe),
     differentialBadOnly: performDifferentialAnalysis([melano], []),
     currentUse: checkCurrentUse([retinolSerum, salicylicToner]),

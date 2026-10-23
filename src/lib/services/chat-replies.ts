@@ -107,12 +107,6 @@ function uniq<T>(items: T[]): T[] {
   return Array.from(new Set(items));
 }
 
-/** 「A」「B」「C」ほかN件 */
-function listNames(names: string[], max: number): string {
-  const shown = names.slice(0, max).map((n) => `「${n}」`).join('');
-  return names.length > max ? `${shown}ほか${names.length - max}件` : shown;
-}
-
 /** 商品検索の結果（T6）。件数、全成分を確認できた件数、出典 */
 export function summarizeProductResults(products: Product[]): string {
   const confirmed = products.filter(hasVerifiedIngredients);
@@ -134,43 +128,26 @@ export function summarizeProductResults(products: Product[]): string {
   return parts.join('\n\n');
 }
 
-/** 単品解析・バーコード読み取りの結果（T6）。注意成分・肌を整える成分の名前と出典 */
+/** 単品解析・バーコード読み取りの結果（T6）。製品名・成分の数・出典（判定は下のカード） */
 export function summarizeProductAnalysis(analysis: ProductAnalysisResult, barcode?: string): string {
   const p = analysis.product;
   // 全成分が分からない製品：「確認しました」とは書かない。理由はカードにあるので繰り返さない
   // （成分はあるが、評価できた成分が少ない製品は下で）
-  if (analysis.overallRiskLevel === 'insufficient_data' && analysis.ingredients.length === 0) {
+  if (analysis.ingredients.length === 0) {
     const notFound = barcode
       ? `バーコード（${barcode}）の製品は「${productLabel(p)}」です。全成分は見つかりませんでした。`
       : `「${productLabel(p)}」の全成分は見つかりませんでした。`;
     return `${notFound}\n\nパッケージの全成分表示を入力すると、成分を調べられます。`;
   }
 
-  const lead = barcode
-    ? `バーコード（${barcode}）の製品は「${productLabel(p)}」です。`
-    : `「${productLabel(p)}」の成分を確認しました。`;
-
-  if (analysis.overallRiskLevel === 'insufficient_data') {
-    return `${lead}\n\n${analysis.summaryJa}`;
-  }
-
-  const lines = [`${lead}全${analysis.ingredients.length}成分を解析しました。${analysis.summaryJa}`];
-  const suspects = uniq(analysis.ingredients.filter((i) => i.isSuspect).map((i) => i.normalizedJa));
-  const soothing = uniq(
-    analysis.ingredients
-      .filter((i) => i.category === 'soothing' || i.category === 'barrier_support')
-      .map((i) => i.normalizedJa)
-  );
-  const facts: string[] = [];
-  if (suspects.length > 0) facts.push(`注意したい成分: ${listNames(suspects, 4)}`);
-  if (soothing.length > 0) facts.push(`肌を整える・うるおいを保つ成分: ${listNames(soothing, 3)}`);
+  // 判定・注意成分・肌を整える成分・注意書きはカードだけに出す（カードは AI の評価が届くと変わるが、この文は変わらない）。
+  // ここには変わらないこと（成分の数と出典）だけを書く
   const source = sourceLabel(p);
-  if (source) facts.push(`成分の出典: ${source}`);
-  if (facts.length > 0) lines.push(facts.join('\n'));
-
-  lines.push('成分ごとの説明は下のカードをご覧ください。');
-  if (analysis.dataSourceDisclaimer) lines.push(analysis.dataSourceDisclaimer);
-  return lines.join('\n\n');
+  const confirmed = `全${analysis.ingredients.length}成分を確認しました${source ? `（成分の出典: ${source}）` : ''}。`;
+  const lead = barcode
+    ? `バーコード（${barcode}）の製品は「${productLabel(p)}」です。${confirmed}`
+    : `「${productLabel(p)}」の${confirmed}`;
+  return `${lead}\n\n判定と成分ごとの説明は、下のカードをご覧ください。`;
 }
 
 /**

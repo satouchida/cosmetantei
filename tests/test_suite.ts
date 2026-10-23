@@ -1827,8 +1827,9 @@ test('54. Chat replies: lookups and single products use templates; the cause rep
       selectedProduct: verifiedProduct({ brand: 'テスト', name: '香り化粧水', ingredients: ['水', '香料', 'セラミドNP'] }),
       routine: { badProducts: [], safeProducts: [] },
     });
-    assert.ok(single.reply.includes('「テスト 香り化粧水」') && single.reply.includes('「香料」'), single.reply);
-    assert.ok(single.reply.includes('ヒト型セラミド'), 'Lists soothing ingredients');
+    assert.ok(single.reply.includes('「テスト 香り化粧水」の全3成分を確認しました'), single.reply);
+    // 注意成分・肌を整える成分の名前はカードだけ（AI の評価で変わるため。test 125）
+    assert.ok(!single.reply.includes('「香料」') && single.singleAnalysis.ingredients.some((i: { isSuspect?: boolean }) => i.isSuspect), single.reply);
     assert.strictEqual(gemini.requests.length, 0, 'A single-product reply makes no Gemini call');
 
     const routine = (name: string) => ({
@@ -7429,12 +7430,12 @@ test('124. Second live review: no ingredient-less candidates from a shop card, h
       assert.ok(!reply.includes('成分を確認しました') && !reply.includes(noData.summaryJa), reply);
       assert.ok(!hasProhibitedClaim(reply), reply);
     }
-    // 成分はあるが、評価できた成分が少ない製品（判定できないのは同じ）は「確認しました」と理由のまま
+    // 成分はあるが、評価できた成分が少ない製品（判定できないのは同じ）は「確認しました」（理由はカードに。test 125）
     const fewRated = analyzeProduct({ ...noIngredientsLotion, ingredients: ['ゾゾゾ', 'ポポポ', 'ラララ', '水'] });
     assert.strictEqual(fewRated.overallRiskLevel, 'insufficient_data');
     assert.ok(fewRated.ingredients.length > 0);
     const fewReply = summarizeProductAnalysis(fewRated);
-    assert.ok(fewReply.includes('成分を確認しました') && fewReply.includes(fewRated.summaryJa), fewReply);
+    assert.ok(fewReply.includes('成分を確認しました'), fewReply);
     assert.ok(!fewReply.includes('全成分は見つかりませんでした'), fewReply);
     // 成分のある製品は今までどおり
     assert.ok(summarizeProductAnalysis(analyzeProduct({ ...noIngredientsLotion, ingredients: ['水', 'グリセリン'] })).includes('成分を確認しました'));
@@ -7449,7 +7450,7 @@ test('124. Second live review: no ingredient-less candidates from a shop card, h
     assert.ok(chat.includes('`「${productLabel(product)}」の成分を詳しく知りたい`'));
     assert.ok(!chat.includes('`「${product.brand} ${product.name}」'));
     const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
-    assert.match(card, /\{ingredients\.length > 0 && \(\s*<section>\s*<div[^>]*>\s*<h3[^>]*>全成分リスト/);
+    assert.match(card, /\{ingredients\.length > 0 && \(\s*<section>\s*<div[^>]*>\s*(\{\/\*[^]*?\*\/\}\s*)?<h3[^>]*>\s*全成分リスト/);
     const replies = readFileSync('src/lib/services/chat-replies.ts', 'utf8');
     assert.ok(!replies.includes('function productLabel'), 'One copy, in display-brand.ts');
   } finally {
@@ -7462,4 +7463,81 @@ test('124. Second live review: no ingredient-less candidates from a shop card, h
     }
     resetSpendCap();
   }
+});
+
+test('125. Third live review: the analysis reply states only what the AI rating cannot change; the verdict is on the card (2026-10-23)', async () => {
+  const { summarizeProductAnalysis } = await import('../src/lib/services/chat-replies');
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { hasProhibitedClaim } = await import('../src/lib/wording');
+  const { aiRatedLotion, aiRatings, noIngredientsLotion } = await import('../src/lib/dev/gallery-fixtures');
+
+  // AI の評価の前と後で判定が変わる製品（live: セタフィル。セテアレス-20 が軽度の注意になり「やや注意」へ）
+  const before = analyzeProduct(aiRatedLotion);
+  const after = analyzeProduct(aiRatedLotion, aiRatings);
+  assert.notStrictEqual(before.overallRiskLevel, after.overallRiskLevel, 'The fixture must change verdict after the AI rating');
+
+  const reply = summarizeProductAnalysis(before);
+  assert.ok(reply.startsWith('「テストブランド モイスチャライジングローション」の全8成分を確認しました（成分の出典: example.com）。'), reply);
+  assert.ok(reply.includes('判定と成分ごとの説明は、下のカードをご覧ください。'), reply);
+  // 判定・成分の名前・件数の言い方・注意書きはカードだけ（変わる・重なる）
+  for (const text of [before.summaryJa, after.summaryJa, '注意したい成分', '肌を整える', 'ほか', '見当たりません']) {
+    assert.ok(!reply.includes(text), `${text} / ${reply}`);
+  }
+  // AI の評価の前でも後でも、同じ文（変わらないことだけ）
+  assert.strictEqual(summarizeProductAnalysis(after), reply);
+
+  const withBarcode = summarizeProductAnalysis(before, '4901234567894');
+  assert.ok(withBarcode.startsWith('バーコード（4901234567894）の製品は「テストブランド モイスチャライジングローション」です。全8成分を確認しました'), withBarcode);
+
+  // 出典の無い製品は括弧を付けない。市場の情報から集めた成分の注意書きもカードだけ
+  const marketplace = analyzeProduct({ ...noIngredientsLotion, ingredients: ['水', 'グリセリン', 'パンテノール'] });
+  assert.ok(marketplace.dataSourceDisclaimer);
+  const marketplaceReply = summarizeProductAnalysis(marketplace);
+  assert.ok(marketplaceReply.includes('全3成分を確認しました。') && !marketplaceReply.includes('出典'), marketplaceReply);
+  assert.ok(!marketplaceReply.includes(marketplace.dataSourceDisclaimer!), marketplaceReply);
+
+  // 評価できた成分が少ない製品も同じ形（AI の評価で判定が付くことがある）
+  const fewRated = analyzeProduct({ ...noIngredientsLotion, ingredients: ['ゾゾゾ', 'ポポポ', 'ラララ', '水'] });
+  assert.strictEqual(fewRated.overallRiskLevel, 'insufficient_data');
+  const fewReply = summarizeProductAnalysis(fewRated);
+  assert.ok(fewReply.includes('全4成分を確認しました') && !fewReply.includes(fewRated.summaryJa), fewReply);
+
+  for (const text of [reply, withBarcode, marketplaceReply, fewReply]) assert.ok(!hasProhibitedClaim(text), text);
+
+  // 「下のカードをご覧ください」：この返答を使うところは、どれもカード（singleAnalysis）を一緒に返す
+  const { readFileSync } = await import('node:fs');
+  const route = readFileSync('src/app/api/chat/route.ts', 'utf8');
+  const calls = route.split('reply: summarizeProductAnalysis(').slice(1);
+  assert.ok(calls.length >= 5, 'Every caller is checked');
+  for (const after of calls) assert.match(after.slice(0, 200), /singleAnalysis: analysis/);
+
+  // 「やや注意」の理由が軽度の注意の成分だけのときは、カードに名前を出す（成分の並び順。AI の評価は印付き）
+  const { mildCautionNames } = await import('../src/lib/caution-reason');
+  const names = mildCautionNames(after);
+  assert.deepStrictEqual(names, ['セテアレス-20（AIの評価）', '安息香酸Na', 'ベンジルアルコール']);
+  assert.ok(!hasProhibitedClaim(`軽度の注意の成分（${names.length}成分）: ${names.join('、')}`));
+  assert.deepStrictEqual(mildCautionNames(before), [], 'Not for a safe verdict');
+  // 表示指定成分で引き上げただけの成分は数えない（総合判定と同じ）
+  const mixed = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', 'セタノール', '安息香酸Na', 'ベンジルアルコール', 'フェノキシエタノール'] });
+  assert.ok(mixed.ingredients.some((i) => i.raisedForLabel));
+  assert.deepStrictEqual(mildCautionNames(mixed), ['安息香酸Na', 'ベンジルアルコール', 'フェノキシエタノール']);
+  const raisedOnly = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', 'グリセリン', 'セタノール', 'エデト酸塩', 'BHT', 'パンテノール'] });
+  assert.strictEqual(raisedOnly.overallRiskLevel, 'safe');
+  assert.deepStrictEqual(mildCautionNames(raisedOnly), []);
+  // 注意・刺激成分の枠に理由があるときは出さない
+  const withActive = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', 'アスコルビン酸', '安息香酸Na', 'ベンジルアルコール', 'フェノキシエタノール'] });
+  assert.strictEqual(withActive.overallRiskLevel, 'caution');
+  assert.ok(withActive.warningsJa.length > 0);
+  assert.deepStrictEqual(mildCautionNames(withActive), []);
+  // 「注意」（刺激成分あり）も出さない。同じ成分が2回あっても、分析で1つにまとまる（名前が重ならない）
+  const strong = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', '香料', 'エタノール', '安息香酸Na', 'ベンジルアルコール', 'フェノキシエタノール'] });
+  assert.strictEqual(strong.overallRiskLevel, 'warning');
+  assert.deepStrictEqual(mildCautionNames(strong), []);
+  const repeated = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', '安息香酸Na', '安息香酸Na', 'ベンジルアルコール'] });
+  assert.deepStrictEqual(mildCautionNames(repeated), [], 'Two mild ones, not three');
+
+  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  assert.ok(card.includes("{riskOf('low_caution').label}の成分（{mildNames.length}成分）: {mildNames.join('、')}"));
+  // 全成分リストの見出し：件数の途中で折り返さない
+  assert.ok(card.includes('<span className="whitespace-nowrap">({ingredients.length}成分)</span>'));
 });

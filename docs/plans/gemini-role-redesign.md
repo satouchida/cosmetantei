@@ -279,7 +279,7 @@ only repeat the cards are code-built text; Gemini writes only the parts the card
 | Reply | How | Cache |
 |---|---|---|
 | Product lookup results (T6) | Template: count, how many have confirmed ingredients, source sites | none needed |
-| Barcode result, single product (T6) | Template from the analyzer: summary, caution and soothing ingredients, source site | none needed |
+| Barcode result, single product (T6) | Template: product, ingredient count, source site; the verdict and ingredient names are on the card (`docs/plans/live-review-3-fixes.md`) | none needed |
 | Cause after the comparison (T2) | Gemini, no tools, thinking `low`, 150–250 characters | `cause-reply:v1`, 7 days |
 | Ingredient question naming a known ingredient (T5) | Gemini with the DB facts; the question text is not sent | `ingredient-reply:v1`, 7 days |
 | Other ingredient question (T5) | Gemini with the question, general facts only | `question-reply:v1`, 30 minutes |

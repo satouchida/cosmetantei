@@ -3,10 +3,11 @@
  * 型は src/lib/types から取るので、型を変えたら型チェックでここも直すことになる。
  * 長い名前・多い成分・大きな値など、画面が崩れやすいものを入れておく（docs/plans/responsive-design.md）
  */
-import type { PriceResult, Product } from '@/lib/types';
+import type { KnownIngredient, PriceResult, Product } from '@/lib/types';
 import { SHOP_ID_PREFIX } from '@/lib/types';
 import { SHOP_TEXT_ID_PREFIX } from '@/lib/product-source';
 import type { CurrentUseEntry } from '@/lib/current-use';
+import { normalizeIngredientName } from '@/lib/utils/ingredient-name';
 
 const AMAZON = 'https://www.amazon.co.jp/s?k=example&tag=cosmetantei22-22';
 
@@ -44,6 +45,37 @@ export const noIngredientsLotion: Product = {
   isEstimatedFromMarketplaces: true,
   amazonSearchUrl: AMAZON,
 };
+
+/** 成分DBに無い2成分（セテアレス-20・パントラクトン）を AI が評価した製品（aiRatings と合わせて使う） */
+export const aiRatedLotion: Product = {
+  id: 'gallery_ai_rated',
+  name: 'モイスチャライジングローション',
+  brand: 'テストブランド',
+  country: 'US',
+  category: 'toner',
+  ingredients: ['水', 'グリセリン', 'パンテノール', 'ナイアシンアミド', 'セテアレス-20', 'パントラクトン', '安息香酸Na', 'ベンジルアルコール'],
+  ingredientSource: 'web_page',
+  sourceUrl: 'https://example.com/products/moisturizing-lotion',
+  amazonSearchUrl: AMAZON,
+};
+
+const aiRating = (nameJa: string, nameEn: string, riskLevel: KnownIngredient['riskLevel']): KnownIngredient => ({
+  id: `ai_gallery_${nameEn}`,
+  nameJa,
+  nameEn,
+  aliases: [],
+  category: 'other',
+  riskLevel,
+  reasonJa: '乳化を助ける成分です（見本）。',
+  sensitiveSkinAdviceJa: '気になる場合は、目立たない部分で試してから使用してください（見本）。',
+  evidenceJa: '見本のデータ',
+});
+
+/** 正規化した成分名 → AI の評価（analyzeProduct の2つ目の引数） */
+export const aiRatings = new Map<string, KnownIngredient>([
+  [normalizeIngredientName('セテアレス-20'), aiRating('セテアレス-20', 'ceteareth-20', 'low_caution')],
+  [normalizeIngredientName('パントラクトン'), aiRating('パントラクトン', 'pantolactone', 'safe')],
+]);
 
 /** 楽天の商品説明から成分を読んだ製品（出典のリンクはアフィリエイトのリンク） */
 export const rakutenListing: Product = {

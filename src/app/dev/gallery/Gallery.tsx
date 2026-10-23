@@ -38,6 +38,7 @@ export interface GalleryResults {
   analysisLatin: ProductAnalysisResult;
   analysisStandard: ProductAnalysisResult;
   analysisNoData: ProductAnalysisResult;
+  analysisAI: ProductAnalysisResult;
   differential: DifferentialAnalysisResult;
   differentialBadOnly: DifferentialAnalysisResult;
   currentUse: CurrentUseCheckResult;
@@ -241,6 +242,16 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       render: () => (
         <Bubble>
           <IngredientAnalysisCard analysis={r.analysisNoData} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
+        </Bubble>
+      ),
+    },
+    {
+      id: 'analysis-ai',
+      title: '成分の分析（成分データに無い成分を AI が評価した製品）',
+      layout: 'chat',
+      render: () => (
+        <Bubble>
+          <IngredientAnalysisCard analysis={r.analysisAI} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
         </Bubble>
       ),
     },
