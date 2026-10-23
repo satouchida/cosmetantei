@@ -49,6 +49,39 @@ function isDatabaseRated(ing: AnalyzedIngredient): boolean {
   return !!id && !id.startsWith('dyn_') && !id.startsWith('ai_');
 }
 
+/** 日本の化粧品基準で、この製品の種類には配合できない成分（別表第1は全化粧品） */
+const outsideStandard = (ing: AnalyzedIngredient): boolean => !!ing.jpStandard?.notAllowedHere;
+
+/** 刺激の段階のほうが強い印になる成分（基準の外でも、段階の色と印を残す） */
+const isIrritantLevel = (ing: AnalyzedIngredient): boolean =>
+  ing.riskLevel === 'high_irritant' || ing.riskLevel === 'moderate_irritant' || ing.riskLevel === 'active_caution';
+
+/** ボタンの1文字の印。基準の外は「基準」（刺激の段階もあれば「基準・高」） */
+function pillMark(ing: AnalyzedIngredient): string {
+  const mark = riskOf(ing.riskLevel).mark;
+  if (!outsideStandard(ing)) return mark;
+  return isIrritantLevel(ing) && mark ? `基準・${mark}` : '基準';
+}
+
+/** 成分の段階の名前。表示指定成分で引き上げた成分は、理由の名前で示す（「軽度の注意」と「刺激になりにくい」を並べない） */
+function riskLabelFor(ing: AnalyzedIngredient): string {
+  return ing.raisedForLabel && !outsideStandard(ing) ? '表示指定成分' : riskOf(ing.riskLevel).label;
+}
+
+/** 成分の解説のアドバイス。化粧品基準の外 → 表示指定成分で引き上げた → 成分DB・ルールの文（無ければ定型文）の順 */
+function adviceFor(ing: AnalyzedIngredient): string {
+  if (outsideStandard(ing)) {
+    return '日本の化粧品基準で、この製品には配合できない成分です。使う前に、成分表示と販売元の情報を確かめてください。';
+  }
+  if (ing.raisedForLabel) {
+    return '表示指定成分です。この成分で肌に合わなかったことがある方は、避ける目安にしてください。';
+  }
+  return (
+    ing.matchedKnown?.sensitiveSkinAdviceJa ||
+    '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、腕の内側などの目立たない部分で試してから使用してください。'
+  );
+}
+
 /** 1回目で評価できなかったとき、もう1回頼むまでの時間（見つけたばかりの製品が、ほかのサーバーに届くのを待つ） */
 const AI_RETRY_DELAY_MS = 4_000;
 /** AI の評価・解説の1回の要求の上限。超えたら中断して、もう一度頼めるようにする */
@@ -232,13 +265,15 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               };
             }
             // ルールの評価が AI より厳しければ、サーバーはルールの評価を返す。AI の評価が使われたときだけ「AIの評価」と書く
-            // 表示指定成分で「肌質により注意」に引き上げた成分は、解説の後も引き上げたまま（analyzeProduct と同じ）
-            const riskLevel = current.jpDesignated && explained.riskLevel === 'safe' ? 'low_caution' : explained.riskLevel;
+            // 表示指定成分で「軽度の注意」に引き上げた成分は、解説の後も引き上げたまま（analyzeProduct と同じ）
+            const raisedForLabel = !!current.jpDesignated && explained.riskLevel === 'safe';
+            const riskLevel = raisedForLabel ? 'low_caution' : explained.riskLevel;
             const aiRated = explained.riskLevel !== 'unknown' && riskLevel !== current.riskLevel;
             return {
               ...current,
               matchedKnown: explained,
               riskLevel,
+              raisedForLabel: raisedForLabel ? (true as const) : undefined,
               category: explained.category,
               reasonJa: explained.reasonJa,
               aiEvaluated: aiRated,
@@ -300,6 +335,9 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   const IconComponent = badge.icon;
 
   const getPillStyle = (ing: AnalyzedIngredient) => {
+    // 化粧品基準で配合できない成分は、見出しの理由なので白地に赤の枠（「高」の赤い塗り・未評価の点線と分ける）
+    // 刺激の段階（高・刺・活）の成分は、その段階の色のまま（印に「基準」を足す）
+    if (outsideStandard(ing) && !isIrritantLevel(ing)) return 'bg-white text-rose-900 border-rose-400 hover:bg-rose-50 font-semibold';
     // 肌を整える・うるおいを保つ成分は安全の緑で目立たせる
     if (ing.riskLevel === 'safe' && (ing.category === 'soothing' || ing.category === 'barrier_support')) {
       return 'bg-tint-safe text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-semibold';
@@ -457,7 +495,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               <li key={i} className="pt-2 border-t border-sand-200">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="font-semibold">{ing.rawName}</span>
-                  <span className={riskBadge(ing.riskLevel)}>{riskOf(ing.riskLevel).label}</span>
+                  <span className={riskBadge(ing.riskLevel)}>{riskLabelFor(ing)}</span>
                 </div>
                 <p className="mt-0.5 leading-relaxed">{ing.reasonJa}</p>
               </li>
@@ -474,10 +512,17 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         </div>
         {/* 段階は色だけでなく、ボタンの1文字でも示す（この一覧にある段階の凡例） */}
         {(() => {
-          const levels = [...new Set(ingredients.map((i) => i.riskLevel))].filter((l) => riskOf(l).mark);
-          return levels.length > 0 ? (
+          // 基準の外の成分は、刺激の段階の印も出しているときだけ段階の凡例に数える
+          const marked = ingredients.filter((i) => !outsideStandard(i) || isIrritantLevel(i));
+          const levels = [...new Set(marked.map((i) => i.riskLevel))].filter((l) => riskOf(l).mark);
+          const raised = marked.some((i) => i.raisedForLabel);
+          const entries = levels.map(
+            (l) => `${riskOf(l).mark}＝${riskOf(l).label}${l === 'low_caution' && raised ? '・表示指定成分' : ''}`
+          );
+          if (ingredients.some(outsideStandard)) entries.push('基準＝日本の化粧品基準で配合できない');
+          return entries.length > 0 ? (
             <p className="mb-2 text-xs text-ink-muted" aria-hidden>
-              {levels.map((l) => `${riskOf(l).mark}＝${riskOf(l).label}`).join('　')}
+              {entries.join('　')}
             </p>
           ) : null;
         })()}
@@ -493,9 +538,9 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               className={`min-h-12 min-w-12 text-[13px] px-3 rounded-lg border transition-colors aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:ring-offset-1 ${getPillStyle(ing)}`}
             >
               {ing.isActive && <span className="mr-1 text-xs font-semibold text-sage-700">有効成分</span>}
-              {riskOf(ing.riskLevel).mark && (
+              {pillMark(ing) && (
                 <span className="mr-1 text-xs font-semibold" aria-hidden>
-                  {riskOf(ing.riskLevel).mark}
+                  {pillMark(ing)}
                 </span>
               )}
               {ing.rawName}
@@ -504,7 +549,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
                   AI
                 </span>
               )}
-              {ing.riskLevel !== 'safe' && <span className="sr-only">（{riskOf(ing.riskLevel).label}）</span>}
+              {ing.riskLevel !== 'safe' && <span className="sr-only">（{riskLabelFor(ing)}）</span>}
+              {outsideStandard(ing) && <span className="sr-only">（日本の化粧品基準で配合できない成分）</span>}
               {ing.aiEvaluated && <span className="sr-only">（AIによる評価）</span>}
             </button>
           ))}
@@ -546,7 +592,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               </>
             )}
             {selectedIngredient.isActive && <span className={badgeClass('neutral')}>医薬部外品の有効成分</span>}
-            <span className={riskBadge(selectedIngredient.riskLevel)}>{riskOf(selectedIngredient.riskLevel).label}</span>
+            <span className={riskBadge(selectedIngredient.riskLevel)}>{riskLabelFor(selectedIngredient)}</span>
           </div>
           <p className="leading-relaxed">
             {selectedIngredient.matchedKnown?.reasonJa ||
@@ -554,8 +600,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               'この成分の解説データはまだありません。'}
           </p>
           <p className="text-sage-800 font-medium leading-relaxed">
-            <span aria-hidden>💡 </span>アドバイス: {selectedIngredient.matchedKnown?.sensitiveSkinAdviceJa ||
-              '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、腕の内側などの目立たない部分で試してから使用してください。'}
+            <span aria-hidden>💡 </span>アドバイス: {adviceFor(selectedIngredient)}
           </p>
           {selectedIngredient.wheatDerived && (
             <p className={panel('caution', 'small')}>

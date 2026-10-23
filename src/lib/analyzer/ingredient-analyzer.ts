@@ -233,7 +233,7 @@ export function alternativeAvoidItems(ingredients: AnalyzedIngredient[]): { name
   const avoid =
     suspects.length > 0
       ? suspects
-      : ingredients.filter((i) => i.riskLevel === 'low_caution' && i.matchedKnown?.riskLevel !== 'safe');
+      : ingredients.filter((i) => i.riskLevel === 'low_caution' && !i.raisedForLabel);
   return avoid.map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
 }
 
@@ -420,6 +420,7 @@ export function analyzeProduct(
       ...(isActive && { isActive }),
       ...(jpStandard && { jpStandard }),
       ...(jpDesignated && { jpDesignated }),
+      ...(raisedForLabel && { raisedForLabel: true as const }),
       ...(wheatDerived && { wheatDerived }),
       ...(aiRated && { aiEvaluated: true }),
     });
@@ -483,11 +484,12 @@ export function analyzeProduct(
     const kinds = [
       ...new Set(
         analyzedIngredients
-          // 表示指定成分で引き上げただけの成分は、総合判定の理由ではないので数えない（元の評価で見る）
-          .filter((i) => {
-            const rated = i.matchedKnown?.riskLevel ?? i.riskLevel;
-            return rated === 'low_caution' || rated === 'moderate_irritant' || rated === 'active_caution';
-          })
+          // 表示指定成分で引き上げただけの成分は、総合判定の理由ではないので数えない
+          .filter(
+            (i) =>
+              !i.raisedForLabel &&
+              (i.riskLevel === 'low_caution' || i.riskLevel === 'moderate_irritant' || i.riskLevel === 'active_caution')
+          )
           .map((i) => CAUTION_KIND_JA[i.category])
           .filter((k): k is string => !!k)
       ),

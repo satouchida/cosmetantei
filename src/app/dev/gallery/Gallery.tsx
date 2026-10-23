@@ -17,6 +17,7 @@ import { BarcodeScannerModal } from '@/components/scanner/BarcodeScannerModal';
 import { ConsentDialog } from '@/components/legal/ConsentDialog';
 import { withHiddenEmoji } from '@/components/ui/emoji';
 import {
+  rakutenListing,
   curel,
   currentUseEntries,
   ihada,
@@ -35,6 +36,7 @@ export interface GalleryResults {
   analysis: ProductAnalysisResult;
   analysisLong: ProductAnalysisResult;
   analysisLatin: ProductAnalysisResult;
+  analysisStandard: ProductAnalysisResult;
   differential: DifferentialAnalysisResult;
   differentialBadOnly: DifferentialAnalysisResult;
   currentUse: CurrentUseCheckResult;
@@ -160,6 +162,16 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       ),
     },
     {
+      id: 'suggestions-shop-listing',
+      title: '製品の候補カード（楽天の商品説明の出典・PR）',
+      layout: 'chat',
+      render: () => (
+        <Bubble>
+          <ProductSuggestionCard products={[rakutenListing, melano]} {...cardHandlers} />
+        </Bubble>
+      ),
+    },
+    {
       id: 'suggestions-alternatives',
       title: '代わりの商品（お店の商品・PR・クレジット）',
       layout: 'chat',
@@ -203,6 +215,22 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
             <IngredientAnalysisCard analysis={r.analysisLatin} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
           </Bubble>
         </div>
+      ),
+    },
+    {
+      id: 'analysis-standard',
+      title: '成分の分析（日本の化粧品基準の注意・表示指定成分）',
+      layout: 'chat',
+      render: () => (
+        <Bubble>
+          <IngredientAnalysisCard
+            analysis={r.analysisStandard}
+            onAddToBadRoutine={noop}
+            onAddToSafeRoutine={noop}
+            onAddToCurrentRoutine={noop}
+            onFindAlternatives={noop}
+          />
+        </Bubble>
       ),
     },
     {

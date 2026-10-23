@@ -7151,8 +7151,8 @@ test('121. Pre-publish audit: visible PR on Rakuten source links, Japanese stand
   assert.deepStrictEqual(alternativeAvoidItems(emulsion.ingredients).map((i) => i.nameEn), ['Hydrolyzed Wheat Protein'], 'Alternatives do not avoid ingredients raised only for the label');
   assert.strictEqual(getOrGenerateIngredientExplanation('セタノール').riskLevel, 'safe', 'The rule rating used by the comparison is unchanged');
   // 「AIで解説」の後も引き上げたまま（カード）。「やや注意」の要約は元の評価で数える（解析）
-  assert.match(card, /current\.jpDesignated && explained\.riskLevel === 'safe' \? 'low_caution' : explained\.riskLevel/);
-  assert.match(readFileSync('src/lib/analyzer/ingredient-analyzer.ts', 'utf8'), /const rated = i\.matchedKnown\?\.riskLevel \?\? i\.riskLevel;/);
+  assert.match(card, /const raisedForLabel = !!current\.jpDesignated && explained\.riskLevel === 'safe';/);
+  assert.match(readFileSync('src/lib/analyzer/ingredient-analyzer.ts', 'utf8'), /!i\.raisedForLabel &&\s*\(i\.riskLevel === 'low_caution'/);
 
   // H8: ルールの文に安全の保証・化粧品の効能を超える表現を使わない
   for (const name of ['トリエタノールアミン', '水酸化Na', 'ミツロウ', 'カルナウバロウ', 'ワセリン', 'カミツレ花エキス', 'ガラクトミセス培養液']) {
@@ -7161,5 +7161,46 @@ test('121. Pre-publish audit: visible PR on Rakuten source links, Japanese stand
   }
   for (const t of ['肌のキメや透明感をサポートします', 'アルカリ刺激の心配は通常ありません', '化学的刺激性はほとんどなく']) {
     assert.ok(hasProhibitedClaim(t), t);
+  }
+});
+
+test('122. Analysis card: ingredients outside the Japanese standard are marked, raised 表示指定成分 are named, no "try it" advice for them (2026-10-23)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { hasProhibitedClaim } = await import('../src/lib/wording');
+  const { importedCream } = await import('../src/lib/dev/gallery-fixtures');
+
+  // 解析：ホウ酸は基準の外、セタノールは表示指定成分で引き上げ、水はどちらでもない
+  const r = analyzeProduct(importedCream);
+  const ing = (name: string) => r.ingredients.find((i) => i.rawName === name)!;
+  assert.strictEqual(ing('ホウ酸').jpStandard?.notAllowedHere, true);
+  assert.ok(!ing('ホウ酸').raisedForLabel);
+  assert.strictEqual(ing('セタノール').raisedForLabel, true);
+  assert.strictEqual(ing('セタノール').riskLevel, 'low_caution');
+  assert.ok(!ing('水').raisedForLabel && !ing('水').jpStandard);
+  assert.strictEqual(r.outsideJpStandard, true, 'The headline and the marked pill come from the same notAllowedHere');
+
+  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  // ボタン：基準の外は白地に赤の枠と「基準」の印（読み上げにも理由を付ける）。凡例にも出す
+  assert.match(card, /if \(outsideStandard\(ing\) && !isIrritantLevel\(ing\)\) return 'bg-white text-rose-900 border-rose-400/);
+  assert.match(card, /return isIrritantLevel\(ing\) && mark \? `基準・\$\{mark\}` : '基準';/);
+  assert.match(card, /<span className=\{riskBadge\(ing\.riskLevel\)\}>\{riskLabelFor\(ing\)\}<\/span>/, 'The AI-evaluated list uses the same label');
+  // 基準の外で刺激の段階もある成分（洗い流さない製品のメチルクロロイソチアゾリノン）は、段階の印を残す
+  const mci = analyzeProduct({ ...importedCream, id: 'gallery_mci', ingredients: ['水', 'メチルクロロイソチアゾリノン'] }).ingredients[1];
+  assert.ok(mci.jpStandard?.notAllowedHere && mci.riskLevel === 'high_irritant');
+  assert.ok(card.includes('（日本の化粧品基準で配合できない成分）'));
+  assert.ok(card.includes("'基準＝日本の化粧品基準で配合できない'") && card.includes("'・表示指定成分'"));
+  // 解説：段階の名前とアドバイスは1か所で決める。基準の外 → 表示指定成分 → 成分DB・ルールの文
+  assert.match(card, /<span className=\{riskBadge\(selectedIngredient\.riskLevel\)\}>\{riskLabelFor\(selectedIngredient\)\}<\/span>/);
+  assert.ok(card.includes('アドバイス: {adviceFor(selectedIngredient)}'));
+  const advice = card.slice(card.indexOf('function adviceFor'), card.indexOf('/** 1回目で評価できなかったとき'));
+  assert.ok(advice.indexOf('outsideStandard(ing)') < advice.indexOf('ing.raisedForLabel'));
+  assert.ok(advice.indexOf('ing.raisedForLabel') < advice.indexOf('sensitiveSkinAdviceJa'));
+  // 基準の外・表示指定成分のアドバイスは「試してから使う」を勧めず、安全を言い切らない
+  const texts = [...advice.matchAll(/'([^']+)'/g)].map((m) => m[1]).slice(0, 2);
+  assert.strictEqual(texts.length, 2);
+  for (const t of texts) {
+    assert.ok(!/試して|刺激になりにくい/.test(t), t);
+    assert.ok(!hasProhibitedClaim(t), t);
   }
 });

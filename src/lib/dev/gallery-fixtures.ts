@@ -5,6 +5,7 @@
  */
 import type { PriceResult, Product } from '@/lib/types';
 import { SHOP_ID_PREFIX } from '@/lib/types';
+import { SHOP_TEXT_ID_PREFIX } from '@/lib/product-source';
 import type { CurrentUseEntry } from '@/lib/current-use';
 
 const AMAZON = 'https://www.amazon.co.jp/s?k=example&tag=cosmetantei22-22';
@@ -19,6 +20,30 @@ export const melano: Product = {
   activeIngredientsJa: ['アスコルビン酸', 'グリチルリチン酸ジカリウム'],
   ingredients: ['ピリドキシン塩酸塩', 'アラントイン', 'o-シメン-5-オール', 'エタノール', '香料', 'フェノキシエタノール'],
   amazonSearchUrl: AMAZON,
+};
+
+/** 海外の製品：日本の化粧品基準で配合できない成分（ホウ酸）と、表示指定成分（セタノール・EDTA・BHT）を含む */
+export const importedCream: Product = {
+  id: 'gallery_imported_cream',
+  name: 'Daily Moisturizing Cream',
+  brand: 'Overseas Brand',
+  country: 'US',
+  category: 'cream',
+  ingredients: ['水', 'グリセリン', 'スクワラン', 'セタノール', 'ステアリルアルコール', 'ホウ酸', 'EDTA-2Na', 'BHT'],
+  amazonSearchUrl: AMAZON,
+};
+
+/** 楽天の商品説明から成分を読んだ製品（出典のリンクはアフィリエイトのリンク） */
+export const rakutenListing: Product = {
+  id: `${SHOP_TEXT_ID_PREFIX}rakuten_gallery`,
+  name: '【公式】敏感肌用 保湿クリーム 50g',
+  brand: 'テストブランド',
+  country: 'JP',
+  category: 'cream',
+  ingredients: ['水', 'グリセリン', 'スクワラン', 'セラミドNP', 'フェノキシエタノール'],
+  ingredientSource: 'shop_listing',
+  sharedSource: false,
+  shopLink: { href: 'https://example.com/rakuten/item', sponsored: true },
 };
 
 export const curel: Product = {

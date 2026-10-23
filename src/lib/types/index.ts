@@ -119,6 +119,8 @@ export interface AnalyzedIngredient {
   jpStandard?: { table: string; textJa: string; notAllowedHere: boolean; referenceUrl: string };
   /** 表示指定成分（医薬部外品で名前の表示が義務付けられている成分。平成12年厚生省告示第332号） */
   jpDesignated?: { nameJa: string; textJa: string; references: ReferenceLink[] };
+  /** 表示指定成分のため「軽度の注意」で表示している（成分DB・ルールの評価は「刺激の報告が少ない」）。総合判定には数えない */
+  raisedForLabel?: true;
   /** 小麦由来の成分（「（小麦由来）」の注記、または名前に小麦・コムギ・wheat が入る） */
   wheatDerived?: boolean;
   /** 成分DBとルールで評価できず、AI が評価した（誤りを含みうる） */
