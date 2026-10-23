@@ -6543,7 +6543,9 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   // 損害賠償の定めは第9条の2だけ（2026-10-22 の改定。消費者契約法第8条：全部の免責・重過失の免責・軽過失に限ると書かない一部の免責は無効。
   // 生命・身体の損害には適用しない）。ほかの条で免責しない
   const liability = terms.slice(terms.indexOf('第9条の2（損害賠償の制限）'), terms.indexOf('第10条'));
-  assert.ok(liability.includes('軽過失による場合に限り'));
+  // 2026-10-23：軽過失のときだけ通常かつ直接の損害に限る（故意・重過失は限らない）。二重の限定を整理した文
+  assert.ok(liability.includes('当方の軽過失によるときは、ユーザーに現実に生じた通常かつ直接の損害に限り賠償する'));
+  assert.ok(liability.includes('当方の故意または重大な過失による場合は、この限りではありません'));
   assert.ok(liability.includes('人の生命または身体に生じた損害については適用しません'));
   assert.doesNotMatch(terms, /免責|一切の責任|責任を負いません|円を上限/);
   // ページの説明文（metadata）は条の内容を紹介するだけ
@@ -6577,8 +6579,11 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
     assert.ok(page.includes('enactedOn={formatLegalDate(LEGAL_ENACTED)}'), 'The enactment date comes from LEGAL_ENACTED');
     assert.doesNotMatch(page, /(?:enactedOn|revisedOn)="/);
   }
-  // 改定したのは利用規約だけ（版は共有なので、プライバシーポリシーを変えたら revisedOn を足す）
-  assert.ok(terms.includes('revisedOn={formatLegalDate(LEGAL_VERSION)}'));
+  // 両方とも改定した（2026-10-23 にプライバシーポリシーの第2条第6項）
+  for (const page of [terms, privacy]) assert.ok(page.includes('revisedOn={formatLegalDate(LEGAL_VERSION)}'));
+  // 価格を調べるお店（shops.ts）は、規約の外部サービス・リンク先のモールに載せる
+  assert.ok(read('src/lib/services/shops.ts').includes("label: '@cosme SHOPPING'"));
+  assert.strictEqual(terms.split('@cosme SHOPPING').length - 1, 2);
   assert.ok(buildAmazonAffiliateUrl('テスト', '化粧水').includes('tag=cosmetantei22-22'));
   assert.ok(privacy.includes('tag=cosmetantei22-22'));
   assert.ok(privacy.includes('HttpOnly') && privacy.includes('Secure'));
@@ -6592,6 +6597,10 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   // KV に保存する期間の上限（ブランド名の確認結果 90日・製品情報 30日）とポリシーの記載
   assert.match(read('src/lib/services/brand-check.ts'), /BRAND_VERDICT_TTL_SECONDS = 60 \* 60 \* 24 \* 90;/);
   assert.ok(privacy.includes('最長90日') && privacy.includes('最長30日'));
+  // 短期の保存（判定・検索結果・AI の応答文）は 15分〜7日（2026-10-23。chat-replies・web-research・バーコード・価格のページ）
+  assert.ok(privacy.includes('短期間（15分〜7日。ブランド名の確認結果は最長90日）'));
+  assert.match(read('src/lib/services/chat-replies.ts'), /CAUSE_CACHE_TTL_SECONDS = 60 \* 60 \* 24 \* 7;/);
+  assert.match(read('src/lib/services/price-service.ts'), /PAGE_OFFERS_TTL_SECONDS = 15 \* 60;/);
 
   // 外部送信規律：トップ画面から1回の操作で届く（コメントにしたものは数えない）・サイトマップにも載せる
   const chat = read('src/components/chat/ChatContainer.tsx').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -7068,5 +7077,89 @@ test('119. Share card: description stays within the compliance wording and names
   assert.ok(!hasProhibitedClaim(description));
   for (const alt of ['src/app/opengraph-image.alt.txt', 'src/app/twitter-image.alt.txt']) {
     assert.ok(!/日本|韓国|アメリカ|安全/.test(readFileSync(alt, 'utf8')), alt);
+  }
+});
+
+test('120. Typeahead search sends only product names to Open Beauty Facts (pre-publish audit C1, 2026-10-23)', async () => {
+  const { GET } = await import('../src/app/api/products/search/route');
+  const { NextRequest } = await import('next/server');
+  const originalFetch = globalThis.fetch;
+  const obfQueries: string[] = [];
+  globalThis.fetch = (async (url: string | URL) => {
+    const u = new URL(String(url));
+    if (u.hostname.endsWith('openbeautyfacts.org')) obfQueries.push(u.searchParams.get('search_terms') ?? u.search);
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  const search = (q: string) =>
+    GET(new NextRequest(`http://localhost/api/products/search?q=${encodeURIComponent(q)}&limit=6`, { headers: { 'cf-connecting-ip': '198.51.100.20' } }));
+  try {
+    // 送信前の入力：症状の相談・連絡先・文章は外へ出さない（保存済みの製品からの候補は返す）
+    for (const q of ['妊娠中ですがキュレルの化粧水で顔が赤く腫れました', '山田花子 090-1234-5678 化粧水', 'ステロイド 化粧水', 'キュレルの化粧水で肌荒れした']) {
+      const res = await search(q);
+      assert.strictEqual(res.status, 200, q);
+      assert.ok(Array.isArray((await res.json()).results), q);
+    }
+    assert.deepStrictEqual(obfQueries, [], 'No personal text may reach Open Beauty Facts');
+
+    // 商品名は今までどおり問い合わせる
+    await search('ぷるるんゼリー');
+    assert.strictEqual(obfQueries.length, 1, 'A product name is still looked up');
+    assert.ok(!/090|妊娠/.test(obfQueries.join(' ')));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('121. Pre-publish audit: visible PR on Rakuten source links, Japanese standard in the alternatives gate, 旧表示指定成分 not green, rule wording (2026-10-23)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { analyzeProduct, alternativeGate, alternativeAvoidItems } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { hasProhibitedClaim } = await import('../src/lib/wording');
+  const { getOrGenerateIngredientExplanation } = await import('../src/lib/services/dynamic-ingredient-service');
+
+  // C3: 楽天の商品説明（アフィリエイトのリンク）の出典に PR、代わりの商品を探すボタンにも PR
+  const sourceLink = readFileSync('src/components/chat/ProductSourceLink.tsx', 'utf8');
+  assert.match(sourceLink, /const sponsored = product\.ingredientSource === 'shop_listing' && !!source\.href/);
+  assert.match(sourceLink, /\{sponsored && <span[^>]*>PR<\/span>\}/);
+  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  assert.match(card, /原因候補の成分を含まない商品を探す<\/span>\s*\{\/\*[^]*?\*\/\}\s*<span className=\{badgeClass\('neutral'\)\}>PR<\/span>/);
+
+  // C4b: 化粧品基準で配合できない成分を含む製品は、代わりの商品にしない
+  const gate = alternativeGate([{ nameJa: 'エタノール' }]);
+  const cream = (ingredients: string[], extra: Partial<Product> = {}) =>
+    verifiedProduct({ id: `std_${ingredients.join('')}`, category: 'cream', ingredients, ...extra });
+  assert.ok(gate(cream(['水', 'BG', 'グリセリン', 'スクワラン'])));
+  assert.ok(!gate(cream(['水', 'BG', 'グリセリン', 'ホウ酸'])), '別表第1 (banned in all cosmetics)');
+  assert.ok(!gate(cream(['水', 'BG', 'グリセリン', 'メチルクロロイソチアゾリノン'])), 'Not allowed in leave-on products');
+  assert.ok(gate(cream(['水', 'BG', 'グリセリン', 'ホウ酸'], { isQuasiDrug: true })), 'Quasi-drugs are outside the cosmetic standard');
+  // 見出しを緑にしない印
+  const banned = analyzeProduct(cream(['水', 'BG', 'グリセリン', 'ホウ酸']));
+  assert.strictEqual(banned.outsideJpStandard, true);
+  assert.ok(!analyzeProduct(cream(['水', 'BG', 'グリセリン'])).outsideJpStandard);
+  assert.match(card, /if \(outsideJpStandard\) return \{ title: '日本の化粧品基準の注意あり', tone: 'neutral'/);
+
+  // C4c: 表示指定成分は「肌質により注意」で表示。総合判定・原因候補の比較・避ける成分は今までどおり
+  // （小麦由来の成分は引き上げない。test 74 の「グリセリン（小麦由来）」は緑のまま）
+  const emulsion = analyzeProduct(cream(['水', 'BG', 'グリセリン', 'セタノール', 'ステアリルアルコール', 'トリエタノールアミン', 'EDTA-2Na', 'BHT', '加水分解コムギ']));
+  const level = (name: string) => emulsion.ingredients.find((i) => i.rawName === name)?.riskLevel;
+  for (const name of ['セタノール', 'ステアリルアルコール', 'トリエタノールアミン', 'EDTA-2Na', 'BHT', '加水分解コムギ']) {
+    assert.strictEqual(level(name), 'low_caution', name);
+  }
+  assert.strictEqual(level('水'), 'safe');
+  assert.strictEqual(level('グリセリン'), 'safe');
+  assert.strictEqual(emulsion.overallRiskLevel, 'safe', 'Raising for the label does not change the product verdict');
+  // 加水分解コムギは成分DBで元から「やや注意」。引き上げただけの成分（セタノール等）は避けない
+  assert.deepStrictEqual(alternativeAvoidItems(emulsion.ingredients).map((i) => i.nameEn), ['Hydrolyzed Wheat Protein'], 'Alternatives do not avoid ingredients raised only for the label');
+  assert.strictEqual(getOrGenerateIngredientExplanation('セタノール').riskLevel, 'safe', 'The rule rating used by the comparison is unchanged');
+  // 「AIで解説」の後も引き上げたまま（カード）。「やや注意」の要約は元の評価で数える（解析）
+  assert.match(card, /current\.jpDesignated && explained\.riskLevel === 'safe' \? 'low_caution' : explained\.riskLevel/);
+  assert.match(readFileSync('src/lib/analyzer/ingredient-analyzer.ts', 'utf8'), /const rated = i\.matchedKnown\?\.riskLevel \?\? i\.riskLevel;/);
+
+  // H8: ルールの文に安全の保証・化粧品の効能を超える表現を使わない
+  for (const name of ['トリエタノールアミン', '水酸化Na', 'ミツロウ', 'カルナウバロウ', 'ワセリン', 'カミツレ花エキス', 'ガラクトミセス培養液']) {
+    const e = getOrGenerateIngredientExplanation(name);
+    for (const text of [e.reasonJa, e.sensitiveSkinAdviceJa ?? '']) assert.ok(!hasProhibitedClaim(text), `${name}: ${text}`);
+  }
+  for (const t of ['肌のキメや透明感をサポートします', 'アルカリ刺激の心配は通常ありません', '化学的刺激性はほとんどなく']) {
+    assert.ok(hasProhibitedClaim(t), t);
   }
 });

@@ -232,11 +232,13 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
               };
             }
             // ルールの評価が AI より厳しければ、サーバーはルールの評価を返す。AI の評価が使われたときだけ「AIの評価」と書く
-            const aiRated = explained.riskLevel !== 'unknown' && explained.riskLevel !== current.riskLevel;
+            // 表示指定成分で「肌質により注意」に引き上げた成分は、解説の後も引き上げたまま（analyzeProduct と同じ）
+            const riskLevel = current.jpDesignated && explained.riskLevel === 'safe' ? 'low_caution' : explained.riskLevel;
+            const aiRated = explained.riskLevel !== 'unknown' && riskLevel !== current.riskLevel;
             return {
               ...current,
               matchedKnown: explained,
-              riskLevel: explained.riskLevel,
+              riskLevel,
               category: explained.category,
               reasonJa: explained.reasonJa,
               aiEvaluated: aiRated,
@@ -274,11 +276,14 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     dataSourceDisclaimer,
     labelNotesJa,
     labelReferences,
+    outsideJpStandard,
   } = analysis;
 
   const getOverallBadge = (): { title: string; tone: Tone; icon: typeof ShieldCheck } => {
     switch (overallRiskLevel) {
       case 'safe':
+        // 日本の化粧品基準で配合できない成分があるときは、緑の見出しにしない（成分の注意は下の欄に出る）
+        if (outsideJpStandard) return { title: '日本の化粧品基準の注意あり', tone: 'neutral', icon: AlertCircle };
         return { title: '刺激になりやすい成分なし（目安）', tone: 'safe', icon: ShieldCheck };
       case 'caution':
         return { title: '敏感肌はやや注意', tone: 'caution', icon: AlertTriangle };
@@ -657,6 +662,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         >
           <Search className="w-4 h-4" aria-hidden />
           <span>同じ種類で原因候補の成分を含まない商品を探す</span>
+          {/* 探した商品には販売ページ（アフィリエイト）のリンクが付く */}
+          <span className={badgeClass('neutral')}>PR</span>
         </button>
       )}
 

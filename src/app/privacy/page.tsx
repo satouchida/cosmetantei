@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { ExternalLink, LegalPage, LegalTable } from '@/components/legal/LegalPage';
-import { formatLegalDate, LEGAL_ENACTED } from '@/lib/site';
+import { formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/privacy-policy.md（git には入れない。原稿との違いはその冒頭に記載）。
 // 書いてある内容（Cookie の属性・保存するもの・送り先）は実装と合わせる：src/lib/server/session.ts、
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="コスメ探偵（CosmeTantei） プライバシーポリシー" enactedOn={formatLegalDate(LEGAL_ENACTED)}>
+    <LegalPage title="コスメ探偵（CosmeTantei） プライバシーポリシー" enactedOn={formatLegalDate(LEGAL_ENACTED)} revisedOn={formatLegalDate(LEGAL_VERSION)}>
       <p>
         コスメ探偵（以下「当サービス」といいます。）の運営者（以下「当方」といいます。）は、ウェブサービス「コスメ探偵（CosmeTantei）」（https://cosmetantei.app、以下「本サイト」といいます。）において取り扱う利用者の情報（以下「利用者情報」といいます。）の保護について、個人情報の保護に関する法律（以下「個人情報保護法」といいます。）、電気通信事業法、関連法令、およびガイドラインを遵守し、以下のとおりプライバシーポリシー（以下「本ポリシー」といいます。）を定めます。
       </p>
@@ -72,7 +72,7 @@ export default function PrivacyPage() {
           <strong>公開されている製品情報の一時保存（キャッシュ）</strong>
           <ul>
             <li>検索・バーコード照合・Web調査で見つかった市販製品の公開情報（商品名、ブランド名、全成分表示、出典のページのアドレス等）、および成分の解説文は、応答を速くし外部APIの利用を減らすため、Cloudflare KV に一定期間（最長30日）保存し、ほかの利用者への表示にも使用します。</li>
-            <li>同じ理由で、入力に対する判定結果（入力の種類、検索結果の絞り込み、ブランド名の確認等）、検索結果、およびチャットの質問に対するAIの応答文を、Cloudflare KV に短期間（30分〜1日。ブランド名の確認結果は最長90日）保存し、同じ入力に対する応答に使用します。</li>
+            <li>同じ理由で、入力に対する判定結果（入力の種類、検索結果の絞り込み、ブランド名の確認等）、検索結果、およびチャットの質問に対するAIの応答文を、Cloudflare KV に短期間（15分〜7日。ブランド名の確認結果は最長90日）保存し、同じ入力に対する応答に使用します。</li>
             <li>これらの保存の際、検索語やチャット本文そのものは保存せず、保存の識別には入力内容から計算した復元できない値（SHA-256 ハッシュ値）を使用します。ユーザーが入力・撮影した成分表示やパッケージ画像は、これらの保存の対象になりません。</li>
           </ul>
         </li>

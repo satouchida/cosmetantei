@@ -145,6 +145,8 @@ export interface ProductAnalysisResult {
   safeAlternatives?: Product[]; // 刺激成分を含まないおすすめ代替品
   /** 成分表示の読み方の注意（医薬部外品の記載順・非表示の成分） */
   labelNotesJa?: string[];
+  /** 日本の化粧品基準で、この種類の化粧品に配合できない成分が表示されている（見出しを「刺激になりやすい成分なし」にしない） */
+  outsideJpStandard?: boolean;
   /** 成分表示の読み方の出典（医薬部外品の名称リスト・表示の基本方針） */
   labelReferences?: ReferenceLink[];
   isEstimatedFromMarketplaces?: boolean;
@@ -196,7 +198,7 @@ export interface DifferentialAnalysisResult {
   safeAlternatives: Product[]; // 原因候補の成分と強い刺激成分を含まない、同じ種類の商品
 }
 
-/** 販売ページで確認した価格（T4。キャッシュしない） */
+/** 販売ページで確認した価格（T4。商品ページから読んだ価格だけ15分間キャッシュする。price-service.ts） */
 export interface PriceOffer {
   /** 販売している店（楽天・Yahoo! の出店者名など） */
   shop: string;

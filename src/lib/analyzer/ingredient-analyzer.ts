@@ -229,7 +229,11 @@ export function hasVerifiedIngredients(product: Product): boolean {
  */
 export function alternativeAvoidItems(ingredients: AnalyzedIngredient[]): { nameJa: string; nameEn?: string }[] {
   const suspects = ingredients.filter((i) => i.isSuspect);
-  const avoid = suspects.length > 0 ? suspects : ingredients.filter((i) => i.riskLevel === 'low_caution');
+  // 表示指定成分で引き上げただけの成分（評価は「刺激の報告が少ない」）は避けない（乳液・クリームの多くに入っている）
+  const avoid =
+    suspects.length > 0
+      ? suspects
+      : ingredients.filter((i) => i.riskLevel === 'low_caution' && i.matchedKnown?.riskLevel !== 'safe');
   return avoid.map((i) => ({ nameJa: i.normalizedJa, nameEn: i.matchedKnown?.nameEn }));
 }
 
@@ -275,8 +279,15 @@ export function alternativeGate(
     if (product.ingredientSource === 'user_label') return false;
 
     const label = labelIngredients(product);
+    // 日本の化粧品基準で、この種類の化粧品に配合できない成分（別表第1は全化粧品）。医薬部外品は対象外
+    const useType = productUseType(product);
     let rated = 0;
     for (const { raw } of label) {
+      if (!product.isQuasiDrug) {
+        const norm = normalizeIngredientName(raw);
+        const standard = findStandardEntry(norm, abbreviateIngredientName(norm));
+        if (standard && standardNote(standard, useType).notAllowedHere) return false;
+      }
       const known = findMatchingKnownIngredient(raw);
       if (known && avoidIds.has(known.id)) return false;
       // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
@@ -376,6 +387,7 @@ export function analyzeProduct(
     if (aiRated) aiEvaluatedCount++;
     const aiLabel = aiRated ? '（AIによる評価）' : '';
 
+    // 総合判定は成分DB・ルールの評価で数える（表示指定成分の引き上げでは数えない）
     riskCounts[matched.riskLevel]++;
 
     const isSuspect =
@@ -391,12 +403,17 @@ export function analyzeProduct(
     const jpDesignated = designatedEntry ? designatedNote(designatedEntry) : undefined;
     const wheatDerived = isWheatDerivedName(raw);
     if (wheatDerived && !wheatNames.includes(raw)) wheatNames.push(raw);
+    // 表示指定成分（アレルギー等の皮膚障害を起こすおそれ）は「刺激の報告が少ない」（緑）と並べず、「肌質により注意」で表示する。
+    // 総合判定の件数（上の riskCounts）と原因候補の比較には使わない。小麦由来の成分は引き上げない
+    // （緑のまま残るのは「グリセリン（小麦由来）」のような精製した成分。小麦の注意は labelNotesJa に出る）
+    const raisedForLabel = matched.riskLevel === 'safe' && !!designatedEntry;
+    const riskLevel = raisedForLabel ? 'low_caution' : matched.riskLevel;
 
     analyzedIngredients.push({
       rawName: raw,
       normalizedJa: matched.nameJa,
       matchedKnown: matched,
-      riskLevel: matched.riskLevel,
+      riskLevel,
       isSuspect,
       category: matched.category,
       reasonJa: matched.reasonJa,
@@ -411,7 +428,7 @@ export function analyzeProduct(
       warningsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
     } else if (matched.riskLevel === 'active_caution') {
       warningsJa.push(`【${matched.nameJa}】${aiLabel}: ${matched.reasonJa}`);
-    } else if (matched.category === 'soothing' || matched.category === 'barrier_support') {
+    } else if (!raisedForLabel && (matched.category === 'soothing' || matched.category === 'barrier_support')) {
       soothingHighlightsJa.push(`【${matched.nameJa}】${aiLabel}: ${withoutSafetyRating(matched.reasonJa)}`);
     }
   }
@@ -425,7 +442,8 @@ export function analyzeProduct(
   if (undisclosedCount > 0) {
     labelNotesJa.push(`企業秘密として名称が表示されていない成分が${undisclosedCount}個あります（「他${undisclosedCount}成分」）。`);
   }
-  labelNotesJa.push(...standardLabelNotes(product, standardFound));
+  const standardNotes = standardLabelNotes(product, standardFound);
+  labelNotesJa.push(...standardNotes);
   if (wheatNames.length > 0) {
     labelNotesJa.push(
       `小麦由来の成分が表示されています：${wheatNames.join('、')}。小麦アレルギーがある方は注意してください。使用中にかゆみやまぶたのはれなどが出たら使用をやめ、医師に相談してください（加水分解コムギ末を含む石けんで、小麦の全身性アレルギーを起こした事例があります）。`
@@ -465,7 +483,11 @@ export function analyzeProduct(
     const kinds = [
       ...new Set(
         analyzedIngredients
-          .filter((i) => i.riskLevel === 'low_caution' || i.riskLevel === 'moderate_irritant' || i.riskLevel === 'active_caution')
+          // 表示指定成分で引き上げただけの成分は、総合判定の理由ではないので数えない（元の評価で見る）
+          .filter((i) => {
+            const rated = i.matchedKnown?.riskLevel ?? i.riskLevel;
+            return rated === 'low_caution' || rated === 'moderate_irritant' || rated === 'active_caution';
+          })
           .map((i) => CAUTION_KIND_JA[i.category])
           .filter((k): k is string => !!k)
       ),
@@ -513,6 +535,7 @@ export function analyzeProduct(
     safeAlternatives,
     ...(labelNotesJa.length > 0 && { labelNotesJa }),
     ...(labelReferences.length > 0 && { labelReferences }),
+    ...(standardNotes.length > 0 && { outsideJpStandard: true }),
     isEstimatedFromMarketplaces,
     dataSourceDisclaimer: isEstimatedFromMarketplaces ? MARKETPLACE_DISCLAIMER_JA : undefined,
     ...(aiEvaluations && { aiEvaluation: { evaluatedCount: aiEvaluatedCount } }),

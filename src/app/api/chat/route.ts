@@ -417,7 +417,7 @@ async function handlePost(request: NextRequest) {
       });
     }
 
-    // D. 価格（T4）。検索語は文章から取り出した商品名だけ。価格はキャッシュしない
+    // D. 価格（T4）。検索語は文章から取り出した商品名だけ。商品ページから読んだ価格だけ15分間使い回す
     if (gate?.intent === 'price_inquiry') {
       return priceReply(toPriceSearchQuery(userText), getClientIp(request.headers));
     }

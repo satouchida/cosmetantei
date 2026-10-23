@@ -402,7 +402,8 @@ export async function fetchDynamicTrendingCosmetics(
   }
 
   // 2. Open Beauty Facts API から動的探索（有料の Web 検索・Gemini は使わない）
-  const obfResults = await searchOpenBeautyFacts(clean || 'スキンケア', limit);
+  // 外へ送るのは商品名として読める語だけ（今の呼び出し元は決まった語を渡す）
+  const obfResults = await searchOpenBeautyFacts(toProductSearchQuery(clean) ?? 'スキンケア', limit);
   for (const o of obfResults) {
     if (collected.length >= limit) break;
     if (isActualCosmeticProduct(o) && !collected.some((p) => p.id === o.id || p.name === o.name)) {
@@ -453,9 +454,11 @@ export async function searchCosmeticsLive(
     }
   }
 
-  // B. Open Beauty Facts API（世界規模の実在コスメデータベース。無料）。1文字の入力では問い合わせない
-  if (collected.length < limit && searchKey(clean).length >= 2 && options.openBeautyFacts !== false) {
-    const obfResults = await searchOpenBeautyFacts(clean, limit);
+  // B. Open Beauty Facts API（世界規模の実在コスメデータベース。無料）。1文字の入力では問い合わせない。
+  //    送るのは商品名として読める語だけ（連絡先・本人の事情・文章は送らない。プライバシーポリシー第5条）
+  const obfQuery = toProductSearchQuery(clean);
+  if (obfQuery && collected.length < limit && searchKey(obfQuery).length >= 2 && options.openBeautyFacts !== false) {
+    const obfResults = await searchOpenBeautyFacts(obfQuery, limit);
     for (const o of obfResults) {
       if (isActualCosmeticProduct(o) && !collected.some((c) => c.id === o.id || c.name === o.name)) {
         collected.push(o);

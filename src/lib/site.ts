@@ -18,8 +18,9 @@ export const LEGAL_ENACTED = '2026-10-20';
  * 利用規約・プライバシーポリシーの版（最後に変えた日）。ページの日付と、同意の確認（src/lib/consent.ts）の両方に使う。
  * 規約を変えたらこの日付を変える：変えたページの「最終改定日」が変わり、同意した人にももう一度確認する
  * （2026-10-22：利用規約の第3条第5項・第4条第1項・第9条・第9条の2）
+ * （2026-10-23：利用規約の第2条第4号・第9条の2第1項・第10条第2項、プライバシーポリシーの第2条第6項）
  */
-export const LEGAL_VERSION = '2026-10-22';
+export const LEGAL_VERSION = '2026-10-23';
 
 /** '2026-10-20' → '2026年10月20日' */
 export function formatLegalDate(version: string): string {

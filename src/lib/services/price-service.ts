@@ -20,7 +20,8 @@ const PAGE_OFFERS_TTL_SECONDS = 15 * 60;
  * - 楽天・Yahoo! は API のキーがあれば API で、無ければ商品ページを読む。@cosme SHOPPING は商品ページを読む
  * - 検索語は商品名とお店の名前だけ（toProductSearchQuery を通す）
  * - 価格は出典・範囲・商品名をコードで確かめる
- * - 価格は変わるので、検索結果・読み取り結果・返答のどれもキャッシュしない（AI Gateway のキャッシュも使わない）
+ * - 価格は変わるので、商品ページから読んだ価格だけを15分間使い回す（PAGE_OFFERS_TTL_SECONDS）。
+ *   検索結果・API の結果・返答はキャッシュしない（AI Gateway のキャッシュも使わない）
  */
 
 const MIN_PRICE_YEN = 100;

@@ -12,6 +12,8 @@ import {
 } from '@/lib/server/cloudflare';
 import { Product } from '@/lib/types';
 import { apiRoute } from '@/lib/server/api-route';
+import { classifyWithHeuristics } from '@/lib/services/chat-gate';
+import { toProductSearchQuery } from '@/lib/services/web-research';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts, isVerifiedSource } from '@/lib/data/cosmetics-db';
 
 const DEFAULT_LIMIT = 6;
@@ -61,19 +63,24 @@ async function handleGet(request: NextRequest) {
     return NextResponse.json({ query: q, results: withBrandFirst([]), brands, brand });
   }
 
-  // 照合のしかたを変えたら版を上げる（v5: キャッシュは searchCosmeticsLive の結果だけ。ブランドの製品は入れない）
-  // 記号だけの検索語は空の検索（人気の製品）と分ける
+  // ブランド名を入力している途中（「しせ」）は Open Beauty Facts に問い合わせない（ブランドの候補を出せば足り、待たせない）
+  const typingBrand = brands.length > 0 && !resolved;
+  // 送信前の入力（症状の相談・連絡先を含むかもしれない）は、商品名として読めるときだけ外部へ送る。
+  // キーストロークごとに動くので、Clef ではなくキーワードの判定だけを使う（無料・すぐ返る）
+  const mayLeaveServer = classifyWithHeuristics(q).scope === 'in_scope' && toProductSearchQuery(q) !== null;
+  const useOpenBeautyFacts = !typingBrand && mayLeaveServer;
+
+  // 照合のしかたを変えたら版を上げる（v5: キャッシュは searchCosmeticsLive の結果だけ。ブランドの製品は入れない。
+  // v6: Open Beauty Facts に問い合わせたかどうかで分ける）。記号だけの検索語は空の検索（人気の製品）と分ける
   const key = searchKey(q) || (q ? `raw:${q}` : '');
-  const cacheKey = await hashedCacheKey('search:v5', `${key}|${limit}`);
+  const cacheKey = await hashedCacheKey('search:v6', `${key}|${limit}|${useOpenBeautyFacts ? 'obf' : 'local'}`);
   const cached = await cacheGetJSON<Product[]>(cacheKey);
   if (cached) {
     return NextResponse.json({ query: q, results: withBrandFirst(cached), brands, brand });
   }
 
-  // キャッシュ済みの製品 ＋ Open Beauty Facts による探索。
-  // ブランド名を入力している途中（「しせ」）は Open Beauty Facts に問い合わせない（ブランドの候補を出せば足り、待たせない）
-  const typingBrand = brands.length > 0 && !resolved;
-  const external = await searchCosmeticsLive(q, limit, { openBeautyFacts: !typingBrand });
+  // キャッシュ済みの製品 ＋ Open Beauty Facts による探索
+  const external = await searchCosmeticsLive(q, limit, { openBeautyFacts: useOpenBeautyFacts });
   await cachePutJSON(cacheKey, external, external.length > 0 ? RESULTS_TTL_SECONDS : EMPTY_RESULTS_TTL_SECONDS);
 
   return NextResponse.json({ query: q, results: withBrandFirst(external), brands, brand });

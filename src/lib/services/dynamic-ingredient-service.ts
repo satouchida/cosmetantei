@@ -405,7 +405,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       category: 'other',
       riskLevel: 'safe',
       reasonJa: 'pH調整剤および脂肪酸とケン化反応を起こして石けんを形成するためのアルカリ成分です。製品中では中和されて存在します。',
-      sensitiveSkinAdviceJa: '製品のpHを適切に保つために配合されており、最終製品中では中和されているため直接的なアルカリ刺激の心配は通常ありません。',
+      sensitiveSkinAdviceJa: '製品のpHを調整するために配合され、最終製品中では中和されています。まれに肌に合わない場合があります。',
     };
   }
 
@@ -549,7 +549,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       category: 'barrier_support',
       riskLevel: 'safe',
       reasonJa: '肌表面に薄い保護ヴェールを形成し、水分の蒸発を防いで滑らかな感触を与えるエモリエント・保護成分です。',
-      sensitiveSkinAdviceJa: '肌の角層に浸透せず表面を保護するため化学的刺激性はほとんどなく、バリア機能が低下した肌の水分保護に適しています。',
+      sensitiveSkinAdviceJa: '肌の表面をおおって水分の蒸発を防ぎます。植物由来の油脂・ロウは、まれに肌に合わない場合があります。',
     };
   }
 
@@ -744,7 +744,7 @@ export function generateIngredientExplanation(rawName: string): KnownIngredient 
       nameEn: 'Botanical Extract / Ferment',
       category: 'other',
       riskLevel: 'low_caution',
-      reasonJa: '植物や発酵由来の美容成分（ポリフェノール・アミノ酸・ビタミン等）を含み、肌のキメや透明感をサポートします。',
+      reasonJa: '保湿や肌を整える目的で配合される、植物・発酵由来の成分です。',
       sensitiveSkinAdviceJa: '天然由来成分ですが、植物固有の成分に対して稀にアレルギー反応を起こす体質の方もいます。初めて使う際は、腕の内側などで試してから使うことをおすすめします。',
     };
   }

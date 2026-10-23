@@ -11,6 +11,8 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
   const source = productSourceInfo(product);
   if (!source) return null;
   const translated = (product.ingredientsEn?.length ?? 0) > 0;
+  // 楽天の商品説明へのリンクはアフィリエイトのリンク（shop-ingredients.ts）。出典でも PR と見て分かるようにする（ステマ告示）
+  const sponsored = product.ingredientSource === 'shop_listing' && !!source.href;
   return (
     <div className={className}>
       <div className="flex items-center gap-1 text-xs text-ink-muted min-w-0">
@@ -19,7 +21,7 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
           <a
             href={source.href}
             target="_blank"
-            rel={product.ingredientSource === 'shop_listing' ? 'sponsored noopener noreferrer nofollow' : 'noopener noreferrer nofollow'}
+            rel={sponsored ? 'sponsored noopener noreferrer nofollow' : 'noopener noreferrer nofollow'}
             title={source.label}
             className="flex items-center gap-0.5 min-w-0 min-h-12 -my-2 text-sage-700 hover:text-sage-900 underline underline-offset-2"
           >
@@ -32,6 +34,7 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
             {source.label}
           </span>
         )}
+        {sponsored && <span className={`shrink-0 ${badge('neutral')}`}>PR</span>}
       </div>
       {translated && <p className="text-xs text-ink-muted">英語の成分表示を、AIで日本語の成分名に置き換えています。</p>}
       {product.ingredientSource === 'shop_listing' && (
