@@ -539,7 +539,8 @@ export function analyzeProduct(
     ...(labelReferences.length > 0 && { labelReferences }),
     ...(standardNotes.length > 0 && { outsideJpStandard: true }),
     isEstimatedFromMarketplaces,
-    dataSourceDisclaimer: isEstimatedFromMarketplaces ? MARKETPLACE_DISCLAIMER_JA : undefined,
+    // 成分の出どころの注意は、成分があるときだけ（全成分が無いカードに「収集したもの」と書かない）
+    dataSourceDisclaimer: isEstimatedFromMarketplaces && analyzedIngredients.length > 0 ? MARKETPLACE_DISCLAIMER_JA : undefined,
     ...(aiEvaluations && { aiEvaluation: { evaluatedCount: aiEvaluatedCount } }),
   };
 }

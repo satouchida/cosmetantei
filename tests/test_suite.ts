@@ -167,14 +167,21 @@ test('6. Missing ingredients online marketplace exploration & disclaimer test', 
     isEstimatedFromMarketplaces: true,
   };
 
+  // 全成分が無い製品には、成分の出どころの注意を出さない（「収集したもの」が無い。2026-10-23）
   const analysis = analyzeProduct(uncatalogedProduct);
   assert.strictEqual(analysis.isEstimatedFromMarketplaces, true);
-  assert.ok(analysis.dataSourceDisclaimer, 'Must include disclaimer');
-  assert.ok(analysis.dataSourceDisclaimer.includes('Amazon'));
-  assert.ok(analysis.dataSourceDisclaimer.includes('Sephora'));
-  assert.ok(analysis.dataSourceDisclaimer.includes('Olive Young'));
-  assert.ok(analysis.dataSourceDisclaimer.includes('楽天市場'));
-  assert.ok(analysis.dataSourceDisclaimer.includes('誤差'));
+  assert.strictEqual(analysis.ingredients.length, 0);
+  assert.strictEqual(analysis.dataSourceDisclaimer, undefined, 'No disclaimer without an ingredient list');
+
+  // 成分を探索・補完した製品には出す
+  const estimated = analyzeProduct({ ...uncatalogedProduct, ingredients: ['水', 'グリセリン', 'BG'] });
+  assert.strictEqual(estimated.isEstimatedFromMarketplaces, true);
+  assert.ok(estimated.dataSourceDisclaimer, 'Must include disclaimer');
+  assert.ok(estimated.dataSourceDisclaimer.includes('Amazon'));
+  assert.ok(estimated.dataSourceDisclaimer.includes('Sephora'));
+  assert.ok(estimated.dataSourceDisclaimer.includes('Olive Young'));
+  assert.ok(estimated.dataSourceDisclaimer.includes('楽天市場'));
+  assert.ok(estimated.dataSourceDisclaimer.includes('誤差'));
 });
 
 test('7. Multi-word search with full-width space ("ちふれ　リップ") finds cached products', () => {

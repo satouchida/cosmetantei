@@ -115,10 +115,10 @@ names aren't changed, only skipped.
 - **Declined (Low):** test 124 reads source files by relative path and removes its product from
   `COSMETICS_DATABASE` in `finally`, as the other tests do.
 
-## Found while checking, not changed
+## Follow-up: the marketplace notice (2026-10-23, owner decision)
 
-- **The marketplace notice on a card without ingredients.** A product marked as estimated from
-  marketplaces with no list (a barcode Open Beauty Facts knows without ingredients) still shows
-  「本製品の全成分情報は…収集したもの」, which reads oddly when there is no list. An early test
-  (`uncatalogedProduct`, near line 160 of the suite) requires the notice on exactly this product, so
-  it was a deliberate choice; left for the owner to decide.
+A product marked as estimated from marketplaces but without an ingredient list (a barcode Open Beauty
+Facts knows without ingredients) showed 「本製品の全成分情報は…収集したもの」 on a card with no list. The
+owner chose to hide it: `analyzeProduct` sets `dataSourceDisclaimer` only when there are analysed
+ingredients. `isEstimatedFromMarketplaces` is unchanged. Test 6 now checks both cases (no list → no
+notice; a list → the notice).
