@@ -52,7 +52,8 @@ When `raisedForLabel`:
 - **Badge:** 「表示指定成分」 in the same amber style as 「軽度の注意」, instead of 「軽度の注意」.
 - **Advice:** replace the rule's advice (written for a `safe` rating) with 「表示指定成分です。この成分で
   肌に合わなかったことがある方は、避ける目安にしてください。」. No 「刺激になりにくい」 next to a yellow pill.
-- **Legend:** when any pill is raised, the 注 entry reads 「注＝軽度の注意・表示指定成分」.
+- **Legend:** when any pill is raised, the 注 entry reads 「注＝軽度の注意・表示指定成分」. (Superseded
+  2026-10-23: raised pills are marked 表, with their own entry 「表＝表示指定成分」; `docs/plans/live-review-4-fixes.md`.)
 - The 🏷️ note with the 告示 links stays as it is.
 
 ### Step 4: no "try it" advice for ingredients outside the standard (problem 3)

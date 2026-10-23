@@ -8,6 +8,7 @@ import { ProductSourceLink } from './ProductSourceLink';
 import { MedicalNotice } from './MedicalNotice';
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 import { mildCautionNames } from '@/lib/caution-reason';
+import { isIrritantLevel, legendEntries, outsideStandard, pillMark, riskLabelFor } from './ingredient-marks';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { productCategory } from '@/lib/analyzer/product-category';
 import { NETWORK_MESSAGE, TIMEOUT_MESSAGE } from '@/lib/client/chat-request';
@@ -48,25 +49,6 @@ function needsAIEvaluation(a: ProductAnalysisResult): boolean {
 function isDatabaseRated(ing: AnalyzedIngredient): boolean {
   const id = ing.matchedKnown?.id;
   return !!id && !id.startsWith('dyn_') && !id.startsWith('ai_');
-}
-
-/** 日本の化粧品基準で、この製品の種類には配合できない成分（別表第1は全化粧品） */
-const outsideStandard = (ing: AnalyzedIngredient): boolean => !!ing.jpStandard?.notAllowedHere;
-
-/** 刺激の段階のほうが強い印になる成分（基準の外でも、段階の色と印を残す） */
-const isIrritantLevel = (ing: AnalyzedIngredient): boolean =>
-  ing.riskLevel === 'high_irritant' || ing.riskLevel === 'moderate_irritant' || ing.riskLevel === 'active_caution';
-
-/** ボタンの1文字の印。基準の外は「基準」（刺激の段階もあれば「基準・高」） */
-function pillMark(ing: AnalyzedIngredient): string {
-  const mark = riskOf(ing.riskLevel).mark;
-  if (!outsideStandard(ing)) return mark;
-  return isIrritantLevel(ing) && mark ? `基準・${mark}` : '基準';
-}
-
-/** 成分の段階の名前。表示指定成分で引き上げた成分は、理由の名前で示す（「軽度の注意」と「刺激になりにくい」を並べない） */
-function riskLabelFor(ing: AnalyzedIngredient): string {
-  return ing.raisedForLabel && !outsideStandard(ing) ? '表示指定成分' : riskOf(ing.riskLevel).label;
 }
 
 /** 成分の解説のアドバイス。化粧品基準の外 → 表示指定成分で引き上げた → 成分DB・ルールの文（無ければ定型文）の順 */
@@ -318,6 +300,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     outsideJpStandard,
   } = analysis;
   const mildNames = mildCautionNames(analysis);
+  const legend = legendEntries(ingredients);
 
   const getOverallBadge = (): { title: string; tone: Tone; icon: typeof ShieldCheck } => {
     switch (overallRiskLevel) {
@@ -542,21 +525,11 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
             <span className="text-xs text-ink-muted">タップで成分解説を表示</span>
           </div>
           {/* 段階は色だけでなく、ボタンの1文字でも示す（この一覧にある段階の凡例） */}
-          {(() => {
-            // 基準の外の成分は、刺激の段階の印も出しているときだけ段階の凡例に数える
-            const marked = ingredients.filter((i) => !outsideStandard(i) || isIrritantLevel(i));
-            const levels = [...new Set(marked.map((i) => i.riskLevel))].filter((l) => riskOf(l).mark);
-            const raised = marked.some((i) => i.raisedForLabel);
-            const entries = levels.map(
-              (l) => `${riskOf(l).mark}＝${riskOf(l).label}${l === 'low_caution' && raised ? '・表示指定成分' : ''}`
-            );
-            if (ingredients.some(outsideStandard)) entries.push('基準＝日本の化粧品基準で配合できない');
-            return entries.length > 0 ? (
-              <p className="mb-2 text-xs text-ink-muted" aria-hidden>
-                {entries.join('　')}
-              </p>
-            ) : null;
-          })()}
+          {legend.length > 0 && (
+            <p className="mb-2 text-xs text-ink-muted" aria-hidden>
+              {legend.join('　')}
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             {ingredients.map((ing, idx) => (
               <button

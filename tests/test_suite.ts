@@ -7192,13 +7192,15 @@ test('122. Analysis card: ingredients outside the Japanese standard are marked, 
   const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
   // ボタン：基準の外は白地に赤の枠と「基準」の印（読み上げにも理由を付ける）。凡例にも出す
   assert.match(card, /if \(outsideStandard\(ing\) && !isIrritantLevel\(ing\)\) return 'bg-white text-rose-900 border-rose-400/);
-  assert.match(card, /return isIrritantLevel\(ing\) && mark \? `基準・\$\{mark\}` : '基準';/);
+  const { pillMark } = await import('../src/components/chat/ingredient-marks');
+  assert.strictEqual(pillMark(ing('ホウ酸')), '基準');
   assert.match(card, /<span className=\{riskBadge\(ing\.riskLevel\)\}>\{riskLabelFor\(ing\)\}<\/span>/, 'The AI-evaluated list uses the same label');
   // 基準の外で刺激の段階もある成分（洗い流さない製品のメチルクロロイソチアゾリノン）は、段階の印を残す
   const mci = analyzeProduct({ ...importedCream, id: 'gallery_mci', ingredients: ['水', 'メチルクロロイソチアゾリノン'] }).ingredients[1];
   assert.ok(mci.jpStandard?.notAllowedHere && mci.riskLevel === 'high_irritant');
+  assert.strictEqual(pillMark(mci), '基準・高');
   assert.ok(card.includes('（日本の化粧品基準で配合できない成分）'));
-  assert.ok(card.includes("'基準＝日本の化粧品基準で配合できない'") && card.includes("'・表示指定成分'"));
+  assert.ok(card.includes('{legend.join(\'　\')}'));
   // 解説：段階の名前とアドバイスは1か所で決める。基準の外 → 表示指定成分 → 成分DB・ルールの文
   assert.match(card, /<span className=\{riskBadge\(selectedIngredient\.riskLevel\)\}>\{riskLabelFor\(selectedIngredient\)\}<\/span>/);
   assert.ok(card.includes('アドバイス: {adviceFor(selectedIngredient)}'));
@@ -7540,4 +7542,45 @@ test('125. Third live review: the analysis reply states only what the AI rating 
   assert.ok(card.includes("{riskOf('low_caution').label}の成分（{mildNames.length}成分）: {mildNames.join('、')}"));
   // 全成分リストの見出し：件数の途中で折り返さない
   assert.ok(card.includes('<span className="whitespace-nowrap">({ingredients.length}成分)</span>'));
+});
+
+test('126. Fourth live review: raised 表示指定成分 get their own mark, so the 注 buttons match the mild-caution line (2026-10-23)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { mildCautionNames } = await import('../src/lib/caution-reason');
+  const { legendEntries, pillMark, riskLabelFor } = await import('../src/components/chat/ingredient-marks');
+  const { aiRatedLotion, aiRatings, importedCream } = await import('../src/lib/dev/gallery-fixtures');
+
+  // 見本の海外製品：表示指定成分（セタノール・EDTA・BHT）は「表」、基準の外（ホウ酸）は「基準」。「注」の成分は無い
+  const imported = analyzeProduct(importedCream);
+  const ing = (name: string) => imported.ingredients.find((i) => i.rawName === name)!;
+  assert.strictEqual(pillMark(ing('セタノール')), '表');
+  assert.strictEqual(pillMark(ing('ホウ酸')), '基準');
+  assert.strictEqual(pillMark(ing('水')), '');
+  assert.deepStrictEqual(legendEntries(imported.ingredients), ['表＝表示指定成分', '基準＝日本の化粧品基準で配合できない']);
+  assert.strictEqual(riskLabelFor(ing('セタノール')), '表示指定成分');
+
+  // 「注」のボタンは、カードの「軽度の注意の成分」と同じ（表示指定成分のセタノールは「表」）
+  const notes = (a: ReturnType<typeof analyzeProduct>) => a.ingredients.filter((i) => pillMark(i).endsWith('注')).map((i) => i.normalizedJa);
+  const strip = (names: string[]) => names.map((n) => n.replace('（AIの評価）', ''));
+  const mixed = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', 'セタノール', '安息香酸Na', 'ベンジルアルコール', 'フェノキシエタノール'] });
+  assert.strictEqual(pillMark(mixed.ingredients.find((i) => i.rawName === 'セタノール')!), '表');
+  assert.deepStrictEqual(notes(mixed), strip(mildCautionNames(mixed)));
+  assert.deepStrictEqual(legendEntries(mixed.ingredients), ['注＝軽度の注意', '表＝表示指定成分']);
+  const ai = analyzeProduct(aiRatedLotion, aiRatings);
+  assert.deepStrictEqual(notes(ai), strip(mildCautionNames(ai)));
+
+  // 基準の外の軽度の注意（AI の評価など）は「基準・注」：「注」の数と「軽度の注意の成分」の数がずれない
+  const outsideMild = { ...mixed.ingredients.find((i) => i.rawName === '安息香酸Na')!, jpStandard: { table: '別表第1', textJa: '', notAllowedHere: true, referenceUrl: '' } };
+  assert.strictEqual(pillMark(outsideMild), '基準・注');
+  assert.ok(legendEntries([outsideMild]).includes('注＝軽度の注意'));
+  // 表示指定成分で、かつ基準の外：「基準」だけ。凡例に「表」は出さない。読み上げは「表示指定成分」
+  const outsideRaised = { ...ing('セタノール'), jpStandard: outsideMild.jpStandard };
+  assert.strictEqual(pillMark(outsideRaised), '基準');
+  assert.deepStrictEqual(legendEntries([outsideRaised]), ['基準＝日本の化粧品基準で配合できない']);
+  assert.strictEqual(riskLabelFor(outsideRaised), '表示指定成分');
+
+  // カードはこのモジュールの印・凡例を使う（「注＝軽度の注意・表示指定成分」の古い凡例は無い）
+  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  assert.ok(card.includes("from './ingredient-marks'") && !card.includes('function pillMark') && !card.includes("'・表示指定成分'"));
 });
