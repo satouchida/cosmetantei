@@ -326,6 +326,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
     // 化粧品基準で配合できない成分は、見出しの理由なので白地に赤の枠（「高」の赤い塗り・未評価の点線と分ける）
     // 刺激の段階（高・刺・活）の成分は、その段階の色のまま（印に「基準」を足す）
     if (outsideStandard(ing) && !isIrritantLevel(ing)) return 'bg-white text-rose-900 border-rose-400 hover:bg-rose-50 font-semibold';
+    // 表示指定成分で引き上げただけの成分（「表」）は白地に黄の枠（黄の塗りの「注」と分ける。緑とも並べない）
+    if (ing.raisedForLabel) return 'bg-white text-amber-900 border-amber-400 hover:bg-amber-50';
     // 肌を整える・うるおいを保つ成分は安全の緑で目立たせる
     if (ing.riskLevel === 'safe' && (ing.category === 'soothing' || ing.category === 'barrier_support')) {
       return 'bg-tint-safe text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-semibold';

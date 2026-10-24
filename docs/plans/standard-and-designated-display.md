@@ -79,6 +79,8 @@ three cases (outside the standard → raised → the rule's or fallback advice) 
 
 - **Pill colour of raised ingredients.** Still amber; the owner chose yellow for them. Only the
   wording changes.
+  (Later: still yellow, but outlined on white instead of filled, to tell 表 from 注 —
+  `docs/plans/live-review-5-fixes.md`.)
 - **The product verdict.** Unchanged (owner decision in the audit plan, step 4c).
 - **The 「Supported by Rakuten Developers」 touch target.** It's a vendor attribution snippet, outside
   this change.

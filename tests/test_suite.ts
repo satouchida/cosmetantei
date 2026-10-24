@@ -7584,3 +7584,12 @@ test('126. Fourth live review: raised 表示指定成分 get their own mark, so 
   const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
   assert.ok(card.includes("from './ingredient-marks'") && !card.includes('function pillMark') && !card.includes("'・表示指定成分'"));
 });
+
+test('127. Fifth live review: raised 表示指定成分 are outlined, not filled like 注 (2026-10-24)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  const outlined = "if (ing.raisedForLabel) return 'bg-white text-amber-900 border-amber-400";
+  // 「表」は白地に黄の枠（「注」は黄の塗り）。基準の外の判定より後なので、基準の外なら赤の枠のまま
+  assert.ok(card.includes(outlined));
+  assert.ok(card.indexOf('if (outsideStandard(ing) && !isIrritantLevel(ing)) return') < card.indexOf(outlined));
+});
