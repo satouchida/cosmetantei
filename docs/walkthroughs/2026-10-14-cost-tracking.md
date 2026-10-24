@@ -114,13 +114,12 @@ It is replaced by one counter that every request sees.
 
 ## Budget
 
-The owner's budget is about **$30 a day and $100 a month**. The cap counts dollars, not calls, so
+The owner's budget is about **$10 a day and $100 a month** (lowered from $30 a day on 2026-10-24). The cap counts dollars, not calls, so
 the same limit holds whatever mix of calls users make.
 
-- **Setting:** `SPEND_BUDGET_USD = "30/100"` in `[vars]`: per UTC day / per UTC calendar month,
+- **Setting:** `SPEND_BUDGET_USD = "10/100"` in `[vars]`: per UTC day / per UTC calendar month,
   for Gemini, Workers AI and web search together. Decimals are allowed (`"2.5/40"`).
-- **Both limits apply.** At the full daily rate, the month's $100 is used up in a little over three
-  days; paid calls then stop until the 1st (UTC) and users get the usual fallbacks.
+- **Both limits apply.** At the full daily rate, the month's $100 is used up in ten days; paid calls then stop until the 1st (UTC) and users get the usual fallbacks.
 - **Per-minute counts**, per kind, stop sudden bursts: `SPEND_PER_MINUTE_WEB_SEARCH = "30"`,
   `SPEND_PER_MINUTE_GEMINI = "60"`, `SPEND_PER_MINUTE_WORKERS_AI = "120"`.
 - **Not in the budget:** fixed fees, such as the Workers Paid plan, and Durable Object, KV and
@@ -180,8 +179,8 @@ Estimates per call at 2026 prices (2027: Gemini about twice):
 | Clef check | under $0.001 | |
 | Web search | $0.005–0.007 | |
 
-So even at the reserved prices, $30 a day covers about 350 product lookups (search + page read),
-or about 5,000 chat replies. Real costs are lower, and settlement returns the difference.
+So even at the reserved prices, $10 a day covers about 115 product lookups (search + page read),
+or about 1,700 chat replies. Real costs are lower, and settlement returns the difference.
 
 ### Checks
 
@@ -215,8 +214,8 @@ Declined:
   may leave its reservation counted, which errs on the side of spending less. A longer timeout
   would make users wait longer when the Durable Object is slow.
 - **Refusing at 95% of the budget:** an overrun only comes from pages longer than their
-  estimate, in calls that are already running, so it is small next to $30. Holding back 5% would
-  cost $1.50 every day. The log line shows when the page estimate should be raised.
+  estimate, in calls that are already running, so it is small next to $10. Holding back 5% would
+  cost $0.50 every day. The log line shows when the page estimate should be raised.
 
 ### Also possible
 

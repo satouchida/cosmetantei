@@ -32,7 +32,7 @@ import { ClientLimit, MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, 
  *   本番ビルドをバインディング無しで動かすとき（next start）は SPEND_CAP_ALLOW_MEMORY=true
  */
 
-export const DEFAULT_BUDGET_USD = { perDay: 30, perMonth: 100 };
+export const DEFAULT_BUDGET_USD = { perDay: 10, perMonth: 100 };
 
 /** 利用者（IP。IPv6 は /48）ごとの1日あたりの上限（USD）。SPEND_PER_CLIENT_USD が無い・形が違うとき */
 export const DEFAULT_PER_CLIENT_USD = 0.5;

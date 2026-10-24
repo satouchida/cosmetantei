@@ -102,7 +102,7 @@ CHAT_GATE_MODE = "enforce"
 # 有料の呼び出しの予算（全体で厳密に数える）。Gemini・Workers AI・Web 検索の合計金額で「1日あたり/1か月あたり」の USD（UTC）。
 # 超える呼び出しはせず、利用量の記録に capped と残す。単価は src/lib/server/prices.ts、詳細は
 # docs/walkthroughs/2026-10-14-cost-tracking.md の「Budget」
-SPEND_BUDGET_USD = "30/100"
+SPEND_BUDGET_USD = "10/100"
 # 利用者（IP。IPv6 は /48）ごとの1日あたりの上限（USD）。1人で全員の予算を使い切れないように。
 # "0" は「上限なし」ではなく、利用者からの有料の呼び出しをすべて断る
 SPEND_PER_CLIENT_USD = "0.5"
