@@ -197,11 +197,18 @@ and [`docs/plans/ai-call-limits.md`](docs/plans/ai-call-limits.md).
   half of the day's budget is spent, they drop to a smaller percentage.
 - **Per-request cap:** one request reserves at most $0.30 of paid calls and starts no new paid
   call after 60 seconds.
+- **Telling the user:** when a paid call the user is waiting for is refused by a limit, the
+  route adds `X-Spend-Limit: month | day | client | minute | unavailable`
+  (`src/lib/server/api-route.ts`). `apiFetch` reads it and the chat shows one calm notice above the
+  input until the limit resets (`src/lib/spend-limit.ts`, `src/lib/client/spend-limit-store.ts`).
+  Background work, free shop APIs and the per-request cap don't trigger it.
 - **Shop and Open Beauty Facts quotas:** brand lineups are limited per IP and per session;
   Rakuten and Yahoo! API calls and Open Beauty Facts searches are counted site-wide per minute.
 - **Prompt hardening and output checks:** system instructions treat page and user text as
   untrusted data, and outputs are checked before they are shown.
 - **No user text in logs:** usage records hold counts, hashes, status codes, tokens and time.
+  Workers invocation logs are off (`[observability.logs]` in `wrangler.toml`), because they would
+  keep request URLs, including the typeahead's `?q=`.
 - **Headers:** security headers come from `next.config.mjs` and `public/_headers`.
 
 ## Deployment

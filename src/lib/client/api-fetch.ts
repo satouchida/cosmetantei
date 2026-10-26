@@ -8,6 +8,8 @@
  */
 
 import { hasConsented } from '@/lib/consent';
+import { parseSpendLimit, SPEND_LIMIT_HEADER } from '@/lib/spend-limit';
+import { noteSpendLimit } from './spend-limit-store';
 
 const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 /** チェックボックスを押してもらう時間も含めた、確認を待つ上限 */
@@ -221,10 +223,17 @@ export async function apiFetch(input: string, init?: RequestInit, options: { tim
   if (!hasConsented()) return consentRequiredResponse();
   const epoch = sessionEpoch;
   const res = await fetch(input, withTimeout(init, options.timeoutMs));
-  if (res.status !== 401) return res;
+  if (res.status !== 401) return noticeSpendLimit(res);
   const siteKey = await siteKeyFrom(res);
   if (!siteKey) return res;
   // この要求を送った後にセッションが始まっていれば、確認せずに頼み直す
   if (sessionEpoch === epoch && !(await waitForVerification(siteKey, init?.signal))) return res;
-  return fetch(input, withTimeout(init, options.timeoutMs));
+  return noticeSpendLimit(await fetch(input, withTimeout(init, options.timeoutMs)));
+}
+
+/** 有料の呼び出しが上限で断られた応答なら、画面に案内を出す（src/lib/spend-limit.ts） */
+function noticeSpendLimit(res: Response): Response {
+  const limit = parseSpendLimit(res.headers.get(SPEND_LIMIT_HEADER));
+  if (limit) noteSpendLimit(limit);
+  return res;
 }

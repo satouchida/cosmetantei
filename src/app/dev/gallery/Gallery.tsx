@@ -8,6 +8,8 @@ import { IngredientAnalysisCard } from '@/components/chat/IngredientAnalysisCard
 import { DifferentialResultCard } from '@/components/chat/DifferentialResultCard';
 import { CurrentUseResultCard } from '@/components/chat/CurrentUseResultCard';
 import { PriceResultCard } from '@/components/chat/PriceResultCard';
+import { SpendLimitNotice } from '@/components/chat/SpendLimitNotice';
+import { SPEND_LIMIT_REASONS } from '@/lib/spend-limit';
 import { AmazonAlternativeCard } from '@/components/chat/AmazonAlternativeCard';
 import { RoutineSidebar } from '@/components/routine/RoutineSidebar';
 import { RoutineExportDialog } from '@/components/routine/RoutineExportDialog';
@@ -292,6 +294,18 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
           <Bubble>
             <PriceResultCard result={priceUnavailable} />
           </Bubble>
+        </div>
+      ),
+    },
+    {
+      id: 'spend-limit',
+      title: '上限の案内（今月・本日・利用者ごと・混雑・障害）',
+      layout: 'chat',
+      render: () => (
+        <div className="max-w-[720px] mx-auto flex flex-col">
+          {SPEND_LIMIT_REASONS.map((reason) => (
+            <SpendLimitNotice key={reason} reason={reason} onDismiss={() => {}} />
+          ))}
         </div>
       ),
     },

@@ -2,7 +2,8 @@ import 'server-only';
 import { getClientIp, getRequestAsn, ipv4Network24 } from './cloudflare';
 import { HOSTING_ASNS } from './hosting-networks';
 import { checkSession, isNewSession } from './session';
-import { BudgetClient, withUsageRoute } from './usage';
+import { BudgetClient, currentSpendLimit, withUsageRoute } from './usage';
+import { SPEND_LIMIT_HEADER } from '@/lib/spend-limit';
 
 /**
  * API ルートの入口（すべての /api/* が通る）。
@@ -69,7 +70,8 @@ export async function budgetClients(request: Request, sessionId?: string, sessio
 
 /**
  * API ルートの処理を包む（ほかのサイトからの呼び出し・確かめていないブラウザを断り、利用量・利用者ごとの予算に、
- * ルート名と利用者を付ける）
+ * ルート名と利用者を付ける）。その要求の有料の呼び出しが上限で断られたら、応答に上限の種類のヘッダーを付ける
+ * （画面の案内。src/lib/spend-limit.ts）
  */
 export function apiRoute<A extends [Request, ...unknown[]]>(route: string, handler: (...args: A) => Promise<Response>) {
   return async (...args: A): Promise<Response> => {
@@ -78,8 +80,19 @@ export function apiRoute<A extends [Request, ...unknown[]]>(route: string, handl
     if (rejected) return rejected;
     const session = await checkSession(request);
     if (session instanceof Response) return session;
-    return withUsageRoute(route, handler, await budgetClients(request, session.id, session.issuedAt))(...args);
+    const withLimitHeader = async (...a: A) => markSpendLimit(await handler(...a));
+    return withUsageRoute(route, withLimitHeader, await budgetClients(request, session.id, session.issuedAt))(...args);
   };
+}
+
+/** この要求で断られた上限があれば、応答のヘッダーに付ける（要求の中で呼ぶ） */
+function markSpendLimit(res: Response): Response {
+  const limit = currentSpendLimit();
+  if (!limit) return res;
+  // fetch で受けた応答などはヘッダーを変えられないので、写しに付ける
+  const headers = new Headers(res.headers);
+  headers.set(SPEND_LIMIT_HEADER, limit);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 
 export const TOO_LARGE = Symbol('too large');

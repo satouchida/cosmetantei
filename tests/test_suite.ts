@@ -7593,3 +7593,182 @@ test('127. Fifth live review: raised 表示指定成分 are outlined, not filled
   assert.ok(card.includes(outlined));
   assert.ok(card.indexOf('if (outsideStandard(ing) && !isIrritantLevel(ing)) return') < card.indexOf(outlined));
 });
+
+test('128. Spend limits reach the screen: the route says which limit refused, the browser shows one calm notice (2026-10-26)', async () => {
+  const { reserveSpend, resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { withUsageRoute, currentSpendLimit } = await import('../src/lib/server/usage');
+  const { apiRoute } = await import('../src/lib/server/api-route');
+  const limits = await import('../src/lib/spend-limit');
+  const store = await import('../src/lib/client/spend-limit-store');
+  const envNames = ['SPEND_BUDGET_USD', 'SPEND_PER_MINUTE_GEMINI', 'TURNSTILE_SITE_KEY'] as const;
+  const saved = Object.fromEntries(envNames.map((n) => [n, process.env[n]]));
+  const inRoute = <T>(fn: () => Promise<T>) => withUsageRoute('test', fn, [{ kind: 'ip', key: 'ip:203.0.113.9' }])();
+  try {
+    delete process.env.TURNSTILE_SITE_KEY;
+    // 全体の1日の予算を超えた呼び出し：その要求の上限は 'day'
+    process.env.SPEND_BUDGET_USD = '0.01/100';
+    resetSpendCap();
+    assert.strictEqual(await inRoute(async () => (await reserveSpend('gemini', 20_000), currentSpendLimit())), 'day');
+    // 1か月の予算
+    process.env.SPEND_BUDGET_USD = '100/0.01';
+    resetSpendCap();
+    assert.strictEqual(await inRoute(async () => (await reserveSpend('gemini', 20_000), currentSpendLimit())), 'month');
+    // 急がない仕事・無料のお店の API・1回の要求の上限で断られても、画面には伝えない
+    process.env.SPEND_BUDGET_USD = '0.01/100';
+    resetSpendCap();
+    assert.strictEqual(await inRoute(async () => (await reserveSpend('gemini', 20_000, { background: true }), currentSpendLimit())), null);
+    process.env.SPEND_PER_MINUTE_GEMINI = '0';
+    assert.strictEqual(await inRoute(async () => (await reserveSpend('gemini', 0), currentSpendLimit())), null);
+    delete process.env.SPEND_PER_MINUTE_GEMINI;
+    process.env.SPEND_BUDGET_USD = '100/100';
+    resetSpendCap();
+    assert.strictEqual(await inRoute(async () => (await reserveSpend('gemini', 1_000_000), currentSpendLimit())), null, 'Over the per-request cap');
+    // 同じ要求で複数断られたら強いほう。API ルートの外では null
+    process.env.SPEND_BUDGET_USD = '0.01/100';
+    resetSpendCap();
+    const { markRefused } = await import('../src/lib/server/usage');
+    assert.strictEqual(await inRoute(async () => (markRefused('minute'), markRefused('day'), markRefused('client'), currentSpendLimit())), 'day');
+    assert.strictEqual(currentSpendLimit(), null);
+    // 種類ごと：チャットの判定（Workers AI）だけが断られたなら、調べた結果の「見つからなかった」のまま
+    assert.deepStrictEqual(
+      await inRoute(async () => (markRefused('minute', 'workers_ai'), [currentSpendLimit(), currentSpendLimit(['web_search', 'gemini'])])),
+      ['minute', null]
+    );
+    resetSpendCap();
+    assert.strictEqual(await inRoute(async () => (await reserveSpend('gemini', 20_000), currentSpendLimit(['web_search', 'gemini']))), 'day');
+
+    // API ルートの応答にヘッダーが付く（断られなければ付かない）
+    const capped = apiRoute('test', async () => {
+      await reserveSpend('gemini', 20_000);
+      return Response.json({ ok: true });
+    });
+    const call = (route: typeof capped) => route(new Request('https://app.example/api/x', { headers: { 'cf-connecting-ip': '203.0.113.9' } }));
+    resetSpendCap();
+    const res = await call(capped);
+    assert.strictEqual(res.headers.get(limits.SPEND_LIMIT_HEADER), 'day');
+    assert.deepStrictEqual(await res.json(), { ok: true }, 'The body is kept');
+    process.env.SPEND_BUDGET_USD = '100/100';
+    resetSpendCap();
+    assert.strictEqual((await call(capped)).headers.get(limits.SPEND_LIMIT_HEADER), null);
+
+    // 案内の文：止まるもの（写真の読み取りを含む）と、使えるもの。「撮影」は使えるものに入れない
+    for (const reason of limits.SPEND_LIMIT_REASONS) {
+      const text = limits.spendLimitMessage(reason);
+      assert.ok(text.includes('成分表示を文字で入力した比較'), reason);
+      assert.doesNotMatch(text, /撮影.*使えます/);
+    }
+    for (const reason of ['month', 'day', 'client'] as const) assert.ok(limits.spendLimitMessage(reason).includes('写真の読み取り'));
+    assert.ok(limits.spendLimitMessage('day').includes('毎日午前9時（日本時間）'));
+    assert.ok(limits.spendLimitMessage('month').includes('毎月1日の午前9時（日本時間）'));
+    assert.strictEqual(limits.parseSpendLimit('day'), 'day');
+    assert.strictEqual(limits.parseSpendLimit('weekly'), null);
+    assert.strictEqual(limits.parseSpendLimit(null), null);
+    // 上限が戻る時刻：UTC の日・月の区切り（日本時間の午前9時）。混雑は1分
+    const now = Date.UTC(2026, 9, 26, 15, 30);
+    assert.strictEqual(limits.spendLimitUntil('day', now), Date.UTC(2026, 9, 27));
+    assert.strictEqual(limits.spendLimitUntil('month', now), Date.UTC(2026, 10, 1));
+    assert.strictEqual(limits.spendLimitUntil('month', Date.UTC(2026, 11, 31, 23)), Date.UTC(2027, 0, 1));
+    assert.strictEqual(limits.spendLimitUntil('minute', now), now + 60_000);
+
+    // 画面の案内：強いほうを残す・閉じたら同じ種類は期限まで出さない・期限を過ぎたら出す
+    store.resetSpendLimitForTests();
+    store.noteSpendLimit('minute', now);
+    store.noteSpendLimit('month', now);
+    assert.strictEqual(store.getSpendLimitSnapshot()?.reason, 'month');
+    store.noteSpendLimit('minute', now);
+    assert.strictEqual(store.getSpendLimitSnapshot()?.reason, 'month', 'A weaker limit does not replace a stronger one');
+    store.dismissSpendLimit();
+    assert.strictEqual(store.getSpendLimitSnapshot(), null);
+    store.noteSpendLimit('month', now + 1000);
+    assert.strictEqual(store.getSpendLimitSnapshot(), null, 'Dismissed until the month resets');
+    store.noteSpendLimit('day', now + 2000);
+    assert.strictEqual(store.getSpendLimitSnapshot(), null, 'A weaker limit stays quiet under a dismissed stronger one');
+    store.noteSpendLimit('month', Date.UTC(2026, 10, 1, 0, 1));
+    assert.strictEqual(store.getSpendLimitSnapshot()?.reason, 'month', 'Shown again after the reset');
+    store.resetSpendLimitForTests();
+    // 弱いほうを閉じても、閉じた強いほうは戻らない
+    store.noteSpendLimit('day', now);
+    store.dismissSpendLimit();
+    store.noteSpendLimit('month', now);
+    store.dismissSpendLimit();
+    store.noteSpendLimit('client', now);
+    assert.strictEqual(store.getSpendLimitSnapshot(), null);
+    store.noteSpendLimit('month', now);
+    assert.strictEqual(store.getSpendLimitSnapshot(), null);
+    store.resetSpendLimitForTests();
+
+    // ブラウザ：apiFetch がヘッダーを読む。画面は入力欄の上に出す。写真の読み取りの上限は専用の文
+    const { readFileSync } = await import('node:fs');
+    assert.match(readFileSync('src/lib/client/api-fetch.ts', 'utf8'), /noticeSpendLimit\(await fetch/);
+    assert.match(readFileSync('src/components/chat/ChatContainer.tsx', 'utf8'), /<SpendLimitNotice reason=\{spendLimit\.reason\}/);
+    assert.match(readFileSync('src/app/api/label/read/route.ts', 'utf8'), /error: spendLimitMessage\(limit\)/);
+    // チャット：上限で Web を調べられなかったときは「見つかりませんでした」と言わない（2か所）
+    // （調べた呼び出しの種類だけを見る。3か所）
+    const chatRoute = readFileSync('src/app/api/chat/route.ts', 'utf8');
+    assert.strictEqual(chatRoute.match(/\? spendLimitMessage\(limit\)/g)?.length, 3);
+    assert.strictEqual(chatRoute.match(/currentSpendLimit\(RESEARCH_BUCKETS\)/g)?.length, 3);
+    assert.doesNotMatch(chatRoute, /currentSpendLimit\(\)/);
+    // 写真：今月・本日・端末の上限では「もう一度読み取る」を出さない
+    assert.match(readFileSync('src/components/label/LabelInputModal.tsx', 'utf8'), /&& !lasting\);/);
+  } finally {
+    store.resetSpendLimitForTests();
+    resetSpendCap();
+    for (const n of envNames) {
+      if (saved[n] === undefined) delete process.env[n];
+      else process.env[n] = saved[n];
+    }
+  }
+});
+
+test('129. Launch readiness: terms and privacy state the β, the limits, bug reports and their emails; one contact address (2026-10-26)', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const terms = readFileSync('src/app/terms/page.tsx', 'utf8');
+  const privacy = readFileSync('src/app/privacy/page.tsx', 'utf8');
+  const { BUG_REPORT_MAILTO, CONTACT_EMAIL, LEGAL_VERSION } = await import('../src/lib/site');
+  assert.strictEqual(CONTACT_EMAIL, 'contactme@cosmetantei.app');
+  assert.strictEqual(LEGAL_VERSION, '2026-10-26');
+  // 古い連絡先がどこにも残っていない（ソースと規約）。ページは CONTACT_EMAIL から出す
+  const files = readdirSync('src', { recursive: true, encoding: 'utf8' }).filter((f) => /\.(ts|tsx)$/.test(f));
+  for (const f of files) assert.ok(!readFileSync(`src/${f}`, 'utf8').includes('contact@cosmetantei.app'), f);
+  for (const page of [terms, privacy]) assert.ok(page.includes('{CONTACT_EMAIL}'));
+
+  // 利用規約：β版・上限（止まるものと使えるもの）・ご意見等。免責の言葉は足さない（test 109）
+  assert.ok(terms.includes('第5条（アカウント登録・利用料金・利用上限）'));
+  assert.ok(terms.includes('現在β版として無料で提供しています'));
+  assert.ok(terms.includes('成分表示の写真の読み取り、AIによる解説等が、上限が戻るまで'));
+  assert.ok(terms.includes('成分表示を文字で入力した比較、およびすでに成分が分かっている商品での比較は、引き続き利用できます'));
+  assert.ok(terms.includes('第5条の2（β版としての提供）') && terms.includes('第5条の3（ご意見・不具合の報告）'));
+  assert.ok(terms.includes('送った方の同意なく公開しません'));
+  assert.ok(terms.includes('共有リンク（https://cosmetantei.app/#r=…）'));
+  assert.ok(terms.includes('変更後の本規約への同意を改めてお願いします'));
+  assert.doesNotMatch(terms, /将来的に有償機能または制限を導入/);
+
+  // プライバシーポリシー：メールで受け取る情報・保存期間・保管先（Fastmail、外国の制度）・本人からの請求
+  assert.ok(privacy.includes('お問い合わせ・不具合の報告で受け取る情報'));
+  assert.ok(privacy.includes('最後のやりとりから1年以内に削除します'));
+  assert.ok(privacy.includes('Fastmail Pty Ltd（オーストラリア）'));
+  assert.ok(privacy.includes('オーストラリア連邦</strong>：'));
+  assert.ok(privacy.includes('送信されたご本人からの開示、訂正、利用停止、削除等の請求'));
+  assert.doesNotMatch(privacy, /メールアドレス等を含む個人情報を収集・保持しておりません/);
+  // 健康に関する入力・共有リンク・保存期間・重要な改定の扱い
+  assert.ok(privacy.includes('健康に関する情報を入力しないでください'));
+  assert.ok(privacy.includes('リンクの「#」より後ろの部分は、リンクを開いてもブラウザから当方のサーバーへ送られません'));
+  assert.ok(privacy.includes('Workers Analytics Engine、保存期間3か月'));
+  assert.ok(privacy.includes('前日までの分は、日が変わった後の利用の際に順に消去します') && privacy.includes('Cloudflare Workers Logs、最長3日'));
+  assert.ok(privacy.includes('改めて同意をお願いします'));
+
+  // 書いたことと実装：Workers Logs に要求のアドレス（入力途中の ?q=）を残さない・利用者ごとの記録は日ごとに消す
+  assert.match(readFileSync('wrangler.toml', 'utf8'), /\[observability\.logs\]\nenabled = true\ninvocation_logs = false/);
+  const core = readFileSync('src/lib/server/spend-cap-core.ts', 'utf8');
+  assert.ok(core.includes('return `client:${day}:${client}`;') && core.includes('private async cleanOldClients'));
+  // 共有リンクは # の後ろ（サーバーに届かない）
+  assert.match(readFileSync('src/lib/routine-share.ts', 'utf8'), /const SHARE_PREFIX = '#r=';/);
+
+  // 不具合の報告：トップ画面の規約のリンクの並びにある。本文はひな形だけ（入力・リストを写さない）
+  const links = readFileSync('src/components/legal/LegalPage.tsx', 'utf8');
+  assert.ok(links.includes('href={BUG_REPORT_MAILTO}') && links.includes('不具合を報告'));
+  assert.ok(BUG_REPORT_MAILTO.startsWith('mailto:contactme@cosmetantei.app?subject='));
+  const body = decodeURIComponent(BUG_REPORT_MAILTO.split('&body=')[1]);
+  assert.ok(body.includes('起きたこと：') && body.includes('肌の症状や病歴、氏名などの個人情報は書かないでください'));
+  assert.match(readFileSync('src/lib/site.ts', 'utf8'), /export const BUG_REPORT_MAILTO = `mailto:\$\{CONTACT_EMAIL\}\?subject=\$\{encodeURIComponent\('【不具合報告】コスメ探偵'\)\}&body=\$\{encodeURIComponent\(\n  '[^`$]*'\n\)\}`;/);
+});

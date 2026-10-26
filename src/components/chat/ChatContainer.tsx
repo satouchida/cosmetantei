@@ -69,6 +69,13 @@ import {
   shareFragment,
 } from '@/lib/routine-share';
 import { LegalLinks } from '@/components/legal/LegalPage';
+import { SpendLimitNotice } from '@/components/chat/SpendLimitNotice';
+import {
+  dismissSpendLimit,
+  getSpendLimitServerSnapshot,
+  getSpendLimitSnapshot,
+  subscribeSpendLimit,
+} from '@/lib/client/spend-limit-store';
 import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 import { ConsentDialog } from '@/components/legal/ConsentDialog';
 import { getConsentServerSnapshot, hasConsented, subscribeConsent } from '@/lib/consent';
@@ -366,6 +373,8 @@ export const ChatContainer: React.FC = () => {
   const currentUse = useSyncExternalStore(subscribeCurrentUse, getCurrentUseSnapshot, getCurrentUseServerSnapshot);
   // 利用規約・Cookie の使用への同意（src/lib/consent.ts）。null はまだ分からない（サーバーで描いた直後）
   const consented = useSyncExternalStore(subscribeConsent, hasConsented, getConsentServerSnapshot);
+  // 有料の呼び出しが上限で断られたときの案内（apiFetch が応答のヘッダーを見て出す）
+  const spendLimit = useSyncExternalStore(subscribeSpendLimit, getSpendLimitSnapshot, getSpendLimitServerSnapshot);
   // 確認画面で同意したら入力欄へ（確認画面を開いたボタンは無いので、閉じても戻す先が無い）。
   // 前に同意していた人が開いたとき（null → true）はフォーカスを動かさない
   const wasConsented = useRef(consented);
@@ -1390,6 +1399,8 @@ export const ChatContainer: React.FC = () => {
           <div className="px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-4 bg-surface">
             {/* 候補のトレイは見た目は入力欄の上、Tab の順番は入力欄の後（DOM は入力欄が先） */}
             <div className="max-w-[720px] mx-auto flex flex-col">
+              {/* 上限の案内は、候補のトレイ（order-first）の下・入力欄のすぐ上 */}
+              {spendLimit && <SpendLimitNotice reason={spendLimit.reason} onDismiss={dismissSpendLimit} />}
 
               <form
                 onSubmit={(e) => {

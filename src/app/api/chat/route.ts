@@ -37,6 +37,11 @@ import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH, productFromLabel } from '
 import { brandLineup, shopProductQuery } from '@/lib/services/shop-lineup';
 import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
+import { currentSpendLimit } from '@/lib/server/usage';
+import { spendLimitMessage } from '@/lib/spend-limit';
+
+/** Web リサーチが使う有料の呼び出し（これが上限で断られたときだけ、「見つからなかった」の代わりに上限を伝える） */
+const RESEARCH_BUCKETS = ['web_search', 'gemini'] as const;
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
 
 /** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
@@ -243,8 +248,12 @@ async function handlePost(request: NextRequest) {
         ? (await searchCosmeticsLive(query, 6, { webResearch: true, retryEmpty: true })).filter(hasUsableIngredients)
         : [];
       if (found.length === 0) {
+        // 上限で Web を調べられなかったときは「見つからなかった」と言わない
+        const limit = currentSpendLimit(RESEARCH_BUCKETS);
         return NextResponse.json({
-          reply: 'Web でも、この商品の全成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
+          reply: limit
+            ? spendLimitMessage(limit)
+            : 'Web でも、この商品の全成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
           quickReplies: ['📸 バーコードをスキャンする', '📝 成分表示を入力する', '🔍 別のコスメを調べる'],
         });
       }
@@ -292,9 +301,12 @@ async function handlePost(request: NextRequest) {
       // 成分の分からない製品は候補に出さない（選んでも「成分データ不足」になるだけ）
       const found = query ? (await searchCosmeticsLive(query, 6, { webResearch: true })).filter(hasUsableIngredients) : [];
       if (found.length === 0) {
+        const limit = currentSpendLimit(RESEARCH_BUCKETS);
         // バーコードで調べた後なら、バーコードの読み取りは勧めない
         return NextResponse.json({
-          reply: triedBarcode
+          reply: limit
+            ? spendLimitMessage(limit)
+            : triedBarcode
             ? 'この商品の成分表示は、バーコードでも商品名でも見つかりませんでした。パッケージの成分表示を入力してください。'
             : 'この商品の成分表示は見つかりませんでした。パッケージのバーコードを読み取るか、成分表示を入力してください。',
           quickReplies: triedBarcode
@@ -454,9 +466,11 @@ async function handlePost(request: NextRequest) {
 
     // F. 商品名の入力など。該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
     if (matchedProducts.length === 0) {
+      const limit = webResearch ? currentSpendLimit(RESEARCH_BUCKETS) : null;
       return NextResponse.json({
-        reply:
-          '該当する化粧品が見つかりませんでした。ブランド名と商品名を入力するか、パッケージのバーコードを読み取るか、成分表示を入力してください。',
+        reply: limit
+          ? spendLimitMessage(limit)
+          : '該当する化粧品が見つかりませんでした。ブランド名と商品名を入力するか、パッケージのバーコードを読み取るか、成分表示を入力してください。',
         quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '📝 成分表示を入力する'],
       });
     }

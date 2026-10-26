@@ -2,6 +2,7 @@ import 'server-only';
 import { getBindings } from './cloudflare';
 import { adjustRequestSpend, BudgetClientKind, currentClients, markRefused, takeRequestSpend } from './usage';
 import { ClientLimit, MemorySpendStore, SpendBucket, SpendCounter, SpendLimits, SpendPeriod } from './spend-cap-core';
+import { SpendLimitReason } from '@/lib/spend-limit';
 
 /**
  * 有料の呼び出しの上限（全体で厳密に数える）。Gemini・Workers AI・Web 検索の前に reserveSpend、後に settleSpend
@@ -164,6 +165,11 @@ async function capTarget(what: string): Promise<CapTarget> {
   };
 }
 
+/** Durable Object が返した断りの理由（知らない値は、数えられなかったものとして扱う） */
+function parseRefusalReason(reason: unknown): SpendLimitReason {
+  return reason === 'minute' || reason === 'day' || reason === 'month' || reason === 'client' ? reason : 'unavailable';
+}
+
 /**
  * 見積もり金額を確保する。予算・1分の件数の上限内なら SpendTicket、上限に達している・数えられないときは null（呼び出さない）
  */
@@ -183,7 +189,10 @@ export async function reserveSpend(
     return null;
   }
   const cost = Math.max(0, Math.ceil(costMicros));
-  // 1回の要求の見積もりの合計・時間の上限（無料のお店の API は数えない）
+  // 画面に伝えるのは、利用者が待っている有料の呼び出しが断られたときだけ（急がない仕事・無料のお店の API は伝えない）
+  const notify = cost > 0 && !background;
+  const refuse = (limit: SpendLimitReason) => markRefused(notify ? limit : undefined, bucket);
+  // 1回の要求の見積もりの合計・時間の上限（無料のお店の API は数えない）。結果の一部が欠けるだけなので画面には伝えない
   if (cost > 0 && !takeRequestSpend(cost)) {
     markRefused();
     console.warn(`${bucket} call skipped: per-request spend or time limit reached`);
@@ -192,7 +201,7 @@ export async function reserveSpend(
   try {
     const target = await capTarget(`${bucket} call`);
     if (!target) {
-      markRefused();
+      refuse('unavailable');
       adjustRequestSpend(-cost);
       return null;
     }
@@ -207,14 +216,14 @@ export async function reserveSpend(
           });
     // 断られた呼び出しの失敗を、全員の分の「失敗した検索」として覚えさせない。この要求の見積もりの合計からも外す
     if (decision.allowed !== true) {
-      markRefused();
+      refuse(parseRefusalReason(decision.reason));
       adjustRequestSpend(-cost);
     }
     return decision.allowed === true && decision.period
       ? { costMicros: cost, period: decision.period, clients: clients.map((c) => c.key) }
       : null;
   } catch (err) {
-    markRefused();
+    refuse('unavailable');
     adjustRequestSpend(-cost);
     console.error(`Spend cap check failed for ${bucket}; refusing the call:`, err instanceof Error ? err.message : err);
     return null;

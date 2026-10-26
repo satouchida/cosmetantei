@@ -1,6 +1,7 @@
 import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getBindings } from './cloudflare';
+import { SpendLimitReason, strongerSpendLimit } from '@/lib/spend-limit';
 
 /**
  * 有料の呼び出し（Gemini・Workers AI・Web 検索）の利用量の記録（docs/review/02-cost-and-model.md の 7）
@@ -53,6 +54,10 @@ const routeContext = new AsyncLocalStorage<{
   route: string;
   clients: BudgetClient[];
   refused?: boolean;
+  /** 断られた上限のうち、画面に伝えるもの（急がない仕事・無料のお店の API・1回の要求の上限で断られたときは付けない） */
+  limit?: SpendLimitReason;
+  /** 同じものを、断られた呼び出しの種類（spend-cap.ts の SpendBucket）ごとに */
+  limitByBucket?: Map<string, SpendLimitReason>;
   /** 要求を受けた時刻と、この要求で確保した有料の呼び出しの見積もりの合計（1回の要求の上限に使う） */
   startedAt: number;
   reservedMicros: number;
@@ -115,10 +120,34 @@ export function adjustRequestSpend(deltaMicros: number): void {
   if (store) store.reservedMicros = Math.max(0, store.reservedMicros + deltaMicros);
 }
 
-/** この要求の有料の呼び出しが、上限（利用者ごと・全体の予算・1分の件数）で断られた・数えられなかった（spend-cap.ts が付ける） */
-export function markRefused(): void {
+/**
+ * この要求の有料の呼び出しが、上限（利用者ごと・全体の予算・1分の件数）で断られた・数えられなかった（spend-cap.ts が付ける）。
+ * limit があれば、画面に伝える上限として、全体と呼び出しの種類（bucket）ごとに覚える（同じ要求で複数あれば強いほう）
+ */
+export function markRefused(limit?: SpendLimitReason, bucket?: string): void {
   const store = routeContext.getStore();
-  if (store) store.refused = true;
+  if (!store) return;
+  store.refused = true;
+  if (!limit) return;
+  store.limit = strongerSpendLimit(store.limit ?? null, limit) ?? undefined;
+  if (bucket) {
+    const byBucket = (store.limitByBucket ??= new Map());
+    byBucket.set(bucket, strongerSpendLimit(byBucket.get(bucket) ?? null, limit) ?? limit);
+  }
+}
+
+/**
+ * この要求で断られた、画面に伝える上限（無ければ null。API ルートの外でも null）。
+ * buckets を渡すと、その種類の呼び出しが断られた分だけを見る（「見つからなかった」の代わりに上限を伝えるかの判断。
+ * チャットの判定など、ほかの呼び出しが断られただけなら、調べた結果の「見つからなかった」のまま）
+ */
+export function currentSpendLimit(buckets?: readonly string[]): SpendLimitReason | null {
+  const store = routeContext.getStore();
+  if (!store) return null;
+  if (!buckets) return store.limit ?? null;
+  let strongest: SpendLimitReason | null = null;
+  for (const bucket of buckets) strongest = strongerSpendLimit(strongest, store.limitByBucket?.get(bucket) ?? null);
+  return strongest;
 }
 
 /**

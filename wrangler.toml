@@ -26,6 +26,12 @@ preview_urls = false
 enabled = true
 head_sampling_rate = 1
 
+# 要求ごとの記録（invocation logs）は残さない。要求のアドレス（入力途中の検索語 ?q=…）・IP アドレスが入るため
+# （プライバシーポリシー第2条第1号・第4条第4号）。console の [usage] の行とエラーは残る
+[observability.logs]
+enabled = true
+invocation_logs = false
+
 # レート制限（src/lib/server/cloudflare.ts で使用）
 # namespace_id はアカウント内で一意な任意の数値。事前のリソース作成は不要です
 [[ratelimits]]

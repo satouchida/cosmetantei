@@ -19,6 +19,7 @@ import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS, UNTRUSTED_ONLY_TTL_SECONDS 
 import { mayRememberFailure } from '../server/usage';
 import { CATEGORY_SYNONYMS } from '../search/product-match';
 import { ETHANOL_IN_LABEL } from './label-reader';
+import { CONTACT_EMAIL, SITE_URL } from '../site';
 import {
   searchCosmeticsLive,
   searchOpenBeautyFacts,
@@ -207,7 +208,7 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
 
     const res = await fetch(`https://world.openbeautyfacts.org/api/v2/product/${cleanCode}.json`, {
       headers: {
-        'User-Agent': 'CosmeTantei/1.0 (https://cosmetantei.app; contact@cosmetantei.app)',
+        'User-Agent': `CosmeTantei/1.0 (${SITE_URL}; ${CONTACT_EMAIL})`,
         Accept: 'application/json',
       },
       signal: controller.signal,

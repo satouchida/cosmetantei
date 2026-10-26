@@ -6,6 +6,7 @@ import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimary, buttonPrimaryCompact, buttonSecondaryCompact, iconButton, panel } from '../ui/design';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { NETWORK_MESSAGE } from '@/lib/client/chat-request';
+import { parseSpendLimit, SPEND_LIMIT_HEADER } from '@/lib/spend-limit';
 
 export interface LabelInput {
   text: string;
@@ -128,8 +129,10 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
         });
       } else {
         setNotice({ kind: 'error', text: body?.error || readFailureMessage(res.status) });
-        // 写真が読めなかった（成分表示が見つからない等）のではなく、混雑・サーバーの問題なら、同じ写真でもう一度
-        setCanRetryPhoto(res.status === 429 || res.status >= 500);
+        // 写真が読めなかった（成分表示が見つからない等）のではなく、混雑・サーバーの問題なら、同じ写真でもう一度。
+        // 今月・本日・端末の上限は時間がたつまで戻らないので、頼み直しは勧めない（src/lib/spend-limit.ts）
+        const lasting = ['month', 'day', 'client'].includes(parseSpendLimit(res.headers.get(SPEND_LIMIT_HEADER)) ?? '');
+        setCanRetryPhoto((res.status === 429 || res.status >= 500) && !lasting);
       }
     } catch (err) {
       if (controller.signal.aborted) return;

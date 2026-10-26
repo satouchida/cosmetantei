@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { parseLabelImage, readLabelImage, MAX_LABEL_IMAGE_BYTES } from '@/lib/services/label-reader';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
+import { currentSpendLimit } from '@/lib/server/usage';
+import { spendLimitMessage } from '@/lib/spend-limit';
 
 /** base64 は元の 4/3 倍。JSON の枠の分を足した上限 */
 const MAX_LABEL_REQUEST_BYTES = Math.ceil((MAX_LABEL_IMAGE_BYTES * 4) / 3) + 1024;
@@ -41,6 +43,11 @@ async function handlePost(request: NextRequest) {
       { error: '写真から成分表示を見つけられませんでした。成分表示の部分を大きく、明るく写してください。' },
       { status: 422 }
     );
+  }
+  // 上限で Gemini を呼べなかったとき（写真の読み取りは上限のあいだ使えない）
+  const limit = currentSpendLimit();
+  if (limit) {
+    return NextResponse.json({ error: spendLimitMessage(limit) }, { status: 429 });
   }
   return NextResponse.json(
     { error: '写真の読み取りが一時的に使えません。成分表示を文字で入力してください。' },
