@@ -17,7 +17,7 @@ import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
 import { onePerBarcode, rankProducts, searchKey } from '../search/product-match';
-import { CONTACT_EMAIL, SITE_URL } from '../site';
+import { contactEmail, SITE_URL } from '../site';
 
 /**
  * 検索文字列の正規化（全角半角・大文字小文字・不要記号の統一）
@@ -304,7 +304,7 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
 
     const res = await fetch(url, {
       headers: {
-        'User-Agent': `CosmeTantei/1.0 (${SITE_URL}; ${CONTACT_EMAIL})`,
+        'User-Agent': `CosmeTantei/1.0 (${SITE_URL}; ${contactEmail()})`,
         Accept: 'application/json',
       },
       signal: controller.signal,

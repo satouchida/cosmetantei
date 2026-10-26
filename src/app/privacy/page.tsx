@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { ExternalLink, LegalPage, LegalTable } from '@/components/legal/LegalPage';
-import { CONTACT_EMAIL, formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
+import { formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
+import { ContactEmail } from '@/components/legal/ContactEmail';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/privacy-policy.md（git には入れない。原稿との違いはその冒頭に記載）。
 // 書いてある内容（Cookie の属性・保存するもの・送り先）は実装と合わせる：src/lib/server/session.ts、
@@ -330,7 +331,7 @@ export default function PrivacyPage() {
         <br />
         運営者：コスメ探偵 運営事務局
         <br />
-        連絡先メールアドレス：<a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        連絡先メールアドレス：<ContactEmail />
         <br />
         受付時間：メールは常時受け付けています（返信は原則として平日に行います）
       </p>

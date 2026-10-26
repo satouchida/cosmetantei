@@ -6928,6 +6928,7 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
     'chat/PairFindingList': 'inside DifferentialResultCard and CurrentUseResultCard',
     'chat/ProductSourceLink': 'inside the cards',
     'legal/LegalPage': 'checked at /terms and /privacy',
+    'legal/ContactEmail': 'inside LegalLinks and the contact sections of /terms and /privacy',
     'ui/ApiCredits': 'inside the tray and the cards',
     'ui/ModalDialog': 'inside the dialogs',
     'ui/emoji': 'helper',
@@ -7724,13 +7725,24 @@ test('129. Launch readiness: terms and privacy state the β, the limits, bug rep
   const { readFileSync, readdirSync } = await import('node:fs');
   const terms = readFileSync('src/app/terms/page.tsx', 'utf8');
   const privacy = readFileSync('src/app/privacy/page.tsx', 'utf8');
-  const { BUG_REPORT_MAILTO, CONTACT_EMAIL, LEGAL_VERSION } = await import('../src/lib/site');
-  assert.strictEqual(CONTACT_EMAIL, 'contactme@cosmetantei.app');
+  const { bugReportMailto, contactEmail, CONTACT_EMAIL_TEXT, LEGAL_VERSION } = await import('../src/lib/site');
+  assert.strictEqual(contactEmail(), 'contactme@cosmetantei.app');
   assert.strictEqual(LEGAL_VERSION, '2026-10-26');
-  // 古い連絡先がどこにも残っていない（ソースと規約）。ページは CONTACT_EMAIL から出す
+  // 古い連絡先がどこにも残っていない。今の連絡先も、ソースに1つの文字列としては書かない（HTML・スクリプトから拾われない）
   const files = readdirSync('src', { recursive: true, encoding: 'utf8' }).filter((f) => /\.(ts|tsx)$/.test(f));
-  for (const f of files) assert.ok(!readFileSync(`src/${f}`, 'utf8').includes('contact@cosmetantei.app'), f);
-  for (const page of [terms, privacy]) assert.ok(page.includes('{CONTACT_EMAIL}'));
+  for (const f of files) {
+    const text = readFileSync(`src/${f}`, 'utf8');
+    assert.ok(!text.includes('contact@cosmetantei.app') && !text.includes('contactme@cosmetantei.app'), f);
+  }
+  // 規約・ポリシーは ContactEmail で出す（サーバーの HTML は＠の無い形。ブラウザで描画した後にリンク）
+  for (const page of [terms, privacy]) assert.ok(page.includes('連絡先メールアドレス：<ContactEmail />'));
+  assert.doesNotMatch(CONTACT_EMAIL_TEXT, /[@＠]/);
+  const contact = readFileSync('src/components/legal/ContactEmail.tsx', 'utf8');
+  assert.match(contact, /^'use client';/);
+  assert.match(contact, /useSyncExternalStore\(\s*noSubscribe,\s*\(\) => true,\s*\(\) => false\s*\)/);
+  assert.ok(contact.includes("if (!inBrowser) return <span>{CONTACT_EMAIL_TEXT}</span>;"));
+  assert.ok(contact.includes("href={inBrowser ? bugReportMailto() : '/terms#contact'}"));
+  assert.ok(terms.includes('<h2 id="contact">お問い合わせ窓口</h2>'));
 
   // 利用規約：β版・上限（止まるものと使えるもの）・ご意見等。免責の言葉は足さない（test 109）
   assert.ok(terms.includes('第5条（アカウント登録・利用料金・利用上限）'));
@@ -7766,9 +7778,11 @@ test('129. Launch readiness: terms and privacy state the β, the limits, bug rep
 
   // 不具合の報告：トップ画面の規約のリンクの並びにある。本文はひな形だけ（入力・リストを写さない）
   const links = readFileSync('src/components/legal/LegalPage.tsx', 'utf8');
-  assert.ok(links.includes('href={BUG_REPORT_MAILTO}') && links.includes('不具合を報告'));
-  assert.ok(BUG_REPORT_MAILTO.startsWith('mailto:contactme@cosmetantei.app?subject='));
-  const body = decodeURIComponent(BUG_REPORT_MAILTO.split('&body=')[1]);
+  assert.ok(links.includes('<BugReportLink '));
+  const mailto = bugReportMailto();
+  assert.ok(mailto.startsWith('mailto:contactme@cosmetantei.app?subject='));
+  const body = decodeURIComponent(mailto.split('&body=')[1]);
   assert.ok(body.includes('起きたこと：') && body.includes('肌の症状や病歴、氏名などの個人情報は書かないでください'));
-  assert.match(readFileSync('src/lib/site.ts', 'utf8'), /export const BUG_REPORT_MAILTO = `mailto:\$\{CONTACT_EMAIL\}\?subject=\$\{encodeURIComponent\('【不具合報告】コスメ探偵'\)\}&body=\$\{encodeURIComponent\(\n  '[^`$]*'\n\)\}`;/);
+  // 本文は決まった文だけ（引数を取らない：リスト・チャットの文を入れられない）
+  assert.match(readFileSync('src/lib/site.ts', 'utf8'), /export function bugReportMailto\(\): string \{/);
 });

@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ExternalLink, LegalPage } from '@/components/legal/LegalPage';
-import { AFFILIATE_DISCLOSURE, CONTACT_EMAIL, formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
+import { AFFILIATE_DISCLOSURE, formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
+import { ContactEmail } from '@/components/legal/ContactEmail';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/terms-of-service.md（git には入れない）
 export const metadata: Metadata = {
@@ -209,11 +210,11 @@ export default function TermsPage() {
         <li>本サービスまたは本規約に起因し、または関連してユーザーと当方との間に生じた一切の紛争については、東京地方裁判所を第一審の専属的合意管轄裁判所とします。</li>
       </ol>
 
-      <h2>お問い合わせ窓口</h2>
+      <h2 id="contact">お問い合わせ窓口</h2>
       <p>
         コスメ探偵（CosmeTantei） 運営事務局
         <br />
-        連絡先メールアドレス：<a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+        連絡先メールアドレス：<ContactEmail />
       </p>
       <p>
         不具合のご報告、ご意見も、こちらで受け付けています（画面下の「不具合を報告」からも送れます）。返信は原則として平日に行います。メールで受け取った情報の取扱いは、プライバシーポリシー第2条第7号のとおりです。

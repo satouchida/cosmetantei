@@ -1,16 +1,31 @@
 /** 公開する URL（canonical・OGP・sitemap・robots の基準。workers.dev のアドレスは検索に出さない） */
 export const SITE_URL = 'https://cosmetantei.app';
 
-/** 連絡先（不具合の報告・お問い合わせ。利用規約・プライバシーポリシー・Open Beauty Facts への User-Agent） */
-export const CONTACT_EMAIL = 'contactme@cosmetantei.app';
+/**
+ * 連絡先のメールアドレス（不具合の報告・お問い合わせ）。収集ボットに拾われないよう、ページの HTML にもスクリプトにも
+ * 1つの文字列としては書かない：2つに分けて持ち、使うときにつなぐ（ブラウザでは描画の後。src/components/legal/ContactEmail.tsx）
+ */
+const CONTACT_EMAIL_PARTS = ['contactme', 'cosmetantei.app'] as const;
+
+/** 連絡先のメールアドレス（サーバーの User-Agent と、ブラウザで組み立てるリンクに使う） */
+export function contactEmail(): string {
+  return CONTACT_EMAIL_PARTS.join('@');
+}
+
+/** HTML に書く形（JavaScript が無い・組み立てる前の表示）。＠を書かない */
+export const CONTACT_EMAIL_TEXT = `${CONTACT_EMAIL_PARTS[0]}（アットマーク）${CONTACT_EMAIL_PARTS[1]}`;
 
 /**
  * 画面の「不具合を報告」のリンク（メール）。本文はひな形だけで、リストやチャットの文・成分表示は入れない
  * （肌の状態に関わる入力を、メールに写さない。プライバシーポリシー第2条）
  */
-export const BUG_REPORT_MAILTO = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('【不具合報告】コスメ探偵')}&body=${encodeURIComponent(
-  '起きたこと：\n\nその前にした操作：\n\n端末とブラウザ（例：iPhone の Safari）：\n\n※肌の症状や病歴、氏名などの個人情報は書かないでください。\n'
-)}`;
+export function bugReportMailto(): string {
+  const subject = encodeURIComponent('【不具合報告】コスメ探偵');
+  const body = encodeURIComponent(
+    '起きたこと：\n\nその前にした操作：\n\n端末とブラウザ（例：iPhone の Safari）：\n\n※肌の症状や病歴、氏名などの個人情報は書かないでください。\n'
+  );
+  return `mailto:${contactEmail()}?subject=${subject}&body=${body}`;
+}
 
 /** Amazon アソシエイト・プログラム運営規約（第5条）で決まっている文言。変えない（「適格販売」は Amazon の用語） */
 const AMAZON_ASSOCIATE_STATEMENT = 'Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。';

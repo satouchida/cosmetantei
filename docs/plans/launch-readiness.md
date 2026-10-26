@@ -5,7 +5,7 @@ Step 0 is waiting on the owner; step 1 decided (keep `10/100`). Based on the loc
 `docs/launch-todo.md` (gitignored), sections 1, 2, 4 and 5.
 
 Owner decisions taken 2026-10-26: keep `SPEND_BUDGET_USD = "10/100"`; the contact address is
-`contactme@cosmetantei.app` (`CONTACT_EMAIL` in `src/lib/site.ts`). Mail is hosted by Fastmail (the
+`contactme@cosmetantei.app` (`contactEmail()` in `src/lib/site.ts`; kept out of the page HTML, see `src/components/legal/ContactEmail.tsx`). Mail is hosted by Fastmail (the
 domain's MX is `messagingengine.com`). Confirmed by the owner on 2026-10-26: bug-report emails are deleted after one year without
 further exchange; Fastmail (Fastmail Pty Ltd, Australia) keeps them on servers in the US; the
 Cloudflare account is on the Free plan, so Workers Logs keep 3 days and Analytics Engine 3 months.

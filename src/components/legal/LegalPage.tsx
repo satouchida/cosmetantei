@@ -1,7 +1,8 @@
 import React from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { AFFILIATE_DISCLOSURE, BUG_REPORT_MAILTO } from '@/lib/site';
+import { AFFILIATE_DISCLOSURE } from '@/lib/site';
+import { BugReportLink } from './ContactEmail';
 
 /** 利用規約・プライバシーポリシーの見出しと本文の体裁 */
 /** revisedOn：最後に改定した日（制定日と同じ、または改定していないページでは渡さない） */
@@ -75,7 +76,7 @@ export const ExternalLink: React.FC<{ href: string; children?: React.ReactNode }
 
 /**
  * トップ画面と規約のページの下に出す、規約へのリンク（電気通信事業法の外部送信規律：1回の操作で届く位置）と、
- * 不具合の報告（メールを開く。本文はひな形だけ。src/lib/site.ts）
+ * 不具合の報告（メールを開く。本文はひな形だけ。アドレスはブラウザで組み立てる：ContactEmail.tsx）
  */
 export const LegalLinks: React.FC<{ className?: string }> = ({ className = '' }) => (
   <nav aria-label="規約とお問い合わせ" className={`flex flex-wrap gap-x-4 text-xs text-ink-muted ${className}`}>
@@ -85,8 +86,6 @@ export const LegalLinks: React.FC<{ className?: string }> = ({ className = '' })
     <Link href="/privacy" className="inline-flex min-h-11 items-center hover:underline">
       プライバシーポリシー（外部送信について）
     </Link>
-    <a href={BUG_REPORT_MAILTO} className="inline-flex min-h-11 items-center hover:underline">
-      不具合を報告（メール）
-    </a>
+    <BugReportLink className="inline-flex min-h-11 items-center hover:underline" />
   </nav>
 );
