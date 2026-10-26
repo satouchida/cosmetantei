@@ -50,7 +50,10 @@ export function productSourceInfo(p: Product): ProductSourceInfo | null {
       return { label: 'AIによる推定', fromWebSearch: false };
     case 'shop_listing':
       // 商品ページへのリンクは楽天アフィリエイトのリンク（shopLink）のときだけ（楽天の規約）
-      return { label: '楽天市場の商品説明', href: p.shopLink?.href, fromWebSearch: false };
+      return { label: '楽天市場の商品説明', href: httpsUrl(p.shopLink?.href)?.href, fromWebSearch: false };
+    case 'shop_yahoo':
+      // 素の商品ページ（保存した製品なので、アフィリエイトのリンクは持たない）
+      return { label: 'Yahoo!ショッピングの商品説明', href: httpsUrl(p.sourceUrl)?.href, fromWebSearch: false };
     default:
       return null;
   }
@@ -63,6 +66,14 @@ export function productSourceInfo(p: Product): ProductSourceInfo | null {
  */
 export function isUserLabelProduct(p: Product): boolean {
   return p.ingredientSource === 'user_label' || p.id.startsWith('label_');
+}
+
+/**
+ * お店の商品説明（出品者が書いた文）から成分を読んだ製品か（楽天・Yahoo!）。出典に「販売ページの成分表示」と出し、
+ * 代わりの商品には、お店の候補として扱うときだけ使う。保存できるかは isShopListingProduct（楽天だけ保存しない）
+ */
+export function isSellerTextProduct(p: Product): boolean {
+  return isShopListingProduct(p) || p.ingredientSource === 'shop_yahoo';
 }
 
 /** お店の商品説明から成分を読んだ製品の ID の頭（src/lib/services/shop-ingredients.ts） */

@@ -274,7 +274,8 @@ export async function cacheGetJSON<T>(key: string, { fresh = false }: { fresh?: 
   if (local !== undefined) return local as T;
 
   const { APP_CACHE } = await getBindings();
-  if (!APP_CACHE) return null;
+  // KV が無い環境（開発・テスト）では、メモリ層が唯一の保存先（fresh でも読む。cachePutJSON と同じ）
+  if (!APP_CACHE) return fresh ? ((memoryKv.get(key) as T | undefined) ?? null) : null;
   try {
     const value = (await APP_CACHE.get(key, 'json')) as T | null;
     if (value !== null) memoryKv.set(key, value, MEMORY_LAYER_TTL_MS);
@@ -283,6 +284,29 @@ export async function cacheGetJSON<T>(key: string, { fresh = false }: { fresh?: 
     console.error('KV get failed:', err);
     return null;
   }
+}
+
+/**
+ * KV から JSON を読む（いつも KV を読む）。読めなかったら例外にする（呼び出し側で「読めないなら使わない」と決めるとき。
+ * 自動の保存の有料の回数：src/lib/services/seeding.ts）。KV が無い環境ではメモリ層を読む
+ */
+export async function cacheGetJSONStrict<T>(key: string): Promise<T | null> {
+  const { APP_CACHE } = await getBindings();
+  if (!APP_CACHE) return (memoryKv.get(key) as T | undefined) ?? null;
+  return (await APP_CACHE.get(key, 'json')) as T | null;
+}
+
+/** KV が使えるか（無ければ、メモリ層はこのアイソレートの中だけ） */
+export async function hasSharedCache(): Promise<boolean> {
+  return !!(await getBindings()).APP_CACHE;
+}
+
+/** cachePutJSON と同じ保存。KV に書けなかったら例外にする（書けないなら使わない、と決めるとき） */
+export async function cachePutJSONStrict(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+  const { APP_CACHE } = await getBindings();
+  memoryKv.set(key, value, APP_CACHE ? Math.min(ttlSeconds * 1000, MEMORY_LAYER_TTL_MS) : ttlSeconds * 1000);
+  if (!APP_CACHE) return;
+  await APP_CACHE.put(key, JSON.stringify(value), { expirationTtl: Math.max(MIN_KV_TTL_SECONDS, Math.floor(ttlSeconds)) });
 }
 
 export async function cachePutJSON(key: string, value: unknown, ttlSeconds: number): Promise<void> {

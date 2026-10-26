@@ -5,8 +5,21 @@
  */
 // @ts-ignore 生成されるファイル
 import handler from './.open-next/worker.js';
+import { runSeedSchedule, SeedEnv } from './src/worker/seed-schedule';
 
-export default handler;
+/**
+ * 要求は OpenNext のまま。予定の仕事（wrangler.toml の [triggers]、毎日 03:00 JST）では、よく調べられる製品を
+ * 保存しておく（src/worker/seed-schedule.ts）
+ */
+export default {
+  // handler のメソッドとして呼ぶ（this を保つ）
+  fetch(request: Request, env: unknown, ctx: unknown) {
+    return handler.fetch(request, env, ctx);
+  },
+  async scheduled(_controller: unknown, env: SeedEnv, ctx: { waitUntil: (promise: Promise<unknown>) => void }) {
+    ctx.waitUntil(runSeedSchedule(env));
+  },
+};
 
 // OpenNext の Durable Object（使っていなくても export しておく。OpenNext の custom worker の手順どおり）
 // @ts-ignore 生成されるファイル

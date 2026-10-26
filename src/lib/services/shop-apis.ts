@@ -227,8 +227,9 @@ export interface ShopItem {
   priceYen?: number;
   taxIncluded: boolean | null;
   /**
-   * 楽天の商品説明（itemCaption）。成分を読むとき（caption: true）だけ取る。その返答にだけ使い、保存しない
-   * （第10条 (9)）。ブラウザには送らない
+   * 商品説明。楽天は itemCaption、Yahoo! は description。成分を読むとき（caption: true）だけ取る。ブラウザには送らない。
+   * 楽天の説明はその返答にだけ使い、保存しない（第10条 (9)）。Yahoo! の説明から読んだ成分は、自動の保存で保存する
+   * （オーナーの判断 2026-10-26。src/lib/services/seeding.ts）
    */
   caption?: string;
 }
@@ -316,7 +317,7 @@ export async function rakutenItemSearch(
  */
 export async function yahooItemSearch(
   query: string,
-  { genreCategoryId }: { genreCategoryId?: number } = {}
+  { genreCategoryId, caption = false }: { genreCategoryId?: number; caption?: boolean } = {}
 ): Promise<ShopItem[] | null | undefined> {
   if (!isYahooApiConfigured()) return undefined;
   const params = new URLSearchParams({
@@ -356,6 +357,7 @@ export async function yahooItemSearch(
       ...(imageUrl && { imageUrl }),
       ...(yen(hit.price) && { priceYen: yen(hit.price) }),
       taxIncluded: typeof taxable === 'boolean' ? taxable : null,
+      ...(caption && str(hit.description) && { caption: str(hit.description).slice(0, MAX_CAPTION_LENGTH) }),
     });
   }
   return items;

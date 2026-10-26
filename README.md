@@ -39,6 +39,25 @@ full ingredient lists, points out the likely causes, and suggests products witho
   out and cleaned by fixed rules, with no AI call). Rakuten lists are used for that reply only, under Rakuten's
   terms. [Plan](docs/plans/shop-ingredients.md).
 - **Turnstile** checks the browser once and starts a signed session (`src/lib/server/session.ts`).
+- **Daily seeding** (`src/lib/services/seeding.ts`): a Cron Trigger at 18:00 UTC (03:00 JST) saves the
+  products in `src/lib/data/seed-products.ts` to the verified-products index, so common first
+  searches cost nothing.
+  - `worker.ts`'s `scheduled` calls `POST /api/internal/seed` once per product through the `SELF`
+    service binding. Each product gets its own invocation, so it fits the Free plan's CPU limit.
+  - The route answers 404 unless `x-seed-secret` matches `SEED_SECRET`.
+  - For each product it stops at the first hit: already saved → Open Beauty Facts by name →
+    Rakuten and Yahoo! JAN codes → Open Beauty Facts by barcode → the ingredient list in a
+    Yahoo! item description (saved as `shop_yahoo`) → paid web research.
+  - A newly saved product is linked to up to 3 Yahoo! JAN codes (other sizes), so a barcode scan
+    finds it for free.
+  - `shop_yahoo` products are seller text: the card says 「販売ページの成分表示」 with the Yahoo!
+    credit, and they are suggested as alternatives only where shop listings are allowed. Storing
+    them was the owner's decision (2026-10-26); the Yahoo! Shopping API terms on storing results
+    weren't verified.
+  - Paid research runs at most 3 times a UTC day; a product it can't find isn't researched again
+    for 14 days.
+  - Rakuten descriptions are only read for a JAN code, never stored.
+  - The job does nothing until `SEED_SECRET` is set.
 - **Routine image** (`src/lib/routine-share.ts`, `src/lib/client/routine-image.ts`): マイルーティン
   can be saved or shared as one PNG, entirely in the browser.
   - The PNG holds the lists (with ingredients) in its file data.
@@ -105,6 +124,7 @@ Secrets are stored with `pnpm exec wrangler secret put <NAME>`:
 | `CF_AIG_TOKEN` | AI Gateway authentication token (Gemini and Clef) |
 | `TURNSTILE_SECRET_KEY` | Secret key of the Turnstile widget |
 | `SESSION_SECRET` | Signs the session cookie. At least 32 characters |
+| `SEED_SECRET` | Lets the daily seeding job call `/api/internal/seed`. At least 32 characters; without it the job does nothing |
 | `RAKUTEN_APPLICATION_ID` | Rakuten Web Service application ID |
 | `RAKUTEN_ACCESS_KEY` | Rakuten Web Service access key |
 | `YAHOO_CLIENT_ID` | Yahoo! Developer Network client ID |

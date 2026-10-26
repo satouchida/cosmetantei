@@ -20,6 +20,7 @@ import { ConsentDialog } from '@/components/legal/ConsentDialog';
 import { withHiddenEmoji } from '@/components/ui/emoji';
 import {
   rakutenListing,
+  yahooListing,
   curel,
   currentUseEntries,
   ihada,
@@ -167,11 +168,11 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
     },
     {
       id: 'suggestions-shop-listing',
-      title: '製品の候補カード（楽天の商品説明の出典・PR）',
+      title: '製品の候補カード（楽天・Yahoo! の商品説明の出典・PR）',
       layout: 'chat',
       render: () => (
         <Bubble>
-          <ProductSuggestionCard products={[rakutenListing, melano]} {...cardHandlers} />
+          <ProductSuggestionCard products={[rakutenListing, yahooListing, melano]} {...cardHandlers} />
         </Bubble>
       ),
     },

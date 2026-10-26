@@ -149,6 +149,8 @@ export function searchCosmetics(query: string, limit = 6): Product[] {
 export const BARCODE_PATTERN = /^[0-9]{8,14}$/;
 const BARCODE_TTL_SECONDS = 60 * 60 * 24 * 7;
 const BARCODE_MISS_TTL_SECONDS = 60 * 60;
+/** 自動の保存で結び付けた JAN コード：保存した製品の一覧と同じ 30 日（cosmetics-db の VERIFIED_TTL_SECONDS） */
+const LINKED_BARCODE_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 /**
  * 保存済みの製品だけからバーコードで探す（メモリ・KV。Open Beauty Facts・Web には問い合わせない。費用なし）。
@@ -167,7 +169,23 @@ export async function findSavedByBarcode(barcode: string): Promise<Product | nul
   return saved && isShareable(saved) && !hasStaleLabel(saved) ? saved : null;
 }
 
-export async function lookupByBarcode(barcode: string): Promise<Product | null> {
+/**
+ * JAN コードを、保存した製品に結び付ける（バーコードの読み取りで、費用なしに見つかるように。自動の保存で使う）。
+ * そのコードで見つかる製品がすでにあれば、何もしない
+ */
+export async function linkBarcode(barcode: string, product: Product): Promise<boolean> {
+  const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
+  if (!BARCODE_PATTERN.test(cleanCode) || !isShareable(product)) return false;
+  if (await findSavedByBarcode(cleanCode)) return false;
+  await cachePutJSON(`barcode:v2:${cleanCode}`, product, LINKED_BARCODE_TTL_SECONDS);
+  return true;
+}
+
+/**
+ * バーコードで製品を探す（保存済み → Open Beauty Facts → Web リサーチ）。
+ * webResearch: false なら、有料の Web リサーチをしない（お店の JAN コードから無料で探すとき。src/lib/services/seeding.ts）
+ */
+export async function lookupByBarcode(barcode: string, { webResearch = true }: { webResearch?: boolean } = {}): Promise<Product | null> {
   const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
   if (!BARCODE_PATTERN.test(cleanCode)) return null;
 
@@ -292,7 +310,8 @@ export async function lookupByBarcode(barcode: string): Promise<Product | null> 
   if (stored) return stored;
 
   // 4. Web リサーチ：バーコードで検索し、同じバーコードが書かれたページの製品だけを採用する
-  if (recentlyFailed) return null;
+  //    （調べないときは「見つからない」の印も付けない。調べれば見つかるかもしれない）
+  if (!webResearch || recentlyFailed) return null;
   const webProduct = await researchBarcode(cleanCode);
   if (webProduct) {
     // 全員で共有するのは、信頼するサイトの製品だけ（それ以外は調べた本人にだけ返す）

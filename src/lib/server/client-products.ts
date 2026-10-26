@@ -1,6 +1,6 @@
 import 'server-only';
 import { Product, UserRoutineState } from '../types';
-import { COSMETICS_DATABASE, hydrateVerifiedProducts, isShareable, isVerifiedSource } from '../data/cosmetics-db';
+import { COSMETICS_DATABASE, hydrateVerifiedProducts, isShareable, isStoredSource } from '../data/cosmetics-db';
 
 /**
  * ブラウザから送られた製品（分析・比較・価格のボタン）を、サーバーが持っている製品で置き換える。
@@ -16,7 +16,7 @@ import { COSMETICS_DATABASE, hydrateVerifiedProducts, isShareable, isVerifiedSou
 
 function serverCopy(id: string): Product | undefined {
   const found = COSMETICS_DATABASE.find((p) => p.id === id);
-  return found && isVerifiedSource(found) && isShareable(found) && found.ingredients.length > 0 ? found : undefined;
+  return found && isStoredSource(found) && isShareable(found) && found.ingredients.length > 0 ? found : undefined;
 }
 
 export async function resolveClientProducts(products: Product[]): Promise<Product[]> {

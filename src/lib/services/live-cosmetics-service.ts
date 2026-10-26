@@ -3,7 +3,7 @@ import { reserveSpend } from '../server/spend-cap';
 import {
   addProductToDynamicCache,
   COSMETICS_DATABASE,
-  isVerifiedSource,
+  isStoredSource,
   rememberVerifiedProducts,
 } from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
@@ -366,16 +366,25 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
   }
 }
 
-/** 全成分が確認済みのデータ源（Open Beauty Facts・出典ページ等）から来た候補か */
-function hasVerifiedIngredientList(p: Product): boolean {
-  return isVerifiedSource(p) && p.ingredients.length > 0;
+/** 全成分が確認済みのデータ源（Open Beauty Facts・出典ページ等）か、保存済みのお店の説明（Yahoo!）から来た候補か */
+export function hasVerifiedIngredientList(p: Product): boolean {
+  return isStoredSource(p) && p.ingredients.length > 0;
 }
 
 /** 製品名（ブランド名つきも含む）が検索語を含むか。ブランド名だけの一致は数えない */
-function namesProduct(p: Product, query: string): boolean {
+export function namesProduct(p: Product, query: string): boolean {
   // 候補の照合（rankProducts）と同じキーで比べる。ひらがなで聞かれても、確認済みの製品があれば有料の Web リサーチをしない
   const q = searchKey(query);
-  return !!q && (searchKey(p.name).includes(q) || searchKey(`${p.brand}${p.name}`).includes(q));
+  if (!q) return false;
+  // 英字で終わる検索語（「ローション II」）は後ろに英字が続かない位置、数字で終わる検索語（「50」）は後ろに数字が
+  // 続かない位置で合うときだけ（「II」で「III」、「50」で「500」に合わせない）。
+  // 製品名の語の切れ目（空白）は \u0001 で残し、検索語の文字の間にはあってもよいとする：切れ目の後の語は続きとみなさない
+  // （「Hydrating Cleanser」で「Hydrating Cleanser Normal to Dry Skin」に合う。「ローション II 150ml」も合う）
+  const tail = /[a-z]$/.test(q) ? '(?![a-z])' : /[0-9]$/.test(q) ? '(?![0-9])' : '';
+  const escaped = Array.from(q, (c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\u0001?');
+  const pattern = new RegExp(`${escaped}${tail}`);
+  const spaced = (text: string) => text.split(/\s+/).map(searchKey).filter(Boolean).join('\u0001');
+  return pattern.test(spaced(p.name)) || pattern.test(spaced(`${p.brand} ${p.name}`));
 }
 
 /**

@@ -14,7 +14,7 @@ import { Product } from '@/lib/types';
 import { apiRoute } from '@/lib/server/api-route';
 import { classifyWithHeuristics } from '@/lib/services/chat-gate';
 import { toProductSearchQuery } from '@/lib/services/web-research';
-import { COSMETICS_DATABASE, hydrateVerifiedProducts, isVerifiedSource } from '@/lib/data/cosmetics-db';
+import { COSMETICS_DATABASE, hydrateVerifiedProducts, isStoredSource } from '@/lib/data/cosmetics-db';
 
 const DEFAULT_LIMIT = 6;
 const MAX_LIMIT = 10;
@@ -24,7 +24,7 @@ const MAX_QUERY_LENGTH = 100;
 const RESULTS_TTL_SECONDS = 60 * 60;
 const EMPTY_RESULTS_TTL_SECONDS = 60 * 5;
 
-const isVerified = (p: Product) => isVerifiedSource(p) && p.ingredients.length > 0;
+const isVerified = (p: Product) => isStoredSource(p) && p.ingredients.length > 0;
 
 async function handleGet(request: NextRequest) {
   if (await isRateLimited('search', getClientIp(request.headers))) {

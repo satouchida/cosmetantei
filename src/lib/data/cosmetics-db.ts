@@ -27,6 +27,15 @@ export function isVerifiedSource(p: Product): boolean {
 }
 
 /**
+ * 成分を確かめた製品の一覧（KV）に保存し、保存済みの製品として使ってよいデータ源か：確認済みのデータ源と、
+ * Yahoo!ショッピングの商品説明（自動の保存で作る。shop_yahoo）。代わりの商品のおすすめに使えるかは別
+ * （ingredient-analyzer の hasVerifiedIngredients は確認済みのデータ源だけ）
+ */
+export function isStoredSource(p: Product): boolean {
+  return isVerifiedSource(p) || p.ingredientSource === 'shop_yahoo';
+}
+
+/**
  * 共有のキャッシュ・KV に入れてよい製品か。ユーザーが入力した成分表示は、その人だけのもので確認もされていないため入れない
  * （他の人の検索結果・代替品候補にしない）。Web のページの製品は、TRUSTED_SITES_MODE=enforce のとき
  * 信頼するサイトのものだけ（src/lib/data/trusted-sites.ts）。サーバーの持つ製品として使うか（client-products.ts）も、これで決まる
@@ -78,8 +87,12 @@ export function addProductToDynamicCache(product: Product): Product {
 
   if (existingIdx >= 0) {
     const existing = RUNTIME_CACHE[existingIdx];
-    // 確認済みの成分データを AI 推定で上書きしない
+    // 確認済みの成分データを AI 推定で上書きしない。保存したお店の説明（Yahoo!）も、保存しない製品では上書きしない
+    // （確認済みの製品での置き換えは受け付ける）
     if (isVerifiedSource(existing) && !isVerifiedSource(enrichedProduct)) {
+      return existing;
+    }
+    if (isStoredSource(existing) && !isStoredSource(enrichedProduct)) {
       return existing;
     }
     // 同じ製品（同じページから作った同じ id）の確認済みの成分データを、別の内容で置き換えない
@@ -114,11 +127,12 @@ let lastHydratedAt = 0;
  * 成分確認済みの製品を KV のインデックスに追記する（確認済みでない製品は無視）
  */
 export async function rememberVerifiedProducts(products: Product[]): Promise<void> {
-  const verified = products.filter((p) => isVerifiedSource(p) && isShareable(p));
+  const verified = products.filter((p) => isStoredSource(p) && isShareable(p));
   if (verified.length === 0) return;
 
   // 古い方式で分けた成分表示の製品は捨てる（次に調べたときに新しい方式で保存される）
-  const raw = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY)) || [];
+  // ほかのアイソレートが書いたばかりの一覧の上に足す（60秒のメモリの写しの上に書いて、その製品を消さない）
+  const raw = (await cacheGetJSON<Product[]>(VERIFIED_INDEX_KEY, { fresh: true })) || [];
   // 共有しない製品（信頼しないサイトの製品など）も、次の書き込みで一覧から外す
   const stored = raw.filter((p) => !hasStaleLabel(p) && isShareable(p));
   // すでに保存した製品（同じ id）の成分表示は、別の内容で置き換えない（英語の成分表示を訳した版は置き換える）。

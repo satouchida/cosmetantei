@@ -5747,8 +5747,12 @@ test('100. A translated label replaces the stored English label (memory and KV);
   // KV の確認済みの製品のインデックスでも、訳した版は置き換える
   const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
   const kv = new Map<string, string>();
+  // KV と同じく、'json' を頼まれたら読んで返す
   const APP_CACHE = {
-    async get(key: string) { return kv.get(key) ?? null; },
+    async get(key: string, type?: string) {
+      const value = kv.get(key);
+      return value === undefined ? null : type === 'json' ? JSON.parse(value) : value;
+    },
     async put(key: string, value: string) { kv.set(key, value); },
     async delete(key: string) { kv.delete(key); },
   };
@@ -7785,4 +7789,221 @@ test('129. Launch readiness: terms and privacy state the β, the limits, bug rep
   assert.ok(body.includes('起きたこと：') && body.includes('肌の症状や病歴、氏名などの個人情報は書かないでください'));
   // 本文は決まった文だけ（引数を取らない：リスト・チャットの文を入れられない）
   assert.match(readFileSync('src/lib/site.ts', 'utf8'), /export function bugReportMailto\(\): string \{/);
+});
+
+test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop JAN codes), paid research 3 a day, internal route behind a secret (2026-10-26)', async () => {
+  const { seedProduct, SEED_PAID_PER_DAY } = await import('../src/lib/services/seeding');
+  const { janFromCaption } = await import('../src/lib/services/shop-ingredients');
+  const { SEED_PRODUCTS } = await import('../src/lib/data/seed-products');
+  const { runSeedSchedule } = await import('../src/worker/seed-schedule');
+  const { POST } = await import('../src/app/api/internal/seed/route');
+  const { addProductToDynamicCache, COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { utcDay } = await import('../src/lib/server/spend-cap-core');
+  const { toProductSearchQuery } = await import('../src/lib/services/web-research');
+  const { searchKey } = await import('../src/lib/search/product-match');
+  const { readFileSync } = await import('node:fs');
+
+  // 楽天の商品説明の JAN コード（その場の照合にだけ使う）
+  assert.strictEqual(janFromCaption('【内容量】150ml<br>【JANコード】4987107000001<br>【広告文責】X'), '4987107000001');
+  assert.strictEqual(janFromCaption('JAN：49871070'), '49871070');
+  assert.strictEqual(janFromCaption('JAN 49871070000011'), null, 'Not a 13- or 8-digit code');
+  assert.strictEqual(janFromCaption('全成分：水、BG'), null);
+
+  // 一覧：Worker の1回の外部への要求（無料プラン 50）に収まる。重ならない。どれも商品名として検索できる
+  assert.ok(SEED_PRODUCTS.length > 0 && SEED_PRODUCTS.length <= 45, `${SEED_PRODUCTS.length} products`);
+  assert.strictEqual(new Set(SEED_PRODUCTS.map(searchKey)).size, SEED_PRODUCTS.length);
+  for (const q of SEED_PRODUCTS) assert.ok(toProductSearchQuery(q), q);
+
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID', 'SEED_SECRET'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  const requests: URL[] = [];
+  const label = '水、BG、グリセリン、ベタイン、スクワラン、ペンチレングリコール、セラミドNP、フェノキシエタノール、メチルパラベン';
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input instanceof Request ? input.url : input));
+    requests.push(url);
+    if (url.hostname === 'world.openbeautyfacts.org') {
+      if (url.pathname === '/api/v2/product/4987107000001.json') {
+        return Response.json({ status: 1, product: { product_name_ja: 'アミノモイスト シードテスト ローション', brands: 'ミノン', ingredients_text_ja: label } });
+      }
+      // 名前の検索では見つからない（日本の製品は、名前より JAN コードで見つかることが多い）
+      return Response.json({ count: 0, products: [] });
+    }
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({ items: [
+        { itemName: 'ミノン アミノモイスト シードテスト ローション 150ml', itemCode: 's:1', itemUrl: 'https://item.rakuten.co.jp/s/1/', availability: 1,
+          itemCaption: `【全成分】${label}<br>【JANコード】4987107000001<br>【内容量】150ml` },
+      ] });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') {
+      // 「キュレル クリーム」：説明に全成分のある商品（JAN コードは Open Beauty Facts に無い）と、同じ製品の容量違い
+      if (url.searchParams.get('query') === 'キュレル クリーム') {
+        return Response.json({ hits: [
+          { name: '【公式】キュレル 潤浸保湿 シードテスト クリーム 40g', code: 'kao_1', url: 'https://store.shopping.yahoo.co.jp/kao/1.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000017', description: `しっとり保湿。<br>【全成分】${label}<br>【内容量】40g` },
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 90g', code: 'kao_2', url: 'https://store.shopping.yahoo.co.jp/kao/2.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000024' },
+          // 同じシリーズの別の製品（II）：入力の語はすべて合うが、同じ製品ではない
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム II 40g', code: 'kao_3', url: 'https://store.shopping.yahoo.co.jp/kao/3.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000031' },
+        ] });
+      }
+      return Response.json({ hits: [] });
+    }
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    delete process.env.RAKUTEN_AFFILIATE_ID;
+    const now = Date.UTC(2026, 9, 26, 18);
+
+    // 1. Open Beauty Facts の名前の検索 → 2. お店（楽天の説明の JAN）→ Open Beauty Facts のバーコード。有料の調べものはしない
+    const viaShop = await seedProduct('ミノン アミノモイスト シードテスト ローション', now);
+    assert.deepStrictEqual(viaShop, { result: 'shop_barcode', paid: false, productId: 'obf_4987107000001' });
+    const hosts = requests.map((u) => (u.pathname.startsWith('/api/v2/product/') ? 'obf_barcode' : u.hostname));
+    assert.strictEqual(hosts[0], 'world.openbeautyfacts.org', 'Open Beauty Facts first');
+    assert.ok(hosts.indexOf('openapi.rakuten.co.jp') > 0 && hosts.indexOf('shopping.yahooapis.jp') > 0);
+    assert.ok(hosts.indexOf('obf_barcode') > hosts.indexOf('openapi.rakuten.co.jp'));
+    assert.ok(!hosts.some((h) => /exa|linkup|gateway|googleapis/.test(h)), hosts.join(','));
+    // 楽天の商品説明から読んだ製品は保存しない（保存されるのは Open Beauty Facts の製品）
+    assert.ok(!COSMETICS_DATABASE.some((p) => p.id.startsWith('shoptext_rakuten_s:1')));
+    assert.ok(COSMETICS_DATABASE.some((p) => p.id === 'obf_4987107000001' && p.ingredientSource === 'open_beauty_facts'));
+    // Yahoo! の商品説明の全成分（Open Beauty Facts に無い製品）：shop_yahoo として保存し、容量違いの JAN コードも結び付ける
+    const { isShareable, isStoredSource } = await import('../src/lib/data/cosmetics-db');
+    const { hasVerifiedIngredients } = await import('../src/lib/analyzer/ingredient-analyzer');
+    const { productSourceInfo, isSellerTextProduct } = await import('../src/lib/product-source');
+    const { findSavedByBarcode } = await import('../src/lib/services/search-barcode-service');
+    const viaYahoo = await seedProduct('キュレル 潤浸保湿 シードテスト クリーム', now);
+    assert.deepStrictEqual(viaYahoo, { result: 'yahoo_listing', paid: false, productId: 'yahoo_4901301000017' });
+    const yahooProduct = COSMETICS_DATABASE.find((p) => p.id === 'yahoo_4901301000017')!;
+    assert.strictEqual(yahooProduct.ingredientSource, 'shop_yahoo');
+    assert.strictEqual(yahooProduct.name, 'キュレル 潤浸保湿 シードテスト クリーム 40g', 'Listing noise such as 【公式】 is removed');
+    assert.strictEqual(yahooProduct.ingredients.length, 9);
+    assert.strictEqual(yahooProduct.barcode, '4901301000017');
+    assert.ok(isShareable(yahooProduct) && isStoredSource(yahooProduct) && isSellerTextProduct(yahooProduct));
+    // 出品者の文なので、ふつうの代わりの商品のおすすめには使わない（お店の候補として扱うときだけ）
+    assert.ok(!hasVerifiedIngredients(yahooProduct));
+    // 出典は素の商品ページ（アフィリエイトのリンクを保存しない）
+    assert.strictEqual(yahooProduct.shopLink, undefined);
+    assert.deepStrictEqual(productSourceInfo(yahooProduct), { label: 'Yahoo!ショッピングの商品説明', href: 'https://store.shopping.yahoo.co.jp/kao/1.html', fromWebSearch: false });
+    assert.strictEqual(productSourceInfo({ ...yahooProduct, sourceUrl: 'http://example.com/x' })?.href, undefined, 'https only');
+    // 容量違い（90g）の JAN コードでも、バーコードの読み取りで見つかる
+    assert.strictEqual((await findSavedByBarcode('4901301000024'))?.id, 'yahoo_4901301000017');
+    // 同じシリーズの別の製品の JAN コードは結び付けない（読み取ったときに、別の製品の成分を出さない）
+    assert.strictEqual(await findSavedByBarcode('4901301000031'), null);
+    // Open Beauty Facts のバーコードで見つかる製品は、Yahoo! の説明より先（上の楽天の JAN の例）。保存済みなら何もしない
+    assert.strictEqual((await seedProduct('キュレル 潤浸保湿 シードテスト クリーム', now)).result, 'cached');
+    // カードの出典：Yahoo! のクレジットと「販売ページの成分表示」
+    const sourceLink = readFileSync('src/components/chat/ProductSourceLink.tsx', 'utf8');
+    assert.match(sourceLink, /ingredientSource === 'shop_yahoo' && \([\s\S]*?販売ページの成分表示です。[\s\S]*?<ApiCredits credits=\{\['yahoo'\]\} \/>/);
+
+    // 次の日は保存済み（外に問い合わせない）
+    requests.length = 0;
+    assert.strictEqual((await seedProduct('ミノン アミノモイスト シードテスト ローション', now)).result, 'cached');
+    assert.strictEqual(requests.length, 0);
+
+    // 3. 有料の調べもの：1日 SEED_PAID_PER_DAY 回まで。有料で見つからなかった製品は、しばらく有料では調べない
+    assert.strictEqual(SEED_PAID_PER_DAY, 3);
+    await cachePutJSON(`seed:paid:${utcDay(now)}`, 3, 3600);
+    assert.deepStrictEqual(await seedProduct('ミノン アミノモイスト ノーヒット ミルク', now), { result: 'paid_limit', paid: false });
+    await cachePutJSON(`seed:miss:${searchKey('ミノン アミノモイスト ノーヒット ミルク')}`, true, 3600);
+    assert.deepStrictEqual(await seedProduct('ミノン アミノモイスト ノーヒット ミルク', now), { result: 'not_found', paid: false });
+    // 次の日（UTC）は数え直す。Gemini が無い環境では調べられず、費用もかからない（数えない）
+    assert.deepStrictEqual(await seedProduct('ミノン アミノモイスト ノーヒット2 ミルク', now + 24 * 3600_000), { result: 'not_found', paid: false });
+    assert.deepStrictEqual(await seedProduct('', now), { result: 'invalid', paid: false }, 'Not a product name');
+    // 費用がかからなかった（Gemini の設定が無い）ときは、先に取った1回分を返す
+    const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+    const nextDay = now + 2 * 24 * 3600_000;
+    await cachePutJSON(`seed:paid:${utcDay(nextDay)}`, 2, 3600);
+    assert.strictEqual((await seedProduct('ミノン アミノモイスト ノーヒット3 ミルク', nextDay)).result, 'not_found');
+    assert.strictEqual(await cacheGetJSON(`seed:paid:${utcDay(nextDay)}`, { fresh: true }), 2);
+    // 回数を読めない（KV の失敗）ときは、有料では調べない
+    const brokenKv = { get: async () => { throw new Error('kv down'); }, put: async () => {} };
+    assert.deepStrictEqual(
+      await withCloudflareEnv({ APP_CACHE: brokenKv }, () => seedProduct('ミノン アミノモイスト ノーヒット4 ミルク', nextDay)),
+      { result: 'paid_limit', paid: false }
+    );
+    // 「II」は「III」の製品に合わせない（保存済みと思って調べないことが無いように）
+    const { namesProduct } = await import('../src/lib/services/live-cosmetics-service');
+    const three = { id: 'x', name: 'モイストチャージ ローション III', brand: 'ミノン', country: 'JP' as const, category: 'toner' as const, ingredients: ['水'] };
+    assert.ok(!namesProduct(three, 'ミノン モイストチャージ ローション II'));
+    assert.ok(namesProduct(three, 'ミノン モイストチャージ ローション III'));
+    assert.ok(namesProduct(three, 'モイストチャージ'));
+    assert.ok(namesProduct({ ...three, name: 'ローション II 150ml' }, 'ローション II'));
+    assert.ok(!namesProduct({ ...three, name: 'クリーム 500' }, 'クリーム 50'));
+    assert.ok(namesProduct({ ...three, name: 'クリーム 50ml' }, 'クリーム 50'));
+    // 英語の名前：続きの語があっても合う（空白が語の切れ目）。つながった語の途中では合わない
+    const cleanser = { ...three, brand: 'CeraVe', name: 'Hydrating Cleanser Normal to Dry Skin' };
+    assert.ok(namesProduct(cleanser, 'CeraVe Hydrating Cleanser'));
+    assert.ok(namesProduct(cleanser, 'Hydrating Cleanser'));
+    assert.ok(!namesProduct({ ...cleanser, name: 'Hydrating Cleansers' }, 'CeraVe Hydrating Cleanser'));
+    assert.ok(namesProduct({ ...three, name: 'キュレル潤浸保湿フェイスクリーム' }, 'キュレル 潤浸保湿 フェイスクリーム'));
+    // 回数を書けない（KV の書き込みの失敗）ときも、有料では調べない
+    const readOnlyKv = { get: async () => null, put: async () => { throw new Error('quota'); } };
+    assert.deepStrictEqual(
+      await withCloudflareEnv({ APP_CACHE: readOnlyKv }, () => seedProduct('ミノン アミノモイスト ノーヒット5 ミルク', nextDay)),
+      { result: 'paid_limit', paid: false }
+    );
+
+    // 内部の API：秘密の値（32文字以上）が合わなければ 404。index だけを受け取る
+    const secret = 's'.repeat(40);
+    const call = (headers: Record<string, string>, body: unknown) =>
+      POST(new Request('https://cosmetantei.app/api/internal/seed', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }));
+    delete process.env.SEED_SECRET;
+    assert.strictEqual((await call({ 'x-seed-secret': secret }, { index: 0 })).status, 404, 'Off until the secret is set');
+    process.env.SEED_SECRET = 'short';
+    assert.strictEqual((await call({ 'x-seed-secret': 'short' }, { index: 0 })).status, 404, 'A short secret is not accepted');
+    process.env.SEED_SECRET = secret;
+    assert.strictEqual((await call({ 'x-seed-secret': `${secret}x` }, { index: 0 })).status, 404);
+    assert.strictEqual((await call({}, { index: 0 })).status, 404);
+    assert.strictEqual((await call({ 'x-seed-secret': secret }, { index: SEED_PRODUCTS.length })).status, 400);
+    assert.strictEqual((await call({ 'x-seed-secret': secret }, { query: 'キュレル' })).status, 400, 'No search words from outside');
+    addProductToDynamicCache({
+      id: 'obf_seedtest_0', name: SEED_PRODUCTS[0], brand: 'キュレル', country: 'JP', category: 'cream',
+      ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
+    });
+    const ok = await call({ 'x-seed-secret': secret }, { index: 0 });
+    assert.strictEqual(ok.status, 200);
+    assert.deepStrictEqual(await ok.json(), { result: 'cached', paid: false, productId: 'obf_seedtest_0' });
+
+    // 予定の仕事：製品ごとに SELF を1回ずつ、秘密の値を付けて呼ぶ。設定が無ければ何もしない
+    const seen: { url: string; secret: string | null; index: number }[] = [];
+    const SELF = {
+      fetch: async (url: string, init?: RequestInit) => {
+        seen.push({ url, secret: new Headers(init?.headers).get('x-seed-secret'), index: JSON.parse(String(init?.body)).index });
+        return Response.json({ result: seen.length % 2 ? 'cached' : 'open_beauty_facts' });
+      },
+    };
+    assert.deepStrictEqual(await runSeedSchedule({ SELF }), {});
+    assert.deepStrictEqual(await runSeedSchedule({ SELF, SEED_SECRET: 'short' }), {});
+    assert.strictEqual(seen.length, 0);
+    const counts = await runSeedSchedule({ SELF, SEED_SECRET: secret });
+    assert.strictEqual(seen.length, SEED_PRODUCTS.length);
+    assert.deepStrictEqual(seen.map((s) => s.index), SEED_PRODUCTS.map((_, i) => i));
+    assert.ok(seen.every((s) => s.secret === secret && s.url.endsWith('/api/internal/seed')));
+    assert.strictEqual((counts.cached ?? 0) + (counts.open_beauty_facts ?? 0), SEED_PRODUCTS.length);
+    // 1つ失敗しても続ける
+    const failing = { fetch: async () => { throw new Error('down'); } };
+    assert.strictEqual((await runSeedSchedule({ SELF: failing, SEED_SECRET: secret })).error, SEED_PRODUCTS.length);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const k of SHOP_ENV) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+  }
+
+  // 設定：毎日 18:00 UTC（03:00 JST）、自分自身への Service binding。Worker の scheduled から呼ぶ
+  const wrangler = readFileSync('wrangler.toml', 'utf8');
+  assert.match(wrangler, /\[triggers\]\ncrons = \["0 18 \* \* \*"\]/);
+  assert.match(wrangler, /\[\[services\]\]\nbinding = "SELF"\nservice = "cosmetantei"/);
+  assert.match(wrangler, /^name = "cosmetantei"$/m);
+  const worker = readFileSync('worker.ts', 'utf8');
+  assert.ok(worker.includes('ctx.waitUntil(runSeedSchedule(env));'));
+  assert.ok(worker.includes('return handler.fetch(request, env, ctx);'));
+  // 内部の API は検索・巡回の対象外（/api/ はすべて）
+  assert.match(readFileSync('src/app/robots.ts', 'utf8'), /disallow: '\/api\/'/);
 });

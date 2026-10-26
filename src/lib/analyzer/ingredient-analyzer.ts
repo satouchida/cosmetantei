@@ -1,5 +1,6 @@
 import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES, WHEAT_LABEL_REFERENCES } from '../data/ingredients-db';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
+import { isSellerTextProduct } from '../product-source';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, isWheatDerivedName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
@@ -273,7 +274,7 @@ export function alternativeGate(
   return (product, options = {}) => {
     // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
     if (options.category && productCategory(product) !== options.category) return false;
-    const shopListing = options.allowShopListing && product.ingredientSource === 'shop_listing' && product.ingredients.length > 0;
+    const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
     if (!shopListing && !hasVerifiedIngredients(product)) return false;
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
     if (product.ingredientSource === 'user_label') return false;

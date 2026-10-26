@@ -177,3 +177,26 @@ the Workers AI call and its 1–3.5 s per list.
   does, add it as a third shop with the same rules.
 - **Alternatives:** step 3 of the alternatives plan (alternatives from the shops) can reuse
   `ingredientsFromCaption`, which has now been checked on 20 real captions.
+
+## Yahoo! descriptions in the seeded index (2026-10-26)
+
+Owner's decision: Yahoo! Shopping API data may be stored. The current API terms on caching
+results weren't found or checked; revisit if Yahoo! says otherwise.
+
+- The daily seeding job (`src/lib/services/seeding.ts`) reads Yahoo! item `description`s with
+  the same two-step check as Rakuten captions, after Open Beauty Facts and the JAN → Open
+  Beauty Facts lookup came up empty. A list that passes is saved as a `shop_yahoo` product
+  (id `yahoo_<JAN or item code>`).
+- Yahoo! JAN codes (the `janCode` field, never seller text) of matching items are linked to
+  newly seeded products in the barcode cache, up to 3.
+- `shop_yahoo` is a stored source (`isStoredSource`), not a verified one: it is searched and
+  analysed like saved products, but `hasVerifiedIngredients` stays false, so it is suggested as
+  an alternative only where shop listings are allowed (`allowShopListing`).
+- The source link is the plain item page (`sourceUrl`), not an affiliate link, so a stored
+  product never carries an outdated link or PR label.
+- JAN codes are linked only when the item name equals the product name once sizes, brand and
+  listing noise are removed (other sizes yes, I/II/III of a line no), for 30 days.
+- Each daily run re-checks Open Beauty Facts (free) for products stored from a Yahoo!
+  description, and replaces them when a database entry appears. No paid research for that.
+- Rakuten is unchanged: caption lists are used for one reply only; seeding reads a JAN code from
+  a caption and stores nothing from it.

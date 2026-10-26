@@ -3,16 +3,19 @@
 import React from 'react';
 import { ExternalLink, Globe } from 'lucide-react';
 import { Product } from '@/lib/types';
-import { productSourceInfo } from '@/lib/product-source';
+import { isSellerTextProduct, productSourceInfo } from '@/lib/product-source';
 import { badge } from '../ui/design';
+import { ApiCredits } from '../ui/ApiCredits';
 
 /** 製品の成分表示の出典（「出典: kao-kirei.com」）。出典が無い製品では何も出さない */
 export const ProductSourceLink: React.FC<{ product: Product; className?: string }> = ({ product, className = '' }) => {
   const source = productSourceInfo(product);
   if (!source) return null;
   const translated = (product.ingredientsEn?.length ?? 0) > 0;
-  // 楽天の商品説明へのリンクはアフィリエイトのリンク（shop-ingredients.ts）。出典でも PR と見て分かるようにする（ステマ告示）
+  // 楽天の商品説明へのリンクはアフィリエイトのリンク（shop-ingredients.ts）。出典でも PR と見て分かるようにする（ステマ告示）。
+  // Yahoo! の商品説明（保存した製品）の出典は素の商品ページなので PR ではない
   const sponsored = product.ingredientSource === 'shop_listing' && !!source.href;
+  const sellerText = isSellerTextProduct(product);
   return (
     <div className={className}>
       <div className="flex items-center gap-1 text-xs text-ink-muted min-w-0">
@@ -37,6 +40,12 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
         {sponsored && <span className={`shrink-0 ${badge('neutral')}`}>PR</span>}
       </div>
       {translated && <p className="text-xs text-ink-muted">英語の成分表示を、AIで日本語の成分名に置き換えています。</p>}
+      {product.ingredientSource === 'shop_yahoo' && (
+        <div className="text-xs text-ink-muted">
+          <p>販売ページの成分表示です。成分はパッケージで確かめてください。</p>
+          <ApiCredits credits={['yahoo']} />
+        </div>
+      )}
       {product.ingredientSource === 'shop_listing' && (
         <div className="text-xs text-ink-muted">
           <p>販売ページの成分表示です。成分はパッケージで確かめてください。</p>
@@ -48,7 +57,7 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
         </div>
       )}
       {/* 信頼するサイト（src/lib/data/trusted-sites.ts）ではないページ。調べた本人にだけ出している */}
-      {product.sharedSource === false && product.ingredientSource !== 'shop_listing' && (
+      {product.sharedSource === false && !sellerText && (
         <p className="text-xs text-ink-muted">ほかのサイトの情報です。成分はパッケージで確かめてください。</p>
       )}
     </div>

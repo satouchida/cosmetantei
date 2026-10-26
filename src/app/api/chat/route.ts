@@ -42,7 +42,7 @@ import { spendLimitMessage } from '@/lib/spend-limit';
 
 /** Web リサーチが使う有料の呼び出し（これが上限で断られたときだけ、「見つからなかった」の代わりに上限を伝える） */
 const RESEARCH_BUCKETS = ['web_search', 'gemini'] as const;
-import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
+import { isSellerTextProduct, isUserLabelProduct } from '@/lib/product-source';
 
 /** 成分表示の入力（本文は必須、商品名・ブランドは任意） */
 function isValidLabelInput(label: unknown): boolean {
@@ -86,7 +86,7 @@ const hasNoIngredients = (product: Product): boolean => product.ingredients.ever
 
 /** 調べ直し・お店の製品の検索で、候補に出してよい製品（全成分を確認した製品か、お店の説明から成分を読んだ製品） */
 const hasUsableIngredients = (product: Product): boolean =>
-  hasVerifiedIngredients(product) || (isShopListingProduct(product) && product.ingredients.length > 0);
+  hasVerifiedIngredients(product) || (isSellerTextProduct(product) && product.ingredients.length > 0);
 
 /** 1つの製品の分析のあとのボタン。成分が分からなかった製品（入力した成分表示を除く）は調べ直す方法 */
 function singleAnalysisReplies(product: Product, more: string): string[] {

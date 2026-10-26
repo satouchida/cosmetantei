@@ -15,7 +15,7 @@ const MAX_ACTIVE_INGREDIENTS = LABEL_LIMITS.activeIngredients;
 const MAX_UNDISCLOSED_INGREDIENTS = LABEL_LIMITS.undisclosed;
 
 const PRODUCT_CATEGORIES: readonly string[] = ['cleanser', 'toner', 'serum', 'cream', 'sunscreen', 'mask', 'lip', 'other'];
-const INGREDIENT_SOURCES: readonly string[] = ['open_beauty_facts', 'user_label', 'web_page', 'ai_estimate', 'shop_listing'];
+const INGREDIENT_SOURCES: readonly string[] = ['open_beauty_facts', 'user_label', 'web_page', 'ai_estimate', 'shop_listing', 'shop_yahoo'];
 /** 出典ページの URL（カードにリンクとして出すため、長さと種類を確かめる） */
 const MAX_URL_LENGTH = 2048;
 

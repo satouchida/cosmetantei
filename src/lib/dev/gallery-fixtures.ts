@@ -90,6 +90,19 @@ export const rakutenListing: Product = {
   shopLink: { href: 'https://example.com/rakuten/item', sponsored: true },
 };
 
+/** Yahoo!ショッピングの商品説明から成分を読んで保存した製品（自動の保存。出典は素の商品ページ） */
+export const yahooListing: Product = {
+  id: 'yahoo_4900000000017',
+  name: '敏感肌用 しっとり化粧水 とてもしっとり 150ml',
+  brand: 'テストブランド',
+  country: 'JP',
+  category: 'toner',
+  barcode: '4900000000017',
+  ingredients: ['水', 'BG', 'グリセリン', 'ベタイン', 'セラミドNP', 'フェノキシエタノール'],
+  ingredientSource: 'shop_yahoo',
+  sourceUrl: 'https://store.shopping.yahoo.co.jp/example/item.html',
+};
+
 export const curel: Product = {
   id: 'gallery_curel',
   name: '潤浸保湿 泡洗顔料',

@@ -136,6 +136,11 @@ export function markRefused(limit?: SpendLimitReason, bucket?: string): void {
   }
 }
 
+/** この要求で確保した有料の呼び出しの見積もりの合計（マイクロドル。API ルートの外では 0）。有料の呼び出しをしたかの判断に使う */
+export function currentRequestSpendMicros(): number {
+  return routeContext.getStore()?.reservedMicros ?? 0;
+}
+
 /**
  * この要求で断られた、画面に伝える上限（無ければ null。API ルートの外でも null）。
  * buckets を渡すと、その種類の呼び出しが断られた分だけを見る（「見つからなかった」の代わりに上限を伝えるかの判断。

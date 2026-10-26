@@ -9,7 +9,7 @@ import { searchKey } from '../search/product-match';
 import { isPlainLabelText } from '../utils/safe-text';
 import { buildBrandIndex, IndexedBrand, resolveBrand, textHasBrand } from './brand-suggest';
 import { NOT_SINGLE_ITEM } from './price-service';
-import { findSavedByBarcode } from './search-barcode-service';
+import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { withoutListingNoise } from './shop-lineup';
 import { shopLink } from './shops';
@@ -267,24 +267,37 @@ export async function shopIngredientProducts(productQuery: string): Promise<Prod
   }
 }
 
-async function lookupInShops(productQuery: string): Promise<Product[]> {
+/**
+ * お店の商品検索（送るのはブランド名と、アプリが決めた種類の語だけ）。どの製品か分からない入力（ブランド名だけ・
+ * 種類の語だけ・一覧に無いブランド）なら null。caption: 楽天の商品説明も取る
+ */
+async function searchShops(productQuery: string, { caption, yahooCaption = false }: { caption: boolean; yahooCaption?: boolean }) {
   const resolved = resolveBrand(productQuery, buildBrandIndex(COSMETICS_DATABASE));
-  if (!resolved) return [];
+  if (!resolved) return null;
   const words = resolved.rest.split(' ').map(searchKey).filter((w) => w.length > 0);
   // ブランド名だけの入力は、どの製品か分からない
-  if (words.length === 0) return [];
+  if (words.length === 0) return null;
   const category = categoryFromText(productQuery);
   // 種類の語だけの入力（「キュレル 化粧水」）は、どの製品か分からない
   const categoryKey = category ? searchKey(CATEGORY_LABELS_JA[category]) : '';
-  if (words.every((w) => w === categoryKey)) return [];
+  if (words.every((w) => w === categoryKey)) return null;
   // お店に送るのはブランド名と、アプリが決めた種類の語だけ
   const keyword = [resolved.brand.entry.name, category && CATEGORY_LABELS_JA[category]].filter(Boolean).join(' ');
+  const [rakuten, yahoo] = await Promise.all([
+    rakutenItemSearch(keyword, { caption }),
+    yahooItemSearch(keyword, { caption: yahooCaption }),
+  ]);
+  return { brand: resolved.brand, words, rakuten: rakuten ?? [], yahoo: yahoo ?? [] };
+}
 
-  const [rakuten, yahoo] = await Promise.all([rakutenItemSearch(keyword, { caption: true }), yahooItemSearch(keyword)]);
+async function lookupInShops(productQuery: string): Promise<Product[]> {
+  const shops = await searchShops(productQuery, { caption: true });
+  if (!shops) return [];
+  const { brand, words, rakuten, yahoo } = shops;
   const found: Product[] = [];
 
   // Yahoo!: JAN コードで、保存済みの確かめた製品（費用なし。同じ JAN は1回だけ）
-  const jans = [...new Set((yahoo ?? []).filter((i) => i.janCode && itemMatches(i, resolved.brand, words)).map((i) => i.janCode!))];
+  const jans = [...new Set(yahoo.filter((i) => i.janCode && itemMatches(i, brand, words)).map((i) => i.janCode!))];
   for (const saved of await Promise.all(jans.map(findSavedByBarcode))) {
     if (!saved || !isVerifiedSource(saved) || saved.ingredients.length === 0 || found.some((p) => p.id === saved.id)) continue;
     // 出品者が書いた JAN コードは信頼しない。保存済みの製品の名前でも、入力の語がすべて合うものだけ
@@ -293,13 +306,133 @@ async function lookupInShops(productQuery: string): Promise<Product[]> {
   }
 
   // 楽天：商品説明の全成分
-  const items = (rakuten ?? []).filter((i) => i.caption && itemMatches(i, resolved.brand, words)).slice(0, MAX_RAKUTEN_ITEMS);
+  const items = rakuten.filter((i) => i.caption && itemMatches(i, brand, words)).slice(0, MAX_RAKUTEN_ITEMS);
   const labels = await Promise.all(items.map((item) => ingredientsFromCaption(item.caption!)));
   items.forEach((item, i) => {
     const label = labels[i];
     // 同じ成分の一覧（同じ商品の別のお店）は1つだけ
     if (!label || found.some((p) => p.ingredients.join('|') === label.ingredients.join('|'))) return;
-    found.push(shopListingProduct(item, resolved.brand.entry.name, label));
+    found.push(shopListingProduct(item, brand.entry.name, label));
   });
   return found;
+}
+
+/** JAN コードから製品を探す数の上限（1つの製品の自動の保存で。Open Beauty Facts への問い合わせを増やしすぎない） */
+const MAX_SEED_BARCODES = 4;
+/** 保存した製品に結び付ける Yahoo! の JAN コードの上限（同じ製品の容量違い） */
+const MAX_LINKED_JANS = 3;
+
+/** 楽天の商品説明に出品者が書いた JAN コード（その場の照合にだけ使い、保存しない） */
+export function janFromCaption(caption: string): string | null {
+  // 「JAN：」「【JANコード】」「JAN 」のあとの 13 桁か 8 桁
+  const m = captionText(caption).match(/JAN(?:\s*コード)?[\s:：】\])）]*([0-9]{13}|[0-9]{8})(?![0-9])/i);
+  return m ? m[1] : null;
+}
+
+/** 自動の保存で使う、お店の商品検索の結果のうち、探している製品に合う商品（セット・詰め替え・別の製品を除く） */
+export interface ShopMatches {
+  brandName: string;
+  /** 入力からブランド名を除いた語（searchKey） */
+  words: string[];
+  /** 楽天：商品説明つき。説明は JAN コードを読むだけで、保存しない（第10条 (9)） */
+  rakuten: ShopItem[];
+  /** Yahoo!：商品説明（description）つき */
+  yahoo: ShopItem[];
+}
+
+/**
+ * お店の商品検索（楽天・Yahoo!、無料）で、探している製品に合う商品を集める（自動の保存：src/lib/services/seeding.ts）。
+ * 送るのはブランド名と種類の語だけ。どの製品か分からない入力・キー未設定なら null
+ */
+export async function matchingShopItems(productQuery: string): Promise<ShopMatches | null> {
+  const shops = await searchShops(productQuery, { caption: true, yahooCaption: true });
+  if (!shops) return null;
+  const { brand, words, rakuten, yahoo } = shops;
+  return {
+    brandName: brand.entry.name,
+    words,
+    rakuten: rakuten.filter((i) => itemMatches(i, brand, words)),
+    yahoo: yahoo.filter((i) => itemMatches(i, brand, words)),
+  };
+}
+
+/** 製品の名前（ブランド名つき）に、入力の語がすべてあるか（出品者が書いた JAN コードで、別の製品を拾わない） */
+function namesAllWords(product: Product, words: string[]): boolean {
+  const key = searchKey(`${product.brand}${product.name}`);
+  return words.every((w) => hasWord(key, w));
+}
+
+/**
+ * お店の商品の JAN コードから、Open Beauty Facts の製品を探す（費用なし）。
+ * - JAN コードは、Yahoo! の項目と、楽天の商品説明に書かれたもの。保存されるのは Open Beauty Facts の製品
+ *   （lookupByBarcode が保存する）。楽天の商品説明は保存しない
+ * - どちらも出品者が書いた値なので、見つかった製品の名前でも、入力の語がすべて合うものだけを使う
+ * - 有料の Web リサーチはしない（lookupByBarcode の webResearch: false）
+ */
+export async function productFromShopBarcodes(matches: ShopMatches): Promise<Product | null> {
+  const jans = new Set<string>();
+  for (const item of matches.yahoo) if (item.janCode) jans.add(item.janCode);
+  for (const item of matches.rakuten) {
+    const jan = item.caption ? janFromCaption(item.caption) : null;
+    if (jan) jans.add(jan);
+  }
+  for (const jan of [...jans].slice(0, MAX_SEED_BARCODES)) {
+    const product = (await findSavedByBarcode(jan)) ?? (await lookupByBarcode(jan, { webResearch: false }));
+    if (!product || !isVerifiedSource(product) || product.ingredients.length === 0) continue;
+    if (namesAllWords(product, matches.words)) return product;
+  }
+  return null;
+}
+
+/**
+ * Yahoo! の商品説明（description）の全成分から、保存する製品を作る（費用なし。説明に全成分があるのは 3% ほど）。
+ * 楽天の商品説明と同じ2段の確認（ingredientsFromCaption）を通った一覧だけ。出品者の文なので、出典の表示で
+ * 「販売ページの成分表示」と伝え、ほかの人へのおすすめ（代わりの商品）には、お店の候補として扱うときだけ使う
+ */
+export async function productFromYahooDescription(matches: ShopMatches): Promise<Product | null> {
+  for (const item of matches.yahoo) {
+    if (!item.caption) continue;
+    const label = await ingredientsFromCaption(item.caption);
+    if (!label) continue;
+    const name = withoutListingNoise(item.name);
+    return {
+      // 同じ製品はいつも同じ id（JAN コード。無ければ Yahoo! の商品コード）
+      id: `yahoo_${item.janCode ?? item.code}`.slice(0, 120),
+      name,
+      brand: matches.brandName,
+      country: 'JP',
+      category: categoryFromText(name) ?? 'other',
+      ...(item.janCode && { barcode: item.janCode }),
+      ...labelProductFields(label),
+      ...(item.imageUrl && { imageUrl: item.imageUrl }),
+      // 出典は素の商品ページ。アフィリエイトのリンクは保存しない（保存した後に設定が変わっても、古いリンク・PR を出さない）
+      sourceUrl: item.url,
+      ingredientSource: 'shop_yahoo',
+      isEstimatedFromMarketplaces: false,
+    };
+  }
+  return null;
+}
+
+/** 名前の照合のキー：お店の飾り・ブランド名・容量（40g・150ml 等）を除く（同じ製品の容量違いを同じにする） */
+function sameProductKey(name: string, brandName: string): string {
+  const brandKey = searchKey(brandName);
+  return searchKey(withoutListingNoise(name))
+    .split(brandKey)
+    .join('')
+    .replace(/[0-9]+(?:\.[0-9]+)?(?:ml|g|mg|l|枚|個|本|包)/g, '');
+}
+
+/**
+ * 保存した製品に結び付ける JAN コード（Yahoo! の項目の JAN コードだけ。出品者が説明に書いた値は使わない）。
+ * 名前から容量を除くと、保存した製品の名前と同じ商品だけ（同じシリーズの別の製品（I・II・III）は結び付けない）。
+ * 最大 MAX_LINKED_JANS 件。バーコードの読み取りで、費用なしに見つかるように
+ */
+export function yahooJanCodes(matches: ShopMatches, product: Product): string[] {
+  const target = sameProductKey(product.name, product.brand);
+  if (!target) return [];
+  const jans = matches.yahoo
+    .filter((i) => i.janCode && sameProductKey(i.name, matches.brandName) === target)
+    .map((i) => i.janCode as string);
+  return [...new Set(jans)].slice(0, MAX_LINKED_JANS);
 }
