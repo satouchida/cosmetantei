@@ -143,7 +143,7 @@ pnpm dev
 | `pnpm build` | Next production build |
 | `pnpm build:cloudflare` | Build the Worker into `.open-next/` |
 | `pnpm preview` | Build output run locally in `workerd` |
-| `pnpm deploy` | Build and deploy to Cloudflare (`opennextjs-cloudflare deploy`) |
+| `pnpm deploy` | Deploy the existing `.open-next/` build to Cloudflare (`opennextjs-cloudflare deploy`). It doesn't build: run `pnpm build:cloudflare` first, or the previous build goes live |
 
 ### Responsive check
 
