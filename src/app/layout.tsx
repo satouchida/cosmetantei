@@ -52,7 +52,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja" className={notoSansJp.variable}>
-      <body className="antialiased min-h-screen selection:bg-sage-200 selection:text-sage-950">
+      <body className="antialiased min-h-dvh selection:bg-sage-200 selection:text-sage-950">
         {children}
       </body>
     </html>

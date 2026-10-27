@@ -99,6 +99,16 @@ body {
   overflow-wrap: anywhere;
 }
 
+/*
+  タッチの端末では、入力欄の文字を 16px 以上にする（iOS の Safari・アプリ内ブラウザは、16px 未満の入力欄に
+  フォーカスすると画面を拡大し、ヘッダーが画面の外へずれる）。@layer の外に書くので、Tailwind の text-sm より優先される
+*/
+@media (pointer: coarse) {
+  input, textarea, select {
+    font-size: max(16px, 1rem);
+  }
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

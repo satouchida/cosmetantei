@@ -12,7 +12,7 @@ export const LegalPage: React.FC<{ title: string; enactedOn: string; revisedOn?:
   revisedOn,
   children,
 }) => (
-  <div className="min-h-screen bg-surface text-ink">
+  <div className="min-h-dvh bg-surface text-ink">
     <header className="border-b border-sand-200 bg-white">
       <div className="max-w-[760px] mx-auto px-4 py-3 flex items-center gap-3">
         <Link

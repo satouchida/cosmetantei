@@ -376,10 +376,15 @@ export const ChatContainer: React.FC = () => {
   // 有料の呼び出しが上限で断られたときの案内（apiFetch が応答のヘッダーを見て出す）
   const spendLimit = useSyncExternalStore(subscribeSpendLimit, getSpendLimitSnapshot, getSpendLimitServerSnapshot);
   // 確認画面で同意したら入力欄へ（確認画面を開いたボタンは無いので、閉じても戻す先が無い）。
+  // タッチの端末では会話の欄へ（入力欄だとキーボードが開き、iOS では画面がずれる）。
   // 前に同意していた人が開いたとき（null → true）はフォーカスを動かさない
+  const mainRef = useRef<HTMLElement | null>(null);
   const wasConsented = useRef(consented);
   useEffect(() => {
-    if (wasConsented.current === false && consented) inputRef.current?.focus();
+    if (wasConsented.current === false && consented) {
+      if (window.matchMedia('(pointer: coarse)').matches) mainRef.current?.focus({ preventScroll: true });
+      else inputRef.current?.focus();
+    }
     wasConsented.current = consented;
   }, [consented]);
   const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
@@ -1177,7 +1182,7 @@ export const ChatContainer: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Chat Stream Section */}
-        <main inert={isDrawerModal} className="flex-1 flex flex-col min-w-0 bg-surface">
+        <main ref={mainRef} tabIndex={-1} inert={isDrawerModal} className="flex-1 flex flex-col min-w-0 bg-surface focus:outline-hidden">
           {/* スマホ：登録状況とマイルーティン（引き出し）を開くボタン。肌荒れしたコスメがあれば、ここから差分分析も始められる */}
           <div className="lg:hidden px-3 pt-3">
             <div className="max-w-[720px] mx-auto bg-white rounded-xl border border-sand-200 shadow-xs">
@@ -1253,7 +1258,7 @@ export const ChatContainer: React.FC = () => {
           {/* Messages Scroll Area */}
           {/* relative：読み上げ用の sr-only（position: absolute）をこの中に収める。無いとページ全体が伸び、
               カードにフォーカスしたときにチャットではなくページがスクロールして画面が空になる */}
-          <div className="relative flex-1 overflow-y-auto px-3 py-4 sm:p-6 space-y-4">
+          <div className="relative flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:p-6 space-y-4">
             {messages.map((msg) => (
               <div
                 key={msg.id}
