@@ -8,7 +8,7 @@ import 'server-only';
  * - JSON 出力は responseSchema で構造化
  */
 
-import { geminiTokenCounts, recordUsage, UsageOutcome } from '../server/usage';
+import { geminiTokenCounts, isUpstreamLimit, markRefused, recordUsage, UsageOutcome } from '../server/usage';
 import { reserveSpend, settleSpend } from '../server/spend-cap';
 import { geminiPrice, tokenCostMicros } from '../server/prices';
 
@@ -299,6 +299,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     if (!response.ok) {
       // 4xx（レート制限を含む）は課金されない。5xx・ゲートウェイのタイムアウトは生成の後に起きうるので見積もりを残す
       if (response.status < 500) actualMicros = 0;
+      // ゲートウェイ・Google の上限で断られた：アプリの上限と同じに、画面に伝える（急がない仕事は伝えない）
+      if (isUpstreamLimit(response.status)) markRefused(req.background ? undefined : 'unavailable', 'gemini');
       console.error(await describeGatewayError(response));
       return null;
     }

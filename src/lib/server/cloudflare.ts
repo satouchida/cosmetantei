@@ -1,6 +1,6 @@
 import 'server-only';
 import { BoundedCache } from '../utils/bounded-cache';
-import { recordUsage } from './usage';
+import { isUpstreamLimit, markRefused, recordUsage } from './usage';
 import { reserveSpend } from './spend-cap';
 import { WEB_SEARCH_COST_MICROS, workersAiCostMicros } from './prices';
 
@@ -158,6 +158,8 @@ export async function runWorkersAI(
     });
     return result;
   } catch (err) {
+    // ゲートウェイの上限で断られた失敗は、失敗として覚えない（判定は手元の規則に戻るので、画面には伝えない）
+    if (isUpstreamLimit(err)) markRefused();
     console.error(`Workers AI ${model} failed:`, err instanceof Error ? err.message : err);
     await recordUsage({ kind: 'workers_ai', task: options.task, model, outcome: 'error', ms: Date.now() - started });
     return null;
@@ -217,6 +219,7 @@ export async function runWebSearch(
     // バインディングは Response を返す（Phase 0 で確認）。プレーンなオブジェクトにも対応する
     if (result instanceof Response) {
       if (!result.ok) {
+        if (isUpstreamLimit(result.status)) markRefused('unavailable', 'web_search');
         console.error(`Web search (${provider}) failed: ${result.status}`);
         return null;
       }
@@ -235,6 +238,7 @@ export async function runWebSearch(
         description: typeof i.description === 'string' ? i.description : '',
       }));
   } catch (err) {
+    if (isUpstreamLimit(err)) markRefused('unavailable', 'web_search');
     console.error(`Web search (${provider}) failed:`, err instanceof Error ? err.message : err);
     return null;
   } finally {

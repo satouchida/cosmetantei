@@ -136,6 +136,22 @@ export function markRefused(limit?: SpendLimitReason, bucket?: string): void {
   }
 }
 
+/**
+ * AI Gateway・提供元が呼び出しを断ったか。断られたら markRefused で、アプリの上限と同じに扱う（画面の案内・失敗として覚えない）。
+ * 各社の文書（2026-10-27 に確認）：
+ * - AI Gateway の回数の上限・費用の上限（spend limits）：429 Too Many Requests
+ * - Gemini API：回数・1日の割り当て・費用の上限は 429（RESOURCE_EXHAUSTED）、前払いの残高切れは 402
+ * - Workers AI：無料プランの1日の割り当て切れ 3036、混雑 3040（どちらも 429。例外の文にコードが入る）
+ */
+export function isUpstreamLimit(statusOrError: number | unknown): boolean {
+  if (typeof statusOrError === 'number') return statusOrError === 429 || statusOrError === 402;
+  // 例外に状態コードがあれば、それで決める（無ければ文で）
+  const status = (statusOrError as { status?: unknown } | null)?.status;
+  if (status === 429 || status === 402) return true;
+  const message = statusOrError instanceof Error ? statusOrError.message : String(statusOrError ?? '');
+  return /\b(?:429|3036|3040)\b|rate.?limit|too many requests|capacity temporarily exceeded|daily free allocation/i.test(message);
+}
+
 /** この要求で確保した有料の呼び出しの見積もりの合計（マイクロドル。API ルートの外では 0）。有料の呼び出しをしたかの判断に使う */
 export function currentRequestSpendMicros(): number {
   return routeContext.getStore()?.reservedMicros ?? 0;

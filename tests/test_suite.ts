@@ -8007,3 +8007,59 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
   // 内部の API は検索・巡回の対象外（/api/ はすべて）
   assert.match(readFileSync('src/app/robots.ts', 'utf8'), /disallow: '\/api\/'/);
 });
+
+test('131. Upstream limits: a 429 from AI Gateway or Google counts as a limit, not "not found", and is not remembered as a failure (live test 2026-10-27)', async () => {
+  const { callGemini } = await import('../src/lib/services/gemini-client');
+  const { runWebSearch } = await import('../src/lib/server/cloudflare');
+  const { withUsageRoute, currentSpendLimit, mayRememberFailure, isUpstreamLimit } = await import('../src/lib/server/usage');
+  const inRoute = <T>(fn: () => Promise<T>) => withUsageRoute('test', fn, [{ kind: 'ip', key: 'ip:203.0.113.9' }])();
+  assert.ok(isUpstreamLimit(429) && !isUpstreamLimit(500) && !isUpstreamLimit(401));
+  assert.ok(isUpstreamLimit(new Error('AiError: 429 Too Many Requests')) && isUpstreamLimit(new Error('rate limit exceeded')));
+  assert.ok(!isUpstreamLimit(new Error('timed out after 8000 ms')));
+  assert.ok(isUpstreamLimit(Object.assign(new Error('AiError'), { status: 429 })));
+  // 各社の文書のコード：Gemini の前払いの残高切れ 402、Workers AI の 3036（無料の割り当て切れ）・3040（混雑）
+  assert.ok(isUpstreamLimit(402));
+  assert.ok(isUpstreamLimit(new Error('3040: Capacity temporarily exceeded, please try again.')));
+  assert.ok(isUpstreamLimit(new Error('AiError: 3036: You have used up your daily free allocation of 10,000 neurons.')));
+  assert.ok(!isUpstreamLimit(400) && !isUpstreamLimit(403));
+
+  const originalFetch = globalThis.fetch;
+  const savedGateway = process.env.AI_GATEWAY_ID;
+  setGatewayEnv();
+  globalThis.fetch = (async () => Response.json({ error: { code: 429, status: 'RESOURCE_EXHAUSTED' } }, { status: 429 })) as typeof fetch;
+  try {
+    // Gemini：ゲートウェイ・Google の 429 は 'unavailable'（調べた結果の「見つからなかった」にしない）。失敗として覚えない
+    const gemini = await inRoute(async () => [
+      await callGemini({ task: 'test', prompt: 'テスト' }),
+      currentSpendLimit(['web_search', 'gemini']),
+      mayRememberFailure(),
+    ]);
+    assert.deepStrictEqual(gemini, [null, 'unavailable', false]);
+    // 急がない仕事は画面に伝えない（失敗としても覚えない）
+    assert.deepStrictEqual(
+      await inRoute(async () => [await callGemini({ task: 'test', prompt: 'テスト', background: true }), currentSpendLimit(), mayRememberFailure()]),
+      [null, null, false]
+    );
+    // ほかのエラー（500）は上限ではない
+    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch;
+    assert.deepStrictEqual(await inRoute(async () => [await callGemini({ task: 'test', prompt: 'テスト' }), currentSpendLimit(), mayRememberFailure()]), [null, null, true]);
+
+    // Web 検索（AI Gateway 経由）：429 の応答・例外のどちらでも
+    process.env.AI_GATEWAY_ID = 'test-gateway';
+    const limited = { websearch: async () => new Response('rate limited', { status: 429 }) };
+    assert.deepStrictEqual(
+      await withCloudflareEnv({ AI: limited }, () => inRoute(async () => [await runWebSearch('キュレル', 'exa', 5), currentSpendLimit(['web_search'])])),
+      [null, 'unavailable']
+    );
+    const throwing = { websearch: async () => { throw new Error('429 Too Many Requests'); } };
+    assert.deepStrictEqual(
+      await withCloudflareEnv({ AI: throwing }, () => inRoute(async () => [await runWebSearch('キュレル', 'exa', 5), currentSpendLimit(['web_search'])])),
+      [null, 'unavailable']
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+    if (savedGateway === undefined) delete process.env.AI_GATEWAY_ID;
+    else process.env.AI_GATEWAY_ID = savedGateway;
+  }
+});
