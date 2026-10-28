@@ -7923,6 +7923,10 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     assert.strictEqual((await findSavedByBarcode('4901301000024'))?.id, 'yahoo_4901301000017');
     // 同じシリーズの別の製品の JAN コードは結び付けない（読み取ったときに、別の製品の成分を出さない）
     assert.strictEqual(await findSavedByBarcode('4901301000031'), null);
+    // 製品そのもののバーコード（出品者1人が書いた値）では、メモリの製品を照合しない（Open Beauty Facts より先に出さない）
+    assert.strictEqual(await findSavedByBarcode('4901301000017'), null);
+    const { rankProducts } = await import('../src/lib/search/product-match');
+    assert.notStrictEqual(rankProducts([yahooProduct], '4901301000017')[0]?.id, 'yahoo_4901301000017', 'A typed JAN does not rank it first');
     // 1つのストアだけの JAN コード・Open Beauty Facts に無いと確かめられない JAN コードも結び付けない
     assert.strictEqual(await findSavedByBarcode('4901301000055'), null);
     assert.strictEqual(await findSavedByBarcode('4901301000048'), null);

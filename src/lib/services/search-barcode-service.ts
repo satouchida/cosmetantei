@@ -59,11 +59,8 @@ export function searchCosmetics(query: string, limit = 6): Product[] {
 
   // バーコード番号の場合
   if (numericOnly.length >= 8 && numericOnly.length <= 14) {
-    const barcodeMatch = COSMETICS_DATABASE.filter(
-      (p) =>
-        p.barcode &&
-        (p.barcode.replace(/[^0-9]/g, '') === numericOnly ||
-          p.barcode.replace(/^0+/, '') === numericOnly.replace(/^0+/, ''))
+    const barcodeMatch = COSMETICS_DATABASE.filter((p) =>
+      matchesOwnBarcode(p, numericOnly, numericOnly.replace(/^0+/, ''))
     );
     if (barcodeMatch.length > 0) {
       return barcodeMatch.slice(0, limit);
@@ -153,6 +150,17 @@ const BARCODE_MISS_TTL_SECONDS = 60 * 60;
 const LINKED_BARCODE_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 /**
+ * メモリの製品を、その製品のバーコードで照合してよいか。Yahoo! の商品説明から作った製品（shop_yahoo）のバーコードは
+ * 出品者1人が書いた値なので照合に使わない（Open Beauty Facts より先に読まれ、別の製品のバーコードでも出てしまう）。
+ * その JAN コードは、2つのストアと Open Beauty Facts の確認を通ったときだけ linkBarcode が結び付ける
+ */
+function matchesOwnBarcode(p: Product, cleanCode: string, cleanNoZero: string): boolean {
+  if (!p.barcode || p.ingredientSource === 'shop_yahoo') return false;
+  const pCode = p.barcode.replace(/[^0-9]/g, '');
+  return !!pCode && (pCode === cleanCode || pCode.replace(/^0+/, '') === cleanNoZero);
+}
+
+/**
  * 保存済みの製品だけからバーコードで探す（メモリ・KV。Open Beauty Facts・Web には問い合わせない。費用なし）。
  * お店の商品の JAN コードから、確かめた成分の製品を見つけるのに使う
  */
@@ -160,10 +168,7 @@ export async function findSavedByBarcode(barcode: string): Promise<Product | nul
   const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
   if (!BARCODE_PATTERN.test(cleanCode)) return null;
   const cleanNoZero = cleanCode.replace(/^0+/, '');
-  const local = COSMETICS_DATABASE.find((p) => {
-    const pCode = p.barcode?.replace(/[^0-9]/g, '');
-    return !!pCode && (pCode === cleanCode || pCode.replace(/^0+/, '') === cleanNoZero);
-  });
+  const local = COSMETICS_DATABASE.find((p) => matchesOwnBarcode(p, cleanCode, cleanNoZero));
   if (local) return local;
   const saved = await cacheGetJSON<Product>(`barcode:v2:${cleanCode}`);
   return saved && isShareable(saved) && !hasStaleLabel(saved) ? saved : null;
@@ -219,12 +224,7 @@ export async function lookupByBarcode(barcode: string, { webResearch = true }: {
 
   // 1. 動的キャッシュ内を検索
   const cleanNoZero = cleanCode.replace(/^0+/, '');
-  const localMatch = COSMETICS_DATABASE.find((p) => {
-    if (!p.barcode) return false;
-    const pCode = p.barcode.replace(/[^0-9]/g, '');
-    const pNoZero = pCode.replace(/^0+/, '');
-    return pCode === cleanCode || pNoZero === cleanNoZero;
-  });
+  const localMatch = COSMETICS_DATABASE.find((p) => matchesOwnBarcode(p, cleanCode, cleanNoZero));
 
   if (localMatch) {
     return localMatch;

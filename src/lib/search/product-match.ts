@@ -83,7 +83,15 @@ export function rankProducts(products: Product[], query: string, isVerified: (p:
     const inFields = (t: string) => full.includes(t) || categories.some((c) => c.includes(t));
 
     let score = 0;
-    if (BARCODE.test(digits) && product.barcode && product.barcode.replace(/^0+/, '') === digits.replace(/^0+/, '')) score = 1000;
+    // Yahoo! の商品説明の製品のバーコードは出品者1人が書いた値なので、バーコードの一致として先頭に出さない
+    // （search-barcode-service の matchesOwnBarcode と同じ）
+    if (
+      BARCODE.test(digits) &&
+      product.barcode &&
+      product.ingredientSource !== 'shop_yahoo' &&
+      product.barcode.replace(/^0+/, '') === digits.replace(/^0+/, '')
+    )
+      score = 1000;
     else if (name.startsWith(q)) score = 400;
     else if (full.startsWith(q)) score = 350;
     // 1文字の入力（入力し始め）は、名前の先頭だけで照合する
