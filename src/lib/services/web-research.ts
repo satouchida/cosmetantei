@@ -721,12 +721,15 @@ export async function researchBarcode(barcode: string): Promise<Product | null |
   const pages = read.products;
   const sameCode = (code?: string) => !!code && code.replace(/^0+/, '') === barcode.replace(/^0+/, '');
   const matches = pages.filter((p) => sameCode(p.barcode));
-  if (matches.length === 0) return null;
+  // 読めなかったページがあれば「見つからない」とは言えない（全員に「見つからない」を保存させない）
+  if (matches.length === 0) return read.incomplete ? undefined : null;
 
   // 全成分が取れたページを優先
   matches.sort((a, b) => b.ingredients.length - a.ingredients.length);
   const [real] = await keepRealBrands([await toProduct({ ...matches[0], barcode })]);
-  if (!real) return null;
+  // ブランドの確認（Clef）は断られた・失敗したときも除くので、除かれても「見つからない」とは言えない
+  // （researchProducts と同じく、見つからない印を全員分には付けない）
+  if (!real) return undefined;
   const [product] = await translateEnglishLabels([real]);
   // バーコードと製品を結びつけたのは、このページ。成分を別のページから取っても、このページの信頼で決める
   const identityShareable = mayShareWebProduct(product);

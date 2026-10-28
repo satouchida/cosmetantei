@@ -1,7 +1,7 @@
 import { COSMETICS_DATABASE, addProductToDynamicCache, isShareable, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
-import { LABEL_FORMAT, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { LABEL_FORMAT, LABEL_LIMITS, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 
 /** Open Beauty Facts の写真の URL：https で、OBF の画像サーバーのものだけ。それ以外は使わない */
@@ -170,13 +170,41 @@ export async function findSavedByBarcode(barcode: string): Promise<Product | nul
 }
 
 /**
+ * Open Beauty Facts に、そのバーコードの製品が無いと分かったときだけ true（費用なし）。
+ * 問い合わせに失敗した・答えが分からないときは false（無いと決めない）
+ */
+async function unknownToOpenBeautyFacts(cleanCode: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch(`https://world.openbeautyfacts.org/api/v2/product/${cleanCode}.json?fields=code`, {
+      headers: { 'User-Agent': `CosmeTantei/1.0 (${SITE_URL}; ${contactEmail()})`, Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    // 無い製品は 404 と status: 0 で返る
+    if (!res.ok && res.status !== 404) {
+      await res.body?.cancel();
+      return false;
+    }
+    const data = (await res.json()) as { status?: unknown };
+    return data.status === 0;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * JAN コードを、保存した製品に結び付ける（バーコードの読み取りで、費用なしに見つかるように。自動の保存で使う）。
- * そのコードで見つかる製品がすでにあれば、何もしない
+ * そのコードで見つかる製品がすでにあるとき・Open Beauty Facts にその製品があるとき（無いと確かめられないときも）は、
+ * 何もしない（保存した結び付けは Open Beauty Facts より先に読まれるので、本当の製品を隠さないように）
  */
 export async function linkBarcode(barcode: string, product: Product): Promise<boolean> {
   const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
   if (!BARCODE_PATTERN.test(cleanCode) || !isShareable(product)) return false;
   if (await findSavedByBarcode(cleanCode)) return false;
+  if (!(await unknownToOpenBeautyFacts(cleanCode))) return false;
   await cachePutJSON(`barcode:v2:${cleanCode}`, product, LINKED_BARCODE_TTL_SECONDS);
   return true;
 }
@@ -253,7 +281,8 @@ export async function lookupByBarcode(barcode: string, { webResearch = true }: {
         if (ingredients.length === 0 && Array.isArray(p.ingredients)) {
           ingredients = p.ingredients
             .map((ing: { text?: string; id?: string }) => ing.text || ing.id?.replace('en:', '') || '')
-            .filter(Boolean);
+            .filter(Boolean)
+            .slice(0, LABEL_LIMITS.ingredients);
         }
 
         const isEstimated = ingredients.length === 0;
@@ -326,6 +355,7 @@ export async function lookupByBarcode(barcode: string, { webResearch = true }: {
     return null;
   }
 
-  await cachePutJSON(`${kvKey}:miss`, true, BARCODE_MISS_TTL_SECONDS);
+  // 断られた呼び出しがあった調べものの結果は、全員分の「見つからない」にしない
+  if (mayRememberFailure()) await cachePutJSON(`${kvKey}:miss`, true, BARCODE_MISS_TTL_SECONDS);
   return null;
 }

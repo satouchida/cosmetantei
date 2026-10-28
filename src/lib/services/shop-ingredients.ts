@@ -71,9 +71,10 @@ const MARKETING_WORD =
 function captionText(caption: string): string {
   return caption
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/?(?:p|div|li|tr|td|ul|ol|table|h\d)\b[^>]*>/gi, '\n')
+    // タグの中に「<」は含めない（「<」が続き「>」が無い説明で、毎回最後まで読み直して時間がかからないように）
+    .replace(/<\/?(?:p|div|li|tr|td|ul|ol|table|h\d)\b[^<>]*>/gi, '\n')
     // 文中のタグ（<b> など）は消すだけ（「ヒアルロン酸<b>Na</b>」を分けない）
-    .replace(/<[^>]*>/g, '')
+    .replace(/<[^<>]*>/g, '')
     .replace(/&#(\d{1,6});/g, (_, n: string) => String.fromCodePoint(Math.min(Number(n), 0x10ffff)))
     .replace(/&#x([0-9a-f]{1,6});/gi, (_, n: string) => String.fromCodePoint(Math.min(parseInt(n, 16), 0x10ffff)))
     .replace(/&quot;/g, '"')
@@ -153,11 +154,14 @@ const GROUP_LABEL = new RegExp(
  */
 export function normalizeShopLabel(block: string): string {
   let b = block
+    // 空白の連続は1つに（下の \s* が、長い空白の列を始める位置ごとに読み直さないように。読み取りの結果は変わらない）
+    .replace(/\s{2,}/g, (w) => (/[\n\r]/.test(w) ? '\n' : ' '))
     .replace(/(\d)\s*、\s*(\d)\s*-/g, '$1,$2-')
     // 「有効成分」…「その他の成分」… の書き方は、読み取りが分かる「有効成分:」「その他の成分:」にする
     // グループの頭（行頭・区切り・量のあと）にあるときだけ。「*は「有効成分」」「*=「有効成分」」のような注の説明は、そのまま
     .replace(/(?<=^|[、\s%】:：])「(有効成分|その他の成分)」\s*/g, '$1:');
-  if (/\d+(?:\.\d+)?\s*%|適量/.test(b)) {
+  // 数字の途中からは照合しない（長い数字の列で、始める位置ごとに読み直して遅くならないように）
+  if (/(?<![\d.])\d+(?:\.\d+)?\s*%|適量/.test(b)) {
     b = b
       .replace(/全量を\s*100\s*%\s*とする/g, '')
       // 名前の数字（「ポリソルベート80」「ナイロン-12」）は量ではない：数字・ハイフンのすぐ後の数字は外さない
@@ -173,7 +177,8 @@ export function normalizeShopLabel(block: string): string {
 
 /** 注の続きの頭の語が成分名なら、成分に別の成分がくっついている（「BG*メチルパラベン」。外すと見落とす） */
 function footnoteHidesName(name: string): boolean {
-  const tail = /[*＊](?![(（])(.*)$/.exec(name)?.[1].trim();
+  // [^]* は行区切り（U+2028）も含む（.* だと行区切りの手前で止まり、「*」ごとに読み直して遅くなる）
+  const tail = /[*＊](?![(（])([^]*)$/.exec(name)?.[1].trim();
   if (!tail) return false;
   const lead = tail.split(/[\s※＊*:：、]/)[0];
   return lead.length > 0 && !!findMatchingKnownIngredient(lead);
@@ -196,7 +201,7 @@ function hasGluedDrop(items: string[]): boolean {
 
 /** 名前の後ろに付いた「*」の注（「フェノキシエタノール*2種のヒアルロン酸」）を外す。「*(説明)」は「*」だけ外す */
 function withoutFootnote(name: string): string {
-  return name.replace(/[*＊](?![(（]).*$/, '').replace(/[*＊]/g, '').trim();
+  return name.replace(/[*＊](?![(（])[^]*$/, '').replace(/[*＊]/g, '').trim();
 }
 
 /** 商品説明から成分の一覧を読む。使えなければ null */
@@ -423,16 +428,36 @@ function sameProductKey(name: string, brandName: string): string {
     .replace(/[0-9]+(?:\.[0-9]+)?(?:ml|g|mg|l|枚|個|本|包)/g, '');
 }
 
+/** Yahoo! のストア（store.shopping.yahoo.co.jp/<ストア>/…）。分からなければ null */
+function yahooStore(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // ストアのページだけ（検索・製品ページなどの URL を、ストアとして数えない）
+    if (u.hostname !== 'store.shopping.yahoo.co.jp') return null;
+    return u.pathname.split('/')[1]?.toLowerCase() || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 保存した製品に結び付ける JAN コード（Yahoo! の項目の JAN コードだけ。出品者が説明に書いた値は使わない）。
  * 名前から容量を除くと、保存した製品の名前と同じ商品だけ（同じシリーズの別の製品（I・II・III）は結び付けない）。
+ * JAN コードも名前も出品者が書いた値なので、2つ以上のストアが同じ名前・同じ JAN コードで出しているものだけ
+ * （1つのストアの間違い・わざと別の製品の JAN コードを書いたものを、30日のあいだ全員に出さない）。
  * 最大 MAX_LINKED_JANS 件。バーコードの読み取りで、費用なしに見つかるように
  */
 export function yahooJanCodes(matches: ShopMatches, product: Product): string[] {
   const target = sameProductKey(product.name, product.brand);
   if (!target) return [];
-  const jans = matches.yahoo
-    .filter((i) => i.janCode && sameProductKey(i.name, matches.brandName) === target)
-    .map((i) => i.janCode as string);
-  return [...new Set(jans)].slice(0, MAX_LINKED_JANS);
+  const stores = new Map<string, Set<string>>();
+  for (const item of matches.yahoo) {
+    const store = yahooStore(item.url);
+    if (!item.janCode || !store || sameProductKey(item.name, matches.brandName) !== target) continue;
+    stores.set(item.janCode, (stores.get(item.janCode) ?? new Set()).add(store));
+  }
+  return [...stores]
+    .filter(([, s]) => s.size >= 2)
+    .map(([jan]) => jan)
+    .slice(0, MAX_LINKED_JANS);
 }

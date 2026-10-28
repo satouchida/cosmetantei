@@ -26,6 +26,11 @@ export function hasStaleLabel(p: Product): boolean {
 
 /** 製品データの上限。サーバーが作った製品が、ブラウザから送り返されたときの検証（validation.ts）を通るようにそろえる */
 export const LABEL_LIMITS = { ingredients: 300, activeIngredients: 30, undisclosed: 999 } as const;
+/**
+ * 読み取る成分表示の長さの上限。これより長い文字列は読まない（成分表示として長すぎる。Open Beauty Facts・お店の説明など
+ * ほかの人が書いた文字列で、読み取りの時間が延びすぎないように）
+ */
+export const MAX_PARSE_LENGTH = 10_000;
 
 export interface ParsedLabel {
   /** 有効成分以外の成分（化粧品は全成分） */
@@ -76,8 +81,10 @@ export function splitIngredientList(text: string): string[] {
   const isSeparator = (ch: string, i: number, useSecondary: boolean, current: string): boolean => {
     if (ch === '、' || ch === ';' || ch === '\n' || ch === '\r') return true;
     if (ch === ',') {
-      // 位置番号：1〜2桁の数字だけの語の後で、後ろが「2-」「2,6-」のように続く
-      const isLocant = /(?:^|[\s(,・/])\d{1,2}$/.test(current) && /^\d{1,2}(?:,\d{1,2})*-/.test(s.slice(i + 1));
+      // 位置番号：1〜2桁の数字だけの語の後で、後ろが「2-」「2,6-」のように続く。
+      // 見るのは前後の数文字だけ（「1,1,1,…」のような長い列で、「,」ごとに全体を読み直して遅くならないように）
+      const isLocant =
+        /(?:^|[\s(,・/])\d{1,2}$/.test(current.slice(-3)) && /^\d{1,2}(?:,\d{1,2}){0,5}-/.test(s.slice(i + 1, i + 25));
       return !isLocant;
     }
     return useSecondary && (ch === '・' || ch === '/');
@@ -201,20 +208,45 @@ function rejoinNameParts(parts: NamePart[]): string[] {
   return out.map((p) => p.text);
 }
 
+/**
+ * 前後の、isTrimmed に当たる文字を取り除く。正規表現の [...]+$ は、途中に長い連続があると
+ * 始める位置ごとに読み直して遅くなるため、前後から1文字ずつ見る
+ */
+function trimEnds(item: string, isTrimmed: (ch: string) => boolean): string {
+  let start = 0;
+  let end = item.length;
+  while (start < end && isTrimmed(item[start])) start++;
+  while (end > start && isTrimmed(item[end - 1])) end--;
+  return item.slice(start, end);
+}
+
+const CLEANED_CHARS = /[\s"'。.]/;
 /** 前後の空白・句点・引用符を取り除く */
 function cleanItem(item: string): string {
-  return item.replace(/^[\s"'。.]+|[\s"'。.]+$/g, '');
+  return trimEnds(item, (ch) => CLEANED_CHARS.test(ch));
 }
 
 /** 成分名の前後に付いた印（※ * 等）。印の説明に関係なく名称からは取り除く */
-const ITEM_MARK = /^[※*★☆]+|[※*★☆]+$/g;
+const ITEM_MARKS = '※*★☆';
+function withoutItemMarks(item: string): string {
+  return trimEnds(item, (ch) => ITEM_MARKS.includes(ch));
+}
+
+/** 空白の連続は1つにまとめる（改行を含む連続は改行1つ）。区切りの判定は変わらず、正規表現の手戻りを抑える */
+function collapseSpaces(s: string): string {
+  return s.replace(/\s{2,}/g, (w) => (/[\n\r]/.test(w) ? '\n' : ' '));
+}
+
+const EMPTY_LABEL: ParsedLabel = { ingredients: [], activeIngredients: [], isQuasiDrug: false, undisclosedCount: 0 };
 
 /**
  * 全成分表示の文字列を読み取る。医薬部外品の2グループ・※印の両方の書き方に対応する
  */
 export function parseIngredientLabel(text: string): ParsedLabel {
-  // 空白の連続は1つにまとめる（改行を含む連続は改行1つ）。区切りの判定は変わらず、正規表現の手戻りを抑える
-  let s = text.normalize('NFKC').replace(/\s{2,}/g, (w) => (/[\n\r]/.test(w) ? '\n' : ' '));
+  // NFKC で長くなる文字（「﷽」など）もあるので、正規化の後でも確かめる
+  const normalized = text.length > MAX_PARSE_LENGTH ? '' : text.normalize('NFKC');
+  if (!normalized || normalized.length > MAX_PARSE_LENGTH) return { ...EMPTY_LABEL, ingredients: [], activeIngredients: [] };
+  let s = collapseSpaces(normalized);
 
   const activeMarks = new Set<string>();
   s = s.replace(MARK_LEGEND, (_, mark: string) => {
@@ -228,11 +260,16 @@ export function parseIngredientLabel(text: string): ParsedLabel {
     return '\n';
   });
 
+  // 上の置き換えで改行が並ぶので、もう一度まとめる（QUASI_DRUG_LABEL・GROUP_HEADING の \s* が長い連続を読み直さないように）
+  s = collapseSpaces(s);
+
   let isQuasiDrug = activeMarks.size > 0;
-  s = s.replace(QUASI_DRUG_LABEL, () => {
-    isQuasiDrug = true;
-    return '\n';
-  });
+  s = collapseSpaces(
+    s.replace(QUASI_DRUG_LABEL, () => {
+      isQuasiDrug = true;
+      return '\n';
+    })
+  );
   s = s.replace(LIST_HEADING, '');
 
   // 見出しで区切る。最初の見出しより前は「その他の成分」として扱う
@@ -252,14 +289,14 @@ export function parseIngredientLabel(text: string): ParsedLabel {
   const others: string[] = [];
   for (const item of ingredients) {
     const marked = [...activeMarks].some((mark) => item.startsWith(mark) || item.endsWith(mark));
-    const name = cleanItem(item.replace(ITEM_MARK, ''));
+    const name = cleanItem(withoutItemMarks(item));
     if (!name) continue;
     (marked ? activeIngredients : others).push(name);
   }
 
   return {
     ingredients: others,
-    activeIngredients: activeIngredients.map((i) => cleanItem(i.replace(ITEM_MARK, ''))).filter(Boolean),
+    activeIngredients: activeIngredients.map((i) => cleanItem(withoutItemMarks(i))).filter(Boolean),
     isQuasiDrug,
     undisclosedCount,
   };

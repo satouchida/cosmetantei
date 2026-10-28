@@ -16,7 +16,8 @@ const MAX_BRAND_LENGTH = 60;
 
 async function handleGet(request: NextRequest) {
   // お店の API の回数（全員で1分 50 回）を1人で使い切らせないよう、IP とセッションのそれぞれで数える
-  const session = currentClients().find((c) => c.kind === 'session')?.key;
+  // （始めて間もないセッション（new_session）も同じセッションの鍵で数える）
+  const session = currentClients().find((c) => c.kind === 'session' || c.kind === 'new_session')?.key;
   if (
     (await isRateLimited('shop', getClientIp(request.headers))) ||
     (session !== undefined && (await isRateLimited('shop_session', session)))

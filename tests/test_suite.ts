@@ -6160,6 +6160,12 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
   assert.strictEqual(shop.cutIngredientBlock(`${'説明'.repeat(450)}【変更後】全成分：${label}`), null);
   // 「変更前」だけで、どれが今の処方か分からない説明は使わない
   assert.strictEqual(shop.cutIngredientBlock(`【変更前】全成分：${label}<br>内容量 150ml`), null);
+  // 「<」が続き「>」が無い説明でも、時間がかからない（タグを消す正規表現が、毎回最後まで読み直さない）
+  for (const caption of ['<'.repeat(20000), '<p'.repeat(10000), '<b x'.repeat(5000)]) {
+    const started = performance.now();
+    shop.cutIngredientBlock(caption);
+    assert.ok(performance.now() - started < 50, `${caption.slice(0, 8)}…: ${performance.now() - started}ms`);
+  }
   // 2026-10-19 に楽天の実際の商品説明 20 件で見つけた書き方（文は作り直した例。お店の文は保存しない）
   // 配合量・分類つき（「保湿成分:BG 4.48%」）は量と分類を外す。「1、2-ヘキサンジオール」は1つの名前
   const quantified = await shop.ingredientsFromCaption(
@@ -7827,6 +7833,11 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
       if (url.pathname === '/api/v2/product/4987107000001.json') {
         return Response.json({ status: 1, product: { product_name_ja: 'アミノモイスト シードテスト ローション', brands: 'ミノン', ingredients_text_ja: label } });
       }
+      // 問い合わせに失敗するバーコード（無いと確かめられない）
+      if (url.pathname === '/api/v2/product/4901301000048.json') return new Response('busy', { status: 503 });
+      // Open Beauty Facts にある製品（名前の照合では別の製品。fields=code の問い合わせにも status: 1 を返す）
+      if (url.pathname === '/api/v2/product/4901301000062.json') return Response.json({ status: 1, product: { code: '4901301000062', product_name: 'Other cream' } });
+      if (url.pathname.startsWith('/api/v2/product/')) return Response.json({ status: 0, status_verbose: 'product not found' }, { status: 404 });
       // 名前の検索では見つからない（日本の製品は、名前より JAN コードで見つかることが多い）
       return Response.json({ count: 0, products: [] });
     }
@@ -7844,6 +7855,24 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
             brand: { name: 'キュレル' }, janCode: '4901301000017', description: `しっとり保湿。<br>【全成分】${label}<br>【内容量】40g` },
           { name: 'キュレル 潤浸保湿 シードテスト クリーム 90g', code: 'kao_2', url: 'https://store.shopping.yahoo.co.jp/kao/2.html', inStock: true, condition: 'new',
             brand: { name: 'キュレル' }, janCode: '4901301000024' },
+          // 別のストアも、同じ名前・同じ JAN コードで出している（2つのストアが合うものだけ結び付ける）
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 90g', code: 'drug_2', url: 'https://store.shopping.yahoo.co.jp/drug/2.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000024' },
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム II 40g', code: 'drug_3', url: 'https://store.shopping.yahoo.co.jp/drug/3.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000031' },
+          // 2つのストアが出しているが、Open Beauty Facts にある JAN コード（本当の製品を隠さない）
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 20g', code: 'kao_6', url: 'https://store.shopping.yahoo.co.jp/kao/6.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000062' },
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 20g', code: 'drug_6', url: 'https://store.shopping.yahoo.co.jp/drug/6.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000062' },
+          // 1つのストアだけの JAN コード
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 120g', code: 'kao_4', url: 'https://store.shopping.yahoo.co.jp/kao/4.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000055' },
+          // 2つのストアが出しているが、Open Beauty Facts に無いと確かめられない JAN コード
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 60g', code: 'kao_5', url: 'https://store.shopping.yahoo.co.jp/kao/5.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000048' },
+          { name: 'キュレル 潤浸保湿 シードテスト クリーム 60g', code: 'drug_5', url: 'https://store.shopping.yahoo.co.jp/drug/5.html', inStock: true, condition: 'new',
+            brand: { name: 'キュレル' }, janCode: '4901301000048' },
           // 同じシリーズの別の製品（II）：入力の語はすべて合うが、同じ製品ではない
           { name: 'キュレル 潤浸保湿 シードテスト クリーム II 40g', code: 'kao_3', url: 'https://store.shopping.yahoo.co.jp/kao/3.html', inStock: true, condition: 'new',
             brand: { name: 'キュレル' }, janCode: '4901301000031' },
@@ -7894,6 +7923,12 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     assert.strictEqual((await findSavedByBarcode('4901301000024'))?.id, 'yahoo_4901301000017');
     // 同じシリーズの別の製品の JAN コードは結び付けない（読み取ったときに、別の製品の成分を出さない）
     assert.strictEqual(await findSavedByBarcode('4901301000031'), null);
+    // 1つのストアだけの JAN コード・Open Beauty Facts に無いと確かめられない JAN コードも結び付けない
+    assert.strictEqual(await findSavedByBarcode('4901301000055'), null);
+    assert.strictEqual(await findSavedByBarcode('4901301000048'), null);
+    // Open Beauty Facts にある製品のバーコードは、保存した製品に結び付けない（確かめる問い合わせをしている）
+    assert.notStrictEqual((await findSavedByBarcode('4901301000062'))?.id, 'yahoo_4901301000017');
+    assert.ok(requests.some((u) => u.pathname === '/api/v2/product/4901301000024.json' && u.searchParams.get('fields') === 'code'));
     // Open Beauty Facts のバーコードで見つかる製品は、Yahoo! の説明より先（上の楽天の JAN の例）。保存済みなら何もしない
     assert.strictEqual((await seedProduct('キュレル 潤浸保湿 シードテスト クリーム', now)).result, 'cached');
     // カードの出典：Yahoo! のクレジットと「販売ページの成分表示」
@@ -8061,5 +8096,152 @@ test('131. Upstream limits: a 429 from AI Gateway or Google counts as a limit, n
     clearGatewayEnv();
     if (savedGateway === undefined) delete process.env.AI_GATEWAY_ID;
     else process.env.AI_GATEWAY_ID = savedGateway;
+  }
+});
+
+test('132. Barcode research: a brand check that could not run is not a shared "not found" (security audit lead 1)', async () => {
+  const { researchBarcode } = await import('../src/lib/services/web-research');
+  const { lookupByBarcode } = await import('../src/lib/services/search-barcode-service');
+  const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+  const code = '4900000000048';
+  const page = `https://shop.example.com/jan/${code}`;
+  const search = fakeWebSearchAI((provider) => (provider === 'linkup' ? [{ url: page, title: `JAN ${code} 化粧水` }] : []));
+  // Clef（ブランドの確認）が失敗する
+  const AI = { ...search.AI, run: async () => { throw new Error('clef unavailable'); } };
+  const reader = fakeGeminiPageReader(
+    [{ sourceUrl: page, brand: '未登録ブランドQ', name: 'Q 化粧水', ingredients: ['水', 'BG'], ingredientsFoundOnPage: true, barcode: code }],
+    [page]
+  );
+  const originalFetch = globalThis.fetch;
+  setGatewayEnv();
+  try {
+    globalThis.fetch = ((url: string | URL | Request, init?: RequestInit) =>
+      String(url).includes('openbeautyfacts.org')
+        ? Promise.resolve(Response.json({ status: 0 }, { status: 404 }))
+        : reader.fetchFn(String(url), init)) as typeof fetch;
+    assert.strictEqual(await withCloudflareEnv({ AI }, () => researchBarcode(code)), undefined, 'Inconclusive, not "not found"');
+    assert.strictEqual(await withCloudflareEnv({ AI }, () => lookupByBarcode(code)), null);
+    assert.notStrictEqual(await cacheGetJSON(`barcode:v2:${code}:miss`), true, 'No shared 1 h "not found"');
+    assert.strictEqual(await cacheGetJSON(`barcode:v2:${code}:fail`), true, 'Only the short retry marker');
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('133. Label parsing stays linear on long runs in third-party text (security audit leads 2–4)', async () => {
+  const { parseIngredientLabel, splitIngredientList, MAX_PARSE_LENGTH } = await import('../src/lib/analyzer/label-parser');
+  const shop = await import('../src/lib/services/shop-ingredients');
+  const timed = async (name: string, fn: () => unknown) => {
+    const started = performance.now();
+    await fn();
+    const ms = performance.now() - started;
+    assert.ok(ms < 50, `${name}: ${ms.toFixed(1)}ms`);
+  };
+  const n = 9_000;
+  // 位置番号の「,」：「,」ごとに全体を読み直さない（後ろに「-」が無い列・ある列の両方）
+  await timed('locant run', () => splitIngredientList('1,'.repeat(n / 2) + '1'));
+  await timed('locant run with hyphen', () => splitIngredientList('1,'.repeat(n / 2) + '1-x'));
+  // 項目の途中の長い「.」「*」、印の説明の繰り返し（改行の連続になる）
+  await timed('dot run', () => parseIngredientLabel('a' + '.'.repeat(n) + 'b'));
+  await timed('mark run', () => parseIngredientLabel('x' + '*'.repeat(n) + 'y'));
+  await timed('legend run', () => parseIngredientLabel('※有効成分'.repeat(n / 5) + '水'));
+  // お店の説明の長い数字の列（配合量の確認の正規表現）
+  await timed('digit run', () => shop.normalizeShopLabel('1'.repeat(19_990)));
+  await timed('caption digit run', () => shop.ingredientsFromCaption('全成分' + '1'.repeat(19_990) + ' 内容量:150ml'));
+  await timed('space run before a quantity', () => shop.normalizeShopLabel('水' + ' '.repeat(19_990) + '適量'));
+  // 長すぎる成分表示は読まない（NFKC で長くなる文字も、正規化の後の長さで数える）
+  assert.deepStrictEqual(parseIngredientLabel('水、'.repeat(MAX_PARSE_LENGTH)).ingredients, []);
+  assert.deepStrictEqual(parseIngredientLabel('\u337F、'.repeat(2_500)).ingredients, [], '「㍿」 becomes 4 chars under NFKC');
+  // 今までの読み取りは変わらない
+  assert.deepStrictEqual(splitIngredientList('水、1,3-ブチレングリコール、1,2,6-ヘキサントリオール'), ['水', '1,3-ブチレングリコール', '1,2,6-ヘキサントリオール']);
+  assert.deepStrictEqual(splitIngredientList('ポリソルベート80,1,2-ヘキサンジオール'), ['ポリソルベート80', '1,2-ヘキサンジオール']);
+  assert.deepStrictEqual(splitIngredientList('CI 77891,77492'), ['CI 77891', '77492']);
+  assert.deepStrictEqual(parseIngredientLabel('※トラネキサム酸、水。、"BG"、グリセリン※ ※印は有効成分').activeIngredients, ['トラネキサム酸', 'グリセリン']);
+  assert.strictEqual(shop.normalizeShopLabel('保湿成分:BG 4.48%、水 適量'), 'BG、水');
+});
+
+test('134. A web page cannot replace an Open Beauty Facts product with the same barcode or name (security audit lead 5)', async () => {
+  const { lookupByBarcode } = await import('../src/lib/services/search-barcode-service');
+  const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
+  const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+  const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
+  const obf = verifiedProduct({ id: 'obf_4901234567893', barcode: '4901234567893', name: 'OBF 乳液', brand: 'OBFブランド', ingredients: ['水', 'グリセリン'], labelFormat: LABEL_FORMAT });
+  addProductToDynamicCache(obf);
+  const page = { ...verifiedProduct({ name: '別名 乳液', brand: '別ブランド', ingredients: ['水', 'エタノール'] }), id: 'web_t134', barcode: '4901234567893', ingredientSource: 'web_page' as const, sourceUrl: 'https://example.test/p' };
+  assert.strictEqual(addProductToDynamicCache(page).id, 'obf_4901234567893');
+  assert.strictEqual((await lookupByBarcode('4901234567893', { webResearch: false }))?.id, 'obf_4901234567893');
+  const sameName = { ...page, id: 'web_t134b', barcode: undefined, name: 'OBF 乳液', brand: 'OBFブランド' };
+  assert.strictEqual(addProductToDynamicCache(sameName).id, 'obf_4901234567893');
+  // 共有の一覧（KV）にも、ぶつかる Web の製品は保存しない
+  await rememberVerifiedProducts([obf]);
+  await rememberVerifiedProducts([page, sameName]);
+  const stored = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  assert.ok(stored.some((p) => p.id === 'obf_4901234567893'));
+  assert.ok(!stored.some((p) => p.id === 'web_t134' || p.id === 'web_t134b'));
+  // 先に保存した Web のページの製品も、同じバーコードの OBF の製品が入れば一覧から外れる
+  const early = { ...page, id: 'web_t134d', barcode: '4901234567916', name: 'E 乳液', brand: 'Eブランド' };
+  await rememberVerifiedProducts([early]);
+  await rememberVerifiedProducts([verifiedProduct({ id: 'obf_4901234567916', barcode: '4901234567916', name: 'E 乳液 OBF', brand: 'Eブランド', ingredients: ['水'], labelFormat: LABEL_FORMAT })]);
+  const cleaned = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  assert.ok(cleaned.some((p) => p.id === 'obf_4901234567916') && !cleaned.some((p) => p.id === 'web_t134d'));
+  // 同じ名前のほかの製品が先に当たっても、同じバーコードの OBF の製品は Web のページの製品に隠されない
+  addProductToDynamicCache(verifiedProduct({ id: 'obf_4901234567923', barcode: '4901234567923', name: 'G 乳液 OBF', brand: 'Gブランド', labelFormat: LABEL_FORMAT }));
+  addProductToDynamicCache({ ...verifiedProduct({ name: 'G 乳液', brand: 'Gブランド' }), id: 'yahoo_t134', ingredientSource: 'shop_yahoo' as const });
+  const shadow = { ...page, id: 'web_t134e', barcode: '4901234567923', name: 'G 乳液', brand: 'Gブランド' };
+  assert.strictEqual(addProductToDynamicCache(shadow).id, 'obf_4901234567923');
+  assert.strictEqual((await lookupByBarcode('4901234567923', { webResearch: false }))?.id, 'obf_4901234567923');
+  // 反対（OBF が Web の製品を置き換える）は今までどおり
+  const webFirst = { ...page, id: 'web_t134c', barcode: '4901234567909', name: 'W 乳液', brand: 'Wブランド' };
+  addProductToDynamicCache(webFirst);
+  const obfLater = verifiedProduct({ id: 'obf_4901234567909', barcode: '4901234567909', name: 'W 乳液 OBF', brand: 'Wブランド', ingredients: ['水'] });
+  assert.strictEqual(addProductToDynamicCache(obfLater).id, 'obf_4901234567909');
+});
+
+test('135. Free Open Beauty Facts results cannot push researched products out of the shared index (security audit lead 6)', async () => {
+  const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
+  const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+  const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
+  const target = { ...verifiedProduct({ name: 'T 化粧水', brand: 'Tブランド', ingredients: ['水', 'グリセリン', 'BG'] }), id: 'web_t135', ingredientSource: 'web_page' as const, sourceUrl: 'https://example.test/t' };
+  await rememberVerifiedProducts([target]);
+  for (let i = 0; i < 30; i++) {
+    await rememberVerifiedProducts(
+      Array.from({ length: 10 }, (_, j) => verifiedProduct({ id: `obf_t135_${i}_${j}`, name: `OBF ${i}-${j}`, brand: 'OBF', ingredients: ['水'], labelFormat: LABEL_FORMAT }))
+    );
+  }
+  const stored = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  assert.ok(stored.some((p) => p.id === 'web_t135'), 'The researched product stays');
+  assert.strictEqual(stored.filter((p) => p.ingredientSource === 'open_beauty_facts').length, 100, 'OBF entries fill at most 100 slots');
+  assert.ok(stored.some((p) => p.id === 'obf_t135_29_9') && !stored.some((p) => p.id === 'obf_t135_0_0'), 'The oldest OBF entries go first');
+  // まだ一覧にあるので、同じ id の別の内容での置き換えは断られる
+  await rememberVerifiedProducts([{ ...target, ingredients: ['水'] }]);
+  const after = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  assert.deepStrictEqual(after.find((p) => p.id === 'web_t135')?.ingredients, ['水', 'グリセリン', 'BG']);
+});
+
+test('136. Lineups count a brand-new session against the per-session shop limit (security audit lead 7)', async () => {
+  const { GET } = await import('../src/app/api/products/lineup/route');
+  const { createSessionValue, SESSION_COOKIE } = await import('../src/lib/server/session');
+  const { NextRequest } = await import('next/server');
+  const names = ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET_KEY', 'SESSION_SECRET'];
+  const saved = Object.fromEntries(names.map((k) => [k, process.env[k]]));
+  const secret = 'q'.repeat(40);
+  try {
+    process.env.TURNSTILE_SITE_KEY = 'site-key-t136';
+    process.env.TURNSTILE_SECRET_KEY = 'secret-key-t136';
+    process.env.SESSION_SECRET = secret;
+    const keys: string[] = [];
+    const limiter = (success: boolean) => ({ async limit({ key }: { key: string }) { keys.push(key); return { success }; } });
+    const cookie = `${SESSION_COOKIE}=${await createSessionValue(secret, Date.now())}`;
+    const res = await withCloudflareEnv({ SHOP_RATE_LIMITER: limiter(true), SHOP_SESSION_RATE_LIMITER: limiter(false) }, () =>
+      GET(new NextRequest('http://localhost/api/products/lineup?brand=x', { headers: { cookie, 'cf-connecting-ip': '203.0.113.9' } }))
+    );
+    assert.strictEqual(res.status, 429, 'The session limiter is consulted for a session issued just now');
+    assert.ok(keys.some((k) => k.startsWith('shop_session:sess:')), keys.join(','));
+  } finally {
+    for (const k of names) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
   }
 });

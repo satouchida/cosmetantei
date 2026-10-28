@@ -71,19 +71,32 @@ function isRejectedReplacement(prev: Product, next: Product): boolean {
   return prev.id === next.id && hasDifferentIngredients(prev, next) && !isTranslationOf(prev, next);
 }
 
+/** 同じ製品とみなす（id・バーコード・商品名とブランドのどれかが同じ） */
+function isSameProduct(a: Product, b: Product): boolean {
+  return a.id === b.id || (!!b.barcode && a.barcode === b.barcode) || (a.name === b.name && a.brand === b.brand);
+}
+
+/**
+ * Web のページの製品（ページに書かれたバーコード・商品名で照合される）が、別の id の Open Beauty Facts の製品を
+ * 置き換えようとしているか。置き換えない（ページの作者が、バーコードの読み取りで出る製品を差し替えられないように）
+ */
+function isWeakerDuplicate(prev: Product, next: Product): boolean {
+  return prev.id !== next.id && prev.ingredientSource === 'open_beauty_facts' && next.ingredientSource === 'web_page';
+}
+
 export function addProductToDynamicCache(product: Product): Product {
   if (!isShareable(product)) return product;
-  const existingIdx = RUNTIME_CACHE.findIndex(
-    (p) =>
-      p.id === product.id ||
-      (product.barcode && p.barcode === product.barcode) ||
-      (p.name === product.name && p.brand === product.brand)
-  );
+  const existingIdx = RUNTIME_CACHE.findIndex((p) => isSameProduct(p, product));
 
   const enrichedProduct: Product = {
     ...product,
     amazonSearchUrl: product.amazonSearchUrl || buildAmazonAffiliateUrl(product.brand, product.name),
   };
+
+  // 最初に当たった製品だけでなく、当たる製品すべてで確かめる（同じ名前のお店の製品が先に当たっても、
+  // 同じバーコードの Open Beauty Facts の製品を Web のページの製品で隠さない）
+  const stronger = RUNTIME_CACHE.find((p) => isSameProduct(p, product) && isWeakerDuplicate(p, enrichedProduct));
+  if (stronger) return stronger;
 
   if (existingIdx >= 0) {
     const existing = RUNTIME_CACHE[existingIdx];
@@ -119,6 +132,12 @@ export function addMultipleProductsToDynamicCache(products: Product[]): Product[
 
 const VERIFIED_INDEX_KEY = 'verified-products:v1';
 const MAX_VERIFIED_PRODUCTS = 300;
+/**
+ * そのうち Open Beauty Facts の製品の上限。費用のかからない検索で誰でも足せるため、上限を超えたら古い OBF の製品から外す
+ * （OBF の検索を繰り返して、有料で調べた製品・自動の保存の製品を一覧から押し出し、
+ * 同じ id の別の内容での置き換えを断る仕組みを外させない）
+ */
+const MAX_OBF_IN_INDEX = 100;
 const VERIFIED_TTL_SECONDS = 60 * 60 * 24 * 30;
 const HYDRATE_INTERVAL_MS = 5 * 60 * 1000;
 let lastHydratedAt = 0;
@@ -137,7 +156,10 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
   const stored = raw.filter((p) => !hasStaleLabel(p) && isShareable(p));
   // すでに保存した製品（同じ id）の成分表示は、別の内容で置き換えない（英語の成分表示を訳した版は置き換える）。
   // 置き換えなかった製品は、新しい製品に押し出される（最大 300 件）まで残る。インデックス全体の期限は書き込むたびに延びる
-  const fresh = verified.filter((v) => !stored.some((s) => isRejectedReplacement(s, v)));
+  // Web のページの製品は、同じバーコード・商品名の Open Beauty Facts の製品（別の id）があれば保存しない
+  const fresh = verified.filter(
+    (v) => !stored.some((s) => isRejectedReplacement(s, v) || (isSameProduct(s, v) && isWeakerDuplicate(s, v)))
+  );
   // 足す・変える製品が無く、古い製品も捨てていなければ書き込まない（1つのキーへの書き込みを減らす。
   // 置き換えを断った製品を何度送られても、書き込みは起きない）
   if (
@@ -145,10 +167,25 @@ export async function rememberVerifiedProducts(products: Product[]): Promise<voi
     fresh.every((v) => stored.some((s) => s.id === v.id && !hasDifferentIngredients(s, v)))
   )
     return;
-  const merged = [...fresh, ...stored.filter((s) => !fresh.some((v) => v.id === s.id))].slice(
-    0,
-    MAX_VERIFIED_PRODUCTS
+  const combined = [...fresh, ...stored.filter((s) => !fresh.some((v) => v.id === s.id))];
+  // 先に保存した Web のページの製品も、同じ製品の Open Beauty Facts の製品が入ったら外す
+  // （OBF の製品が上限で外れた後に、Web のページの製品だけが残らないように）
+  // OBF の製品のバーコード・商品名とブランドを先に集める（300 件どうしを総当たりで比べない。CPU 時間の上限 10ms）
+  const obfKeys = new Set<string>();
+  for (const p of combined) {
+    if (p.ingredientSource !== 'open_beauty_facts') continue;
+    if (p.barcode) obfKeys.add(`b:${p.barcode}`);
+    obfKeys.add(`n:${p.brand}\n${p.name}`);
+  }
+  const withoutWeaker = combined.filter(
+    (p) =>
+      p.ingredientSource !== 'web_page' ||
+      !((p.barcode && obfKeys.has(`b:${p.barcode}`)) || obfKeys.has(`n:${p.brand}\n${p.name}`))
   );
+  let obfCount = 0;
+  const merged = withoutWeaker
+    .filter((p) => p.ingredientSource !== 'open_beauty_facts' || ++obfCount <= MAX_OBF_IN_INDEX)
+    .slice(0, MAX_VERIFIED_PRODUCTS);
   await cachePutJSON(VERIFIED_INDEX_KEY, merged, VERIFIED_TTL_SECONDS);
 }
 
