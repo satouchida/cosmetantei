@@ -60,3 +60,11 @@ AGENTS.md
 
 # 手元専用の公開・宣伝の作業リスト
 /docs/launch-todo.md
+
+# セキュリティ診断の成果物（/vuln-scan・/triage・/security-audit。手元専用）
+/VULN-FINDINGS.json
+/VULN-FINDINGS.md
+/TRIAGE.json
+/TRIAGE.md
+/.triage-state/
+/security-audit/
