@@ -4,9 +4,10 @@ import React from 'react';
 import { Product } from '@/lib/types';
 import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
-import { badge, buttonPrimaryCompact, innerCard, panel } from '../ui/design';
+import { badge, buttonPrimaryCompact, innerCard, panel, textLink } from '../ui/design';
 import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
+import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -97,13 +98,22 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                   <ExternalLink className="w-4 h-4" aria-hidden />
                   <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                 </a>
+                <a
+                  href={buildQoo10AffiliateUrl(p.brand, p.name)}
+                  target="_blank"
+                  rel="noopener noreferrer sponsored nofollow"
+                  className={`mt-1 inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
+                >
+                  Qoo10で探す
+                  <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                </a>
               </div>
             </div>
           );
         })}
       </div>
       <p className="text-xs text-ink-muted">
-        PR：「Amazonで詳細・価格を見る」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
+        PR：「Amazonで詳細・価格を見る」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
       </p>
     </section>
   );

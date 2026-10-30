@@ -179,7 +179,7 @@ export default function PrivacyPage() {
             <td><strong>バリューコマース</strong>（バリューコマース株式会社）</td>
             <td>日本</td>
             <td>提携リンク経由のアクセス情報、クリック識別子</td>
-            <td>Yahoo!ショッピング等のアフィリエイトリンクの配信および成果計測</td>
+            <td>Yahoo!ショッピング・Qoo10のアフィリエイトリンクの配信および成果計測</td>
           </tr>
           <tr>
             <td><strong>Fastmail</strong>（Fastmail Pty Ltd）</td>
@@ -258,15 +258,15 @@ export default function PrivacyPage() {
             <td><ExternalLink href="https://privacy.rakuten.co.jp/">楽天グループ 個人情報保護方針</ExternalLink>に記載の方法で設定できます。</td>
           </tr>
           <tr>
-            <td><strong>バリューコマース株式会社</strong>（Yahoo!ショッピングへのリンク）</td>
+            <td><strong>バリューコマース株式会社</strong>（Yahoo!ショッピング・Qoo10へのリンク）</td>
             <td>クリック日時、クリック識別コード、端末識別用Cookie</td>
-            <td>Yahoo!ショッピングにおける販売ページの提示、および成果報酬の計測・算定のため</td>
+            <td>Yahoo!ショッピングの販売ページおよびQoo10の検索結果のページの提示、ならびに成果報酬の計測・算定のため</td>
             <td>
               アフィリエイト広告の成果測定、不正利用・多重クリックの防止、広告配信システムの最適化、および統計的分析のために利用されます。
               <br />
               <ExternalLink href="https://www.valuecommerce.co.jp/privacy_policy/">バリューコマース プライバシーポリシー</ExternalLink>
             </td>
-            <td><ExternalLink href="https://www.valuecommerce.co.jp/privacy_policy/privacy_action/">バリューコマース 個人情報の取扱い</ExternalLink>から無効化できます。</td>
+            <td><ExternalLink href="https://www.valuecommerce.co.jp/privacy_policy/privacy_action/">バリューコマース 行動履歴情報保護方針</ExternalLink>に記載の方法（ブラウザの設定でCookieを無効にする等）で無効化できます。</td>
           </tr>
         </tbody>
       </LegalTable>

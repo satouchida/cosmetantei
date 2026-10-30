@@ -11,7 +11,7 @@ import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analy
 import { isKnownGenericTerm } from './brand-check';
 import { researchProducts, sharedResearchFor, toProductSearchQuery } from './web-research';
 import { shopIngredientProducts } from './shop-ingredients';
-import { withoutListingNoise } from './shop-lineup';
+import { withoutListingNoise } from '../search/listing-name';
 import { isShopListingProduct } from '../product-source';
 import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';

@@ -35,7 +35,7 @@ const AMAZON_ASSOCIATE_STATEMENT = 'Amazonのアソシエイトとして、コ�
  * Amazon の文言はそのまま先に置き、楽天アフィリエイトとバリューコマース（Yahoo!ショッピングへのリンク）は別の文にする。
  * wrangler.toml でほかの ASP のリンク（@cosme・Yahoo! の別の ASP）を使うときは、こことプライバシーポリシーに足す（test 109）
  */
-export const AFFILIATE_DISCLOSURE = `${AMAZON_ASSOCIATE_STATEMENT}また、楽天アフィリエイトおよびバリューコマース（Yahoo!ショッピング）のアフィリエイトプログラムを利用しており、紹介した商品の購入により報酬を得ることがあります。`;
+export const AFFILIATE_DISCLOSURE = `${AMAZON_ASSOCIATE_STATEMENT}また、楽天アフィリエイトおよびバリューコマース（Yahoo!ショッピング・Qoo10）のアフィリエイトプログラムを利用しており、紹介した商品の購入により報酬を得ることがあります。`;
 
 /** 利用規約・プライバシーポリシーの制定日（変えない） */
 export const LEGAL_ENACTED = '2026-10-20';
@@ -47,8 +47,10 @@ export const LEGAL_ENACTED = '2026-10-20';
  * （2026-10-23：利用規約の第2条第4号・第9条の2第1項・第10条第2項、プライバシーポリシーの第2条第6項）
  * （2026-10-26：利用規約の第5条・第5条の2・第5条の3・第6条第2項・第8条第1項第4号・第12条第2項・お問い合わせ窓口、
  *  プライバシーポリシーの第1条・第2条第1号・第3号・第5号・第7号・第5条・第6条・第9条・第10条・第11条。docs/plans/launch-readiness.md）
+ * （2026-10-30：Qoo10 へのリンク（バリューコマースの MyLink。src/lib/services/qoo10-affiliate.ts）。利用規約の第2条第4号・
+ *  第10条第2項、プライバシーポリシーの第5条・第7条2.、確認画面（ConsentDialog）、AFFILIATE_DISCLOSURE）
  */
-export const LEGAL_VERSION = '2026-10-26';
+export const LEGAL_VERSION = '2026-10-30';
 
 /** '2026-10-20' → '2026年10月20日' */
 export function formatLegalDate(version: string): string {

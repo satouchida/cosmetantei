@@ -9,7 +9,7 @@ import { NOT_SINGLE_ITEM } from './price-service';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, shopListingProduct } from './shop-ingredients';
-import { withoutListingNoise } from './shop-lineup';
+import { withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**

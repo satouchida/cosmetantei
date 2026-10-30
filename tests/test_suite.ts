@@ -6548,7 +6548,7 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   // Amazon の文言は規約で決まった形のまま先頭に置き、楽天・バリューコマースは別の文
   const { AFFILIATE_DISCLOSURE } = await import('../src/lib/site');
   assert.ok(AFFILIATE_DISCLOSURE.startsWith('Amazonのアソシエイトとして、コスメ探偵は適格販売により収入を得ています。また、'));
-  assert.ok(AFFILIATE_DISCLOSURE.includes('楽天アフィリエイト') && AFFILIATE_DISCLOSURE.includes('バリューコマース（Yahoo!ショッピング）'));
+  assert.ok(AFFILIATE_DISCLOSURE.includes('楽天アフィリエイト') && AFFILIATE_DISCLOSURE.includes('バリューコマース（Yahoo!ショッピング・Qoo10）'));
   assert.strictEqual(AFFILIATE_DISCLOSURE.match(/適格販売/g)?.length, 1, '「適格販売」 is Amazon\'s term only');
   assert.ok(terms.includes('{AFFILIATE_DISCLOSURE}'));
   // サイトの画面にも出す（会話の最後・規約のページの下）。スマホで引き出しを開かなくても見える位置
@@ -7737,7 +7737,7 @@ test('129. Launch readiness: terms and privacy state the β, the limits, bug rep
   const privacy = readFileSync('src/app/privacy/page.tsx', 'utf8');
   const { bugReportMailto, contactEmail, CONTACT_EMAIL_TEXT, LEGAL_VERSION } = await import('../src/lib/site');
   assert.strictEqual(contactEmail(), 'contactme@cosmetantei.app');
-  assert.strictEqual(LEGAL_VERSION, '2026-10-26');
+  assert.strictEqual(LEGAL_VERSION, '2026-10-30');
   // 古い連絡先がどこにも残っていない。今の連絡先も、ソースに1つの文字列としては書かない（HTML・スクリプトから拾われない）
   const files = readdirSync('src', { recursive: true, encoding: 'utf8' }).filter((f) => /\.(ts|tsx)$/.test(f));
   for (const f of files) {
@@ -8248,4 +8248,61 @@ test('136. Lineups count a brand-new session against the per-session shop limit 
       else process.env[k] = saved[k];
     }
   }
+});
+
+test('137. Qoo10 links go through ValueCommerce MyLink, are labelled PR, and are disclosed (no LinkSwitch)', async () => {
+  const { readFileSync, existsSync } = await import('node:fs');
+  const read = (p: string) => readFileSync(p, 'utf8');
+  const { buildQoo10AffiliateUrl, buildQoo10SearchUrl, QOO10_MYLINK_SEARCH } = await import('../src/lib/services/qoo10-affiliate');
+  // 管理画面で作った検索ページの MyLink（keyword が空）。pid はテキストのリンク用（ロゴのバナー用の 892736512 ではない）
+  assert.strictEqual(QOO10_MYLINK_SEARCH, 'https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=3784886&pid=892736419&vc_url=https%3A%2F%2Fwww.qoo10.jp%2Fgmkt.inc%2FSearch%2FDefault.aspx%3Fkeyword%3D');
+  // Qoo10 の検索結果のページ（サイトの検索欄と同じ形）を、MyLink（sid・pid）で包む
+  assert.strictEqual(buildQoo10SearchUrl('キュレル', 'キュレル 化粧水'), 'https://www.qoo10.jp/gmkt.inc/Search/Default.aspx?keyword=%E3%82%AD%E3%83%A5%E3%83%AC%E3%83%AB%20%E5%8C%96%E7%B2%A7%E6%B0%B4');
+  assert.strictEqual(buildQoo10SearchUrl(' キュレル', '  キュレル\u3000 化粧水 '), buildQoo10SearchUrl('キュレル', 'キュレル 化粧水'), 'Whitespace is collapsed');
+  // お店の商品名は【公式】・送料無料・容量・セットを外し、先頭の4語（Qoo10 の検索はすべての語を含む商品だけを出す）
+  const keyword = (brand: string, name: string) => new URL(buildQoo10SearchUrl(brand, name)).searchParams.get('keyword');
+  assert.strictEqual(keyword('無印良品', '【公式】無印良品 敏感肌用化粧水 高保湿タイプ 400mL 大容量 詰め替え用 2個セット 送料無料 ポイント10倍 1'), '無印良品 敏感肌用化粧水 高保湿タイプ 大容量');
+  assert.strictEqual(keyword('ロート製薬', '肌ラボ 極潤ヒアルロン液 170ml ×3本'), 'ロート製薬 肌ラボ 極潤ヒアルロン液');
+  assert.strictEqual(keyword('ちふれ・CHIFURE', '美白化粧水 VC 180ml'), 'ちふれ 美白化粧水 VC', 'Only the first spelling of the brand');
+  assert.strictEqual(keyword('資生堂', 'スキンケアセット 3点セット'), '資生堂 スキンケアセット', 'A set word inside the name stays');
+  assert.strictEqual(keyword('ラ・ロッシュ・ポゼ', 'トレリアン 400ml'), 'ラ ロッシュ ポゼ トレリアン', 'A ・ inside one brand name is kept');
+  assert.strictEqual(keyword('CHIFURE', 'chifure 化粧水 30ml x2'), 'chifure 化粧水', 'No duplicate brand, no stray x2');
+  assert.strictEqual(keyword('ニベア', '【公式】 500ml'), 'ニベア', 'No trailing space when the name is all decoration');
+  assert.doesNotThrow(() => buildQoo10AffiliateUrl('ブランド', '化粧水 \uD83D'), 'A lone surrogate does not break the card');
+  assert.strictEqual(keyword('アネッサ', 'パーフェクトUV スキンケアミルク SPF50+ 60mL'), 'アネッサ パーフェクトUV スキンケアミルク SPF50+');
+  assert.strictEqual(buildQoo10SearchUrl('', '化粧水'), 'https://www.qoo10.jp/gmkt.inc/Search/Default.aspx?keyword=%E5%8C%96%E7%B2%A7%E6%B0%B4');
+  const href = buildQoo10AffiliateUrl('キュレル', '化粧水 & 乳液');
+  assert.ok(href.startsWith(QOO10_MYLINK_SEARCH));
+  const url = new URL(href);
+  assert.strictEqual(url.origin + url.pathname, 'https://ck.jp.ap.valuecommerce.com/servlet/referral');
+  assert.deepStrictEqual([...url.searchParams.keys()], ['sid', 'pid', 'vc_url'], 'The product name cannot add parameters');
+  assert.strictEqual(url.searchParams.get('sid'), '3784886');
+  assert.strictEqual(url.searchParams.get('pid'), '892736419');
+  // ValueCommerce は vc_url を1回戻して移る。移り先は検索ページで、keyword は商品名そのもの
+  assert.strictEqual(url.searchParams.get('vc_url'), buildQoo10SearchUrl('キュレル', '化粧水 & 乳液'));
+  const target = new URL(url.searchParams.get('vc_url')!);
+  assert.strictEqual(target.origin + target.pathname, 'https://www.qoo10.jp/gmkt.inc/Search/Default.aspx');
+  assert.deepStrictEqual([...target.searchParams.keys()], ['keyword'], 'The product name cannot add parameters to Qoo10');
+  assert.strictEqual(target.searchParams.get('keyword'), 'キュレル 化粧水 & 乳液');
+  // MyLink のコードの 1×0 画像（表示しただけで送信）は使わない
+  for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/chat/AmazonAlternativeCard.tsx', 'src/lib/services/qoo10-affiliate.ts']) {
+    assert.ok(!/ad\.jp\.ap\.valuecommerce\.com|<img[^>]*valuecommerce/.test(read(file)), `${file}: no ValueCommerce impression beacon`);
+  }
+  // PR の表示のあるカードの中にだけ置き、rel="sponsored"
+  for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/chat/AmazonAlternativeCard.tsx']) {
+    const src = read(file);
+    assert.match(src, /href=\{buildQoo10AffiliateUrl\(p\.brand, p\.name\)\}\s*target="_blank"\s*rel="[^"]*sponsored[^"]*"/, file);
+    assert.match(src, /<span className=\{badge\('neutral'\)\}>PR<\/span>/, file);
+    assert.ok(src.includes('「Qoo10で探す」'), `${file}: the PR note names the Qoo10 link`);
+  }
+  // ページを開いただけで送るスクリプト（LinkSwitch）は使わない
+  assert.ok(!existsSync('src/components/legal/AffiliateLinkSwitch.tsx'));
+  assert.ok(!/valuecommerce\.com\/vcdal|vc_pid/.test(read('src/app/layout.tsx')));
+  // 表示・確認画面・規約・外部送信の公表に載っている（リンクを開いたときだけ送信）
+  const { AFFILIATE_DISCLOSURE } = await import('../src/lib/site');
+  assert.ok(AFFILIATE_DISCLOSURE.includes('Qoo10'));
+  assert.ok(read('src/components/legal/ConsentDialog.tsx').includes('Yahoo!ショッピング・Qoo10）へのリンク（PR）を開くと'));
+  assert.ok(read('src/app/privacy/page.tsx').includes('（Yahoo!ショッピング・Qoo10へのリンク）'));
+  assert.ok(!read('src/app/privacy/page.tsx').includes('LinkSwitch'));
+  assert.ok(read('src/app/terms/page.tsx').includes('Yahoo!ショッピング、Qoo10、@cosme SHOPPING'));
 });

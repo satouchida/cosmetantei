@@ -32,7 +32,7 @@ export const ConsentDialog: React.FC = () => {
             ボット対策と利用回数の上限の管理のため、このサイトの Cookie（<code>__Host-session</code>、有効期間24時間）を使用します。広告のための追跡には使用しません。
           </li>
           <li>
-            販売ページ（Amazon・楽天市場・Yahoo!ショッピング）へのリンク（PR）を開くと、リンク先の事業者が Cookie 等で成果を計測します。
+            販売ページ（Amazon・楽天市場・Yahoo!ショッピング・Qoo10）へのリンク（PR）を開くと、リンク先の事業者が Cookie 等で成果を計測します。
           </li>
         </ul>
         <p>

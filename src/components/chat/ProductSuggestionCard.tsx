@@ -5,6 +5,7 @@ import { ApiCredits } from '../ui/ApiCredits';
 import { PriceApiCredit, Product } from '@/lib/types';
 import { AlertTriangle, ShieldCheck, Layers, Search, ExternalLink } from 'lucide-react';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
+import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { getDisplayBrand } from '@/lib/display-brand';
 import { productSourceInfo } from '@/lib/product-source';
 import { quasiDrugActives } from '@/lib/quasi-drug';
@@ -169,15 +170,27 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                       <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                     </a>
                   )}
-                  <a
-                    href={buildAmazonAffiliateUrl(p.brand, p.name)}
-                    target="_blank"
-                    rel="sponsored noopener noreferrer nofollow"
-                    className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
-                  >
-                    Amazonで探す
-                    <span className="sr-only">（{p.name}、新しいタブで開く）</span>
-                  </a>
+                  {/* 検索のリンクは横に並べる（狭い画面では折り返す） */}
+                  <div className="flex flex-wrap gap-x-4">
+                    <a
+                      href={buildAmazonAffiliateUrl(p.brand, p.name)}
+                      target="_blank"
+                      rel="sponsored noopener noreferrer nofollow"
+                      className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
+                    >
+                      Amazonで探す
+                      <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                    </a>
+                    <a
+                      href={buildQoo10AffiliateUrl(p.brand, p.name)}
+                      target="_blank"
+                      rel="sponsored noopener noreferrer nofollow"
+                      className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
+                    >
+                      Qoo10で探す
+                      <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                    </a>
+                  </div>
                 </div>
               )}
 
@@ -230,7 +243,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
       </div>
       {isAlternatives && (
         <p className="text-xs text-ink-muted">
-          PR：「販売ページを見る」「Amazonで探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。
+          PR：「販売ページを見る」「Amazonで探す」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。
         </p>
       )}
       <ApiCredits credits={credits} />
