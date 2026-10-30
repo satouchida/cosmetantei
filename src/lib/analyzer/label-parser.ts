@@ -302,13 +302,18 @@ export function parseIngredientLabel(text: string): ParsedLabel {
   };
 }
 
-/** 読み取った成分表示の、Product に入れる項目（医薬部外品の項目は該当するときだけ） */
+/**
+ * 読み取った成分表示の、Product に入れる項目（医薬部外品の項目は該当するときだけ）。
+ * 成分が LABEL_LIMITS.ingredients を超えるものは、成分表示として読めなかったものとして空にする。
+ * 末尾を切ると、表示の最後に書かれる防腐剤・香料・着色剤が抜けたまま「全成分」として扱われるので
+ */
 export function labelProductFields(
   label: ParsedLabel
 ): Pick<Product, 'ingredients' | 'activeIngredientsJa' | 'isQuasiDrug' | 'undisclosedIngredientCount' | 'labelFormat'> {
+  if (label.ingredients.length > LABEL_LIMITS.ingredients) return { labelFormat: LABEL_FORMAT, ingredients: [] };
   return {
     labelFormat: LABEL_FORMAT,
-    ingredients: label.ingredients.slice(0, LABEL_LIMITS.ingredients),
+    ingredients: label.ingredients,
     ...(label.activeIngredients.length > 0 && {
       activeIngredientsJa: label.activeIngredients.slice(0, LABEL_LIMITS.activeIngredients),
     }),

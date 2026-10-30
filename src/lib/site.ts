@@ -49,10 +49,12 @@ export const LEGAL_ENACTED = '2026-10-20';
  *  プライバシーポリシーの第1条・第2条第1号・第3号・第5号・第7号・第5条・第6条・第9条・第10条・第11条。docs/plans/launch-readiness.md）
  * （2026-10-30：Qoo10 へのリンク（バリューコマースの MyLink。src/lib/services/qoo10-affiliate.ts）。利用規約の第2条第4号・
  *  第10条第2項、プライバシーポリシーの第5条・第7条2.、確認画面（ConsentDialog）、AFFILIATE_DISCLOSURE）
+ * （2026-10-30-2：プライバシーポリシーの第5条・第7条2.のバリューコマースの行に、遷移先ページのアドレス（検索語を含む）を追加。
+ *  同じ日に2回目の改定なので末尾に -2 を付ける。改定日の表示は formatLegalDate が年月日だけを使う）
  */
-export const LEGAL_VERSION = '2026-10-30';
+export const LEGAL_VERSION = '2026-10-30-2';
 
-/** '2026-10-20' → '2026年10月20日' */
+/** '2026-10-20' → '2026年10月20日'（同じ日の2回目の改定の '2026-10-30-2' も年月日だけ） */
 export function formatLegalDate(version: string): string {
   const [year, month, day] = version.split('-').map(Number);
   return `${year}年${month}月${day}日`;

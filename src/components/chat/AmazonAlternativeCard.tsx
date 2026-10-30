@@ -46,6 +46,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
         {products.map((p) => {
           // いつもその場で作る（保存された製品のリンクには、前のタグが付いていることがある）
           const amazonUrl = buildAmazonAffiliateUrl(p.brand, p.name);
+          const qoo10Url = buildQoo10AffiliateUrl(p.brand, p.name);
 
           return (
             <div
@@ -98,22 +99,25 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                   <ExternalLink className="w-4 h-4" aria-hidden />
                   <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                 </a>
-                <a
-                  href={buildQoo10AffiliateUrl(p.brand, p.name)}
-                  target="_blank"
-                  rel="noopener noreferrer sponsored nofollow"
-                  className={`mt-1 inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
-                >
-                  Qoo10で探す
-                  <span className="sr-only">（{p.name}、新しいタブで開く）</span>
-                </a>
+                {qoo10Url && (
+                  <a
+                    href={qoo10Url}
+                    target="_blank"
+                    rel="noopener noreferrer sponsored nofollow"
+                    className={`mt-1 inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
+                  >
+                    Qoo10で探す
+                    <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                  </a>
+                )}
               </div>
             </div>
           );
         })}
       </div>
       <p className="text-xs text-ink-muted">
-        PR：「Amazonで詳細・価格を見る」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。
+        PR：「Amazonで詳細・価格を見る」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。<br />
+        ※「Amazonで詳細・価格を見る」「Qoo10で探す」は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。
       </p>
     </section>
   );

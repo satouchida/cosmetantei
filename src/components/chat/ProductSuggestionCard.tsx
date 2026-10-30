@@ -101,6 +101,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {products.map((p) => {
           const actives = quasiDrugActives(p);
+          const qoo10Url = isAlternatives ? buildQoo10AffiliateUrl(p.brand, p.name) : null;
           return (
             <div
               key={p.id}
@@ -181,15 +182,17 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                       Amazonで探す
                       <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                     </a>
-                    <a
-                      href={buildQoo10AffiliateUrl(p.brand, p.name)}
-                      target="_blank"
-                      rel="sponsored noopener noreferrer nofollow"
-                      className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
-                    >
-                      Qoo10で探す
-                      <span className="sr-only">（{p.name}、新しいタブで開く）</span>
-                    </a>
+                    {qoo10Url && (
+                      <a
+                        href={qoo10Url}
+                        target="_blank"
+                        rel="sponsored noopener noreferrer nofollow"
+                        className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
+                      >
+                        Qoo10で探す
+                        <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
@@ -243,7 +246,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
       </div>
       {isAlternatives && (
         <p className="text-xs text-ink-muted">
-          PR：「販売ページを見る」「Amazonで探す」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。
+          PR：「販売ページを見る」「Amazonで探す」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。<br />
+          ※「Amazonで探す」「Qoo10で探す」は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。
         </p>
       )}
       <ApiCredits credits={credits} />

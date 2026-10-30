@@ -1,6 +1,6 @@
 import 'server-only';
 import { Product } from '../types';
-import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { hashedCacheKey } from '../server/cloudflare';
 import { GeminiImage, callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 
@@ -115,7 +115,7 @@ export interface LabelInput {
 export type LabelProductResult =
   | { product: Product }
   /** empty: 成分が読み取れない / unsplit: 区切りが見つからず1つの長い名前になった */
-  | { error: 'empty' | 'unsplit' };
+  | { error: 'empty' | 'unsplit' | 'too_many' };
 
 /**
  * 空白で区切った成分の一覧らしいか（一覧の一部だけが空白区切りの場合も含む）。
@@ -131,7 +131,9 @@ function looksSpaceSeparated(item: string): boolean {
  * 入力された成分表示から製品を作る（分析用。保存・共有はしない）
  */
 export async function productFromLabel(input: LabelInput): Promise<LabelProductResult> {
-  const label = labelProductFields(parseIngredientLabel(input.text));
+  const parsed = parseIngredientLabel(input.text);
+  if (parsed.ingredients.length > LABEL_LIMITS.ingredients) return { error: 'too_many' };
+  const label = labelProductFields(parsed);
   const all = [...(label.activeIngredientsJa ?? []), ...label.ingredients];
   if (all.length === 0) return { error: 'empty' };
   // 「、」等の区切りが無いと全体が1つの名前になる（空白区切りのラベル等）。分析すると全成分が「未評価」になる

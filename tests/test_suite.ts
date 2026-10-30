@@ -7737,7 +7737,7 @@ test('129. Launch readiness: terms and privacy state the β, the limits, bug rep
   const privacy = readFileSync('src/app/privacy/page.tsx', 'utf8');
   const { bugReportMailto, contactEmail, CONTACT_EMAIL_TEXT, LEGAL_VERSION } = await import('../src/lib/site');
   assert.strictEqual(contactEmail(), 'contactme@cosmetantei.app');
-  assert.strictEqual(LEGAL_VERSION, '2026-10-30');
+  assert.strictEqual(LEGAL_VERSION, '2026-10-30-2');
   // 古い連絡先がどこにも残っていない。今の連絡先も、ソースに1つの文字列としては書かない（HTML・スクリプトから拾われない）
   const files = readdirSync('src', { recursive: true, encoding: 'utf8' }).filter((f) => /\.(ts|tsx)$/.test(f));
   for (const f of files) {
@@ -8260,18 +8260,23 @@ test('137. Qoo10 links go through ValueCommerce MyLink, are labelled PR, and are
   assert.strictEqual(buildQoo10SearchUrl('キュレル', 'キュレル 化粧水'), 'https://www.qoo10.jp/gmkt.inc/Search/Default.aspx?keyword=%E3%82%AD%E3%83%A5%E3%83%AC%E3%83%AB%20%E5%8C%96%E7%B2%A7%E6%B0%B4');
   assert.strictEqual(buildQoo10SearchUrl(' キュレル', '  キュレル\u3000 化粧水 '), buildQoo10SearchUrl('キュレル', 'キュレル 化粧水'), 'Whitespace is collapsed');
   // お店の商品名は【公式】・送料無料・容量・セットを外し、先頭の4語（Qoo10 の検索はすべての語を含む商品だけを出す）
-  const keyword = (brand: string, name: string) => new URL(buildQoo10SearchUrl(brand, name)).searchParams.get('keyword');
+  const keyword = (brand: string, name: string) => new URL(buildQoo10SearchUrl(brand, name)!).searchParams.get('keyword');
   assert.strictEqual(keyword('無印良品', '【公式】無印良品 敏感肌用化粧水 高保湿タイプ 400mL 大容量 詰め替え用 2個セット 送料無料 ポイント10倍 1'), '無印良品 敏感肌用化粧水 高保湿タイプ 大容量');
   assert.strictEqual(keyword('ロート製薬', '肌ラボ 極潤ヒアルロン液 170ml ×3本'), 'ロート製薬 肌ラボ 極潤ヒアルロン液');
   assert.strictEqual(keyword('ちふれ・CHIFURE', '美白化粧水 VC 180ml'), 'ちふれ 美白化粧水 VC', 'Only the first spelling of the brand');
   assert.strictEqual(keyword('資生堂', 'スキンケアセット 3点セット'), '資生堂 スキンケアセット', 'A set word inside the name stays');
   assert.strictEqual(keyword('ラ・ロッシュ・ポゼ', 'トレリアン 400ml'), 'ラ ロッシュ ポゼ トレリアン', 'A ・ inside one brand name is kept');
   assert.strictEqual(keyword('CHIFURE', 'chifure 化粧水 30ml x2'), 'chifure 化粧水', 'No duplicate brand, no stray x2');
-  assert.strictEqual(keyword('ニベア', '【公式】 500ml'), 'ニベア', 'No trailing space when the name is all decoration');
+  // ブランド名だけ・空・仮の名前の検索は、別の商品やランキングを開くのでリンクを出さない（null）
+  assert.strictEqual(buildQoo10AffiliateUrl('ニベア', '【公式】 500ml'), null, 'Name is all decoration');
+  assert.strictEqual(buildQoo10AffiliateUrl('ニベア', 'ニベア'), null, 'Brand only');
+  assert.strictEqual(buildQoo10AffiliateUrl('', ''), null, 'Empty');
+  assert.strictEqual(buildQoo10AffiliateUrl('ブランド未登録', '製品 (JAN: 4901234567894)'), null, 'Placeholder name');
+  assert.strictEqual(keyword('ブランド未登録', 'モイストクリーム'), 'モイストクリーム', 'Placeholder brand is not searched');
   assert.doesNotThrow(() => buildQoo10AffiliateUrl('ブランド', '化粧水 \uD83D'), 'A lone surrogate does not break the card');
   assert.strictEqual(keyword('アネッサ', 'パーフェクトUV スキンケアミルク SPF50+ 60mL'), 'アネッサ パーフェクトUV スキンケアミルク SPF50+');
   assert.strictEqual(buildQoo10SearchUrl('', '化粧水'), 'https://www.qoo10.jp/gmkt.inc/Search/Default.aspx?keyword=%E5%8C%96%E7%B2%A7%E6%B0%B4');
-  const href = buildQoo10AffiliateUrl('キュレル', '化粧水 & 乳液');
+  const href = buildQoo10AffiliateUrl('キュレル', '化粧水 & 乳液')!;
   assert.ok(href.startsWith(QOO10_MYLINK_SEARCH));
   const url = new URL(href);
   assert.strictEqual(url.origin + url.pathname, 'https://ck.jp.ap.valuecommerce.com/servlet/referral');
@@ -8291,7 +8296,10 @@ test('137. Qoo10 links go through ValueCommerce MyLink, are labelled PR, and are
   // PR の表示のあるカードの中にだけ置き、rel="sponsored"
   for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/chat/AmazonAlternativeCard.tsx']) {
     const src = read(file);
-    assert.match(src, /href=\{buildQoo10AffiliateUrl\(p\.brand, p\.name\)\}\s*target="_blank"\s*rel="[^"]*sponsored[^"]*"/, file);
+    assert.match(src, /const qoo10Url = (?:isAlternatives \? )?buildQoo10AffiliateUrl\(p\.brand, p\.name\)/, file);
+    assert.match(src, /\{qoo10Url && \(\s*<a\s+href=\{qoo10Url\}\s*target="_blank"\s*rel="[^"]*sponsored[^"]*"/, file);
+    // 検索結果のページには別の商品・並行輸入品も出る（全成分を確かめたのはカードの商品だけ）
+    assert.ok(src.includes('は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。'), `${file}: search-results note`);
     assert.match(src, /<span className=\{badge\('neutral'\)\}>PR<\/span>/, file);
     assert.ok(src.includes('「Qoo10で探す」'), `${file}: the PR note names the Qoo10 link`);
   }
@@ -8305,4 +8313,31 @@ test('137. Qoo10 links go through ValueCommerce MyLink, are labelled PR, and are
   assert.ok(read('src/app/privacy/page.tsx').includes('（Yahoo!ショッピング・Qoo10へのリンク）'));
   assert.ok(!read('src/app/privacy/page.tsx').includes('LinkSwitch'));
   assert.ok(read('src/app/terms/page.tsx').includes('Yahoo!ショッピング、Qoo10、@cosme SHOPPING'));
+  // MyLink は移り先のアドレス（検索語）もバリューコマースに送る（第5条・第7条2.）
+  assert.strictEqual(read('src/app/privacy/page.tsx').split('遷移先ページのアドレス（商品名等の検索語を含みます）').length - 1, 2);
+});
+
+test('138. Ingredient lists longer than LABEL_LIMITS are rejected, not cut (the tail holds preservatives and fragrance)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { LABEL_LIMITS, labelProductFields, parseIngredientLabel } = await import('../src/lib/analyzer/label-parser');
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `成分${i}`);
+  const ok = labelProductFields(parseIngredientLabel(names(LABEL_LIMITS.ingredients).join('、')));
+  assert.strictEqual(ok.ingredients.length, LABEL_LIMITS.ingredients);
+  const long = labelProductFields(parseIngredientLabel(`有効成分：グリチルリチン酸2K その他の成分：${[...names(LABEL_LIMITS.ingredients), 'フェノキシエタノール'].join('、')}`));
+  assert.deepStrictEqual(long.ingredients, [], 'Over the limit: treated as unreadable');
+  assert.strictEqual(long.activeIngredientsJa, undefined, 'No half label (actives only)');
+  // 自分で入力した成分表示は、切らずに「多すぎる」と返す
+  const { productFromLabel } = await import('../src/lib/services/label-reader');
+  assert.deepStrictEqual(await productFromLabel({ text: [...names(LABEL_LIMITS.ingredients), '香料'].join('、') }), { error: 'too_many' });
+  const route = readFileSync('src/app/api/chat/route.ts', 'utf8');
+  assert.ok(route.includes("built.error === 'too_many'"));
+  // お店の商品説明も、多すぎる一覧は使わない（成分の無い「お店の成分表示」の製品を作らない）
+  const { ingredientsFromCaption } = await import('../src/lib/services/shop-ingredients');
+  assert.strictEqual(await ingredientsFromCaption(`全成分：${[...names(LABEL_LIMITS.ingredients), 'フェノキシエタノール'].join('、')}`), null);
+  assert.ok(await ingredientsFromCaption(`全成分：${names(20).join('、')}`), 'A normal caption is still read');
+  // Open Beauty Facts の ingredients 配列の代わりの読み取りも、切らずに使わない
+  assert.match(readFileSync('src/lib/services/search-barcode-service.ts', 'utf8'), /if \(ingredients\.length > LABEL_LIMITS\.ingredients\) ingredients = \[\];/);
+  // 同じ日の2回目の改定（'2026-10-30-2'）も、改定日は年月日だけ
+  const { formatLegalDate, LEGAL_VERSION } = await import('../src/lib/site');
+  assert.strictEqual(formatLegalDate(LEGAL_VERSION), '2026年10月30日');
 });

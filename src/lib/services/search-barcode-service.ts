@@ -281,8 +281,9 @@ export async function lookupByBarcode(barcode: string, { webResearch = true }: {
         if (ingredients.length === 0 && Array.isArray(p.ingredients)) {
           ingredients = p.ingredients
             .map((ing: { text?: string; id?: string }) => ing.text || ing.id?.replace('en:', '') || '')
-            .filter(Boolean)
-            .slice(0, LABEL_LIMITS.ingredients);
+            .filter(Boolean);
+          // 長すぎるものは切らずに使わない（labelProductFields と同じ。末尾の防腐剤・香料が抜けるので）
+          if (ingredients.length > LABEL_LIMITS.ingredients) ingredients = [];
         }
 
         const isEstimated = ingredients.length === 0;

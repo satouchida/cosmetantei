@@ -1,7 +1,7 @@
 import 'server-only';
 import { Product } from '../types';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
-import { labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-analyzer';
 import { CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
 import { SHOP_TEXT_ID_PREFIX } from '../product-source';
@@ -216,8 +216,16 @@ export async function ingredientsFromCaption(caption: string): Promise<ReturnTyp
   if (parsed.ingredients.some(footnoteHidesName) || parsed.activeIngredients.some(footnoteHidesName)) return null;
   const label = { ...parsed, ingredients: parsed.ingredients.map(withoutFootnote), activeIngredients: parsed.activeIngredients.map(withoutFootnote) };
   const cleaned = dropObviousNonIngredients(label.ingredients);
-  // 除く項目に成分名がくっついていたら使わない（有効成分も同じ）
-  if (hasGluedDrop(label.ingredients) || hasGluedDrop(label.activeIngredients) || cleaned.length < MIN_SHOP_INGREDIENTS) return null;
+  // 除く項目に成分名がくっついていたら使わない（有効成分も同じ）。多すぎる一覧も使わない（labelProductFields が空にするので、
+  // ここで外さないと成分の無い「お店の成分表示」の製品ができる）
+  if (
+    hasGluedDrop(label.ingredients) ||
+    hasGluedDrop(label.activeIngredients) ||
+    cleaned.length < MIN_SHOP_INGREDIENTS ||
+    cleaned.length > LABEL_LIMITS.ingredients
+  ) {
+    return null;
+  }
   return { ...label, ingredients: cleaned, activeIngredients: dropObviousNonIngredients(label.activeIngredients) };
 }
 
