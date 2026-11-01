@@ -70,7 +70,8 @@ export function isUserLabelProduct(p: Product): boolean {
 
 /**
  * お店の商品説明（出品者が書いた文）から成分を読んだ製品か（楽天・Yahoo!）。出典に「販売ページの成分表示」と出し、
- * 代わりの商品には、お店の候補として扱うときだけ使う。保存できるかは isShopListingProduct（楽天だけ保存しない）
+ * 代わりの商品には、お店の候補として扱うときだけ使う。ブラウザに保存しない・ファイルに書き出さない（isPersistable）。
+ * サーバーの一覧に入れるのは Yahoo! の分だけ（isShopListingProduct の楽天は入れない）
  */
 export function isSellerTextProduct(p: Product): boolean {
   return isShopListingProduct(p) || p.ingredientSource === 'shop_yahoo';
@@ -85,4 +86,16 @@ export const SHOP_TEXT_ID_PREFIX = 'shoptext_';
  */
 export function isShopListingProduct(p: Product): boolean {
   return p.ingredientSource === 'shop_listing' || p.id.startsWith(SHOP_TEXT_ID_PREFIX);
+}
+
+/** Yahoo! のストア（store.shopping.yahoo.co.jp/<ストア>/…）。分からなければ null */
+export function yahooStore(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // ストアのページだけ（検索・製品ページなどの URL を、ストアとして数えない）
+    if (u.hostname !== 'store.shopping.yahoo.co.jp') return null;
+    return u.pathname.split('/')[1]?.toLowerCase() || null;
+  } catch {
+    return null;
+  }
 }

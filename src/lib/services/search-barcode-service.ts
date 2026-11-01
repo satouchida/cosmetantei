@@ -215,39 +215,10 @@ export async function linkBarcode(barcode: string, product: Product): Promise<bo
 }
 
 /**
- * バーコードで製品を探す（保存済み → Open Beauty Facts → Web リサーチ）。
- * webResearch: false なら、有料の Web リサーチをしない（お店の JAN コードから無料で探すとき。src/lib/services/seeding.ts）
+ * Open Beauty Facts でバーコードの製品を取る（KV・メモリのキャッシュは見ない・書かない）。
+ * 見つからなければ null、通信の失敗は undefined。lookupByBarcode と、毎日の調べ直し（seeding.ts）が使う
  */
-export async function lookupByBarcode(barcode: string, { webResearch = true }: { webResearch?: boolean } = {}): Promise<Product | null> {
-  const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
-  if (!BARCODE_PATTERN.test(cleanCode)) return null;
-
-  // 1. 動的キャッシュ内を検索
-  const cleanNoZero = cleanCode.replace(/^0+/, '');
-  const localMatch = COSMETICS_DATABASE.find((p) => matchesOwnBarcode(p, cleanCode, cleanNoZero));
-
-  if (localMatch) {
-    return localMatch;
-  }
-
-  // 2. KV に保存済みのバーコード照合結果
-  // v2: Google 検索グラウンディングで推定した v1 の結果は使わない
-  const kvKey = `barcode:v2:${cleanCode}`;
-  // 共有しない製品（信頼しないサイトの製品。TRUSTED_SITES_MODE=enforce の前に保存したもの）は使わない
-  const saved = await cacheGetJSON<Product>(kvKey);
-  const stored = saved && isShareable(saved) ? saved : null;
-  if (stored && !hasStaleLabel(stored)) {
-    addProductToDynamicCache(stored);
-    return stored;
-  }
-  // 直近で見つからなかったバーコードは、外部API・Gemini への再問い合わせを避ける
-  if (await cacheGetJSON<boolean>(`${kvKey}:miss`)) return null;
-  // 少し前に、信頼しないサイトでしか見つからなかったバーコード（保存できない結果のために、何度も調べない）
-  if (await cacheGetJSON<boolean>(`${kvKey}:untrusted`)) return null;
-  // 少し前に Web リサーチが一時的に失敗したバーコードは、しばらく調べ直さない（失敗に何度も費用をかけない）
-  const recentlyFailed = await cacheGetJSON<boolean>(`${kvKey}:fail`);
-
-  // 3. Open Beauty Facts API 問い合わせ (4秒タイムアウト付き)
+export async function fetchObfProduct(cleanCode: string): Promise<Product | null | undefined> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -326,14 +297,56 @@ export async function lookupByBarcode(barcode: string, { webResearch = true }: {
           ingredientSource: isEstimated ? undefined : 'open_beauty_facts',
         };
 
-        addProductToDynamicCache(product);
-        await cachePutJSON(kvKey, product, BARCODE_TTL_SECONDS);
-        await rememberVerifiedProducts([product]);
         return product;
       }
     }
+    // 見つからない（404・status 0）。ほかの応答は一時的な失敗
+    return res.ok || res.status === 404 ? null : undefined;
   } catch {
-    // ignore
+    return undefined;
+  }
+}
+
+/**
+ * バーコードで製品を探す（保存済み → Open Beauty Facts → Web リサーチ）。
+ * webResearch: false なら、有料の Web リサーチをしない（お店の JAN コードから無料で探すとき。src/lib/services/seeding.ts）
+ */
+export async function lookupByBarcode(barcode: string, { webResearch = true }: { webResearch?: boolean } = {}): Promise<Product | null> {
+  const cleanCode = barcode.trim().replace(/[^0-9]/g, '');
+  if (!BARCODE_PATTERN.test(cleanCode)) return null;
+
+  // 1. 動的キャッシュ内を検索
+  const cleanNoZero = cleanCode.replace(/^0+/, '');
+  const localMatch = COSMETICS_DATABASE.find((p) => matchesOwnBarcode(p, cleanCode, cleanNoZero));
+
+  if (localMatch) {
+    return localMatch;
+  }
+
+  // 2. KV に保存済みのバーコード照合結果
+  // v2: Google 検索グラウンディングで推定した v1 の結果は使わない
+  const kvKey = `barcode:v2:${cleanCode}`;
+  // 共有しない製品（信頼しないサイトの製品。TRUSTED_SITES_MODE=enforce の前に保存したもの）は使わない
+  const saved = await cacheGetJSON<Product>(kvKey);
+  const stored = saved && isShareable(saved) ? saved : null;
+  if (stored && !hasStaleLabel(stored)) {
+    addProductToDynamicCache(stored);
+    return stored;
+  }
+  // 直近で見つからなかったバーコードは、外部API・Gemini への再問い合わせを避ける
+  if (await cacheGetJSON<boolean>(`${kvKey}:miss`)) return null;
+  // 少し前に、信頼しないサイトでしか見つからなかったバーコード（保存できない結果のために、何度も調べない）
+  if (await cacheGetJSON<boolean>(`${kvKey}:untrusted`)) return null;
+  // 少し前に Web リサーチが一時的に失敗したバーコードは、しばらく調べ直さない（失敗に何度も費用をかけない）
+  const recentlyFailed = await cacheGetJSON<boolean>(`${kvKey}:fail`);
+
+  // 3. Open Beauty Facts API 問い合わせ (4秒タイムアウト付き)
+  const fromObf = await fetchObfProduct(cleanCode);
+  if (fromObf) {
+    addProductToDynamicCache(fromObf);
+    await cachePutJSON(kvKey, fromObf, BARCODE_TTL_SECONDS);
+    await rememberVerifiedProducts([fromObf]);
+    return fromObf;
   }
 
   // Open Beauty Facts で取り直せなかったときは、古い分け方でも保存済みの製品を返す（失うよりよい。次回また取り直す）

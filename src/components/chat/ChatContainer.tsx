@@ -362,7 +362,13 @@ export const ChatContainer: React.FC = () => {
         .slice(0, MAX_LINEUP_CANDIDATES)
     : [];
   const trayCandidates = [...liveCandidates, ...lineupMatches];
-  const trayCredits = lineupMatches.length > 0 && lineup ? lineup.credits : [];
+  // お店の製品一覧のクレジットに、Yahoo! の商品説明から成分を読んだ保存済みの製品を出すときの Yahoo! のクレジットを足す
+  // （LINEヤフーのクレジットの表示のガイドライン：API のデータを出すところに出す）
+  const lineupCredits = lineupMatches.length > 0 && lineup ? lineup.credits : [];
+  const trayCredits: ('rakuten' | 'yahoo')[] =
+    liveCandidates.some((p) => p.ingredientSource === 'shop_yahoo') && !lineupCredits.includes('yahoo')
+      ? [...lineupCredits, 'yahoo']
+      : lineupCredits;
 
   // 比較リスト（このページを開いている間だけ）。今使っているコスメは currentUse に、追加した日つきで持つ
   const [comparison, setRoutine] = useState<Omit<UserRoutineState, 'currentlyUsing'>>({
@@ -714,7 +720,7 @@ export const ChatContainer: React.FC = () => {
     showToast(
       isPersistable(product)
         ? `「${product.name}」を【今使っているコスメ】に追加しました`
-        : `「${product.name}」を【今使っているコスメ】に追加しました（入力した成分表示は保存しません）`
+        : `「${product.name}」を【今使っているコスメ】に追加しました（入力した成分表示・お店の商品説明から読んだ成分は保存しません）`
     );
     return true;
   };

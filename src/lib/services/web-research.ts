@@ -345,10 +345,11 @@ async function readPagesOnce(
  */
 export async function readProductPages(
   urls: string[],
-  target: string
+  target: string,
+  { skipCache = false }: { skipCache?: boolean } = {}
 ): Promise<{ products: PageProduct[]; allBlocked: boolean; incomplete: boolean } | null> {
   // 3ページ×2製品の全成分が入るよう余裕を持たせる（思考は既定の low）
-  const read = await readPagesWithSources(urls, (u) => buildReadPrompt(u, target), 8192);
+  const read = await readPagesWithSources(urls, (u) => buildReadPrompt(u, target), 8192, { skipCache });
   if (!read) return null;
   const allBlocked = urls.length > 0 && read.blockedUrls.length === urls.length;
   const incomplete = read.failedUrls.length > 0;
@@ -770,4 +771,24 @@ async function findLabelByName(product: Product): Promise<Product | null> {
   const key = productIdentityKey(product.brand, product.name);
   const related = await researchProducts(query);
   return related.find((r) => r.ingredientSource === 'web_page' && productIdentityKey(r.brand, r.name) === key) ?? null;
+}
+
+/**
+ * 保存した Web のページの製品を、同じページから読み直す（毎日の調べ直し。src/lib/services/seeding.ts）。
+ * 有料（Gemini でページを1つ読む）。調べものの結果のキャッシュ・AI Gateway のキャッシュは使わない（古い写しを読まない）。
+ * 同じ id（同じページ・ブランド・商品名）で全成分が読めた製品を返す。ページに無ければ null、読めなければ undefined
+ */
+export async function refreshPageProduct(stored: Product): Promise<Product | null | undefined> {
+  const target = productSearchQuery(stored);
+  if (!stored.sourceUrl || !target || !isGeminiConfigured()) return null;
+  const read = await readProductPages([stored.sourceUrl], target, { skipCache: true });
+  if (!read) return undefined;
+  for (const page of read.products) {
+    const product = await toProduct(page);
+    if (product.id !== stored.id || product.ingredientSource !== 'web_page') continue;
+    // 前に保存したときと同じく、英語の全成分表示は日本語の名前にする（訳した版と英語の版を「違う内容」としない）
+    const [translated] = await translateEnglishLabels([product]);
+    return translated;
+  }
+  return read.incomplete ? undefined : null;
 }

@@ -23,10 +23,11 @@ preview_urls = false
 # Workers Logs（[usage] の費用の記録・エラーを保存して検索できるようにする）。ログには利用者の文章を出さない
 # （件数・ハッシュ・状態コードだけ。docs/walkthroughs/2026-10-14-cost-tracking.md）
 # 予定の仕事：よく調べられる製品を毎日保存しておく（worker.ts の scheduled → src/worker/seed-schedule.ts）。
-# 18:00 UTC = 03:00 JST（利用の少ない時間）。有料の Web リサーチは1日3回まで（src/lib/services/seeding.ts）。
+# 18:00 UTC = 03:00 JST（利用の少ない時間）。有料の Web リサーチは1日1回まで（調べ直しも別に1回）（src/lib/services/seeding.ts）。
+# 18:30 UTC = 03:30 JST：保存した製品のうち期限（30日）の近いものを、1日20件まで調べ直す（REFRESH_CRON。同じ値にしておく）。
 # SEED_SECRET（32文字以上）を wrangler secret put で設定するまでは、何もしない
 [triggers]
-crons = ["0 18 * * *"]
+crons = ["0 18 * * *", "30 18 * * *"]
 
 # 自分自身への Service binding（予定の仕事が、製品ごとに別の呼び出しで /api/internal/seed を呼ぶため）
 [[services]]

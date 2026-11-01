@@ -4,7 +4,7 @@ import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-analyzer';
 import { CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
-import { SHOP_TEXT_ID_PREFIX } from '../product-source';
+import { SHOP_TEXT_ID_PREFIX, yahooStore } from '../product-source';
 import { searchKey } from '../search/product-match';
 import { isPlainLabelText } from '../utils/safe-text';
 import { buildBrandIndex, IndexedBrand, resolveBrand, textHasBrand } from './brand-suggest';
@@ -222,7 +222,8 @@ export async function ingredientsFromCaption(caption: string): Promise<ReturnTyp
     hasGluedDrop(label.ingredients) ||
     hasGluedDrop(label.activeIngredients) ||
     cleaned.length < MIN_SHOP_INGREDIENTS ||
-    cleaned.length > LABEL_LIMITS.ingredients
+    cleaned.length > LABEL_LIMITS.ingredients ||
+    label.activeIngredients.length > LABEL_LIMITS.activeIngredients
   ) {
     return null;
   }
@@ -397,20 +398,25 @@ export async function productFromShopBarcodes(matches: ShopMatches): Promise<Pro
   return null;
 }
 
+/** Yahoo! の商品説明から作る製品の id。同じ製品はいつも同じ id（JAN コード。無ければ Yahoo! の商品コード） */
+function yahooProductId(item: ShopItem): string {
+  return `yahoo_${item.janCode ?? item.code}`.slice(0, 120);
+}
+
 /**
  * Yahoo! の商品説明（description）の全成分から、保存する製品を作る（費用なし。説明に全成分があるのは 3% ほど）。
  * 楽天の商品説明と同じ2段の確認（ingredientsFromCaption）を通った一覧だけ。出品者の文なので、出典の表示で
- * 「販売ページの成分表示」と伝え、ほかの人へのおすすめ（代わりの商品）には、お店の候補として扱うときだけ使う
+ * 「販売ページの成分表示」と伝え、ほかの人へのおすすめ（代わりの商品）には、お店の候補として扱うときだけ使う。
+ * id: この id になる商品だけを読む（毎日の調べ直しで、保存した製品と同じ商品から取り直す）
  */
-export async function productFromYahooDescription(matches: ShopMatches): Promise<Product | null> {
+export async function productFromYahooDescription(matches: ShopMatches, id?: string): Promise<Product | null> {
   for (const item of matches.yahoo) {
-    if (!item.caption) continue;
+    if (!item.caption || (id !== undefined && yahooProductId(item) !== id)) continue;
     const label = await ingredientsFromCaption(item.caption);
     if (!label) continue;
     const name = withoutListingNoise(item.name);
     return {
-      // 同じ製品はいつも同じ id（JAN コード。無ければ Yahoo! の商品コード）
-      id: `yahoo_${item.janCode ?? item.code}`.slice(0, 120),
+      id: yahooProductId(item),
       name,
       brand: matches.brandName,
       country: 'JP',
@@ -434,18 +440,6 @@ function sameProductKey(name: string, brandName: string): string {
     .split(brandKey)
     .join('')
     .replace(/[0-9]+(?:\.[0-9]+)?(?:ml|g|mg|l|枚|個|本|包)/g, '');
-}
-
-/** Yahoo! のストア（store.shopping.yahoo.co.jp/<ストア>/…）。分からなければ null */
-function yahooStore(url: string): string | null {
-  try {
-    const u = new URL(url);
-    // ストアのページだけ（検索・製品ページなどの URL を、ストアとして数えない）
-    if (u.hostname !== 'store.shopping.yahoo.co.jp') return null;
-    return u.pathname.split('/')[1]?.toLowerCase() || null;
-  } catch {
-    return null;
-  }
 }
 
 /**

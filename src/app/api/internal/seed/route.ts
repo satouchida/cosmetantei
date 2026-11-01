@@ -1,14 +1,15 @@
 import { SEED_PRODUCTS } from '@/lib/data/seed-products';
 import { readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 import { withUsageRoute } from '@/lib/server/usage';
-import { seedProduct } from '@/lib/services/seeding';
+import { refreshNextProduct, seedProduct } from '@/lib/services/seeding';
 
 /**
  * 製品を1つ自動で保存する（毎日の予定の仕事だけが呼ぶ。src/worker/seed-schedule.ts）。
  * - x-seed-secret が SEED_SECRET（wrangler secret）と同じときだけ動く。違う・未設定なら 404（あることを知らせない）
  * - ブラウザの確認（Turnstile）・利用者ごとの予算は通さない（利用者がいない）。全体の予算・1分の件数・1回の要求の
- *   上限（$0.30 = Web リサーチ1回）は効く。有料の Web リサーチは1日3回まで（src/lib/services/seeding.ts）
+ *   上限（$0.30 = Web リサーチ1回）は効く。有料の Web リサーチは1日1回まで（調べ直しも別に1回）（src/lib/services/seeding.ts）
  * - 調べるのは src/lib/data/seed-products.ts の何番目か（index）だけ。検索語は外から受け取らない
+ * - { refresh: true }：一覧の製品のうち、期限の近いものを1つ調べ直す（refreshNextProduct。どれを調べるかはサーバーが決める）
  */
 
 const NOT_FOUND = () => new Response('Not Found', { status: 404 });
@@ -32,7 +33,16 @@ export async function POST(request: Request): Promise<Response> {
   if (secret.length < 32 || !(await sameSecret(given, secret))) return NOT_FOUND();
 
   const body = await readJsonBody(request, MAX_BODY_BYTES);
-  const index = body !== TOO_LARGE && body && typeof body === 'object' ? (body as { index?: unknown }).index : undefined;
+  const fields = body !== TOO_LARGE && body && typeof body === 'object' ? (body as { index?: unknown; refresh?: unknown }) : {};
+  if (fields.refresh === true) {
+    try {
+      return Response.json(await withUsageRoute('seed', () => refreshNextProduct())());
+    } catch (err) {
+      console.error('[verified-refresh] failed:', err instanceof Error ? err.message : err);
+      return Response.json({ error: 'failed' }, { status: 500 });
+    }
+  }
+  const index = fields.index;
   if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= SEED_PRODUCTS.length) {
     return Response.json({ error: 'index' }, { status: 400 });
   }

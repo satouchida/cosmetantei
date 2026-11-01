@@ -5,6 +5,7 @@ import { ApiCredits } from '../ui/ApiCredits';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
+import { isSellerTextProduct } from '@/lib/product-source';
 import { ordinaryIngredients, quasiDrugActives } from '@/lib/quasi-drug';
 import {
   activesLine,
@@ -25,7 +26,10 @@ interface LiveSearchCandidateTrayProps {
   /** 検索語で始まるブランド（タップでブランド名を入力し、そのブランドの製品に絞り込む） */
   brands?: { name: string; kana?: string }[];
   onSelectBrand?: (brand: string) => void;
-  /** お店の商品検索の製品を出しているときのクレジット（楽天・Yahoo! の規約で表示が必要） */
+  /**
+   * お店の商品検索の製品・Yahoo! の商品説明から成分を読んだ製品を出しているときのクレジット
+   * （楽天・Yahoo! の規約で表示が必要）
+   */
   credits?: ('rakuten' | 'yahoo')[];
   isOpen: boolean;
   onClose: () => void;
@@ -239,6 +243,11 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                           <span className={badge('neutral')}>無香料</span>
                         )}
                       </div>
+
+                      {/* 出品者が書いた成分表示（カードの出典と同じ。src/components/chat/ProductSourceLink.tsx） */}
+                      {isSellerTextProduct(product) && (
+                        <div className="mt-1 text-xs text-ink-muted">販売ページの成分表示</div>
+                      )}
 
                       {actives.length > 0 ? (
                         <div className={`mt-1 ${activesLine}`}>

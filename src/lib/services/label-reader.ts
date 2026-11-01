@@ -132,7 +132,12 @@ function looksSpaceSeparated(item: string): boolean {
  */
 export async function productFromLabel(input: LabelInput): Promise<LabelProductResult> {
   const parsed = parseIngredientLabel(input.text);
-  if (parsed.ingredients.length > LABEL_LIMITS.ingredients) return { error: 'too_many' };
+  if (
+    parsed.ingredients.length > LABEL_LIMITS.ingredients ||
+    parsed.activeIngredients.length > LABEL_LIMITS.activeIngredients
+  ) {
+    return { error: 'too_many' };
+  }
   const label = labelProductFields(parsed);
   const all = [...(label.activeIngredientsJa ?? []), ...label.ingredients];
   if (all.length === 0) return { error: 'empty' };

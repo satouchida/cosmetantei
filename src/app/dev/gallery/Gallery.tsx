@@ -129,6 +129,16 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
         }),
     },
     {
+      id: 'tray-yahoo',
+      title: '候補トレイ：Yahoo! の商品説明から成分を読んだ製品（販売ページの成分表示・Yahoo! のクレジット）',
+      render: () =>
+        tray({
+          query: 'キュレル',
+          candidates: [yahooListing, curel],
+          credits: ['yahoo'],
+        }),
+    },
+    {
       id: 'tray-brands',
       title: '候補トレイ：ブランドだけ',
       render: () =>

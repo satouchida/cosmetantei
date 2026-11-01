@@ -52,6 +52,20 @@ function verifiedProduct(overrides: Partial<Product>): Product {
   };
 }
 
+/** 成分を確かめた製品の一覧（KV）のキー（v2: 製品ごとに一覧に入れた日時を持つ） */
+const VERIFIED_INDEX_KEY = 'verified-products:v2';
+
+/** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
+function indexEntries(products: Product[], savedAt = Date.now()): { product: Product; savedAt: number }[] {
+  return products.map((product) => ({ product, savedAt }));
+}
+
+/** 一覧の値（JSON の文字列・読んだ値）から製品だけを取り出す */
+function indexProducts(raw: unknown): Product[] {
+  const entries = typeof raw === 'string' ? (JSON.parse(raw) as unknown) : raw;
+  return Array.isArray(entries) ? entries.map((e: { product: Product }) => e.product) : [];
+}
+
 test('1. Product cache holds no fabricated baseline products', () => {
   for (const p of COSMETICS_DATABASE) {
     assert.ok(!p.id.startsWith('generic_'), `Baseline product ${p.id} must not exist`);
@@ -2088,9 +2102,9 @@ test('60. Saved Open Beauty Facts products split by the old rules are fetched ag
   const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
   const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cloudflare');
   const kept = verifiedProduct({ id: 'obf_kept_label', labelFormat: LABEL_FORMAT });
-  await cachePutJSON('verified-products:v1', [kept, verifiedProduct({ id: 'obf_stale_label' })], 60);
+  await cachePutJSON(VERIFIED_INDEX_KEY, indexEntries([kept, verifiedProduct({ id: 'obf_stale_label' })]), 60);
   await rememberVerifiedProducts([verifiedProduct({ id: 'obf_new_label', labelFormat: LABEL_FORMAT })]);
-  const stored = (await cacheGetJSON<Product[]>('verified-products:v1')) ?? [];
+  const stored = indexProducts(await cacheGetJSON(VERIFIED_INDEX_KEY));
   assert.deepStrictEqual(stored.map((p) => p.id), ['obf_new_label', 'obf_kept_label']);
 });
 
@@ -4786,7 +4800,7 @@ test('87. Unrated ingredients are evaluated by AI one per call, shared, capped a
       ingredientSource: 'web_page' as const,
       sourceUrl: 'https://brand.example.jp/new',
     };
-    kv.set('verified-products:v1', JSON.stringify([fresh]));
+    kv.set(VERIFIED_INDEX_KEY, JSON.stringify(indexEntries([fresh])));
     const freshGemini = perName(() => aiItem());
     globalThis.fetch = freshGemini.fetchFn;
     const freshResult = await analyze(fresh);
@@ -5761,7 +5775,7 @@ test('100. A translated label replaces the stored English label (memory and KV);
     await rememberVerifiedProducts([{ ...english, ingredients: ['水', 'グリセリン', 'BG'], ingredientsEn: english.ingredients }]);
     await rememberVerifiedProducts([{ ...english, ingredients: ['水'] }]);
   });
-  const stored = JSON.parse([...kv.values()][0]) as Product[];
+  const stored = indexProducts(kv.get(VERIFIED_INDEX_KEY));
   assert.deepStrictEqual(stored.find((p) => p.id === 'web_translate_me')?.ingredients, ['水', 'グリセリン', 'BG']);
 });
 
@@ -6123,10 +6137,10 @@ test('104. Trusted sites: hosts match by domain over https; in enforce, other si
     };
     await withCloudflareEnv({ APP_CACHE }, async () => {
       // enforce の前に保存した、信頼しないサイトの製品が入った一覧
-      await cachePutJSON('verified-products:v1', [anySite], 3600);
+      await cachePutJSON(VERIFIED_INDEX_KEY, indexEntries([anySite]), 3600);
       await rememberVerifiedProducts([trusted]);
     });
-    assert.deepStrictEqual((JSON.parse(kv.get('verified-products:v1')!) as Product[]).map((p) => p.id), [trusted.id]);
+    assert.deepStrictEqual(indexProducts(kv.get(VERIFIED_INDEX_KEY)).map((p) => p.id), [trusted.id]);
   } finally {
     console.log = originalLog;
     globalThis.fetch = originalFetch;
@@ -7797,13 +7811,13 @@ test('129. Launch readiness: terms and privacy state the β, the limits, bug rep
   assert.match(readFileSync('src/lib/site.ts', 'utf8'), /export function bugReportMailto\(\): string \{/);
 });
 
-test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop JAN codes), paid research 3 a day, internal route behind a secret (2026-10-26)', async () => {
+test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop JAN codes), paid research 1 a day, internal route behind a secret (2026-10-26)', async () => {
   const { seedProduct, SEED_PAID_PER_DAY } = await import('../src/lib/services/seeding');
   const { janFromCaption } = await import('../src/lib/services/shop-ingredients');
   const { SEED_PRODUCTS } = await import('../src/lib/data/seed-products');
   const { runSeedSchedule } = await import('../src/worker/seed-schedule');
   const { POST } = await import('../src/app/api/internal/seed/route');
-  const { addProductToDynamicCache, COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { addProductToDynamicCache, COSMETICS_DATABASE, rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
   const { cachePutJSON } = await import('../src/lib/server/cloudflare');
   const { utcDay } = await import('../src/lib/server/spend-cap-core');
   const { toProductSearchQuery } = await import('../src/lib/services/web-research');
@@ -7945,8 +7959,8 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     assert.strictEqual(requests.length, 0);
 
     // 3. 有料の調べもの：1日 SEED_PAID_PER_DAY 回まで。有料で見つからなかった製品は、しばらく有料では調べない
-    assert.strictEqual(SEED_PAID_PER_DAY, 3);
-    await cachePutJSON(`seed:paid:${utcDay(now)}`, 3, 3600);
+    assert.strictEqual(SEED_PAID_PER_DAY, 1);
+    await cachePutJSON(`seed:paid:${utcDay(now)}`, 1, 3600);
     assert.deepStrictEqual(await seedProduct('ミノン アミノモイスト ノーヒット ミルク', now), { result: 'paid_limit', paid: false });
     await cachePutJSON(`seed:miss:${searchKey('ミノン アミノモイスト ノーヒット ミルク')}`, true, 3600);
     assert.deepStrictEqual(await seedProduct('ミノン アミノモイスト ノーヒット ミルク', now), { result: 'not_found', paid: false });
@@ -7956,9 +7970,9 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     // 費用がかからなかった（Gemini の設定が無い）ときは、先に取った1回分を返す
     const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
     const nextDay = now + 2 * 24 * 3600_000;
-    await cachePutJSON(`seed:paid:${utcDay(nextDay)}`, 2, 3600);
+    await cachePutJSON(`seed:paid:${utcDay(nextDay)}`, 0, 3600);
     assert.strictEqual((await seedProduct('ミノン アミノモイスト ノーヒット3 ミルク', nextDay)).result, 'not_found');
-    assert.strictEqual(await cacheGetJSON(`seed:paid:${utcDay(nextDay)}`, { fresh: true }), 2);
+    assert.strictEqual(await cacheGetJSON(`seed:paid:${utcDay(nextDay)}`, { fresh: true }), 0);
     // 回数を読めない（KV の失敗）ときは、有料では調べない
     const brokenKv = { get: async () => { throw new Error('kv down'); }, put: async () => {} };
     assert.deepStrictEqual(
@@ -8000,10 +8014,13 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     assert.strictEqual((await call({}, { index: 0 })).status, 404);
     assert.strictEqual((await call({ 'x-seed-secret': secret }, { index: SEED_PRODUCTS.length })).status, 400);
     assert.strictEqual((await call({ 'x-seed-secret': secret }, { query: 'キュレル' })).status, 400, 'No search words from outside');
-    addProductToDynamicCache({
-      id: 'obf_seedtest_0', name: SEED_PRODUCTS[0], brand: 'キュレル', country: 'JP', category: 'cream',
-      ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
-    });
+    // 保存済み（期限内の一覧にある）製品だけを「保存済み」とする（メモリにだけある製品は調べ直す）
+    await rememberVerifiedProducts([
+      addProductToDynamicCache({
+        id: 'obf_seedtest_0', name: SEED_PRODUCTS[0], brand: 'キュレル', country: 'JP', category: 'cream',
+        ingredients: ['水', 'グリセリン', 'BG'], ingredientSource: 'open_beauty_facts', labelFormat: 2,
+      }),
+    ]);
     const ok = await call({ 'x-seed-secret': secret }, { index: 0 });
     assert.strictEqual(ok.status, 200);
     assert.deepStrictEqual(await ok.json(), { result: 'cached', paid: false, productId: 'obf_seedtest_0' });
@@ -8035,13 +8052,16 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     }
   }
 
-  // 設定：毎日 18:00 UTC（03:00 JST）、自分自身への Service binding。Worker の scheduled から呼ぶ
+  // 設定：毎日 18:00 UTC（03:00 JST）に保存、18:30 UTC に調べ直し（REFRESH_CRON と同じ値）。自分自身への Service binding。
+  // Worker の scheduled から呼ぶ
   const wrangler = readFileSync('wrangler.toml', 'utf8');
-  assert.match(wrangler, /\[triggers\]\ncrons = \["0 18 \* \* \*"\]/);
+  assert.match(wrangler, /\[triggers\]\ncrons = \["0 18 \* \* \*", "30 18 \* \* \*"\]/);
+  const { REFRESH_CRON } = await import('../src/worker/seed-schedule');
+  assert.strictEqual(REFRESH_CRON, '30 18 * * *');
   assert.match(wrangler, /\[\[services\]\]\nbinding = "SELF"\nservice = "cosmetantei"/);
   assert.match(wrangler, /^name = "cosmetantei"$/m);
   const worker = readFileSync('worker.ts', 'utf8');
-  assert.ok(worker.includes('ctx.waitUntil(runSeedSchedule(env));'));
+  assert.ok(worker.includes('ctx.waitUntil(controller.cron === REFRESH_CRON ? runRefreshSchedule(env) : runSeedSchedule(env));'));
   assert.ok(worker.includes('return handler.fetch(request, env, ctx);'));
   // 内部の API は検索・巡回の対象外（/api/ はすべて）
   assert.match(readFileSync('src/app/robots.ts', 'utf8'), /disallow: '\/api\/'/);
@@ -8180,14 +8200,14 @@ test('134. A web page cannot replace an Open Beauty Facts product with the same 
   // 共有の一覧（KV）にも、ぶつかる Web の製品は保存しない
   await rememberVerifiedProducts([obf]);
   await rememberVerifiedProducts([page, sameName]);
-  const stored = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  const stored = indexProducts(await cacheGetJSON(VERIFIED_INDEX_KEY, { fresh: true }));
   assert.ok(stored.some((p) => p.id === 'obf_4901234567893'));
   assert.ok(!stored.some((p) => p.id === 'web_t134' || p.id === 'web_t134b'));
   // 先に保存した Web のページの製品も、同じバーコードの OBF の製品が入れば一覧から外れる
   const early = { ...page, id: 'web_t134d', barcode: '4901234567916', name: 'E 乳液', brand: 'Eブランド' };
   await rememberVerifiedProducts([early]);
   await rememberVerifiedProducts([verifiedProduct({ id: 'obf_4901234567916', barcode: '4901234567916', name: 'E 乳液 OBF', brand: 'Eブランド', ingredients: ['水'], labelFormat: LABEL_FORMAT })]);
-  const cleaned = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  const cleaned = indexProducts(await cacheGetJSON(VERIFIED_INDEX_KEY, { fresh: true }));
   assert.ok(cleaned.some((p) => p.id === 'obf_4901234567916') && !cleaned.some((p) => p.id === 'web_t134d'));
   // 同じ名前のほかの製品が先に当たっても、同じバーコードの OBF の製品は Web のページの製品に隠されない
   addProductToDynamicCache(verifiedProduct({ id: 'obf_4901234567923', barcode: '4901234567923', name: 'G 乳液 OBF', brand: 'Gブランド', labelFormat: LABEL_FORMAT }));
@@ -8213,13 +8233,13 @@ test('135. Free Open Beauty Facts results cannot push researched products out of
       Array.from({ length: 10 }, (_, j) => verifiedProduct({ id: `obf_t135_${i}_${j}`, name: `OBF ${i}-${j}`, brand: 'OBF', ingredients: ['水'], labelFormat: LABEL_FORMAT }))
     );
   }
-  const stored = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  const stored = indexProducts(await cacheGetJSON(VERIFIED_INDEX_KEY, { fresh: true }));
   assert.ok(stored.some((p) => p.id === 'web_t135'), 'The researched product stays');
   assert.strictEqual(stored.filter((p) => p.ingredientSource === 'open_beauty_facts').length, 100, 'OBF entries fill at most 100 slots');
   assert.ok(stored.some((p) => p.id === 'obf_t135_29_9') && !stored.some((p) => p.id === 'obf_t135_0_0'), 'The oldest OBF entries go first');
   // まだ一覧にあるので、同じ id の別の内容での置き換えは断られる
   await rememberVerifiedProducts([{ ...target, ingredients: ['水'] }]);
-  const after = (await cacheGetJSON<Product[]>('verified-products:v1', { fresh: true })) ?? [];
+  const after = indexProducts(await cacheGetJSON(VERIFIED_INDEX_KEY, { fresh: true }));
   assert.deepStrictEqual(after.find((p) => p.id === 'web_t135')?.ingredients, ['水', 'グリセリン', 'BG']);
 });
 
@@ -8340,4 +8360,302 @@ test('138. Ingredient lists longer than LABEL_LIMITS are rejected, not cut (the 
   // 同じ日の2回目の改定（'2026-10-30-2'）も、改定日は年月日だけ
   const { formatLegalDate, LEGAL_VERSION } = await import('../src/lib/site');
   assert.strictEqual(formatLegalDate(LEGAL_VERSION), '2026年10月30日');
+});
+
+test('139. Each saved product expires 30 days after it entered the index; re-saving does not extend it (audit item 5)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const {
+    COSMETICS_DATABASE,
+    hydrateVerifiedProducts,
+    isInVerifiedIndex,
+    rememberVerifiedProducts,
+    resetVerifiedIndexStateForTests,
+    verifiedIndexEntries,
+  } = await import('../src/lib/data/cosmetics-db');
+  const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
+  const DAY = 24 * 60 * 60 * 1000;
+  const t0 = Date.now();
+  const p = (id: string, ingredients = ['水', 'グリセリン', 'BG']) =>
+    verifiedProduct({ id, name: `${id} 化粧水`, brand: 'T139', ingredients, labelFormat: LABEL_FORMAT });
+  const entry = async (id: string, now: number) => (await verifiedIndexEntries(now)).find((e) => e.product.id === id);
+  await cachePutJSON(VERIFIED_INDEX_KEY, [], 60);
+  resetVerifiedIndexStateForTests();
+
+  await rememberVerifiedProducts([p('obf_t139_a')], { now: t0 });
+  await rememberVerifiedProducts([p('obf_t139_b')], { now: t0 + 2 * DAY });
+  // 保存し直しても、一覧に入れた日時は変わらない（ほかの製品を足す書き込みでも）
+  await rememberVerifiedProducts([p('obf_t139_a'), p('obf_t139_c')], { now: t0 + 10 * DAY });
+  assert.strictEqual((await entry('obf_t139_a', t0 + 10 * DAY))?.savedAt, t0);
+  assert.strictEqual((await entry('obf_t139_c', t0 + 10 * DAY))?.savedAt, t0 + 10 * DAY);
+
+  // 29日は残り、31日は読むときに捨てる
+  assert.ok(await entry('obf_t139_a', t0 + 29 * DAY));
+  assert.strictEqual(await entry('obf_t139_a', t0 + 31 * DAY), undefined);
+  assert.ok(await entry('obf_t139_b', t0 + 31 * DAY), 'Saved 29 days before');
+  // 書くときにも捨てる（KV の値から消える）
+  await rememberVerifiedProducts([p('obf_t139_d')], { now: t0 + 31 * DAY });
+  const raw = indexProducts(await cacheGetJSON(VERIFIED_INDEX_KEY, { fresh: true }));
+  assert.ok(!raw.some((x) => x.id === 'obf_t139_a') && raw.some((x) => x.id === 'obf_t139_b'));
+
+  // 同じ id の別の内容は、期限の間は断る。期限が切れたら受け付け、新しい日時で入れる
+  await rememberVerifiedProducts([p('obf_t139_b', ['水'])], { now: t0 + 31 * DAY });
+  assert.deepStrictEqual((await entry('obf_t139_b', t0 + 31 * DAY))?.product.ingredients, ['水', 'グリセリン', 'BG']);
+  await rememberVerifiedProducts([p('obf_t139_b', ['水'])], { now: t0 + 33 * DAY });
+  const renewed = await entry('obf_t139_b', t0 + 33 * DAY);
+  assert.deepStrictEqual(renewed?.product.ingredients, ['水']);
+  assert.strictEqual(renewed?.savedAt, t0 + 33 * DAY);
+
+  // メモリのキャッシュ：期限が切れた製品は外す。日時の無い v1 の一覧は読まない
+  await cachePutJSON('verified-products:v1', [p('obf_t139_v1')], 60);
+  resetVerifiedIndexStateForTests();
+  await hydrateVerifiedProducts({ now: t0 + 33 * DAY });
+  assert.ok(COSMETICS_DATABASE.some((x) => x.id === 'obf_t139_c') && isInVerifiedIndex('obf_t139_c', t0 + 33 * DAY));
+  assert.ok(!COSMETICS_DATABASE.some((x) => x.id === 'obf_t139_v1'), 'v1 entries have no date and are not read');
+  await hydrateVerifiedProducts({ now: t0 + 41 * DAY });
+  assert.ok(!COSMETICS_DATABASE.some((x) => x.id === 'obf_t139_c'), 'Expired in memory too');
+  assert.ok(!isInVerifiedIndex('obf_t139_c', t0 + 41 * DAY));
+  assert.ok(COSMETICS_DATABASE.some((x) => x.id === 'obf_t139_d'), 'Saved 10 days before: kept');
+
+  // ほかのアイソレートが調べ直した製品（savedAt が新しい）は、メモリの古い成分表示と入れ替える
+  const refreshed = { product: p('obf_t139_d', ['水', 'ペンチレングリコール']), savedAt: t0 + 45 * DAY };
+  await cachePutJSON(VERIFIED_INDEX_KEY, [refreshed], 60);
+  await hydrateVerifiedProducts({ now: t0 + 46 * DAY });
+  assert.deepStrictEqual(COSMETICS_DATABASE.find((x) => x.id === 'obf_t139_d')?.ingredients, ['水', 'ペンチレングリコール']);
+
+  await cachePutJSON(VERIFIED_INDEX_KEY, [], 60);
+  resetVerifiedIndexStateForTests();
+  const source = readFileSync('src/lib/data/cosmetics-db.ts', 'utf8');
+  assert.match(source, /const VERIFIED_INDEX_KEY = 'verified-products:v2';/);
+});
+
+test('140. Saved products are refreshed from the same source before they expire; nothing else may replace them (audit item 5)', async () => {
+  const {
+    COSMETICS_DATABASE,
+    isSameSource,
+    rememberVerifiedProducts,
+    resetVerifiedIndexStateForTests,
+    verifiedIndexEntries,
+  } = await import('../src/lib/data/cosmetics-db');
+  const { REFRESH_PAID_PER_DAY, REFRESH_PER_DAY, refreshNextProduct } = await import('../src/lib/services/seeding');
+  const { runRefreshSchedule } = await import('../src/worker/seed-schedule');
+  const { cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { utcDay } = await import('../src/lib/server/spend-cap-core');
+  const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
+  const DAY = 24 * 60 * 60 * 1000;
+  const t0 = Date.now();
+  const now = t0 + 24 * DAY;
+  const entry = async (id: string, at: number) => (await verifiedIndexEntries(at)).find((e) => e.product.id === id);
+  await cachePutJSON(VERIFIED_INDEX_KEY, [], 60);
+  resetVerifiedIndexStateForTests();
+
+  const obf = (code: string, ingredients: string[]) =>
+    verifiedProduct({ id: `obf_${code}`, barcode: code, name: `T140 乳液 ${code}`, brand: 'T140', ingredients, labelFormat: LABEL_FORMAT });
+  const changing = obf('4901234567140', ['水', 'BG']);
+  const vanished = obf('4901234567141', ['水', 'グリセリン']);
+  await rememberVerifiedProducts([changing], { now: t0 });
+  await rememberVerifiedProducts([vanished], { now: t0 + DAY });
+  await rememberVerifiedProducts([obf('4901234567142', ['水'])], { now: t0 + 10 * DAY });
+  // 自分の古い写し（バーコードの結果のキャッシュ）は読まない
+  await cachePutJSON('barcode:v2:4901234567140', changing, 60);
+
+  // 利用者の検索で取れた別の内容では、置き換えない（期限の間）
+  await rememberVerifiedProducts([{ ...changing, ingredients: ['水', 'エタノール'] }], { now: now - DAY });
+  assert.deepStrictEqual((await entry(changing.id, now))?.product.ingredients, ['水', 'BG']);
+  // 調べ直しの印が付いていても、別のデータ源の製品では置き換えない
+  const otherSource = { ...changing, ingredients: ['水', 'エタノール'], ingredientSource: 'web_page' as const, sourceUrl: 'https://brand.example.jp/t140' };
+  await rememberVerifiedProducts([otherSource], { now: now - DAY, refresh: true });
+  assert.deepStrictEqual((await entry(changing.id, now))?.product.ingredients, ['水', 'BG']);
+
+  // 同じデータ源か
+  const web = { ...verifiedProduct({ id: 'web_t140' }), ingredientSource: 'web_page' as const, sourceUrl: 'https://brand.example.jp/a' };
+  assert.ok(isSameSource(web, { ...web, sourceUrl: 'https://brand.example.jp/b', ingredients: ['水'] }));
+  assert.ok(!isSameSource(web, { ...web, sourceUrl: 'https://other.example.com/a' }), 'Another host');
+  assert.ok(!isSameSource(changing, otherSource), 'Another source');
+  assert.ok(!isSameSource(changing, { ...changing, barcode: '4901234567149' }), 'Another barcode');
+  assert.ok(!isSameSource(changing, { ...changing, ingredientSource: undefined }), 'Estimated, not a label');
+  const yahoo = { ...verifiedProduct({ id: 'yahoo_4901234567143' }), ingredientSource: 'shop_yahoo' as const, sourceUrl: 'https://store.shopping.yahoo.co.jp/shop-a/item1.html' };
+  assert.ok(isSameSource(yahoo, { ...yahoo, ingredients: ['水'], sourceUrl: 'https://store.shopping.yahoo.co.jp/shop-a/item2.html' }));
+  assert.ok(!isSameSource(yahoo, { ...yahoo, id: 'yahoo_other' }));
+  assert.ok(!isSameSource(yahoo, { ...yahoo, sourceUrl: 'https://store.shopping.yahoo.co.jp/shop-b/item1.html' }), 'Same JAN code, another store');
+
+  const originalFetch = globalThis.fetch;
+  const obfCalls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes('openbeautyfacts.org/api/v2/product/')) {
+      obfCalls.push(url);
+      if (url.includes('4901234567140')) {
+        return Response.json({ status: 1, product: { product_name_ja: 'T140 乳液 4901234567140', brands: 'T140', ingredients_text_ja: '水、BG、グリセリン、ペンチレングリコール' } });
+      }
+      return Response.json({ status: 0 });
+    }
+    return new Response('unexpected', { status: 500 });
+  }) as typeof fetch;
+  const originalLog = console.log;
+  const logs: string[] = [];
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  try {
+    // 古い順：いちばん古い製品を Open Beauty Facts から取り直し、置き換えて日時を今にする
+    assert.deepStrictEqual(await refreshNextProduct(now), { result: 'changed', paid: false, productId: changing.id });
+    const after = await entry(changing.id, now);
+    assert.deepStrictEqual(after?.product.ingredients, ['水', 'BG', 'グリセリン', 'ペンチレングリコール']);
+    assert.strictEqual(after?.savedAt, now);
+    assert.deepStrictEqual(COSMETICS_DATABASE.find((p) => p.id === changing.id)?.ingredients, after?.product.ingredients);
+    assert.strictEqual(obfCalls.length, 1, 'Fetched from Open Beauty Facts, not our barcode cache');
+    // 次：データ源にもう無い製品は置き換えず、期限で捨てる
+    assert.deepStrictEqual(await refreshNextProduct(now), { result: 'gone', paid: false, productId: vanished.id });
+    assert.strictEqual((await entry(vanished.id, now))?.savedAt, t0 + DAY);
+    assert.strictEqual(await entry(vanished.id, t0 + 31 * DAY), undefined);
+    // 期限の近い製品が無くなった（入れて14日の製品は、まだ調べ直さない）
+    assert.deepStrictEqual(await refreshNextProduct(now), { result: 'none', paid: false });
+    // ログには id と結果だけ（成分の中身は出さない）
+    const refreshLogs = logs.filter((l) => l.startsWith('[verified-refresh]'));
+    assert.deepStrictEqual(refreshLogs, [`[verified-refresh] ${changing.id} changed`, `[verified-refresh] ${vanished.id} gone`]);
+
+    // 取り直せなかった製品は、次の日も調べない（毎日の枠を使い続けない）
+    assert.deepStrictEqual(await refreshNextProduct(now + DAY), { result: 'none', paid: false });
+    assert.strictEqual(obfCalls.length, 2);
+    // 調べ直しの有料の回数（自動の保存とは別に1日1回）が残っていない日は、Web のページの製品を飛ばす
+    const page = { ...verifiedProduct({ id: 'web_t140_page', name: 'T140 ページ', brand: 'T140', ingredients: ['水', 'BG'] }), ingredientSource: 'web_page' as const, sourceUrl: 'https://brand.example.jp/t140' };
+    await rememberVerifiedProducts([page], { now: t0 + 2 * DAY });
+    // 自動の保存が1回を使っても、調べ直しの回数は残る
+    await cachePutJSON(`seed:paid:${utcDay(now + DAY)}`, 1, 60);
+    assert.strictEqual((await refreshNextProduct(now + DAY)).productId, page.id);
+    assert.strictEqual(REFRESH_PAID_PER_DAY, 1);
+    const page2 = { ...page, id: 'web_t140_page2', name: 'T140 ページ2' };
+    await rememberVerifiedProducts([page2], { now: t0 + 3 * DAY });
+    await cachePutJSON(`seed:refresh-paid:${utcDay(now + 3 * DAY)}`, REFRESH_PAID_PER_DAY, 60);
+    assert.deepStrictEqual(await refreshNextProduct(now + 3 * DAY), { result: 'none', paid: false });
+
+    // 1日の数（REFRESH_PER_DAY）に達したら、期限の近い製品が残っていても調べない
+    assert.strictEqual(REFRESH_PER_DAY, 20);
+    const later = now + 2 * DAY;
+    await cachePutJSON(`seed:refresh:${utcDay(later)}`, Array.from({ length: REFRESH_PER_DAY }, (_, i) => `obf_done_${i}`), 60);
+    assert.ok((await entry(page.id, later))!.savedAt <= later - 23 * DAY, 'Still due');
+    assert.deepStrictEqual(await refreshNextProduct(later), { result: 'none', paid: false });
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalLog;
+    await cachePutJSON(VERIFIED_INDEX_KEY, [], 60);
+    resetVerifiedIndexStateForTests();
+  }
+
+  // 予定の仕事：'none' が返るまで、多くても REFRESH_PER_DAY 回
+  const bodies: unknown[] = [];
+  const replies = ['changed', 'unchanged', 'gone', 'none'];
+  const SELF = {
+    fetch: async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({ result: replies[bodies.length - 1] });
+    },
+  };
+  const secret = 'r'.repeat(40);
+  assert.deepStrictEqual(await runRefreshSchedule({ SELF, SEED_SECRET: secret }), { changed: 1, unchanged: 1, gone: 1 });
+  assert.deepStrictEqual(bodies, Array.from({ length: 4 }, () => ({ refresh: true })));
+  const always = { fetch: async () => Response.json({ result: 'unchanged' }) };
+  assert.deepStrictEqual(await runRefreshSchedule({ SELF: always, SEED_SECRET: secret }), { unchanged: REFRESH_PER_DAY });
+  assert.deepStrictEqual(await runRefreshSchedule({ SELF: always }), {}, 'Needs the secret');
+
+  // 内部の API：{ refresh: true } は、秘密の値があるときだけ
+  const { POST } = await import('../src/app/api/internal/seed/route');
+  const saved = process.env.SEED_SECRET;
+  process.env.SEED_SECRET = secret;
+  try {
+    const call = (headers: Record<string, string>) =>
+      POST(new Request('https://cosmetantei.app/api/internal/seed', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ refresh: true }) }));
+    assert.strictEqual((await call({})).status, 404);
+    const ok = await call({ 'x-seed-secret': secret });
+    assert.strictEqual(ok.status, 200);
+    assert.deepStrictEqual(await ok.json(), { result: 'none', paid: false });
+  } finally {
+    if (saved === undefined) delete process.env.SEED_SECRET;
+    else process.env.SEED_SECRET = saved;
+  }
+});
+
+test('141. Yahoo! seller-text products stay on the server (30 days, with credit) but not in browsers or exports (audit items 4(a), 4(b) A′)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { isPersistable, parseCurrentUse, serializeCurrentUse } = await import('../src/lib/current-use');
+  const { excludedCount, serializeRoutine } = await import('../src/lib/routine-share');
+  const { isStoredSource } = await import('../src/lib/data/cosmetics-db');
+  const { yahooListing } = await import('../src/lib/dev/gallery-fixtures');
+  const kept = verifiedProduct({ id: 'obf_t141' });
+  assert.ok(isStoredSource(yahooListing), 'Still kept on the server');
+  assert.ok(!isPersistable(yahooListing));
+  const entries = parseCurrentUse(JSON.stringify([{ product: yahooListing, addedAt: Date.now() }, { product: kept, addedAt: Date.now() }]));
+  assert.deepStrictEqual(entries.map((e) => e.product.id), ['obf_t141'], 'Entries saved before are dropped on read');
+  assert.ok(!serializeCurrentUse([{ product: yahooListing, addedAt: Date.now() }]).includes('yahoo_'));
+  const snapshot = { badProducts: [yahooListing], safeProducts: [kept], currentUse: [] };
+  const exported = JSON.parse(serializeRoutine(snapshot, Date.now())) as { bad: Product[]; safe: Product[] };
+  assert.deepStrictEqual([exported.bad.length, exported.safe.length], [0, 1]);
+  assert.strictEqual(excludedCount(snapshot), 1);
+
+  // 候補トレイ：Yahoo! の商品説明の製品を出すときは Yahoo! のクレジットと「販売ページの成分表示」
+  const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+  assert.match(chat, /liveCandidates\.some\(\(p\) => p\.ingredientSource === 'shop_yahoo'\) && !lineupCredits\.includes\('yahoo'\)/);
+  const tray = readFileSync('src/components/search/LiveSearchCandidateTray.tsx', 'utf8');
+  assert.match(tray, /isSellerTextProduct\(product\) && \(\s*<div className="mt-1 text-xs text-ink-muted">販売ページの成分表示<\/div>/);
+  // クレジットは、今までどおり候補のあるときの下の欄（ApiCredits）に出る。見た目は /dev/gallery の tray-yahoo
+  assert.match(tray, /\{\(hasSponsored \|\| credits\.length > 0\) && \(/);
+  assert.match(readFileSync('src/app/dev/gallery/Gallery.tsx', 'utf8'), /id: 'tray-yahoo'/);
+});
+
+test('142. A label with more active ingredients than LABEL_LIMITS is rejected, not cut (audit Low, Audit 9)', async () => {
+  const { LABEL_LIMITS, labelProductFields, parseIngredientLabel } = await import('../src/lib/analyzer/label-parser');
+  const { productFromLabel } = await import('../src/lib/services/label-reader');
+  const { ingredientsFromCaption } = await import('../src/lib/services/shop-ingredients');
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `成分${i}`);
+  // 「その他の成分」の見出しの無い医薬部外品の表示：全成分が有効成分の側に入る
+  const text = (n: number) => `有効成分：${names(n).join('、')}`;
+  assert.strictEqual(parseIngredientLabel(text(LABEL_LIMITS.activeIngredients + 1)).activeIngredients.length, LABEL_LIMITS.activeIngredients + 1);
+  const over = labelProductFields(parseIngredientLabel(text(LABEL_LIMITS.activeIngredients + 1)));
+  assert.deepStrictEqual(over.ingredients, []);
+  assert.strictEqual(over.activeIngredientsJa, undefined, 'Not cut to the first 30');
+  const atLimit = labelProductFields(parseIngredientLabel(text(LABEL_LIMITS.activeIngredients)));
+  assert.strictEqual(atLimit.activeIngredientsJa?.length, LABEL_LIMITS.activeIngredients);
+  assert.deepStrictEqual(await productFromLabel({ text: text(LABEL_LIMITS.activeIngredients + 1) }), { error: 'too_many' });
+  assert.strictEqual(await ingredientsFromCaption(`【全成分】${text(LABEL_LIMITS.activeIngredients + 1)} その他の成分：水、BG、グリセリン`), null);
+});
+
+test('143. The index is never overwritten after a failed read, and memory follows the index for a stored id (review of audit item 5)', async () => {
+  const { COSMETICS_DATABASE, addProductToDynamicCache, hydrateVerifiedProducts, rememberVerifiedProducts, resetVerifiedIndexStateForTests } =
+    await import('../src/lib/data/cosmetics-db');
+  const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
+  const p = (id: string, ingredients = ['水', 'グリセリン', 'BG']) =>
+    verifiedProduct({ id, name: `${id} 化粧水`, brand: 'T143', ingredients, labelFormat: LABEL_FORMAT });
+  const kv = new Map<string, string>();
+  let failReads = false;
+  const APP_CACHE = {
+    async get(key: string, type?: string) {
+      if (failReads) throw new Error('kv down');
+      const value = kv.get(key);
+      return value === undefined ? null : type === 'json' ? JSON.parse(value) : value;
+    },
+    async put(key: string, value: string) { kv.set(key, value); },
+    async delete(key: string) { kv.delete(key); },
+  };
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    await withCloudflareEnv({ APP_CACHE }, async () => {
+      resetVerifiedIndexStateForTests();
+      await rememberVerifiedProducts([p('obf_t143_a'), p('obf_t143_b')]);
+      failReads = true;
+      await rememberVerifiedProducts([p('obf_t143_c')]);
+      failReads = false;
+      assert.deepStrictEqual(indexProducts(kv.get(VERIFIED_INDEX_KEY)).map((x) => x.id), ['obf_t143_a', 'obf_t143_b'], 'Not overwritten by one product');
+
+      // 利用者の検索で別の内容がメモリに入っても、一覧を読み直せば一覧の内容に戻る
+      const a = COSMETICS_DATABASE.findIndex((x) => x.id === 'obf_t143_a');
+      if (a >= 0) COSMETICS_DATABASE.splice(a, 1);
+      addProductToDynamicCache(p('obf_t143_a', ['水', 'エタノール']));
+      resetVerifiedIndexStateForTests();
+      await hydrateVerifiedProducts({ recheck: true });
+      assert.deepStrictEqual(COSMETICS_DATABASE.find((x) => x.id === 'obf_t143_a')?.ingredients, ['水', 'グリセリン', 'BG']);
+    });
+  } finally {
+    console.error = originalError;
+    resetVerifiedIndexStateForTests();
+  }
 });

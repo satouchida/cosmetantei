@@ -1,5 +1,5 @@
 import { Product } from './types';
-import { isShopListingProduct, isUserLabelProduct } from './product-source';
+import { isSellerTextProduct, isUserLabelProduct } from './product-source';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 import { createBrowserStore } from './client/browser-store';
 
@@ -8,8 +8,8 @@ import { createBrowserStore } from './client/browser-store';
  * 組み合わせチェックに使う。この端末のブラウザ（localStorage）にだけ保存し、サーバーには保存しない。
  * 追加した日を持ち、3か月以上たった製品は「今も使っているか」確かめてもらう
  *
- * - ユーザーが入力した成分表示の製品（ingredientSource が user_label、ID が label_ で始まる）は保存しない。
- *   画面には残るが、再読み込みで消える
+ * - ユーザーが入力した成分表示の製品（ingredientSource が user_label、ID が label_ で始まる）と、お店の商品説明から
+ *   成分を読んだ製品（楽天・Yahoo!）は保存しない。画面には残るが、再読み込みで消える
  * - 保存できない環境（プライベートウィンドウ、サイトデータのブロック）では、保存せずに動く
  */
 
@@ -36,10 +36,12 @@ export function isStale(addedAt: number, now: number): boolean {
   return due.getTime() <= now;
 }
 
-/** 保存してよい製品（入力した成分表示は保存しない） */
+/** 保存してよい製品（入力した成分表示・お店の商品説明から読んだ成分は保存しない） */
 export function isPersistable(product: Product): boolean {
-  // お店の商品説明から読んだ成分は、楽天の規約で保存できない
-  return !isUserLabelProduct(product) && !isShopListingProduct(product);
+  // お店の商品説明から読んだ成分：楽天は規約（第10条 (9)）で保存できない。Yahoo! の分は、サーバーが30日まで
+  // 出典とクレジットを付けて出すだけにし、ブラウザ・書き出したファイルには残さない（LINEヤフー共通利用規約 8.1・8.3。
+  // オーナーの判断 2026-10-31）
+  return !isUserLabelProduct(product) && !isSellerTextProduct(product);
 }
 
 /**

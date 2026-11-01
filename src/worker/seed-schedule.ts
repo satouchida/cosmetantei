@@ -1,4 +1,5 @@
 import { SEED_PRODUCTS } from '../lib/data/seed-products';
+import { REFRESH_PER_DAY } from '../lib/services/refresh-limits';
 
 /**
  * 毎日の予定の仕事（wrangler.toml の [triggers]）：src/lib/data/seed-products.ts の製品を1つずつ、
@@ -6,6 +7,9 @@ import { SEED_PRODUCTS } from '../lib/data/seed-products';
  * - 自分自身への Service binding（SELF）で呼ぶ：製品ごとに別の呼び出しになり、無料プランの CPU 時間（1回 10ms）と
  *   1回の要求の費用の上限（$0.30）を、製品ごとに使える。ネットワークは通らない
  * - 失敗しても次の製品へ進む。結果は件数だけをログに出す（[seed] の行）
+ * 毎日の調べ直し（runRefreshSchedule。別の予定 REFRESH_CRON）：一覧の期限の近い製品を1つずつ、最大 REFRESH_PER_DAY 回
+ * 調べ直す（{ refresh: true }。[verified-refresh] の行）。調べる製品が無くなったら（'none'）やめる。
+ * 自動の保存と別の予定にするのは、1回の外部への要求の上限（無料プラン 50）に、両方の呼び出しが収まらないため
  */
 
 export interface SeedEnv {
@@ -43,5 +47,36 @@ export async function runSeedSchedule(env: SeedEnv): Promise<Record<string, numb
     }
   }
   console.log(`[seed] ${JSON.stringify(counts)}`);
+  return counts;
+}
+
+/** 毎日の調べ直しの予定（wrangler.toml の [triggers]。自動の保存の30分後） */
+export const REFRESH_CRON = '30 18 * * *';
+
+export async function runRefreshSchedule(env: SeedEnv): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const secret = (env.SEED_SECRET || '').trim();
+  if (!env.SELF || secret.length < 32) {
+    console.warn('[verified-refresh] skipped: the SELF service binding or SEED_SECRET (32+ characters) is missing');
+    return counts;
+  }
+  for (let i = 0; i < REFRESH_PER_DAY; i++) {
+    let result: string;
+    try {
+      const res = await env.SELF.fetch(SEED_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-seed-secret': secret },
+        body: JSON.stringify({ refresh: true }),
+      });
+      const data = (await res.json().catch(() => null)) as { result?: unknown } | null;
+      result = res.ok && typeof data?.result === 'string' ? data.result : `http_${res.status}`;
+    } catch (err) {
+      result = 'error';
+      console.warn('[verified-refresh]', err instanceof Error ? err.message : err);
+    }
+    if (result === 'none') break;
+    counts[result] = (counts[result] ?? 0) + 1;
+  }
+  console.log(`[verified-refresh] ${JSON.stringify(counts)}`);
   return counts;
 }
