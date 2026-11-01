@@ -87,7 +87,10 @@ async function getJson(
     if (!res.ok) {
       // 404 は「該当なし」（楽天）
       if (res.status === 404) return {};
-      console.error(`${label} failed: ${res.status}`);
+      // お店が返す理由（決まった英語の文。例：keyword parameter is not valid）も出す。検索語は出さない
+      const body = (await res.json().catch(() => null)) as { error_description?: unknown; error?: unknown } | null;
+      const reason = typeof body?.error_description === 'string' ? body.error_description : typeof body?.error === 'string' ? body.error : '';
+      console.error(`${label} failed: ${res.status}${reason ? ` (${reason.replace(/[^\x20-\x7e]/g, '').slice(0, 120)})` : ''}`);
       return null;
     }
     return await res.json();
@@ -258,6 +261,20 @@ const LINEUP_HITS = 30;
 const MAX_CAPTION_LENGTH = 20_000;
 
 /**
+ * 楽天の検索語の決まり：空白で区切った語はどれも、半角2文字以上か全角1文字以上。ただし、ひらがな・カタカナ・記号の語は
+ * 2文字以上（1文字の語があると 400「keyword parameter is not valid」）。決まりに合わない語は外す
+ * （「ラ ロッシュ ポゼ」は「ロッシュ ポゼ」で探す。2026-11-01 のログ）。全体は半角 128 文字まで
+ */
+export function toRakutenKeyword(keyword: string): string {
+  const words = keyword.split(/\s+/).filter((w) => [...w].length >= 2 || /^\p{Script=Han}$/u.test(w));
+  // 128 文字（半角）を超えるなら、後ろの語から外す（全角は2文字分）
+  const width = (t: string) => [...t].reduce((n, c) => n + (c.charCodeAt(0) < 0x80 ? 1 : 2), 0);
+  while (words.length > 1 && width(words.join(' ')) > 128) words.pop();
+  const result = words.join(' ');
+  return width(result) <= 128 ? result : '';
+}
+
+/**
  * 楽天市場の商品検索（https://webservice.rakuten.co.jp/documentation/ichiba-item-search）。
  * 検索語はブランド名（と、アプリが決めた種類の語）だけ（利用者が入力した文は送らない）。キー未設定なら undefined、失敗は null。
  * caption: 商品説明も取る（成分を読むときだけ）
@@ -267,9 +284,12 @@ export async function rakutenItemSearch(
   { caption = false, genreId }: { caption?: boolean; genreId?: number } = {}
 ): Promise<ShopItem[] | null | undefined> {
   if (!isRakutenApiConfigured()) return undefined;
+  const rakutenKeyword = toRakutenKeyword(keyword);
+  // 楽天が受け付ける語が残らず、ジャンルも無ければ呼ばない（400 になる）。失敗ではなく「該当なし」
+  if (!rakutenKeyword && !genreId) return [];
   const params = new URLSearchParams({
     applicationId: readShopConfig('RAKUTEN_APPLICATION_ID'),
-    keyword,
+    ...(rakutenKeyword && { keyword: rakutenKeyword }),
     hits: String(LINEUP_HITS),
     availability: '1',
     formatVersion: '2',

@@ -8659,3 +8659,41 @@ test('143. The index is never overwritten after a failed read, and memory follow
     resetVerifiedIndexStateForTests();
   }
 });
+
+test('144. Rakuten keywords follow Rakuten\'s rule (no 1-character kana word), and the built pages are served from static assets (2026-11-01 logs)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { toRakutenKeyword } = await import('../src/lib/services/shop-apis');
+  // 「ラ ロッシュ ポゼ」の「ラ」（カタカナ1文字）で、毎晩 400 になっていた
+  assert.strictEqual(toRakutenKeyword('ラ ロッシュ ポゼ'), 'ロッシュ ポゼ');
+  assert.strictEqual(toRakutenKeyword('ラ ロッシュ ポゼ 日焼け止め'), 'ロッシュ ポゼ 日焼け止め');
+  assert.strictEqual(toRakutenKeyword('キュレル 化粧水'), 'キュレル 化粧水');
+  assert.strictEqual(toRakutenKeyword('d プログラム'), 'プログラム', 'One half-width character');
+  assert.strictEqual(toRakutenKeyword('雪 肌精'), '雪 肌精', 'One kanji is allowed');
+  assert.strictEqual(toRakutenKeyword('ー ・'), '');
+  assert.strictEqual(toRakutenKeyword(`キュレル ${'あ'.repeat(70)}`), 'キュレル', 'Over 128 half-width characters: later words go');
+  // お店の理由（英語の決まった文）をログに出す
+  assert.match(readFileSync('src/lib/services/shop-apis.ts', 'utf8'), /body\?\.error_description/);
+
+  const config = readFileSync('open-next.config.ts', 'utf8');
+  assert.match(config, /incrementalCache: staticAssetsIncrementalCache,/);
+  assert.match(config, /enableCacheInterception: true,/);
+  // 静的アセットのキャッシュは書き換えできない：時間で作り直すページは無い
+  const { readdirSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const pages: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (/\.(tsx?|jsx?)$/.test(name)) pages.push(path);
+    }
+  };
+  walk('src');
+  for (const file of pages) {
+    assert.doesNotMatch(
+      readFileSync(file, 'utf8'),
+      /export const revalidate\b|\brevalidate\s*:|unstable_cache|revalidate(Tag|Path)\(|updateTag\(|['"]use cache['"]/,
+      file
+    );
+  }
+});
