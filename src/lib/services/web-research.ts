@@ -287,6 +287,15 @@ export async function readPagesWithSources(
   };
 }
 
+/** ログに出すページのホスト名（URL の残りは出さない） */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '?';
+  }
+}
+
 /** 1回の Gemini 呼び出しでページを読む。RECITATION で止められたら 'recitation'、出力の上限で切れたら 'truncated' */
 async function readPagesOnce(
   urls: string[],
@@ -310,7 +319,11 @@ async function readPagesOnce(
   // プロンプトそのものが止められたら、ページを分けて読み直しても同じ（一時的な失敗として扱う）
   if (result?.promptBlocked) return null;
   // 安全フィルターで止められたページも、著作物の引用で止められたページと同じく1ページずつ読み直す
-  if (result?.recitation || result?.blocked) return 'recitation';
+  if (result?.recitation || result?.blocked) {
+    // どのサイトのページが止められたか（ホスト名だけ。どのサイトを別の方法で読むか決めるため）
+    console.warn(`[page-read] ${JSON.stringify({ outcome: result.recitation ? 'recitation' : 'blocked', hosts: urls.map(hostOf) })}`);
+    return 'recitation';
+  }
   if (result?.truncated) return 'truncated';
   if (!result) return null;
 

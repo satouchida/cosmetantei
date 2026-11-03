@@ -9,6 +9,7 @@ import {
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
 import { isKnownGenericTerm } from './brand-check';
+import { listedBrandName } from './brand-suggest';
 import { researchProducts, sharedResearchFor, toProductSearchQuery } from './web-research';
 import { shopIngredientProducts } from './shop-ingredients';
 import { withoutListingNoise } from '../search/listing-name';
@@ -16,7 +17,7 @@ import { isShopListingProduct } from '../product-source';
 import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
-import { onePerBarcode, rankProducts, searchKey } from '../search/product-match';
+import { matchesProductWords, onePerBarcode, rankProducts, searchKey } from '../search/product-match';
 import { contactEmail, SITE_URL } from '../site';
 
 /**
@@ -375,6 +376,28 @@ export function hasVerifiedIngredientList(p: Product): boolean {
   return isStoredSource(p) && p.ingredients.length > 0;
 }
 
+/**
+ * 製品が、チャットで調べた商品名に合うか。文から取り出した商品名でも比べる。「キュレルの化粧水」の「の」は語の区切りとみなす
+ * （製品名に「の」がある製品は、そのままの検索語で合う）。お店の商品名は飾り（【公式】・送料無料など）を外して比べる。
+ * 製品のブランド名が検索語にあれば、製品名に無いことの多い語（容量・色番号など数字のある語、別のブランド名・会社名）は
+ * 無くてもよい（「資生堂 マキアージュ …リキッド オークル10」）
+ */
+export function namesSearchedProduct(p: Product, text: string): boolean {
+  const target = isShopListingProduct(p) ? { ...p, name: withoutListingNoise(p.name) } : p;
+  const productQuery = toProductSearchQuery(text);
+  const queries = [text, ...(productQuery ? [productQuery, productQuery.replace(/の/g, ' ')] : [])];
+  if (queries.some((q) => matchesProductWords(target, q))) return true;
+  const brand = searchKey(target.brand);
+  if (!productQuery || brand.length < 2 || !searchKey(productQuery).includes(brand)) return false;
+  const words = productQuery.replace(/の/g, ' ').split(/\s+/).filter(Boolean);
+  const optional = (w: string) => {
+    const key = searchKey(w);
+    return /\d/.test(key) || (!brand.includes(key) && listedBrandName(w) !== null);
+  };
+  const required = words.filter((w) => !optional(w));
+  return required.length > 0 && required.length < words.length && matchesProductWords(target, required.join(' '));
+}
+
 /** 製品名（ブランド名つきも含む）が検索語を含むか。ブランド名だけの一致は数えない */
 export function namesProduct(p: Product, query: string): boolean {
   // 候補の照合（rankProducts）と同じキーで比べる。ひらがなで聞かれても、確認済みの製品があれば有料の Web リサーチをしない
@@ -532,7 +555,11 @@ export async function searchCosmeticsLive(
   const isCosmetic = (p: Product) =>
     isActualCosmeticProduct(isShopListingProduct(p) ? { ...p, name: withoutListingNoise(p.name) } : p);
   // 別のサイトで調べた同じ JAN の製品は1つにする（全成分を確認したものを残す）
-  const validProducts = onePerBarcode(collected, hasVerifiedIngredientList).filter(isCosmetic).slice(0, limit);
+  const valid = onePerBarcode(collected, hasVerifiedIngredientList).filter(isCosmetic);
+  // 商品名を調べたとき（チャット）は、検索語そのものに合う製品だけを答えにする。同じブランドの別の製品
+  // （ブランド名だけの一致・Web で読んだ別の製品）は出さない（「…リキッド」を調べてルージュを出さない。2026-11-03 のログ）
+  const strict = options.webResearch && clean && !isGreetingOrConsultation(clean);
+  const validProducts = (strict ? valid.filter((p) => namesSearchedProduct(p, clean)) : valid).slice(0, limit);
 
   // E. Clef による検索語との照合（SEARCH_FILTER_MODE。既定は off）。空の検索・挨拶は照合しない
   return filterSearchResults(clean && !isGreetingOrConsultation(clean) ? clean : '', validProducts);

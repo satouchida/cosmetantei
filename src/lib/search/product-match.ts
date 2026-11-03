@@ -58,6 +58,53 @@ function productKeys(p: Product) {
   return keys;
 }
 
+/** 検索語を照合用にしたもの（製品ごとに作り直さない） */
+interface PreparedQuery {
+  q: string;
+  digits: string;
+  tokens: string[];
+}
+
+function prepareQuery(query: string): PreparedQuery {
+  return {
+    q: searchKey(query),
+    digits: query.replace(/[\s\-]/g, ''),
+    tokens: query
+      .split(/[\s　]+/)
+      .map(searchKey)
+      .filter(Boolean),
+  };
+}
+
+/** rankProducts の点数（0 は合わない。BRAND_ONLY はブランド名だけの一致） */
+function scoreProduct(product: Product, { q, digits, tokens }: PreparedQuery): number {
+  const { name, brand, full } = productKeys(product);
+  const categories = Object.hasOwn(CATEGORY_KEYS, product.category) ? CATEGORY_KEYS[product.category] : [];
+  const inFields = (t: string) => full.includes(t) || categories.some((c) => c.includes(t));
+
+  // Yahoo! の商品説明の製品のバーコードは出品者1人が書いた値なので、バーコードの一致として先頭に出さない
+  // （search-barcode-service の matchesOwnBarcode と同じ）
+  if (
+    BARCODE.test(digits) &&
+    product.barcode &&
+    product.ingredientSource !== 'shop_yahoo' &&
+    product.barcode.replace(/^0+/, '') === digits.replace(/^0+/, '')
+  )
+    return 1000;
+  if (name.startsWith(q)) return 400;
+  if (full.startsWith(q)) return 350;
+  // 1文字の入力（入力し始め）は、名前の先頭だけで照合する
+  if (q.length < 2) return 0;
+  if (name.includes(q)) return 250;
+  if (full.includes(q)) return 200;
+  // チャットの文の中に製品名がある（「キュレルの泡洗顔料を調べて」）。短い名前は別の語の一部になりやすいので4文字から
+  if (name.length >= 4 && q.includes(name)) return 220;
+  if (tokens.every(inFields)) return 120;
+  // 英字だけの短いブランド名は別の語の一部になりやすいので3文字から
+  if (brand.length >= (/^[a-z0-9]+$/.test(brand) ? 3 : 2) && q.includes(brand)) return BRAND_ONLY;
+  return 0;
+}
+
 /**
  * 検索語に合う製品を、よく合う順に返す（合わない製品は除く）
  * 1. バーコードの一致
@@ -69,41 +116,12 @@ function productKeys(p: Product) {
  * 同じ点数なら、全成分が確認済みの製品を先に
  */
 export function rankProducts(products: Product[], query: string, isVerified: (p: Product) => boolean = () => false): Product[] {
-  const q = searchKey(query);
-  if (!q) return [];
-  const digits = query.replace(/[\s\-]/g, '');
-  const tokens = query
-    .split(/[\s　]+/)
-    .map(searchKey)
-    .filter(Boolean);
+  const prepared = prepareQuery(query);
+  if (!prepared.q) return [];
 
   const scored: { product: Product; score: number }[] = [];
   for (const product of products) {
-    const { name, brand, full } = productKeys(product);
-    const categories = Object.hasOwn(CATEGORY_KEYS, product.category) ? CATEGORY_KEYS[product.category] : [];
-    const inFields = (t: string) => full.includes(t) || categories.some((c) => c.includes(t));
-
-    let score = 0;
-    // Yahoo! の商品説明の製品のバーコードは出品者1人が書いた値なので、バーコードの一致として先頭に出さない
-    // （search-barcode-service の matchesOwnBarcode と同じ）
-    if (
-      BARCODE.test(digits) &&
-      product.barcode &&
-      product.ingredientSource !== 'shop_yahoo' &&
-      product.barcode.replace(/^0+/, '') === digits.replace(/^0+/, '')
-    )
-      score = 1000;
-    else if (name.startsWith(q)) score = 400;
-    else if (full.startsWith(q)) score = 350;
-    // 1文字の入力（入力し始め）は、名前の先頭だけで照合する
-    else if (q.length < 2) score = 0;
-    else if (name.includes(q)) score = 250;
-    else if (full.includes(q)) score = 200;
-    // チャットの文の中に製品名がある（「キュレルの泡洗顔料を調べて」）。短い名前は別の語の一部になりやすいので4文字から
-    else if (name.length >= 4 && q.includes(name)) score = 220;
-    else if (tokens.every(inFields)) score = 120;
-    // 英字だけの短いブランド名は別の語の一部になりやすいので3文字から
-    else if (brand.length >= (/^[a-z0-9]+$/.test(brand) ? 3 : 2) && q.includes(brand)) score = BRAND_ONLY;
+    const score = scoreProduct(product, prepared);
     if (score === 0) continue;
     scored.push({ product, score: score + (isVerified(product) ? 10 : 0) });
   }
@@ -111,6 +129,15 @@ export function rankProducts(products: Product[], query: string, isVerified: (p:
   const matched = scored.some((s) => s.score > BRAND_ONLY + 10) ? scored.filter((s) => s.score > BRAND_ONLY + 10) : scored;
   // sort は安定なので、同じ点数なら元の順（新しく調べた製品が先）
   return matched.sort((a, b) => b.score - a.score).map((s) => s.product);
+}
+
+/**
+ * 製品が検索語そのものに合うか（rankProducts の 1〜4）。ブランド名だけの一致（同じブランドの別の製品）は合わない。
+ * チャットで商品名を調べたときの答えに使う（「マキアージュ ドラマティックエッセンスリキッド」にルージュを出さない）
+ */
+export function matchesProductWords(product: Product, query: string): boolean {
+  const prepared = prepareQuery(query);
+  return !!prepared.q && scoreProduct(product, prepared) > BRAND_ONLY;
 }
 
 /**

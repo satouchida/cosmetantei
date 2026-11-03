@@ -4343,12 +4343,14 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
       shopProductQuery({ brand: 'キュレル', name: '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml 送料無料' }),
       shopProductQuery({ brand: 'キュレル', name: 'キュレル 潤浸保湿 化粧水 III とてもしっとり' })
     );
+    // 選んだ製品（キュレル 潤浸保湿 美容液 40g）と同じ、保存済みの製品
+    assert.strictEqual(lineup.products[1].name, 'キュレル 潤浸保湿 美容液 40g');
     addProductToDynamicCache({
-      id: 't83_lotion',
+      id: 't83_serum',
       brand: 'キュレル',
-      name: '潤浸保湿 化粧水 III とてもしっとり',
+      name: '潤浸保湿 美容液',
       country: 'JP',
-      category: 'toner',
+      category: 'serum',
       ingredients: ['水', 'グリセリン'],
       descriptionJa: '',
       ingredientSource: 'web_page',
@@ -4361,7 +4363,7 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
       })
     );
     const data = (await res.json()) as { productSuggestions?: Product[] };
-    assert.strictEqual(data.productSuggestions?.[0]?.id, 't83_lotion', 'A saved product: no paid research');
+    assert.strictEqual(data.productSuggestions?.[0]?.id, 't83_serum', 'A saved product: no paid research');
 
     // ブラウザから届いた名前は使わない：お店が返さない製品は調べない（Web 検索に送らない）
     requests.length = 0;
@@ -4391,7 +4393,7 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     console.error = errorLog;
   } finally {
     globalThis.fetch = originalFetch;
-    const saved = COSMETICS_DATABASE.findIndex((p) => p.id === 't83_lotion');
+    const saved = COSMETICS_DATABASE.findIndex((p) => p.id === 't83_serum');
     if (saved >= 0) COSMETICS_DATABASE.splice(saved, 1);
     for (const k of SHOP_ENV) {
       if (savedEnv[k] === undefined) delete process.env[k];
@@ -8684,4 +8686,55 @@ test('145. Foundations are their own kind, other makeup has none, and the altern
   const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
   assert.match(chat, /<DifferentialResultCard result=\{msg\.differentialAnalysis\} onPriceLookup=\{handleAlternativePriceLookup\}/);
   assert.match(chat, /onPriceLookup=\{handleAlternativePriceLookup\}\n\s+busy=\{isLoading\}/);
+});
+
+test('146. A chat product lookup answers only with products named like the query, and blocked page reads log their host (2026-11-03 logs)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { matchesProductWords, rankProducts } = await import('../src/lib/search/product-match');
+  const { namesSearchedProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const rouge = verifiedProduct({ id: 't146_rouge', brand: 'マキアージュ', name: 'ドラマティックエッセンスルージュ', category: 'lip' });
+  const liquid = verifiedProduct({ id: 't146_liquid', brand: 'マキアージュ', name: 'ドラマティックエッセンスリキッド', category: 'foundation' });
+  const curel = verifiedProduct({ id: 't146_curel', brand: 'キュレル', name: '潤浸保湿 化粧水 III', category: 'toner' });
+  const query = 'マキアージュ ドラマティックエッセンスリキッド';
+  // 入力途中の候補（rankProducts）は今までどおり、同じブランドの製品を出す
+  assert.deepStrictEqual(rankProducts([rouge], query).map((p) => p.id), ['t146_rouge']);
+  // 商品名を調べた答えには、ブランド名だけの一致を使わない
+  assert.ok(!matchesProductWords(rouge, query));
+  assert.ok(!namesSearchedProduct(rouge, query));
+  assert.ok(namesSearchedProduct(liquid, query));
+  assert.ok(namesSearchedProduct(liquid, `${query} ファンデーション`), 'A category word matches the category');
+  assert.ok(namesSearchedProduct(curel, 'キュレルの化粧水を調べて'), '「の」separates words');
+  assert.ok(namesSearchedProduct(curel, 'きゅれる 化粧水'));
+  assert.ok(namesSearchedProduct(rouge, 'マキアージュ'), 'Only a brand asked: its products match');
+  // 製品名に無いことの多い語（会社名・容量・色番号）は無くてもよい。主な語が合わない製品は合わない
+  assert.ok(namesSearchedProduct(liquid, `資生堂 ${query}`));
+  assert.ok(namesSearchedProduct(liquid, `${query} オークル10 30mL`));
+  assert.ok(!namesSearchedProduct(rouge, `資生堂 ${query} オークル10`));
+  assert.ok(!namesSearchedProduct(rouge, 'マキアージュ ドラマティックエッセンス リキッド'));
+  assert.ok(namesSearchedProduct(liquid, 'マキアージュ リキッド ドラマティックエッセンス オークル10'));
+  assert.ok(!namesSearchedProduct(liquid, 'リキッド ドラマティックエッセンス オークル10'), 'Without its own brand, extra words are not skipped');
+  // お店の商品名の飾りは外して比べる
+  const listing = { ...liquid, id: 'shop_yahoo_t146', name: 'マキアージュ【公式】ドラマティックエッセンスリキッド 送料無料', ingredientSource: 'shop_listing' as Product['ingredientSource'] };
+  assert.ok(namesSearchedProduct(listing, 'マキアージュドラマティックエッセンスリキッド'));
+  assert.match(readFileSync('src/lib/services/live-cosmetics-service.ts', 'utf8'), /strict \? valid\.filter\(\(p\) => namesSearchedProduct\(p, clean\)\) : valid/);
+
+  // RECITATION で止められたページは、ホスト名だけをログに出す
+  const { readPagesWithSources } = await import('../src/lib/services/web-research');
+  const originalFetch = globalThis.fetch;
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(' '));
+  globalThis.fetch = (async () =>
+    Response.json({ candidates: [{ finishReason: 'RECITATION', content: { parts: [] } }] })) as typeof fetch;
+  setGatewayEnv();
+  try {
+    await readPagesWithSources(['https://www.shiseido.co.jp/sw/products/x.html?id=1'], () => 'prompt', 512, { skipCache: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = warn;
+    clearGatewayEnv();
+  }
+  const line = warnings.find((w) => w.startsWith('[page-read]'));
+  assert.ok(line, warnings.join('\n'));
+  assert.deepStrictEqual(JSON.parse(line.slice('[page-read] '.length)), { outcome: 'recitation', hosts: ['www.shiseido.co.jp'] });
 });
