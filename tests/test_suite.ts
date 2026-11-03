@@ -8718,6 +8718,13 @@ test('146. A chat product lookup answers only with products named like the query
   assert.ok(namesSearchedProduct(listing, 'マキアージュドラマティックエッセンスリキッド'));
   assert.match(readFileSync('src/lib/services/live-cosmetics-service.ts', 'utf8'), /strict \? valid\.filter\(\(p\) => namesSearchedProduct\(p, clean\)\) : valid/);
 
+  // LIPS と @cosme SHOPPING は信頼するサイト（オーナーの判断 2026-11-03）。cosmetic-info.jp は信頼しないまま
+  const { isTrustedSource } = await import('../src/lib/data/trusted-sites');
+  assert.ok(isTrustedSource('https://lipscosme.com/products/123'));
+  assert.ok(isTrustedSource('https://www.cosme.com/products/detail.php?product_id=1'));
+  assert.ok(!isTrustedSource('https://lipscosme.com.evil.example/products/123'));
+  assert.ok(!isTrustedSource('https://www.cosmetic-info.jp/prod/detail.php?id=1'));
+
   // RECITATION で止められたページは、ホスト名だけをログに出す
   const { readPagesWithSources } = await import('../src/lib/services/web-research');
   const originalFetch = globalThis.fetch;

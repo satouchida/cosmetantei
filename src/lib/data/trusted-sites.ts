@@ -80,6 +80,9 @@ export const TRUSTED_DOMAINS: readonly string[] = [
   'kiehls.jp',
   'larocheposay.jp',
   'unilever.co.jp',
+  // 化粧品の情報・通販のサイト（製品ページに全成分を載せている。オーナーの判断 2026-11-03）
+  'lipscosme.com',
+  'cosme.com',
 ];
 
 /**

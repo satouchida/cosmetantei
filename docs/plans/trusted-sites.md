@@ -120,5 +120,7 @@ path already exists and is covered by test 71.
 
 1. **Retailers.** Which retailers to trust at the start, or wait for the shadow-mode log
    (recommended).
+   - 2026-11-03: the owner added LIPS (`lipscosme.com`) and @cosme SHOPPING (`cosme.com`) as
+     reliable cosmetics sites with full ingredient lists on their product pages.
 2. **Alternatives.** Use trusted sites only (recommended, because those queries are the same for
    everyone), or also show untrusted alternatives with the note.
