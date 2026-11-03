@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { DifferentialAnalysisResult } from '@/lib/types';
+import { DifferentialAnalysisResult, Product } from '@/lib/types';
 import { AlertCircle, CheckCircle2, Flame, ShieldAlert, Sparkles } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { PairFindingList } from './PairFindingList';
@@ -10,9 +10,12 @@ import { card, panel, RISK_SCALE, riskBadge } from '../ui/design';
 
 interface DifferentialResultCardProps {
   result: DifferentialAnalysisResult;
+  /** 代わりの商品の価格を調べる */
+  onPriceLookup?: (product: Product) => void;
+  busy?: boolean;
 }
 
-export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ result }) => {
+export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ result, onPriceLookup, busy = false }) => {
   const { badProducts, safeProducts, culprits, summaryJa, adviceJa, safeAlternatives, pairFindings } = result;
 
   return (
@@ -127,6 +130,8 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         <AmazonAlternativeCard
           products={safeAlternatives}
           avoidedIngredients={culprits.map((c) => c.nameJa)}
+          onPriceLookup={onPriceLookup}
+          busy={busy}
         />
       )}
 

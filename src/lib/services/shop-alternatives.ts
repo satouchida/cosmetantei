@@ -26,7 +26,7 @@ import { shopLink } from './shops';
  * - 結果は保存しない（共有のキャッシュに入れない）。商品名は API が返したまま。リンクはアフィリエイトのリンク
  */
 
-/** 種類ごとのお店のジャンル（2026-10-18 に確かめた、結果の多い ID） */
+/** 種類ごとのお店のジャンル（2026-10-18 に確かめた、結果の多い ID。ファンデーションは 2026-11-03） */
 const GENRES: Record<AlternativeCategory, { rakuten: number; yahoo: number }> = {
   sunscreen: { rakuten: 503054, yahoo: 46427 },
   toner: { rakuten: 216307, yahoo: 1764 },
@@ -35,6 +35,7 @@ const GENRES: Record<AlternativeCategory, { rakuten: number; yahoo: number }> = 
   cleanser: { rakuten: 405130, yahoo: 48903 },
   mask: { rakuten: 503020, yahoo: 1767 },
   lip: { rakuten: 405206, yahoo: 5005 },
+  foundation: { rakuten: 210457, yahoo: 46351 },
 };
 
 /** 確かめる候補の数の上限（お店の商品の数） */

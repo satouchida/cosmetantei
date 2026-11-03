@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
+import { Product, ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
 import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { ProductSourceLink } from './ProductSourceLink';
@@ -33,6 +33,8 @@ interface IngredientAnalysisCardProps {
   onAddToCurrentRoutine?: () => void;
   /** 「同じ種類で原因成分を含まない商品を探す」（お店の商品検索で探す。docs/plans/alternative-recommendations.md の step 3） */
   onFindAlternatives?: () => void;
+  /** 代わりの商品の価格を調べる */
+  onPriceLookup?: (product: Product) => void;
   /** 応答を待っている（押しても受け付けず、案内が出る） */
   busy?: boolean;
 }
@@ -133,6 +135,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   onAddToSafeRoutine,
   onAddToCurrentRoutine,
   onFindAlternatives,
+  onPriceLookup,
   busy = false,
 }) => {
   const [pickedIngredient, setPickedIngredient] = useState<AnalyzedIngredient | null>(null);
@@ -702,7 +705,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 
       {/* Amazon Safe Alternatives (if warning/caution) */}
       {safeAlternatives && safeAlternatives.length > 0 && (
-        <AmazonAlternativeCard products={safeAlternatives} />
+        <AmazonAlternativeCard products={safeAlternatives} onPriceLookup={onPriceLookup} busy={busy} />
       )}
       {/* 保存済みの製品だけでは3件に満たないとき、お店で同じ種類の商品を探す（種類が分かるときだけ） */}
       {onFindAlternatives && safeAlternatives !== undefined && safeAlternatives.length < 3 && productCategory(product) && (

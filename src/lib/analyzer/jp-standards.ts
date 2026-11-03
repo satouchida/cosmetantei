@@ -38,6 +38,7 @@ export function productUseType(product: Pick<Product, 'category'> & { name?: str
     case 'serum':
     case 'cream':
     case 'sunscreen':
+    case 'foundation':
       return 'leaveOn';
     default:
       return undefined;

@@ -4,14 +4,14 @@ import { reserveSpend } from '../server/spend-cap';
 
 /**
  * お店の公式 API で価格を調べる（楽天市場・Yahoo!ショッピング）。手順: docs/plans/shop-prices.md
- * - キーが設定されたお店だけ。未設定なら undefined（呼び出し側は商品ページの読み取りで代わりに調べる）
+ * - キーが設定されたお店だけ。未設定なら undefined（そのお店は調べない）
  * - 失敗（通信・429・形式違い）は null。「価格が無い」とは区別する
  * - 結果は保存しない。キーはログ・エラーに出さない
  */
 
 export interface ShopOfferCandidate {
   shopId: ShopId;
-  /** 販売している店（楽天・Yahoo! の出店者、または @cosme SHOPPING） */
+  /** 販売している店（楽天・Yahoo! の出店者） */
   shop: string;
   brand: string;
   productName: string;
@@ -19,7 +19,6 @@ export interface ShopOfferCandidate {
   taxIncluded: boolean | null;
   /** 商品ページ（対象のお店の URL と確かめ済み） */
   sourceUrl: string;
-  via: 'api' | 'page';
 }
 
 const API_TIMEOUT_MS = 8_000;
@@ -150,7 +149,6 @@ async function rakutenSearch(query: string, shopCode?: string): Promise<ShopOffe
       // taxFlag 0: 税込、1: 税別
       taxIncluded: item.taxFlag === 0 ? true : item.taxFlag === 1 ? false : null,
       sourceUrl: url,
-      via: 'api',
     });
   }
   return offers;
@@ -162,9 +160,12 @@ async function rakutenSearch(query: string, shopCode?: string): Promise<ShopOffe
  */
 export async function rakutenOffers(query: string): Promise<ShopOfferCandidate[] | null | undefined> {
   if (!isRakutenApiConfigured()) return undefined;
-  const all = await rakutenSearch(query);
+  // 楽天の語の決まり（1文字のかな・半角の語は 400 になる）。送れる語が無ければ探さない
+  const keyword = toRakutenKeyword(query);
+  if (!keyword) return [];
+  const all = await rakutenSearch(keyword);
   await wait(API_INTERVAL_MS);
-  const r24 = await rakutenSearch(query, 'rakuten24');
+  const r24 = await rakutenSearch(keyword, 'rakuten24');
   if (all === null && r24 === null) return null;
   return [...(r24 ?? []), ...(all ?? [])];
 }
@@ -209,7 +210,6 @@ export async function yahooOffers(query: string): Promise<ShopOfferCandidate[] |
       priceYen: price,
       taxIncluded,
       sourceUrl: url,
-      via: 'api',
     });
   }
   return offers;

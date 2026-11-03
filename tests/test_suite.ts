@@ -2397,7 +2397,7 @@ test('64. Alternatives from web pages are re-checked in code; none confirmed mea
   }
 });
 
-test('65. Prices: listed shops only, page-confirmed offers, sane amounts, the same product; page prices reused for 15 minutes', async () => {
+test('65. Prices: free shop APIs only (no paid page reading), app-built queries, fixed replies (owner decision 2026-11-03)', async () => {
   const { toPriceSearchQuery, researchPrices, summarizePriceResult, offerMatchesQuery } = await import(
     '../src/lib/services/price-service'
   );
@@ -2418,111 +2418,43 @@ test('65. Prices: listed shops only, page-confirmed offers, sane amounts, the sa
   assert.ok(offerMatchesQuery('Curel', 'キュレル 潤浸保湿 化粧水 III 150ml', 'キュレル 潤浸保湿 化粧水'));
   assert.ok(!offerMatchesQuery('キュレル', '潤浸保湿 泡洗顔料', 'キュレル 潤浸保湿 化粧水'));
 
-  // 決まったお店の商品ページだけを読む（ほかのサイトは検索結果にあっても読まない）
-  const shopA = 'https://item.rakuten.co.jp/shopa/curel-lotion/';
-  const shopB = 'https://store.shopping.yahoo.co.jp/shopb/curel-lotion.html';
-  const unread = 'https://www.cosme.com/products/detail.php?product_id=1';
-  const other = 'https://shop-x.example.jp/item/curel';
-  const { AI, searches } = fakeWebSearchAI(() => [{ url: other }, { url: shopA }, { url: shopB }, { url: unread }]);
-  const reader = fakeGeminiPageReader(
-    [
-      { sourceUrl: shopA, shop: 'ショップA', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水 150ml', priceYen: 1500, taxIncluded: true },
-      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水 III', priceYen: 1192, taxIncluded: null },
-      { sourceUrl: shopB, shop: 'ショップB', brand: 'ちふれ', productName: 'ちふれ 化粧水', priceYen: 600, taxIncluded: true },
-      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 12, taxIncluded: true },
-      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1_500_000, taxIncluded: true },
-      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1192.5, taxIncluded: true },
-      { sourceUrl: shopB, shop: 'ショップB', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: '980', taxIncluded: true },
-      { sourceUrl: unread, shop: 'ショップC', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 900, taxIncluded: true },
-      { sourceUrl: other, shop: 'ショップX', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 800, taxIncluded: true },
-    ],
-    [shopA, shopB]
-  );
-  const headers: Record<string, string>[] = [];
+  // Gemini と Web 検索があっても、API のキーが無ければ何も調べない（費用のかかる読み取りをしない）
+  const { AI, searches } = fakeWebSearchAI(() => [{ url: 'https://item.rakuten.co.jp/shopa/curel-lotion/' }]);
+  const reader = fakeGeminiPageReader([], []);
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = ((url: string, init?: RequestInit) => {
-    headers.push({ ...(init?.headers as Record<string, string>) });
-    return reader.fetchFn(url, init);
-  }) as typeof fetch;
+  globalThis.fetch = reader.fetchFn;
   setGatewayEnv();
   try {
     const result = await withCloudflareEnv({ AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
-    assert.deepStrictEqual(
-      result.offers.map((o) => [o.marketplace, o.shop, o.priceYen]),
-      [['Yahoo!ショッピング', 'ショップB', 1192], ['楽天市場', 'ショップA', 1500]]
-    );
-    assert.strictEqual(result.offers[0].sourceUrl, shopB);
-    // アフィリエイト ID が無ければ、リンクは商品ページそのもの
-    assert.deepStrictEqual(result.offers.map((o) => [o.href, o.sponsored]), [[shopB, false], [shopA, false]]);
-    assert.deepStrictEqual(result.credits, []);
-    assertShopQueries(searches, 'キュレル 潤浸保湿 化粧水');
-    assert.strictEqual(headers[0]['cf-aig-skip-cache'], 'true', 'Price reads skip the AI Gateway cache');
+    assert.strictEqual(result.status, 'unavailable');
+    assert.deepStrictEqual(result.offers, []);
+    assert.strictEqual(searches.length, 0, 'No web search for prices');
+    assert.strictEqual(reader.prompts.length, 0, 'No Gemini page reading for prices');
     assert.match(result.amazonUrl, /^https:\/\/www\.amazon\.co\.jp\/s\?k=/);
-    assert.match(summarizePriceResult(result), /今回確認できた中では、Yahoo!ショッピングのショップBの「キュレル 潤浸保湿 化粧水 III」が最も安く、1,192円です/);
-    assert.strictEqual(result.status, 'ok');
-    // 1ページずつ読む（別のページの価格として出力させない）。商品名は指示ではなくデータとして渡す。ほかのサイトは読まない
-    assert.strictEqual(reader.prompts.length, 3);
-    for (const { body } of reader.prompts) {
-      const prompt = JSON.stringify(body);
-      assert.strictEqual([shopA, shopB, unread].filter((u) => prompt.includes(u)).length, 1, 'One page per read');
-      assert.ok(!prompt.includes(other), 'Pages outside the listed shops are never read');
-    }
-
-    // 商品ページから読んだ価格（費用のかかる Web 検索と Gemini）は 15 分だけ使い回す。KV に書くのはその結果だけ
-    const kvPuts: string[] = [];
-    const APP_CACHE = { async get() { return null; }, async put(key: string) { kvPuts.push(key); } };
-    const firstRound = searches.length;
-    const readsBefore = reader.prompts.length;
-    await withCloudflareEnv({ AI, APP_CACHE }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
-    assert.strictEqual(searches.length, firstRound, 'Page prices are reused for a short time');
-    assert.strictEqual(reader.prompts.length, readsBefore);
-    assert.ok(kvPuts.every((k) => k.startsWith('priceoffers:v1:')), 'Only page offers are written to KV');
-
-    // 税抜の価格は税込に直して比べる
-    globalThis.fetch = fakeGeminiPageReader(
-      [
-        { sourceUrl: shopA, shop: '税抜ショップ', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1100, taxIncluded: false },
-        { sourceUrl: shopA, shop: '税込ショップ', brand: 'キュレル', productName: 'キュレル 潤浸保湿 化粧水', priceYen: 1150, taxIncluded: true },
-      ],
-      [shopA]
-    ).fetchFn;
-    clearMemoryCacheForTests(); // 同じ商品名を、別のページの内容で調べ直す（ページの価格は 15 分使い回すため）
-    const taxed = await withCloudflareEnv({ AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
-    assert.deepStrictEqual(taxed.offers.map((o) => o.shop), ['税込ショップ', '税抜ショップ']);
-
-    // 検索・読み取りの失敗は「価格が無い」とは言わない
-    const down = fakeWebSearchAI(() => new Error('down'));
-    clearMemoryCacheForTests(); // 同じ商品名を、別のページの内容で調べ直す（ページの価格は 15 分使い回すため）
-    const failed = await withCloudflareEnv({ AI: down.AI }, () => researchPrices('キュレル 潤浸保湿 化粧水'));
-    assert.strictEqual(failed.status, 'unavailable');
-    assert.match(summarizePriceResult(failed), /時間をおいて/);
-
-    // 検索結果一覧のページは読まない（店名・商品名を取り違えやすい）
-    const { pickPagesToRead } = await import('../src/lib/services/web-research');
-    assert.deepStrictEqual(
-      pickPagesToRead([
-        { url: 'https://search.rakuten.co.jp/search/mall/x/', title: '', description: '' },
-        { url: 'https://shopping.example.jp/search?q=x', title: '', description: '' },
-        { url: 'https://shop.example.jp/s/item-x', title: '', description: '' },
-        { url: 'https://shop.example.jp/item/research-lotion', title: '', description: '' },
-      ]),
-      // 「/s/」は商品ページに使うお店もあるので読む
-      ['https://shop.example.jp/s/item-x', 'https://shop.example.jp/item/research-lotion']
-    );
+    assert.match(summarizePriceResult(result), /時間をおいて/);
 
     const none = { ...result, status: 'ok' as const, offers: [] };
-    assert.match(summarizePriceResult(none), /確認できませんでした/);
+    assert.match(summarizePriceResult(none), /楽天市場・Yahoo!ショッピングで確認できませんでした/);
+    const priced = {
+      ...none,
+      offers: [{ shop: 'ショップB', marketplace: 'Yahoo!ショッピング', productName: 'キュレル 潤浸保湿 化粧水 III', priceYen: 1192, taxIncluded: null, sourceUrl: 'https://store.shopping.yahoo.co.jp/shopb/x.html', href: 'https://store.shopping.yahoo.co.jp/shopb/x.html', sponsored: false }],
+    };
+    assert.match(summarizePriceResult(priced), /今回確認できた中では、Yahoo!ショッピングのショップBの「キュレル 潤浸保湿 化粧水 III」が最も安く、1,192円です/);
   } finally {
     globalThis.fetch = originalFetch;
     clearGatewayEnv();
+    // 後のテストは、メモリのキャッシュが空の状態から始まる（以前のこのテストが空にしていた）
+    clearMemoryCacheForTests();
   }
+  const source = (await import('node:fs')).readFileSync('src/lib/services/price-service.ts', 'utf8');
+  assert.doesNotMatch(source, /webSearch|readPagesWithSources|isGeminiConfigured/);
 });
 
-/** 価格は決まったお店の名前を付けた商品名だけで検索する */
-function assertShopQueries(searches: { query: string }[], product: string): void {
-  for (const shop of ['楽天市場', 'Yahoo!ショッピング', '@cosme SHOPPING']) {
-    assert.ok(searches.some((x) => x.query === `${product} ${shop}`), `${product} ${shop}`);
-  }
+/** 価格は商品名だけで、楽天（全体と楽天24）と Yahoo! の API で調べる */
+function assertShopQueries(requests: URL[], product: string, toRakutenKeyword: (k: string) => string): void {
+  const rakuten = requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp' && u.searchParams.get('keyword') === toRakutenKeyword(product));
+  assert.strictEqual(rakuten.length, 2, `Rakuten ${product}`);
+  assert.ok(requests.some((u) => u.hostname === 'shopping.yahooapis.jp' && u.searchParams.get('query') === product), `Yahoo! ${product}`);
 }
 
 test('66. Chat route: price and alternative requests reach their services with app-built queries', async () => {
@@ -2540,27 +2472,39 @@ test('66. Chat route: price and alternative requests reach their services with a
     )).json();
 
   const { AI, searches } = fakeWebSearchAI(() => []);
+  const { toRakutenKeyword } = await import('../src/lib/services/shop-apis');
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = fakeGeminiPageReader([], []).fetchFn;
+  const reader = fakeGeminiPageReader([], []).fetchFn;
+  const apiRequests: URL[] = [];
+  globalThis.fetch = (async (input: string, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'openapi.rakuten.co.jp') return apiRequests.push(url), Response.json({ items: [] });
+    if (url.hostname === 'shopping.yahooapis.jp') return apiRequests.push(url), Response.json({ hits: [] });
+    return reader(String(input), init);
+  }) as typeof fetch;
   setGatewayEnv();
   process.env.CHAT_GATE_MODE = 'off';
+  process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+  process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+  process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
   try {
     const price = await call({ AI }, { message: 'ルート価格テスト 化粧水の最安値を教えて' });
     assert.ok(price.priceResult, 'A price question returns a price result');
     assert.deepStrictEqual(price.priceResult.offers, []);
-    assertShopQueries(searches, 'ルート価格テスト 化粧水');
+    assertShopQueries(apiRequests, 'ルート価格テスト 化粧水', toRakutenKeyword);
+    assert.strictEqual(searches.length, 0, 'Prices never use web search');
 
     // 価格のボタンは、サーバーが持っている製品だけ（送られた名前で費用のかかる検索をしない）
     const unknown = verifiedProduct({ id: 'route_price_unknown', brand: 'ルートブランド', name: '送られただけの商品' });
-    const searchesBefore = searches.length;
+    const apiBefore = apiRequests.length;
     const refused = await call({ AI }, { action: 'price_lookup', selectedProduct: unknown });
     assert.strictEqual(refused.priceResult, undefined);
-    assert.strictEqual(searches.length, searchesBefore, 'No paid search for a product the server does not hold');
+    assert.strictEqual(apiRequests.length, apiBefore, 'No search for a product the server does not hold');
 
     const product = addProductToDynamicCache(verifiedProduct({ id: 'route_price_1', brand: 'ルートブランド', name: 'ルート 乳液 120ml' }));
     const button = await call({ AI }, { action: 'price_lookup', selectedProduct: product });
     assert.ok(button.priceResult);
-    assertShopQueries(searches, 'ルートブランド ルート 乳液');
+    assertShopQueries(apiRequests, 'ルートブランド ルート 乳液', toRakutenKeyword);
 
     // 長い商品名は先頭の語で、複数表記のブランドは最初の表記で調べる
     const longName = addProductToDynamicCache(
@@ -2568,10 +2512,10 @@ test('66. Chat route: price and alternative requests reach their services with a
     );
     const longRes = await call({ AI }, { action: 'price_lookup', selectedProduct: longName });
     assert.ok(longRes.priceResult, 'A long product name still gets a price lookup');
-    assertShopQueries(searches, 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+');
+    assertShopQueries(apiRequests, 'ビオレUV アクアリッチ ウォータリーエッセンス SPF50+', toRakutenKeyword);
     const multiBrand = addProductToDynamicCache(verifiedProduct({ id: 'route_price_3', brand: 'ちふれ化粧品 / ちふれ', name: '美白化粧水 W' }));
     await call({ AI }, { action: 'price_lookup', selectedProduct: multiBrand });
-    assertShopQueries(searches, 'ちふれ化粧品 美白化粧水 W');
+    assertShopQueries(apiRequests, 'ちふれ化粧品 美白化粧水 W', toRakutenKeyword);
 
     // 種類は決まった語だけ（検索語に入るため）。それ以外は 400
     for (const category of ['constructor', '__proto__', 'foo']) {
@@ -2608,6 +2552,7 @@ test('66. Chat route: price and alternative requests reach their services with a
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.CHAT_GATE_MODE;
+    for (const name of ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID']) delete process.env[name];
     clearGatewayEnv();
   }
 });
@@ -2748,6 +2693,14 @@ test('67. Shop prices: Rakuten and Yahoo! APIs when keys are set, affiliate link
     assert.deepStrictEqual(failed.credits, []);
     assert.ok(errors.length > 0);
     assert.ok(!errors.some((e) => /test-rakuten|test-yahoo/.test(e)), 'API keys never reach the logs');
+
+    // 一方だけ失敗して何も見つからなければ、「どちらのお店にも無い」とは言わない
+    responses.yahoo = () => Response.json({ hits: [] });
+    const partial = await researchPrices('キュレル 潤浸保湿 化粧水');
+    assert.strictEqual(partial.status, 'unavailable');
+    responses.rakuten = () => Response.json({ items: [] });
+    const empty = await researchPrices('キュレル 潤浸保湿 化粧水');
+    assert.strictEqual(empty.status, 'ok', 'Both shops answered: nothing found');
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;
@@ -3023,7 +2976,7 @@ test('71. Products from the browser: the server copy wins; sent data stays out o
   const kvPuts: { key: string; value: string }[] = [];
   const APP_CACHE = { async get() { return null; }, async put(key: string, value: string) { kvPuts.push({ key, value }); } };
   const gemini = fakeGeminiText('香料は刺激になりやすい成分です。');
-  const { AI, searches } = fakeWebSearchAI(() => []);
+  const { AI } = fakeWebSearchAI(() => []);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = gemini.fetchFn;
   setGatewayEnv();
@@ -3033,8 +2986,8 @@ test('71. Products from the browser: the server copy wins; sent data stays out o
     assert.strictEqual(single.singleAnalysis.product.name, 'トラスト 化粧水');
     assert.deepStrictEqual(single.singleAnalysis.product.ingredients, ['水', 'グリセリン', 'BG']);
 
-    await call({ AI, APP_CACHE }, { action: 'price_lookup', selectedProduct: forged });
-    assert.ok(searches.length > 0 && searches.every((s) => !s.query.includes('偽')), 'Price lookups use the server name');
+    const priced = await call({ AI, APP_CACHE }, { action: 'price_lookup', selectedProduct: forged });
+    assert.strictEqual(priced.priceResult.productQuery, 'トラストブランド トラスト 化粧水', 'Price lookups use the server name');
 
     // /api/analyze も同じ
     const { POST: ANALYZE } = await import('../src/app/api/analyze/route');
@@ -5052,11 +5005,12 @@ test('89. Abuse limits without login: same-origin API, body size, $0.50 per clie
   if (savedPerRequest === undefined) delete process.env.SPEND_PER_REQUEST_USD;
   else process.env.SPEND_PER_REQUEST_USD = savedPerRequest;
 
-  // 価格の検索は、ほかの AI の操作より少ない回数まで（1分に5回）
+  // 価格の検索は1分に10回まで（楽天・Yahoo! の無料の API だけ。オーナーの判断 2026-11-03）
   const { isRateLimited } = await import('../src/lib/server/cloudflare');
   const results: boolean[] = [];
-  for (let i = 0; i < 6; i++) results.push(await isRateLimited('price', '203.0.113.89'));
-  assert.deepStrictEqual(results, [false, false, false, false, false, true]);
+  for (let i = 0; i < 11; i++) results.push(await isRateLimited('price', '203.0.113.89'));
+  assert.deepStrictEqual(results, [...Array(10).fill(false), true]);
+  assert.match((await import('node:fs')).readFileSync('wrangler.toml', 'utf8'), /name = "PRICE_RATE_LIMITER"\nnamespace_id = "1003"\nsimple = \{ limit = 10, period = 60 \}/);
 });
 
 test('90. Gemini safety settings, blocked answers, strict output checks and hardened prompts', async () => {
@@ -6633,7 +6587,6 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   // 短期の保存（判定・検索結果・AI の応答文）は 15分〜7日（2026-10-23。chat-replies・web-research・バーコード・価格のページ）
   assert.ok(privacy.includes('短期間（15分〜7日。ブランド名の確認結果は最長90日）'));
   assert.match(read('src/lib/services/chat-replies.ts'), /CAUSE_CACHE_TTL_SECONDS = 60 \* 60 \* 24 \* 7;/);
-  assert.match(read('src/lib/services/price-service.ts'), /PAGE_OFFERS_TTL_SECONDS = 15 \* 60;/);
 
   // 外部送信規律：トップ画面から1回の操作で届く（コメントにしたものは数えない）・サイトマップにも載せる
   const chat = read('src/components/chat/ChatContainer.tsx').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -8696,4 +8649,39 @@ test('144. Rakuten keywords follow Rakuten\'s rule (no 1-character kana word), a
       file
     );
   }
+});
+
+test('145. Foundations are their own kind, other makeup has none, and the alternatives card offers a price check (owner report 2026-11-03)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { productCategory, categoryFromText } = await import('../src/lib/analyzer/product-category');
+  const { isValidProduct } = await import('../src/lib/product-validation');
+  // ページの読み取りで「クリーム」になったクリームファンデーションに、乳液を勧めていた
+  assert.strictEqual(productCategory({ category: 'cream', name: 'クリームファンデーション' }), 'foundation');
+  assert.strictEqual(productCategory({ category: 'other', name: 'BBクリーム SPF30' }), 'foundation');
+  assert.strictEqual(productCategory({ category: 'other', name: 'ＣＣクリーム' }), 'foundation', 'Full-width letters');
+  assert.strictEqual(productCategory({ category: 'sunscreen', name: 'UV ミネラルファンデ' }), 'foundation');
+  assert.strictEqual(productCategory({ category: 'foundation', name: 'Skin Tint' }), 'foundation');
+  assert.strictEqual(productCategory({ category: 'cream', name: 'チーククリーム' }), undefined, 'Other makeup: no skincare alternative');
+  assert.strictEqual(productCategory({ category: 'cream', name: '化粧下地 ミルク' }), undefined);
+  assert.strictEqual(productCategory({ category: 'other', name: 'UV下地' }), 'sunscreen');
+  assert.strictEqual(productCategory({ category: 'cream', name: 'キュレル 潤浸保湿 フェイスクリーム' }), 'cream');
+  assert.strictEqual(categoryFromText('ファンデで肌荒れした'), 'foundation');
+  assert.strictEqual(productCategory({ category: 'cleanser', name: 'ファンデまで落とせるクレンジング' }), 'cleanser');
+  assert.strictEqual(productCategory({ category: 'other', name: 'メイクもスルッと落とせる洗顔' }), 'cleanser');
+  assert.strictEqual(productCategory({ category: 'other', name: 'クレンジング不要のミネラルファンデ' }), 'foundation');
+  assert.strictEqual(productCategory({ category: 'other', name: 'ティントファンデ' }), 'foundation');
+  assert.strictEqual(categoryFromText('マスカラ'), undefined);
+  assert.strictEqual(categoryFromText('BBQ'), undefined);
+  assert.ok(isValidProduct(verifiedProduct({ category: 'foundation' })));
+  assert.match(readFileSync('src/lib/services/web-research.ts', 'utf8'), /\| foundation（BB・CC クリームを含む） \|/);
+
+  const card = readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8');
+  assert.match(card, /onClick=\{\(\) => onPriceLookup\(p\)\}/);
+  assert.match(card, /canPrice = !!onPriceLookup && isPersistable\(p\)/);
+  // Qoo10 は Amazon のボタンと同じボタンの形（枠線）
+  assert.match(card, /className=\{`\$\{canPrice \? '' : 'col-span-2'\} \$\{buttonSecondaryCompact\}`\}/);
+  assert.doesNotMatch(card, /textLink/);
+  const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+  assert.match(chat, /<DifferentialResultCard result=\{msg\.differentialAnalysis\} onPriceLookup=\{handleAlternativePriceLookup\}/);
+  assert.match(chat, /onPriceLookup=\{handleAlternativePriceLookup\}\n\s+busy=\{isLoading\}/);
 });

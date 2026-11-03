@@ -90,6 +90,7 @@ const PRODUCT_CATEGORIES: Product['category'][] = [
   'sunscreen',
   'mask',
   'lip',
+  'foundation',
   'other',
 ];
 
@@ -234,7 +235,7 @@ function buildReadPrompt(urls: string[], target: string): string {
 ${urls.map((u, i) => `${i + 1}. ${u}`).join('\n')}
 
 JSON配列のみを出力（1ページにつき最大2製品）:
-[{"sourceUrl": "読んだページのURL（上の一覧のいずれか）", "brand": "ブランド名・メーカー名", "name": "製品名", "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | other", "ingredients": ["ページの全成分表示の順番どおり。有効成分として分けて書かれた成分は除く。「他3成分」のような記載もそのまま1項目にする。全成分表示が無ければ空配列"], "activeIngredients": ["「有効成分」として分けて書かれた成分、または※印などで有効成分と示された成分。無ければ空配列"], "quasiDrug": ページに「医薬部外品」と書かれていれば true、無ければ false, "ingredientsFoundOnPage": true または false, "barcode": "ページに書かれたJAN/EANコード（数字のみ）。無ければ空文字"}]`;
+[{"sourceUrl": "読んだページのURL（上の一覧のいずれか）", "brand": "ブランド名・メーカー名", "name": "製品名", "category": "cleanser | toner | serum | cream | sunscreen | mask | lip | foundation（BB・CC クリームを含む） | other（ファンデーション以外のメイク用品を含む）", "ingredients": ["ページの全成分表示の順番どおり。有効成分として分けて書かれた成分は除く。「他3成分」のような記載もそのまま1項目にする。全成分表示が無ければ空配列"], "activeIngredients": ["「有効成分」として分けて書かれた成分、または※印などで有効成分と示された成分。無ければ空配列"], "quasiDrug": ページに「医薬部外品」と書かれていれば true、無ければ false, "ingredientsFoundOnPage": true または false, "barcode": "ページに書かれたJAN/EANコード（数字のみ）。無ければ空文字"}]`;
 }
 
 type ConfirmedItem = { item: Record<string, unknown>; sourceUrl: string };

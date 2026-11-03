@@ -642,6 +642,10 @@ export const ChatContainer: React.FC = () => {
     );
   };
 
+  /** 代わりの商品のカードの「価格を比べる」 */
+  const handleAlternativePriceLookup = (product: Product) =>
+    void handlePriceLookup(`💴 「${product.name}」の価格を調べる`, product);
+
   /** 入力された成分表示を分析する（サーバーはパーサーと成分DBだけで分析し、保存しない） */
   const handleLabelSubmit = async (label: LabelInput): Promise<boolean | string> => {
     // 前の応答を待っている間は受け付けない（返信の順序が入れ替わらないように）。理由は入力の画面に出す
@@ -1323,13 +1327,14 @@ export const ChatContainer: React.FC = () => {
                       onAddToSafeRoutine={() => handleAddToSafe(msg.singleAnalysis!.product)}
                       onAddToCurrentRoutine={() => handleAddToCurrent(msg.singleAnalysis!.product)}
                       onFindAlternatives={() => void handleFindAlternatives(msg.singleAnalysis!.product)}
+                      onPriceLookup={handleAlternativePriceLookup}
                       busy={isLoading}
                     />
                   )}
 
                   {/* Differential Culprit Card with Amazon safe recommendations */}
                   {msg.differentialAnalysis && (
-                    <DifferentialResultCard result={msg.differentialAnalysis} />
+                    <DifferentialResultCard result={msg.differentialAnalysis} onPriceLookup={handleAlternativePriceLookup} busy={isLoading} />
                   )}
 
                   {msg.currentUseCheck && <CurrentUseResultCard result={msg.currentUseCheck} />}

@@ -255,6 +255,10 @@ export function detectQueryIntent(query: string): {
   }
 
   // 3. カテゴリ
+  // ファンデーションは、ティント・バーム・ローションなどの語を名前に含むことがあるので先に見る
+  if (/ファンデ|(?<![a-z])(bb|cc) ?(クリーム|cream)|foundation/i.test(clean)) {
+    return { type: 'category', key: 'foundation', expandedQuery: `${clean} ファンデーション` };
+  }
   if (/リップ|口紅|ルージュ|ティント|バーム|lip/i.test(clean)) {
     return { type: 'category', key: 'lip', expandedQuery: `${clean} コスメ` };
   }

@@ -54,7 +54,7 @@ function isValidLabelInput(label: unknown): boolean {
 
 /** 価格を調べて返す（T4）。query は商品名だけ。商品名が無ければ入力を案内する */
 async function priceReply(query: string | null, clientIp: string) {
-  // 価格の検索は1回で Web 検索と Gemini を何回も使うので、ほかの操作より少ない回数に制限する
+  // 価格の検索は楽天・Yahoo! の API を何回か呼ぶ（API の回数の決まりがある）ので、ほかの操作より少ない回数に制限する
   if (await isRateLimited('price', clientIp)) {
     return NextResponse.json({ reply: RATE_LIMIT_MESSAGE_JA }, { status: 429 });
   }
@@ -456,7 +456,7 @@ async function handlePost(request: NextRequest) {
       });
     }
 
-    // D. 価格（T4）。検索語は文章から取り出した商品名だけ。商品ページから読んだ価格だけ15分間使い回す
+    // D. 価格（T4）。検索語は文章から取り出した商品名だけ。楽天・Yahoo! の API だけで調べ、保存しない
     if (gate?.intent === 'price_inquiry') {
       return priceReply(toPriceSearchQuery(userText), getClientIp(request.headers));
     }

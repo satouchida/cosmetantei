@@ -77,7 +77,7 @@ export interface Product {
   name: string;
   brand: string;
   country: CountryOrigin;
-  category: 'cleanser' | 'toner' | 'serum' | 'cream' | 'sunscreen' | 'mask' | 'lip' | 'other';
+  category: 'cleanser' | 'toner' | 'serum' | 'cream' | 'sunscreen' | 'mask' | 'lip' | 'foundation' | 'other';
   barcode?: string;
   imageUrl?: string;
   isQuasiDrug?: boolean; // 医薬部外品
@@ -204,11 +204,11 @@ export interface DifferentialAnalysisResult {
   safeAlternatives: Product[]; // 原因候補の成分と強い刺激成分を含まない、同じ種類の商品
 }
 
-/** 販売ページで確認した価格（T4。商品ページから読んだ価格だけ15分間キャッシュする。price-service.ts） */
+/** 販売ページで確認した価格（T4。楽天・Yahoo! の API だけ。保存しない。price-service.ts） */
 export interface PriceOffer {
   /** 販売している店（楽天・Yahoo! の出店者名など） */
   shop: string;
-  /** モールの名前（楽天市場・Yahoo!ショッピング・@cosme SHOPPING） */
+  /** モールの名前（楽天市場・Yahoo!ショッピング） */
   marketplace: string;
   productName: string;
   priceYen: number;
@@ -227,7 +227,7 @@ export type PriceApiCredit = 'rakuten' | 'yahoo';
 
 export interface PriceResult {
   productQuery: string;
-  /** unavailable: 検索・ページの読み取りに失敗した（「価格が無い」とは区別する） */
+  /** unavailable: お店の API で調べられなかった（「価格が無い」とは区別する） */
   status: 'ok' | 'unavailable';
   /** 安い順。確認できた価格が無ければ空 */
   offers: PriceOffer[];

@@ -72,7 +72,7 @@ full ingredient lists, points out the likely causes, and suggests products witho
   | `ASSETS` | Static Assets | `.open-next/assets` |
   | `APP_CACHE` | KV | Caching (Gemini replies, brand verdicts, barcode matches, search results, verified products) |
   | `AI` | Workers AI | Clef and Web Search |
-  | `AI_RATE_LIMITER`, `SEARCH_RATE_LIMITER`, `PRICE_RATE_LIMITER`, `SESSION_RATE_LIMITER`, `SHOP_RATE_LIMITER` | Rate limiting | Per-IP limits (20, 60, 5, 10 and 6 a minute) |
+  | `AI_RATE_LIMITER`, `SEARCH_RATE_LIMITER`, `PRICE_RATE_LIMITER`, `SESSION_RATE_LIMITER`, `SHOP_RATE_LIMITER` | Rate limiting | Per-IP limits (20, 60, 10, 10 and 6 a minute) |
   | `SPEND_CAP` | Durable Object `SpendCapObject` | Counts paid calls across all users |
   | `USAGE` | Analytics Engine, dataset `cosmetantei_usage` | Usage records (counts, tokens, time; no text) |
 

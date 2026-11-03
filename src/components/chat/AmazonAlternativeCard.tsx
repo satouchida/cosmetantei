@@ -2,20 +2,26 @@
 
 import React from 'react';
 import { Product } from '@/lib/types';
-import { ShoppingBag, ExternalLink, ShieldCheck } from 'lucide-react';
+import { ShoppingBag, ExternalLink, ShieldCheck, JapaneseYen } from 'lucide-react';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
-import { badge, buttonPrimaryCompact, innerCard, panel, textLink } from '../ui/design';
+import { badge, buttonPrimaryCompact, buttonSecondaryCompact, busyLook, innerCard, panel } from '../ui/design';
 import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
+import { isPersistable } from '@/lib/current-use';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
   avoidedIngredients?: string[];
+  /** 楽天・Yahoo! などの価格を調べる（チャットの「この商品の価格を調べる」と同じ） */
+  onPriceLookup?: (product: Product) => void;
+  busy?: boolean;
 }
 
 export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
   products,
+  onPriceLookup,
+  busy = false,
 }) => {
   if (!products || products.length === 0) return null;
   // 「同じ種類」と書くのは、全商品の種類がそろうときだけ（src/lib/analyzer/product-category.ts）
@@ -47,6 +53,8 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
           // いつもその場で作る（保存された製品のリンクには、前のタグが付いていることがある）
           const amazonUrl = buildAmazonAffiliateUrl(p.brand, p.name);
           const qoo10Url = buildQoo10AffiliateUrl(p.brand, p.name);
+          // サーバーが持っている製品だけ（入力した成分表示・お店の説明から読んだ製品は、サーバーが価格を調べない）
+          const canPrice = !!onPriceLookup && isPersistable(p);
 
           return (
             <div
@@ -99,16 +107,34 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                   <ExternalLink className="w-4 h-4" aria-hidden />
                   <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                 </a>
-                {qoo10Url && (
-                  <a
-                    href={qoo10Url}
-                    target="_blank"
-                    rel="noopener noreferrer sponsored nofollow"
-                    className={`mt-1 inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
-                  >
-                    Qoo10で探す
-                    <span className="sr-only">（{p.name}、新しいタブで開く）</span>
-                  </a>
+                {(canPrice || qoo10Url) && (
+                  // 補助の操作は枠線のボタンで横に並べる（片方だけなら1つで幅いっぱい）
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {canPrice && (
+                      <button
+                        type="button"
+                        onClick={() => onPriceLookup(p)}
+                        aria-label={`価格を比べる（${p.name}）`}
+                        aria-disabled={busy || undefined}
+                        className={`${qoo10Url ? '' : 'col-span-2'} ${buttonSecondaryCompact} ${busyLook}`}
+                      >
+                        <JapaneseYen className="w-4 h-4 shrink-0" aria-hidden />
+                        <span>価格を<wbr />比べる</span>
+                      </button>
+                    )}
+                    {qoo10Url && (
+                      <a
+                        href={qoo10Url}
+                        target="_blank"
+                        rel="noopener noreferrer sponsored nofollow"
+                        className={`${canPrice ? '' : 'col-span-2'} ${buttonSecondaryCompact}`}
+                      >
+                        <span>Qoo10で<wbr />探す</span>
+                        <ExternalLink className="w-4 h-4 shrink-0" aria-hidden />
+                        <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

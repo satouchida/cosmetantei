@@ -326,7 +326,7 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       layout: 'chat',
       render: () => (
         <Bubble>
-          <AmazonAlternativeCard products={[curel, ihada, longJapanese]} avoidedIngredients={['香料', 'エタノール']} />
+          <AmazonAlternativeCard products={[curel, ihada, longJapanese]} avoidedIngredients={['香料', 'エタノール']} onPriceLookup={() => {}} />
         </Bubble>
       ),
     },

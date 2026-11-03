@@ -41,7 +41,7 @@ interface AppBindings {
   APP_CACHE?: KVNamespaceLike;
   AI_RATE_LIMITER?: RateLimiterLike;
   SEARCH_RATE_LIMITER?: RateLimiterLike;
-  /** 価格の検索（1回で Web 検索と Gemini のページ読み取りを何回も使うので、ほかの AI の操作より少なくする） */
+  /** 価格の検索（楽天・Yahoo! の API を何回か呼ぶ。API の回数の決まりがあるので、ほかの操作より少なくする） */
   PRICE_RATE_LIMITER?: RateLimiterLike;
   /** Turnstile の確認とセッションの発行（src/lib/server/session.ts） */
   SESSION_RATE_LIMITER?: RateLimiterLike;
@@ -332,7 +332,7 @@ export async function cachePutJSON(key: string, value: unknown, ttlSeconds: numb
 export type RateLimitBucket = 'ai' | 'search' | 'price' | 'session' | 'shop' | 'shop_session';
 
 /** バインディングが無い環境用のフォールバック上限（1分あたり） */
-const FALLBACK_LIMITS: Record<RateLimitBucket, number> = { ai: 20, search: 60, price: 5, session: 10, shop: 20, shop_session: 6 };
+const FALLBACK_LIMITS: Record<RateLimitBucket, number> = { ai: 20, search: 60, price: 10, session: 10, shop: 20, shop_session: 6 };
 
 const RATE_LIMITER_BINDING: Record<RateLimitBucket, keyof AppBindings> = {
   ai: 'AI_RATE_LIMITER',

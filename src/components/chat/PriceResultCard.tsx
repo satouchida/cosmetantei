@@ -16,7 +16,7 @@ function safeHref(url: string): string | undefined {
 }
 
 /**
- * 販売ページで確認した価格（安い順）。価格は保存せず、調べた時点のものとして表示する
+ * 楽天市場・Yahoo!ショッピングの API で調べた価格（安い順）。価格は保存せず、調べた時点のものとして表示する
  * - アフィリエイトリンクがあれば「PR」と書く（景品表示法のステルスマーケティング規制）
  * - 楽天・Yahoo! の API で取得した価格を出すときは、各社の決まったクレジットを表示する（そのままの文言で）
  */
@@ -47,8 +47,8 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
           </h2>
           <p className="text-xs text-ink-muted">
             {result.offers.length > 0
-              ? '販売ページに書かれていた価格です。購入前にページでご確認ください。'
-              : '販売ページで確認できた価格はありません。'}
+              ? '楽天市場・Yahoo!ショッピングの商品検索で調べた価格です。購入前に販売ページでご確認ください。'
+              : '楽天市場・Yahoo!ショッピングで確認できた価格はありません。'}
           </p>
         </div>
       </div>
