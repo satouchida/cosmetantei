@@ -122,5 +122,10 @@ path already exists and is covered by test 71.
    (recommended).
    - 2026-11-03: the owner added LIPS (`lipscosme.com`) and @cosme SHOPPING (`cosme.com`) as
      reliable cosmetics sites with full ingredient lists on their product pages.
+   - 2026-11-03: Gemini blocks most ingredient-list reads with RECITATION, so product pages on
+     LIPS, the Shiseido online store and @cosme SHOPPING are now read in code
+     (`src/lib/services/site-readers.ts`, robots.txt checked that day). Other pages, and pages
+     whose layout no longer matches, still go to Gemini. For products with several shades, the
+     first shade's list and name are used.
 2. **Alternatives.** Use trusted sites only (recommended, because those queries are the same for
    everyone), or also show untrusted alternatives with the note.

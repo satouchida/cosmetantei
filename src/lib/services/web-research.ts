@@ -19,6 +19,8 @@ import { mayRememberFailure } from '../server/usage';
 import { isPlainLabelText } from '../utils/safe-text';
 import { isJailbreakAttempt } from './gemini';
 import { logSourceTrust, mayShareWebProduct } from '../data/trusted-sites';
+import { canonicalSiteUrl, isSiteReadable, readSitePage } from './site-readers';
+import { matchesProductWords } from '../search/product-match';
 
 /**
  * AI への指示のような語（検索語・ページの成分名に入っていたら使わない）。検索語は Gemini のページ読み取りにも渡るため、
@@ -296,6 +298,19 @@ function hostOf(url: string): string {
   }
 }
 
+/**
+ * コードで読んだ製品が、調べた商品名に合うか（rankProducts と同じ照合。ブランド名だけの一致は合わない）。
+ * 製品名に無いことの多い数字のある語（容量・色番号）は無くてもよい
+ */
+function namesTarget(item: { brand: string; name: string; category: string }, target: string): boolean {
+  const product = { id: '', brand: item.brand, name: item.name, category: item.category } as Product;
+  const withoutNumbers = target
+    .split(/\s+/)
+    .filter((w) => !/\d/.test(w.normalize('NFKC')))
+    .join(' ');
+  return matchesProductWords(product, target) || (!!withoutNumbers && matchesProductWords(product, withoutNumbers));
+}
+
 /** 1回の Gemini 呼び出しでページを読む。RECITATION で止められたら 'recitation'、出力の上限で切れたら 'truncated' */
 async function readPagesOnce(
   urls: string[],
@@ -360,16 +375,30 @@ async function readPagesOnce(
 export async function readProductPages(
   urls: string[],
   target: string,
-  { skipCache = false }: { skipCache?: boolean } = {}
+  // matchTarget: コードで読んだページは、製品名が target（商品名）に合うときだけ使う（Gemini には「該当する製品だけ」と頼む）
+  { skipCache = false, matchTarget = false }: { skipCache?: boolean; matchTarget?: boolean } = {}
 ): Promise<{ products: PageProduct[]; allBlocked: boolean; incomplete: boolean } | null> {
+  // 決まったサイトの製品ページはコードで読む（Gemini は全成分の書き写しを止めることが多い。site-readers.ts）。
+  // 読めなかったページだけ Gemini で読む
+  const direct = await Promise.all(urls.map(async (u) => ({ url: u, item: isSiteReadable(u) ? await readSitePage(u) : null })));
+  const geminiUrls = direct.filter((d) => !d.item).map((d) => d.url);
+  // 読めたが別の製品のページは使わない（Gemini で読んでも同じ答えなので、Gemini にも回さない）
+  const directItems: ConfirmedItem[] = direct.flatMap((d) =>
+    d.item && (!matchTarget || namesTarget(d.item, target)) ? [{ item: d.item, sourceUrl: canonicalSiteUrl(d.url) ?? d.url }] : []
+  );
+  const readInCode = direct.some((d) => d.item);
   // 3ページ×2製品の全成分が入るよう余裕を持たせる（思考は既定の low）
-  const read = await readPagesWithSources(urls, (u) => buildReadPrompt(u, target), 8192, { skipCache });
-  if (!read) return null;
-  const allBlocked = urls.length > 0 && read.blockedUrls.length === urls.length;
-  const incomplete = read.failedUrls.length > 0;
+  const read =
+    geminiUrls.length > 0
+      ? await readPagesWithSources(geminiUrls, (u) => buildReadPrompt(u, target), 8192, { skipCache })
+      : { items: [], blockedUrls: [], failedUrls: [] };
+  if (!read && !readInCode) return null;
+  const allBlocked = !readInCode && !!read && urls.length > 0 && read.blockedUrls.length === urls.length;
+  // Gemini の読み取りが失敗した（コードで読めたページはある）：残りのページは読めていない
+  const incomplete = !read || read.failedUrls.length > 0;
 
   const products: PageProduct[] = [];
-  for (const { item, sourceUrl } of read.items) {
+  for (const { item, sourceUrl } of [...directItems, ...(read?.items ?? [])]) {
     if (typeof item.name !== 'string' || typeof item.brand !== 'string') continue;
 
     const name = item.name.trim();
@@ -430,11 +459,15 @@ const MAX_RETRY_PAGES = 2;
  * - 戻り値の [] は確定した「該当なし」（ページを読んで該当製品が無い、または読めるページが全て止められた）
  * - 検索・読み取りの一時的な失敗は null（呼び出し側は「見つからない」として保存しない）
  */
-async function searchAndReadProducts(query: string, target: string): Promise<PageProduct[] | null> {
+async function searchAndReadProducts(
+  query: string,
+  target: string,
+  options: { matchTarget?: boolean } = {}
+): Promise<PageProduct[] | null> {
   const search = await webSearch(query);
   if (!search) return null;
   const urls = pickPagesToRead(search.items);
-  const read = await readProductPages(urls, target);
+  const read = await readProductPages(urls, target, options);
   if (!read) return null;
   if (!read.allBlocked) return conclusive(read);
 
@@ -449,7 +482,7 @@ async function searchAndReadProducts(query: string, target: string): Promise<Pag
     MAX_RETRY_PAGES
   );
   if (fresh.length === 0) return [];
-  const reread = await readProductPages(fresh, target);
+  const reread = await readProductPages(fresh, target, options);
   return reread ? conclusive(reread) : null;
 }
 
@@ -634,7 +667,7 @@ export async function researchProducts(
   if (await cacheGetJSON<boolean>(`${cacheKey}:fail`)) return [];
   if (await cacheGetJSON<boolean>(`${cacheKey}:untrusted`)) return [];
 
-  const pages = await searchAndReadProducts(`${productQuery} 全成分`, productQuery);
+  const pages = await searchAndReadProducts(`${productQuery} 全成分`, productQuery, { matchTarget: true });
   // 一時的な失敗（検索・Gemini のエラー等）は「見つからなかった」としてキャッシュしない。しばらく同じ検索をしない印だけ付ける
   if (!pages) {
     await rememberResearchFailure(cacheKey);
@@ -794,11 +827,14 @@ async function findLabelByName(product: Product): Promise<Product | null> {
  */
 export async function refreshPageProduct(stored: Product): Promise<Product | null | undefined> {
   const target = productSearchQuery(stored);
-  if (!stored.sourceUrl || !target || !isGeminiConfigured()) return null;
+  // コードで読むページ（site-readers.ts）は Gemini が無くても読める
+  if (!stored.sourceUrl || !target || (!isGeminiConfigured() && !isSiteReadable(stored.sourceUrl))) return null;
   const read = await readProductPages([stored.sourceUrl], target, { skipCache: true });
   if (!read) return undefined;
   for (const page of read.products) {
-    const product = await toProduct(page);
+    // 保存したときの URL で ID を作る（コードで読むページは問い合わせの部分を外した URL を出典にするが、
+    // その前に保存した製品の ID は元の URL から作ってある。読んだのはこの1ページだけ）
+    const product = await toProduct({ ...page, sourceUrl: stored.sourceUrl });
     if (product.id !== stored.id || product.ingredientSource !== 'web_page') continue;
     // 前に保存したときと同じく、英語の全成分表示は日本語の名前にする（訳した版と英語の版を「違う内容」としない）
     const [translated] = await translateEnglishLabels([product]);

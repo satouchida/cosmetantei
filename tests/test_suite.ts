@@ -8745,3 +8745,110 @@ test('146. A chat product lookup answers only with products named like the query
   assert.ok(line, warnings.join('\n'));
   assert.deepStrictEqual(JSON.parse(line.slice('[page-read] '.length)), { outcome: 'recitation', hosts: ['www.shiseido.co.jp'] });
 });
+
+test('147. LIPS, Shiseido and @cosme SHOPPING product pages are read in code, not by Gemini (RECITATION, owner decision 2026-11-03)', async () => {
+  const { isSiteReadable, decodeEntities } = await import('../src/lib/services/site-readers');
+  const { readProductPages } = await import('../src/lib/services/web-research');
+  // robots.txt で許された製品ページだけ。ほかの URL・似たホストは Gemini で読む
+  assert.ok(isSiteReadable('https://lipscosme.com/products/485956'));
+  assert.ok(isSiteReadable('https://lipscosme.com/product_patterns/297074'));
+  assert.ok(!isSiteReadable('https://lipscosme.com/posts/4084510'));
+  assert.ok(!isSiteReadable('https://lipscosme.com/products/search?q=x'));
+  assert.ok(isSiteReadable('https://www.shiseido.co.jp/sw/onlinestore/products/H35701.html?x=1'));
+  assert.ok(!isSiteReadable('https://maquillage.shiseido.co.jp/features/x/'));
+  assert.ok(isSiteReadable('https://www.cosme.com/products/detail.php?product_id=30630'));
+  assert.ok(!isSiteReadable('https://www.cosme.com/products/detail.php?product_id=1x'));
+  assert.ok(!isSiteReadable('http://lipscosme.com/products/1'), 'https only');
+  assert.ok(!isSiteReadable('https://lipscosme.com.evil.example/products/1'));
+  assert.strictEqual(decodeEntities('A&amp;B &lt;M1&gt; &#12354;&#x3042;'), 'A&B <M1> ああ');
+  assert.strictEqual(decodeEntities('&#xD800;&reg;&yen;'), '&#xD800;®¥', 'No lone surrogates');
+
+  const ld = (o: object) => `<script type="application/ld+json">${JSON.stringify(o)}</script>`;
+  const pages: Record<string, string> = {
+    'https://lipscosme.com/product_patterns/1':
+      ld({ '@type': 'Product', name: 'テストリキッド オークル10', brand: { '@type': 'Brand', name: 'テストブランド' }, category: 'リキッドファンデーション' }) +
+      '<div class="LipsModal ProductPatternElementsModal">' +
+      ['水', 'グリセリン', 'BG', 'マイカ &lt;M104203-202&gt;']
+        .map((n) => `<div class="ProductPatternElementsModal__element"><div class="ProductPatternElementsModal__element-name">${n}</div></div>`)
+        .join('') +
+      '</div>',
+    'https://www.shiseido.co.jp/sw/onlinestore/products/T1.html':
+      '<title>テストブランド｜テストクッション｜ファンデーション｜資生堂オンラインストア</title>' +
+      ld({ '@type': 'Product', name: 'テストクッション', brand: { '@type': 'Brand', name: 'テストブランド' }, sku: '4900000000001' }) +
+      '<option value="select-contents1">テストクッション 00</option><option value="select-contents2">テストクッション 10</option>' +
+      '<dl id="select-contents1"><div><dt><div><span>成分</span></div></dt><dd><div class="text__tertiary">水,酸化チタン,ジメチコン,マイカ <M135458-202><p class="text__quaternary">※注記</p></div></dd></div></dl>' +
+      '<dl id="select-contents2"><div><dt><div><span>成分</span></div></dt><dd><div class="text__tertiary">水,酸化鉄</div></dd></div></dl>',
+    'https://www.cosme.com/products/detail.php?product_id=9':
+      '<p class="product__brand"><a itemprop="brand" href="/t/"><span itemprop="name">テストブランド / test</span></a></p>' +
+      '<h1 itemprop="name" class="product__name">テスト 化粧水 / 本体 / 150ml</h1>' +
+      '<ol><li><span itemprop="name">TOP</span></li><li><span itemprop="name">化粧水</span></li></ol>' +
+      '<dl><dt>成分</dt><dd>トラネキサム酸*、水、グリセリン、BG *は「有効成分」無表示は「その他の成分」</dd><dt>JANコード</dt><dd><meta itemprop="sku" content="4900000000009" />4900000000009</dd></dl>',
+  };
+  const requested: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string) => {
+    const url = String(input);
+    requested.push(url);
+    const html = pages[url];
+    if (html === undefined) return new Response('offline in tests', { status: 503 });
+    const res = new Response(html, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    Object.defineProperty(res, 'url', { value: url });
+    return res;
+  }) as typeof fetch;
+  try {
+    const read = await readProductPages(
+      [
+        'https://lipscosme.com/product_patterns/1',
+        'https://www.shiseido.co.jp/sw/onlinestore/products/T1.html?shohin=1',
+        'https://www.cosme.com/products/detail.php?product_id=9&x=1',
+      ],
+      'テスト'
+    );
+    assert.ok(read);
+    assert.ok(!requested.some((u) => u.includes('generateContent')), 'Gemini is not called for these pages');
+    assert.deepStrictEqual(
+      read.products.map((p) => [p.sourceUrl, p.brand, p.name, p.category, p.ingredients, p.activeIngredients, p.isQuasiDrug, p.barcode]),
+      [
+        ['https://lipscosme.com/product_patterns/1', 'テストブランド', 'テストリキッド オークル10', 'foundation', ['水', 'グリセリン', 'BG', 'マイカ'], [], false, undefined],
+        // 色が2つ：最初の色の成分と名前。バーコードは付けない
+        // 出典は問い合わせの部分を外した URL
+        ['https://www.shiseido.co.jp/sw/onlinestore/products/T1.html', 'テストブランド', 'テストクッション 00', 'foundation', ['水', '酸化チタン', 'ジメチコン', 'マイカ'], [], false, undefined],
+        ['https://www.cosme.com/products/detail.php?product_id=9', 'テストブランド / test', 'テスト 化粧水 / 本体 / 150ml', 'toner', ['水', 'グリセリン', 'BG'], ['トラネキサム酸'], true, '4900000000009'],
+      ]
+    );
+    // 商品名を調べたとき（matchTarget）は、名前の合う製品だけ。検査数字の合わない番号はバーコードにしない
+    pages['https://www.cosme.com/products/detail.php?product_id=9'] = pages['https://www.cosme.com/products/detail.php?product_id=9'].replace('4900000000009"', '4900000000003"');
+    const named = await readProductPages(
+      ['https://lipscosme.com/product_patterns/1', 'https://www.cosme.com/products/detail.php?product_id=9'],
+      'テストブランド テストリキッド 30ml',
+      { matchTarget: true }
+    );
+    assert.deepStrictEqual(named?.products.map((p) => p.name), ['テストリキッド オークル10']);
+    assert.strictEqual(named?.allBlocked, false, 'A page read in code is not "blocked"');
+    const unmatched = await readProductPages(['https://www.cosme.com/products/detail.php?product_id=9'], 'テスト', {});
+    assert.strictEqual(unmatched?.products[0].barcode, undefined, 'A wrong check digit is not a barcode');
+    // 毎日の調べ直し：前に元の URL（問い合わせの部分つき）で保存した製品も、同じ ID で読み直せる。Gemini は要らない
+    const { toProduct, refreshPageProduct } = await import('../src/lib/services/web-research');
+    const rawUrl = 'https://lipscosme.com/product_patterns/1?ref=search';
+    const stored = await toProduct({ ...read.products[0], sourceUrl: rawUrl });
+    const refreshed = await refreshPageProduct(stored);
+    assert.strictEqual(refreshed?.id, stored.id);
+    assert.strictEqual(refreshed?.sourceUrl, rawUrl);
+    // 取りに行くのは問い合わせの部分を外した製品ページ
+    assert.ok(requested.includes('https://www.shiseido.co.jp/sw/onlinestore/products/T1.html'));
+    assert.ok(requested.includes('https://www.cosme.com/products/detail.php?product_id=9'));
+    assert.strictEqual(read.allBlocked, false);
+    assert.strictEqual(read.incomplete, false);
+
+    // 読めない（形が変わった・通信の失敗）ページは Gemini で読む（ここでは Gemini も届かないので「読めない」）
+    requested.length = 0;
+    const warn = console.warn;
+    console.warn = () => {};
+    const fallback = await readProductPages(['https://lipscosme.com/products/2'], 'テスト');
+    console.warn = warn;
+    assert.deepStrictEqual(requested[0], 'https://lipscosme.com/products/2');
+    assert.ok(fallback === null || fallback.products.length === 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
