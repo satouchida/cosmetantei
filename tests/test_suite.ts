@@ -8672,7 +8672,7 @@ test('144. Rakuten keywords follow Rakuten\'s rule (no 1-character kana word), a
   assert.strictEqual(toRakutenKeyword('ー ・'), '');
   assert.strictEqual(toRakutenKeyword(`キュレル ${'あ'.repeat(70)}`), 'キュレル', 'Over 128 half-width characters: later words go');
   // お店の理由（英語の決まった文）をログに出す
-  assert.match(readFileSync('src/lib/services/shop-apis.ts', 'utf8'), /body\?\.error_description/);
+  assert.match(readFileSync('src/lib/services/shop-apis.ts', 'utf8'), /\[body\?\.error_description, body\?\.Error\?\.Message, body\?\.error\]/);
 
   const config = readFileSync('open-next.config.ts', 'utf8');
   assert.match(config, /incrementalCache: staticAssetsIncrementalCache,/);

@@ -87,9 +87,13 @@ async function getJson(
     if (!res.ok) {
       // 404 は「該当なし」（楽天）
       if (res.status === 404) return {};
-      // お店が返す理由（決まった英語の文。例：keyword parameter is not valid）も出す。検索語は出さない
-      const body = (await res.json().catch(() => null)) as { error_description?: unknown; error?: unknown } | null;
-      const reason = typeof body?.error_description === 'string' ? body.error_description : typeof body?.error === 'string' ? body.error : '';
+      // お店が返す理由も出す（楽天 error_description、Yahoo! Error.Message。例：keyword parameter is not valid）。検索語は出さない
+      const body = (await res.json().catch(() => null)) as {
+        error_description?: unknown;
+        error?: unknown;
+        Error?: { Message?: unknown };
+      } | null;
+      const reason = [body?.error_description, body?.Error?.Message, body?.error].find((r): r is string => typeof r === 'string') ?? '';
       console.error(`${label} failed: ${res.status}${reason ? ` (${reason.replace(/[^\x20-\x7e]/g, '').slice(0, 120)})` : ''}`);
       return null;
     }
