@@ -127,5 +127,8 @@ path already exists and is covered by test 71.
      (`src/lib/services/site-readers.ts`, robots.txt checked that day). Other pages, and pages
      whose layout no longer matches, still go to Gemini. For products with several shades, the
      first shade's list and name are used.
+   - 2026-11-04: CANMAKE (`www.canmake.com/item/detail/…`) product pages are read in code too
+     (robots.txt checked that day). Those pages give a list for every shade, so the reader uses
+     the shade named in the search, or the first shade if none is named. They have no JAN code.
 2. **Alternatives.** Use trusted sites only (recommended, because those queries are the same for
    everyone), or also show untrusted alternatives with the note.

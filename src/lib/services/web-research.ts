@@ -380,7 +380,7 @@ export async function readProductPages(
 ): Promise<{ products: PageProduct[]; allBlocked: boolean; incomplete: boolean } | null> {
   // 決まったサイトの製品ページはコードで読む（Gemini は全成分の書き写しを止めることが多い。site-readers.ts）。
   // 読めなかったページだけ Gemini で読む
-  const direct = await Promise.all(urls.map(async (u) => ({ url: u, item: isSiteReadable(u) ? await readSitePage(u) : null })));
+  const direct = await Promise.all(urls.map(async (u) => ({ url: u, item: isSiteReadable(u) ? await readSitePage(u, target) : null })));
   const geminiUrls = direct.filter((d) => !d.item).map((d) => d.url);
   // 読めたが別の製品のページは使わない（Gemini で読んでも同じ答えなので、Gemini にも回さない）
   const directItems: ConfirmedItem[] = direct.flatMap((d) =>

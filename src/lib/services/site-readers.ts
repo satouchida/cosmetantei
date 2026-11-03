@@ -7,7 +7,8 @@ import { categoryFromText } from '../analyzer/product-category';
  * これらのサイトは全成分をページの HTML に載せているので、決まった場所から取り出す（費用もかからない）。
  * - 読むのは robots.txt で許された製品ページだけ（2026-11-03 に確かめた）。それ以外の URL は Gemini で読む
  * - 返すのは Gemini の読み取りと同じ形の項目。成分の確かめ方（長さ・件数・書式）は readProductPages で同じにする
- * - 色・種類ごとに成分が違う製品は、最初の色の成分と、その色の名前（分かれば）を使う
+ * - 色・種類ごとに成分が違う製品は、最初の色の成分と、その色の名前（分かれば）を使う。
+ *   色ごとの成分がページにあるサイト（キャンメイク）は、調べた商品名にある色を使う
  * - 読めなかった（通信・形が変わった）ら null。呼び出し側は Gemini で読む
  */
 
@@ -31,7 +32,8 @@ const USER_AGENT = 'cosmetantei/1.0 (+https://cosmetantei.app)';
 interface SiteReader {
   /** 読む製品ページか。返すのは取りに行く URL（読む場所が同じなら、問い合わせの部分を外す） */
   pageUrl(u: URL): string | null;
-  read(html: string): SiteItem | null;
+  /** target: 調べた商品名（色を選ぶのに使う。無ければ最初の色） */
+  read(html: string, target: string): SiteItem | null;
 }
 
 const READERS: Record<string, SiteReader> = {
@@ -87,7 +89,62 @@ const READERS: Record<string, SiteReader> = {
       return item(decodeEntities(name), decodeEntities(brand), crumbs, textOf(label), jan);
     },
   },
+  // キャンメイク：色ごとの成分がページの colorGroups（JSON）にある（色の多い製品の多くで、色ごとに成分が違う）
+  'www.canmake.com': {
+    pageUrl: (u) => (/^\/item\/detail\/[a-z0-9-]+\/?$/.test(u.pathname) ? `https://www.canmake.com${u.pathname}` : null),
+    read(html, target) {
+      const name = html.match(/<h1 class="p-item-basic__name">([^<]*)<\/h1>/)?.[1];
+      // 「商品名 | CANMAKE（キャンメイク）」のブランド
+      const brand = html.match(/<title>[^<|｜]*[|｜]\s*([^<|｜]+)/)?.[1];
+      // JSON の文字列には改行が入らないので、「];」の後の改行（か </script>）までが配列
+      const json = html.match(/(?:const|let|var)\s+colorGroups\s*=\s*(\[[\s\S]*?\])\s*;\s*(?:\n|<\/script>)/)?.[1];
+      if (!name || !brand || !json) return null;
+      let groups: unknown;
+      try {
+        groups = JSON.parse(json);
+      } catch {
+        return null;
+      }
+      if (!Array.isArray(groups)) return null;
+      const colors = groups.map((g) => {
+        const c = (g ?? {}) as { item_color_name?: unknown; item_color_ingredients?: unknown };
+        return {
+          name: typeof c.item_color_name === 'string' ? c.item_color_name.trim() : '',
+          label: typeof c.item_color_ingredients === 'string' ? c.item_color_ingredients.trim() : '',
+        };
+      });
+      const product = decodeEntities(name).trim();
+      // 調べた色を先に決める。その色の成分が無ければ、別の色の成分を返さない（Gemini で読む）
+      const color = colorNamedIn(colors, target, product) ?? colors.find((c) => c.label);
+      if (!color?.label) return null;
+      // パンくず（「アイメイク」など）から種類
+      const crumbs = [...html.matchAll(/class="c-breadcrumbs__item"><a [^>]*>([^<]{1,30})<\/a>/g)].map((m) => decodeEntities(m[1])).join(' ');
+      // 色が1つでも色の名前を付ける（キャンメイクの商品名は「メタルックマスカラ [01]ブラック」の形）
+      const full = color.name ? `${product} ${decodeEntities(color.name)}` : product;
+      return item(full, decodeEntities(brand), `${crumbs} ${product}`, textOf(color.label));
+    },
+  },
 };
+
+/**
+ * 調べた商品名（から商品名を外した残り）にある色。色の名前そのもの（「[01]ブラック」）が最優先、次に番号を除いた色の名前（長いほう。
+ * 「スウィートブラック」と「ブラック」なら長いほう）。無ければ undefined
+ */
+function colorNamedIn<T extends { name: string }>(colors: T[], target: string, product: string): T | undefined {
+  const squash = (s: string) => s.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+  // 商品名にある語（「クリアラッシュ」の「クリア」）は色の指定ではないので、商品名を外した残りで探す
+  const p = squash(product);
+  const t = p ? squash(target).split(p).join(' ') : squash(target);
+  let best: { color: T; score: number } | undefined;
+  for (const color of colors) {
+    const full = squash(color.name);
+    if (!full) continue;
+    const text = full.replace(/^\[[^\]]*\]/, '');
+    const score = t.includes(full) ? 1000 + full.length : text.length >= 2 && t.includes(text) ? text.length : 0;
+    if (score > 0 && (!best || score > best.score)) best = { color, score };
+  }
+  return best?.color;
+}
 
 /** コードで読めるページなら、その読み取り。読まないページは undefined */
 function readerFor(url: string): { reader: SiteReader; fetchUrl: string } | undefined {
@@ -115,8 +172,8 @@ export function canonicalSiteUrl(url: string): string | undefined {
   return readerFor(url)?.fetchUrl;
 }
 
-/** ページをコードで読む。読まないページ・読めなかったページは null */
-export async function readSitePage(url: string): Promise<SiteItem | null> {
+/** ページをコードで読む。target は調べた商品名（色を選ぶ）。読まないページ・読めなかったページは null */
+export async function readSitePage(url: string, target = ''): Promise<SiteItem | null> {
   const found = readerFor(url);
   if (!found) return null;
   try {
@@ -133,7 +190,7 @@ export async function readSitePage(url: string): Promise<SiteItem | null> {
     }
     const html = await res.text();
     if (html.length > MAX_HTML_LENGTH) return null;
-    const read = found.reader.read(html);
+    const read = found.reader.read(html, target);
     if (!read) console.warn(`[site-read] ${JSON.stringify({ outcome: 'no_label', host: new URL(found.fetchUrl).hostname })}`);
     return read;
   } catch (err) {

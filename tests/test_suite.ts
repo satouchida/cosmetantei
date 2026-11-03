@@ -8852,3 +8852,73 @@ test('147. LIPS, Shiseido and @cosme SHOPPING product pages are read in code, no
     globalThis.fetch = originalFetch;
   }
 });
+
+test('148. CANMAKE product pages are read in code, with the shade named in the search (owner decision 2026-11-04)', async () => {
+  const { isSiteReadable } = await import('../src/lib/services/site-readers');
+  const { readProductPages } = await import('../src/lib/services/web-research');
+  assert.ok(isSiteReadable('https://www.canmake.com/item/detail/metalook-mascara/'));
+  assert.ok(!isSiteReadable('https://www.canmake.com/item/category/cat03/'));
+  assert.ok(!isSiteReadable('https://www.canmake.com/topics/x/'));
+
+  const groups = [
+    { item_color_name: '[01]ブラック', item_color_ingredients: 'イソドデカン、トリメチルシロキシケイ酸、クオタニウム－９０ベントナイト、酸化鉄' },
+    { item_color_name: '[03]スウィートブラック', item_color_ingredients: 'イソドデカン、マイカ、酸化鉄' },
+    { item_color_name: '[04]クリア', item_color_ingredients: '' },
+  ];
+  const page =
+    '<title>テストマスカラ | CANMAKE（キャンメイク）</title>' +
+    '<ol class="c-breadcrumbs__list"><li class="c-breadcrumbs__item"><a href="https://www.canmake.com">TOP</a></li>' +
+    '<li class="c-breadcrumbs__item"><a href="https://www.canmake.com/item/category/cat03/">アイメイク</a></li></ol>' +
+    '<h1 class="p-item-basic__name">テストマスカラ</h1>' +
+    `<script>\n const colorGroups = ${JSON.stringify(groups)};\n const other = [];\n</script>`;
+  const url = 'https://www.canmake.com/item/detail/test-mascara/';
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string) => {
+    if (String(input) !== url) return new Response('offline in tests', { status: 503 });
+    const res = new Response(page, { status: 200, headers: { 'content-type': 'text/html; charset=UTF-8' } });
+    Object.defineProperty(res, 'url', { value: url });
+    return res;
+  }) as typeof fetch;
+  try {
+    const read = async (target: string) => (await readProductPages([`${url}?utm=x`], target))?.products[0];
+    // 調べた商品名の色（番号つき・全角でも）
+    const black = await read('キャンメイク テストマスカラ ［01］ブラック');
+    assert.deepStrictEqual(
+      [black?.sourceUrl, black?.brand, black?.name, black?.ingredients],
+      [url, 'CANMAKE（キャンメイク）', 'テストマスカラ [01]ブラック', ['イソドデカン', 'トリメチルシロキシケイ酸', 'クオタニウム-90ベントナイト', '酸化鉄']]
+    );
+    assert.strictEqual(black?.barcode, undefined);
+    // 番号の無い色の名前は、合う中で長いほう（「ブラック」より「スウィートブラック」）
+    assert.strictEqual((await read('テストマスカラ スウィートブラック'))?.name, 'テストマスカラ [03]スウィートブラック');
+    // 色が無い・合わない：最初の色
+    assert.strictEqual((await read('テストマスカラ'))?.name, 'テストマスカラ [01]ブラック');
+    // 調べた色の成分がページに無い：別の色の成分は返さない（Gemini で読む。ここでは Gemini も届かない）
+    const warn = console.warn;
+    console.warn = () => {};
+    const clear = await read('テストマスカラ [04]クリア');
+    console.warn = warn;
+    assert.strictEqual(clear, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('149. Shop candidates show the product name without listing extras or a repeated brand (owner request 2026-11-04)', async () => {
+  const { displayListingName } = await import('../src/lib/search/listing-name');
+  assert.strictEqual(displayListingName('【公式】セザンヌ 耐久カールマスカラ 01 ブラック 送料無料', 'セザンヌ'), '耐久カールマスカラ 01 ブラック');
+  assert.strictEqual(displayListingName('耐久カールマスカラ ★ポイント10倍', 'セザンヌ'), '耐久カールマスカラ');
+  // 色番号は残す
+  assert.strictEqual(displayListingName('メタルックマスカラ [01]ブラック', 'CANMAKE'), 'メタルックマスカラ [01]ブラック');
+  // ブランド名だけ・飾りだけなら元の名前
+  assert.strictEqual(displayListingName('セザンヌ', 'セザンヌ'), 'セザンヌ');
+  assert.strictEqual(displayListingName('セザンヌ化粧品 耐久カールマスカラ', 'セザンヌ'), 'セザンヌ化粧品 耐久カールマスカラ');
+  assert.strictEqual(displayListingName('セザンヌ / 耐久カールマスカラ', 'セザンヌ'), '耐久カールマスカラ');
+  assert.strictEqual(displayListingName('Chifure 化粧水', 'ちふれ・CHIFURE'), 'Chifure 化粧水');
+  assert.strictEqual(displayListingName('CHIFURE 化粧水', 'CHIFURE・ちふれ'), '化粧水');
+  assert.strictEqual(displayListingName('ABC-123', 'ABC'), 'ABC-123');
+  assert.strictEqual(displayListingName('テスト [01]', 'テスト'), 'テスト [01]');
+  assert.strictEqual(displayListingName('【公式】', ''), '【公式】');
+  const { readFileSync } = await import('node:fs');
+  const tray = readFileSync('src/components/search/LiveSearchCandidateTray.tsx', 'utf8');
+  assert.match(tray, /displayListingName\(product\.name, product\.brand\)/);
+});

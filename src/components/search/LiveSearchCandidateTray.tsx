@@ -5,6 +5,7 @@ import { ApiCredits } from '../ui/ApiCredits';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
 import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
+import { displayListingName } from '@/lib/search/listing-name';
 import { isSellerTextProduct } from '@/lib/product-source';
 import { ordinaryIngredients, quasiDrugActives } from '@/lib/quasi-drug';
 import {
@@ -62,15 +63,15 @@ function isShowableLink({ href, sponsored }: NonNullable<Product['shopLink']>): 
 const formatYen = (yen: number) => `¥${yen.toLocaleString('ja-JP')}`;
 
 /**
- * お店の商品検索の製品のカード上部：写真・ブランド・価格。
- * 商品名には【公式】・送料無料などが付くので出さない（変えずに、写真に重ねたときの説明と、ボタンの読み上げにだけ使う）。
- * お店の名前も出さない
+ * お店の商品検索の製品のカード上部：写真・ブランド・商品名・価格。
+ * 商品名は【公式】・送料無料などの飾りを外して出す（写真に重ねたときの説明と、ボタンの読み上げは元の名前のまま）。
+ * お店の名前は出さない
  */
 const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
   // 写真が読めなければ代わりの絵にする（alt の文字が出ると商品名が見えてしまうので、alt は空）
   const [failed, setFailed] = React.useState(false);
   return (
-  <div className="flex items-center gap-2.5">
+  <div className="flex items-start gap-2.5">
     {product.imageUrl && !failed ? (
       // お店の画像サーバーの写真をそのまま表示する（next/image の変換は通さない）
       // eslint-disable-next-line @next/next/no-img-element
@@ -96,8 +97,11 @@ const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
     )}
     <div className="min-w-0">
       <div className="text-xs font-semibold text-sage-700 truncate">{product.brand}</div>
+      <h3 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
+        {displayListingName(product.name, product.brand)}
+      </h3>
       {product.shopPrice && (
-        <div className="text-base font-semibold text-ink mt-0.5">
+        <div className="text-sm font-semibold text-ink mt-1">
           {formatYen(product.shopPrice.yen)}
           {product.shopPrice.taxIncluded === false && <span className="text-xs font-normal text-ink-muted">（税別）</span>}
         </div>
