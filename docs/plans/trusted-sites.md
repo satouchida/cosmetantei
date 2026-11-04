@@ -137,5 +137,7 @@ path already exists and is covered by test 71.
      file its product under a trusted page's URL, and the source check could not tell. This costs
      one extra Gemini call when a search returns both kinds of page, and only in enforce mode. If
      the trusted pages fail to read, the whole read counts as a temporary failure.
+   - 2026-11-04: the owner narrowed @cosme SHOPPING the same way. Only its product pages
+     (`/products/detail.php?product_id=<number>`) are trusted, not features or other pages.
 2. **Alternatives.** Use trusted sites only (recommended, because those queries are the same for
    everyone), or also show untrusted alternatives with the note.

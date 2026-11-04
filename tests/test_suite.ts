@@ -9015,7 +9015,7 @@ test('150. A shop request refused without the shop\'s own reason logs what answe
   }
 });
 
-test('151. Trusted sites: LIPS is trusted on product pages only; trusted and untrusted pages are read in separate Gemini calls (triage f002, f005)', async () => {
+test('151. Trusted sites: LIPS and @cosme SHOPPING are trusted on product pages only; trusted and untrusted pages are read in separate Gemini calls (triage f002, f005)', async () => {
   const { isTrustedSource } = await import('../src/lib/data/trusted-sites');
   const { readPagesWithSources } = await import('../src/lib/services/web-research');
 
@@ -9026,6 +9026,12 @@ test('151. Trusted sites: LIPS is trusted on product pages only; trusted and unt
   assert.ok(!isTrustedSource('https://lipscosme.com/articles/42'));
   assert.ok(!isTrustedSource('https://lipscosme.com/products/12345/posts'));
   assert.ok(!isTrustedSource('https://lipscosme.com/'));
+  // @cosme SHOPPING：商品のページ（product_id が数字）だけ
+  assert.ok(isTrustedSource('https://www.cosme.com/products/detail.php?product_id=123456'));
+  assert.ok(!isTrustedSource('https://www.cosme.com/products/detail.php'));
+  assert.ok(!isTrustedSource('https://www.cosme.com/products/detail.php?product_id=abc'));
+  assert.ok(!isTrustedSource('https://www.cosme.com/feature/2026/winter/'));
+  assert.ok(!isTrustedSource('https://www.cosme.com/'));
   // ほかのサイトは今までどおりホスト名だけ
   assert.ok(isTrustedSource('https://www.kao.co.jp/curel/'));
 
