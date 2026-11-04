@@ -130,5 +130,11 @@ path already exists and is covered by test 71.
    - 2026-11-04: CANMAKE (`www.canmake.com/item/detail/…`) product pages are read in code too
      (robots.txt checked that day). Those pages give a list for every shade, so the reader uses
      the shade named in the search, or the first shade if none is named. They have no JAN code.
+   - 2026-11-04 (security triage, before enforce): LIPS is trusted only on its product and
+     shade pages (`/products/<id>` and `/product_patterns/<id>`), not on posts or articles that
+     users write (`TRUSTED_PATHS` in `src/lib/data/trusted-sites.ts`). Gemini also reads trusted
+     and untrusted pages in separate calls. In one shared call, an untrusted page could make Gemini
+     file its product under a trusted page's URL, and the source check could not tell. This costs
+     one extra Gemini call when a search returns both kinds of page.
 2. **Alternatives.** Use trusted sites only (recommended, because those queries are the same for
    everyone), or also show untrusted alternatives with the note.

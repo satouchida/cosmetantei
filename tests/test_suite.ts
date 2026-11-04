@@ -9014,3 +9014,63 @@ test('150. A shop request refused without the shop\'s own reason logs what answe
     names.forEach((n, i) => (saved[i] === undefined ? delete process.env[n] : (process.env[n] = saved[i])));
   }
 });
+
+test('151. Trusted sites: LIPS is trusted on product pages only; trusted and untrusted pages are read in separate Gemini calls (triage f002, f005)', async () => {
+  const { isTrustedSource } = await import('../src/lib/data/trusted-sites');
+  const { readPagesWithSources } = await import('../src/lib/services/web-research');
+
+  // LIPS：製品・色の製品ページだけ。投稿・まとめ・検索のページは信頼しない
+  assert.ok(isTrustedSource('https://lipscosme.com/products/12345'));
+  assert.ok(isTrustedSource('https://lipscosme.com/product_patterns/678/'));
+  assert.ok(!isTrustedSource('https://lipscosme.com/posts/999'));
+  assert.ok(!isTrustedSource('https://lipscosme.com/articles/42'));
+  assert.ok(!isTrustedSource('https://lipscosme.com/products/12345/posts'));
+  assert.ok(!isTrustedSource('https://lipscosme.com/'));
+  // ほかのサイトは今までどおりホスト名だけ
+  assert.ok(isTrustedSource('https://www.kao.co.jp/curel/'));
+
+  // 信頼しないページが、信頼するページの URL を出典にした製品を Gemini に答えさせても、共有の出典にならない
+  const official = 'https://www.kao.co.jp/curel/products/split-lotion/';
+  const hostile = 'https://blog.example.net/split-lotion';
+  const prompts: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!String(url).includes('generateContent')) return new Response('offline in tests', { status: 503 });
+    const prompt: string = JSON.parse(String(init?.body)).contents[0].parts[0].text;
+    prompts.push(prompt);
+    const read = [official, hostile].filter((u) => prompt.includes(u));
+    // 読んだページに hostile があるときだけ、偽の製品を official の出典で答える（hostile のページに書かれた指示に従った）
+    const items = [
+      { sourceUrl: official, name: prompt.includes(hostile) ? '偽物' : '本物' },
+      ...(prompt.includes(hostile) ? [{ sourceUrl: hostile, name: 'ブログの製品' }] : []),
+    ];
+    return Response.json({
+      candidates: [
+        {
+          content: { parts: [{ text: JSON.stringify(items) }] },
+          finishReason: 'STOP',
+          urlContextMetadata: { urlMetadata: read.map((u) => ({ retrievedUrl: u, urlRetrievalStatus: 'URL_RETRIEVAL_STATUS_SUCCESS' })) },
+        },
+      ],
+    });
+  }) as typeof fetch;
+  setGatewayEnv();
+  try {
+    const result = await readPagesWithSources([official, hostile], (u) => u.join('\n'), 1024, { skipCache: true });
+    assert.ok(result);
+    assert.strictEqual(prompts.length, 2, 'One call per group');
+    assert.ok(prompts.every((p) => !(p.includes(official) && p.includes(hostile))), 'Never read together');
+    assert.deepStrictEqual(
+      result.items.map((i) => [i.sourceUrl, i.item.name]).sort(),
+      [[hostile, 'ブログの製品'], [official, '本物']].sort()
+    );
+
+    // 同じ組のページだけなら、今までどおり1回で読む
+    prompts.length = 0;
+    await readPagesWithSources([hostile, 'https://shop.example.com/item/1'], (u) => u.join('\n'), 1024, { skipCache: true });
+    assert.strictEqual(prompts.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});

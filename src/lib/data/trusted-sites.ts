@@ -7,7 +7,7 @@ import { Product } from '../types';
  * - 載っていないサイトの製品は、調べた本人にだけ返す（「ほかのサイトの情報」と表示）
  * - TRUSTED_SITES_MODE: off（今までどおり）/ shadow（今までどおり動き、出典のホスト名と判定だけをログに出す）/
  *   enforce（上のとおり共有を絞る）。既定は off
- * - 判定はホスト名だけ。https で、ドメインそのものか、そのサブドメイン（look-alike の kao.co.jp.evil.example は通さない）
+ * - 判定はホスト名（TRUSTED_PATHS のサイトはパスも）。https で、ドメインそのものか、そのサブドメイン（look-alike の kao.co.jp.evil.example は通さない）
  */
 
 /**
@@ -86,6 +86,14 @@ export const TRUSTED_DOMAINS: readonly string[] = [
 ];
 
 /**
+ * ドメインの一部のページだけを信頼するサイト。ドメイン（とサブドメイン）のページは、この形の URL のパスのときだけ信頼する。
+ * LIPS は製品・色の製品ページだけ（投稿・まとめなど、利用者の書いたページは信頼しない）
+ */
+export const TRUSTED_PATHS: Readonly<Record<string, RegExp>> = {
+  'lipscosme.com': /^\/(?:products|product_patterns)\/\d+\/?$/,
+};
+
+/**
  * 載っていても信頼しないホスト（出品者が書く商品ページ・個人の投稿・情報の提供を断っているサイト）。
  * 上の一覧のサブドメインに当たっても、こちらが優先
  */
@@ -122,12 +130,14 @@ export function sourceHost(url: string | undefined): string | null {
   }
 }
 
-/** 共有してよいサイトの URL か */
+/** 共有してよいサイトの URL か（TRUSTED_PATHS のサイトはパスも見る） */
 export function isTrustedSource(url: string | undefined): boolean {
   const host = sourceHost(url);
   if (!host) return false;
   if (NEVER_TRUSTED_DOMAINS.some((d) => matchesDomain(host, d))) return false;
-  return TRUSTED_DOMAINS.some((d) => matchesDomain(host, d));
+  if (!TRUSTED_DOMAINS.some((d) => matchesDomain(host, d))) return false;
+  const path = Object.entries(TRUSTED_PATHS).find(([d]) => matchesDomain(host, d))?.[1];
+  return !path || path.test(new URL(url!).pathname);
 }
 
 type SourceFields = Pick<Product, 'id'> & Partial<Pick<Product, 'sourceUrl' | 'ingredientSource' | 'sharedSource'>>;

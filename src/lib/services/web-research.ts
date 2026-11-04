@@ -18,7 +18,7 @@ import { translateEnglishLabels } from './ingredient-translate';
 import { mayRememberFailure } from '../server/usage';
 import { isPlainLabelText } from '../utils/safe-text';
 import { isJailbreakAttempt } from './gemini';
-import { logSourceTrust, mayShareWebProduct } from '../data/trusted-sites';
+import { isTrustedSource, logSourceTrust, mayShareWebProduct } from '../data/trusted-sites';
 import { canonicalSiteUrl, isSiteReadable, readSitePage } from './site-readers';
 import { matchesProductWords } from '../search/product-match';
 
@@ -265,7 +265,30 @@ export async function readPagesWithSources(
   urls: string[],
   buildPrompt: (urls: string[]) => string,
   maxOutputTokens: number,
-  { skipCache = false, systemInstruction = PAGE_READ_SYSTEM_INSTRUCTION }: { skipCache?: boolean; systemInstruction?: string } = {}
+  options: { skipCache?: boolean; systemInstruction?: string } = {}
+): Promise<PageReadResult | null> {
+  // 信頼するサイトのページと、そうでないページは別々に読む。まとめて読むと、信頼しないページに書かれた製品を
+  // Gemini が信頼するページの URL を出典として答えても、出典の確認（指示して読み込めたページか）では見分けられないため
+  const trusted = urls.filter((u) => isTrustedSource(u));
+  const untrusted = urls.filter((u) => !isTrustedSource(u));
+  if (trusted.length === 0 || untrusted.length === 0) return readPageBatch(urls, buildPrompt, maxOutputTokens, options);
+  const groups = [trusted, untrusted];
+  const parts = await Promise.all(groups.map((g) => readPageBatch(g, buildPrompt, maxOutputTokens, options)));
+  if (parts.every((p) => p === null)) return null;
+  return {
+    items: parts.flatMap((p) => p?.items ?? []),
+    blockedUrls: parts.flatMap((p) => p?.blockedUrls ?? []),
+    // 読めなかった組のページは、一時的な失敗として扱う
+    failedUrls: parts.flatMap((p, i) => (p ? p.failedUrls : groups[i])),
+  };
+}
+
+/** 1組のページをまとめて読む（readPagesWithSources の本体） */
+async function readPageBatch(
+  urls: string[],
+  buildPrompt: (urls: string[]) => string,
+  maxOutputTokens: number,
+  { skipCache = false, systemInstruction = PAGE_READ_SYSTEM_INSTRUCTION }: { skipCache?: boolean; systemInstruction?: string }
 ): Promise<PageReadResult | null> {
   if (urls.length === 0) return { items: [], blockedUrls: [], failedUrls: [] };
   const together = await readPagesOnce(urls, buildPrompt(urls), systemInstruction, maxOutputTokens, skipCache);
