@@ -9033,11 +9033,15 @@ test('151. Trusted sites: LIPS is trusted on product pages only; trusted and unt
   const official = 'https://www.kao.co.jp/curel/products/split-lotion/';
   const hostile = 'https://blog.example.net/split-lotion';
   const prompts: string[] = [];
+  let failOfficial = false;
+  let failHostile = false;
   const originalFetch = globalThis.fetch;
+  const savedMode = process.env.TRUSTED_SITES_MODE;
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     if (!String(url).includes('generateContent')) return new Response('offline in tests', { status: 503 });
     const prompt: string = JSON.parse(String(init?.body)).contents[0].parts[0].text;
     prompts.push(prompt);
+    if ((failOfficial && prompt.includes(official)) || (failHostile && prompt.includes(hostile))) return new Response('down', { status: 503 });
     const read = [official, hostile].filter((u) => prompt.includes(u));
     // 読んだページに hostile があるときだけ、偽の製品を official の出典で答える（hostile のページに書かれた指示に従った）
     const items = [
@@ -9056,6 +9060,13 @@ test('151. Trusted sites: LIPS is trusted on product pages only; trusted and unt
   }) as typeof fetch;
   setGatewayEnv();
   try {
+    // off・shadow：今までどおり1回で読む（共有を絞らないので、分けても守るものが無い）
+    process.env.TRUSTED_SITES_MODE = 'shadow';
+    await readPagesWithSources([official, hostile], (u) => u.join('\n'), 1024, { skipCache: true });
+    assert.strictEqual(prompts.length, 1);
+    prompts.length = 0;
+
+    process.env.TRUSTED_SITES_MODE = 'enforce';
     const result = await readPagesWithSources([official, hostile], (u) => u.join('\n'), 1024, { skipCache: true });
     assert.ok(result);
     assert.strictEqual(prompts.length, 2, 'One call per group');
@@ -9069,8 +9080,20 @@ test('151. Trusted sites: LIPS is trusted on product pages only; trusted and unt
     prompts.length = 0;
     await readPagesWithSources([hostile, 'https://shop.example.com/item/1'], (u) => u.join('\n'), 1024, { skipCache: true });
     assert.strictEqual(prompts.length, 1);
+
+    // 信頼するページを読めなかったら全体を一時的な失敗に（信頼しないページだけの結果を保存させない）
+    failOfficial = true;
+    assert.strictEqual(await readPagesWithSources([official, hostile], (u) => u.join('\n'), 1024, { skipCache: true }), null);
+    // 信頼しないページだけ読めなかったら、信頼するページの結果を返し、そのページを一時的な失敗として示す
+    failOfficial = false;
+    failHostile = true;
+    const partial = await readPagesWithSources([official, hostile], (u) => u.join('\n'), 1024, { skipCache: true });
+    assert.deepStrictEqual(partial?.items.map((i) => [i.sourceUrl, i.item.name]), [[official, '本物']]);
+    assert.deepStrictEqual(partial?.failedUrls, [hostile]);
   } finally {
     globalThis.fetch = originalFetch;
+    if (savedMode === undefined) delete process.env.TRUSTED_SITES_MODE;
+    else process.env.TRUSTED_SITES_MODE = savedMode;
     clearGatewayEnv();
   }
 });

@@ -135,6 +135,7 @@ path already exists and is covered by test 71.
      users write (`TRUSTED_PATHS` in `src/lib/data/trusted-sites.ts`). Gemini also reads trusted
      and untrusted pages in separate calls. In one shared call, an untrusted page could make Gemini
      file its product under a trusted page's URL, and the source check could not tell. This costs
-     one extra Gemini call when a search returns both kinds of page.
+     one extra Gemini call when a search returns both kinds of page, and only in enforce mode. If
+     the trusted pages fail to read, the whole read counts as a temporary failure.
 2. **Alternatives.** Use trusted sites only (recommended, because those queries are the same for
    everyone), or also show untrusted alternatives with the note.

@@ -18,7 +18,7 @@ import { translateEnglishLabels } from './ingredient-translate';
 import { mayRememberFailure } from '../server/usage';
 import { isPlainLabelText } from '../utils/safe-text';
 import { isJailbreakAttempt } from './gemini';
-import { isTrustedSource, logSourceTrust, mayShareWebProduct } from '../data/trusted-sites';
+import { isTrustedSource, logSourceTrust, mayShareWebProduct, trustedSitesMode } from '../data/trusted-sites';
 import { canonicalSiteUrl, isSiteReadable, readSitePage } from './site-readers';
 import { matchesProductWords } from '../search/product-match';
 
@@ -268,17 +268,21 @@ export async function readPagesWithSources(
   options: { skipCache?: boolean; systemInstruction?: string } = {}
 ): Promise<PageReadResult | null> {
   // 信頼するサイトのページと、そうでないページは別々に読む。まとめて読むと、信頼しないページに書かれた製品を
-  // Gemini が信頼するページの URL を出典として答えても、出典の確認（指示して読み込めたページか）では見分けられないため
+  // Gemini が信頼するページの URL を出典として答えても、出典の確認（指示して読み込めたページか）では見分けられないため。
+  // 共有を絞る（enforce）ときだけ分ける。off・shadow は今までどおり1回で読む（呼び出しを増やさない）
+  if (trustedSitesMode() !== 'enforce') return readPageBatch(urls, buildPrompt, maxOutputTokens, options);
   const trusted = urls.filter((u) => isTrustedSource(u));
   const untrusted = urls.filter((u) => !isTrustedSource(u));
   if (trusted.length === 0 || untrusted.length === 0) return readPageBatch(urls, buildPrompt, maxOutputTokens, options);
   const groups = [trusted, untrusted];
   const parts = await Promise.all(groups.map((g) => readPageBatch(g, buildPrompt, maxOutputTokens, options)));
-  if (parts.every((p) => p === null)) return null;
+  // 信頼するページを読めなかったら、全体を一時的な失敗にする（信頼しないページの結果だけを
+  // 「信頼するサイトに無かった」として保存させない）
+  if (parts[0] === null) return null;
   return {
     items: parts.flatMap((p) => p?.items ?? []),
     blockedUrls: parts.flatMap((p) => p?.blockedUrls ?? []),
-    // 読めなかった組のページは、一時的な失敗として扱う
+    // 信頼しないページを読めなかったときは、一時的な失敗として扱う
     failedUrls: parts.flatMap((p, i) => (p ? p.failedUrls : groups[i])),
   };
 }
