@@ -8925,3 +8925,92 @@ test('149. Shop candidates show the product name without listing extras or a rep
   assert.match(readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8'), /isAlternatives \? displayListingName\(p\.name, p\.brand\)/);
   assert.match(readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8'), /displayListingName\(p\.name, p\.brand\)/);
 });
+
+test('150. A shop request refused without the shop\'s own reason logs what answered, never the request values (seeding 403s 2026-11-03)', async () => {
+  const { yahooOffers, rakutenOffers } = await import('../src/lib/services/shop-apis');
+  const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const names = ['YAHOO_CLIENT_ID', 'RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY'] as const;
+  const saved = names.map((n) => process.env[n]);
+  const logged: string[] = [];
+  console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+  const lastLine = () => {
+    assert.ok(logged.length > 0, 'a failure line is logged');
+    return logged.at(-1)!;
+  };
+  process.env.YAHOO_CLIENT_ID = 'secret-yahoo-client-id';
+  process.env.RAKUTEN_APPLICATION_ID = 'secret-rakuten-app';
+  process.env.RAKUTEN_ACCESS_KEY = 'secret-rakuten-access-key';
+  try {
+    // 値はそのまま・大文字・URL の形（+）・タグで分けた形で返されても伏せる
+    globalThis.fetch = (async () =>
+      new Response(
+        '<html><h1>403 Forbidden</h1><p>q=Secret Query, SECRET+QUERY, <b>Secret Query</b> app=SECRET-YAHOO-CLIENT-ID 化粧水</p></html>',
+        { status: 403, headers: { 'content-type': 'text/html', server: 'ATS' } }
+      )) as typeof fetch;
+    assert.strictEqual(await yahooOffers('Secret Query'), null);
+    let line = lastLine();
+    assert.match(line, /^Yahoo item search failed: 403 \{/);
+    assert.match(line, /"type":"text\/html"/);
+    assert.match(line, /"server":"ATS"/);
+    assert.match(line, /403 Forbidden/);
+    assert.match(line, /…/);
+    assert.ok(!/secret/i.test(line) && !line.includes('化粧水'), line);
+
+    // 楽天：ヘッダーの accessKey も伏せる
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const keyword = new URL(String(input)).searchParams.get('keyword') ?? '';
+      return new Response(`<pre>accessKey: secret-rakuten-access-key keyword=${keyword} applicationId=secret-rakuten-app</pre>`, {
+        status: 403,
+        headers: { 'content-type': 'text/html' },
+      });
+    }) as typeof fetch;
+    logged.length = 0;
+    await rakutenOffers('SecretQuery');
+    line = lastLine();
+    assert.ok(!/secret/i.test(line), line);
+
+    // URLSearchParams の形（' ( ) が %xx）で URL を返されても伏せる
+    globalThis.fetch = (async (input: string | URL | Request) =>
+      new Response(`<p>${new URL(String(input)).search}</p>`, { status: 403, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+    logged.length = 0;
+    await rakutenOffers("Secret's (Query)");
+    line = lastLine();
+    assert.ok(!/secret/i.test(line), line);
+
+    // タグで分けた値・文字参照で書いた値も伏せる
+    globalThis.fetch = (async () =>
+      new Response('<p>Secr<wbr>et&nbsp;Query, Secret&#10;Query &#39;SECRET-YAHOO-<b>CLIENT</b>-ID</p>', { status: 403, headers: { 'content-type': 'text/html' } })) as typeof fetch;
+    logged.length = 0;
+    await yahooOffers('Secret Query');
+    line = lastLine();
+    assert.ok(!/secret|secr/i.test(line), line);
+
+    // 長い本文は頭だけを見る（長さはそのまま出す）
+    globalThis.fetch = (async () => new Response('403 Forbidden ' + '<'.repeat(200_000), { status: 403 })) as typeof fetch;
+    logged.length = 0;
+    const started = Date.now();
+    await yahooOffers('SecretQuery');
+    assert.ok(Date.now() - started < 2000, 'a long body is not scanned whole');
+    assert.match(lastLine(), /"length":200014/);
+    assert.match(lastLine(), /403 Forbidden/);
+
+    // JSON でも中身が物でない応答で止まらない
+    for (const b of ['null', '5', '"x"', '[]']) {
+      globalThis.fetch = (async () => new Response(b, { status: 403 })) as typeof fetch;
+      assert.strictEqual(await yahooOffers('SecretQuery'), null, b);
+    }
+
+    // お店の理由があれば、今までどおりそれだけを出す（検索語は伏せる）
+    globalThis.fetch = (async () => Response.json({ Error: { Message: 'Your Request was Forbidden' } }, { status: 403 })) as typeof fetch;
+    await yahooOffers('SecretQuery');
+    assert.strictEqual(lastLine(), 'Yahoo item search failed: 403 (Your Request was Forbidden)');
+    globalThis.fetch = (async () => Response.json({ Error: { Message: 'keyword SecretQuery is not valid' } }, { status: 400 })) as typeof fetch;
+    await yahooOffers('SecretQuery');
+    assert.strictEqual(lastLine(), 'Yahoo item search failed: 400 (keyword … is not valid)');
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalError;
+    names.forEach((n, i) => (saved[i] === undefined ? delete process.env[n] : (process.env[n] = saved[i])));
+  }
+});

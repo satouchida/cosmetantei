@@ -64,6 +64,67 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type ShopApi = 'rakuten_api' | 'yahoo_api';
 
+/** 要求に入れた値（検索語・アプリ ID・ヘッダーの accessKey）。お店の応答の文をログに出す前に伏せる。URL が読めなければ null */
+function requestValues(url: string, headers: Record<string, string>): string[] | null {
+  const values = [...Object.values(headers)];
+  try {
+    values.push(...new URL(url).searchParams.values());
+  } catch {
+    return null;
+  }
+  // 長い値から伏せる（短い値が長い値の一部でも、長い方が残らないように）
+  return [...new Set(values.map((v) => v.replace(/\s+/g, ' ')).filter((v) => v.length >= 3))].sort((a, b) => b.length - a.length);
+}
+
+const UNEXPECTED_BODY_SCAN_CHARS = 4096;
+
+const HTML_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/** 人が読む形にする：段落などのタグは区切り、文中のタグ（<b> <wbr> など）は消してつなぐ。文字参照を戻し、空白をまとめる */
+function readableText(html: string): string {
+  return html
+    .replace(/<\/?(?:br|p|h\d|div|li|tr|td|th|pre|title|body|head|html)\b[^>]{0,300}>/gi, ' ')
+    .replace(/<[^>]{0,300}>/g, '')
+    .replace(/&(?:#(\d{1,7})|#x([0-9a-f]{1,6})|(amp|lt|gt|quot|apos|nbsp));/gi, (m, d, h, n) => {
+      if (n) return HTML_ENTITIES[n.toLowerCase()];
+      const cp = d ? parseInt(d, 10) : parseInt(h, 16);
+      return cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+    })
+    .replace(/\s+/g, ' ');
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** 値をそのまま・URL の形（%xx、空白の +、URLSearchParams の形）・HTML の形で探し、大文字小文字を問わず伏せる。値が無ければ全部伏せる */
+function redact(text: string, values: string[] | null): string {
+  if (!values) return '';
+  let out = text;
+  for (const v of values) {
+    const encoded = encodeURIComponent(v);
+    // URLSearchParams は ' ( ) ~ ! なども %xx にするので、その形も探す
+    const formEncoded = new URLSearchParams({ v }).toString().slice(2);
+    const forms = [v, encoded, encoded.replace(/%20/g, '+'), formEncoded, v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')];
+    for (const f of new Set(forms)) out = out.replace(new RegExp(escapeRegExp(f), 'gi'), '…');
+  }
+  return out;
+}
+
+/**
+ * 理由の読めない失敗の応答を、断ったのがどこか分かる程度にログ用に縮める：種類・server ヘッダー・長さ・本文の頭。
+ * 頭の 4KB だけを見る（長い本文で正規表現が重くならないように）。タグと文字参照を外してから要求の値を伏せ
+ * （タグで分けた値も伏せるため）、英数字と記号だけを 80 文字まで
+ */
+function unexpectedBody(res: Response, text: string, values: string[] | null): string {
+  const head = redact(readableText(text.slice(0, UNEXPECTED_BODY_SCAN_CHARS)), values)
+    .replace(/[^\x20-\x7e…]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  const type = (res.headers.get('content-type') ?? '').replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+  const server = (res.headers.get('server') ?? '').replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+  return JSON.stringify({ type, server, length: text.length, head });
+}
+
 async function getJson(
   url: string,
   headers: Record<string, string>,
@@ -80,6 +141,7 @@ async function getJson(
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(API_TIMEOUT_MS) });
     // 回数の上限に当たったら、1回だけ間をおいてやり直す（他の利用者と同じアプリ ID を使うため）
     if (res.status === 429 && !retried) {
+      await res.body?.cancel().catch(() => {});
       await wait(API_INTERVAL_MS);
       return getJson(url, headers, label, api, true);
     }
@@ -87,13 +149,24 @@ async function getJson(
       // 404 は「該当なし」（楽天）
       if (res.status === 404) return {};
       // お店が返す理由も出す（楽天 error_description、Yahoo! Error.Message。例：keyword parameter is not valid）。検索語は出さない
-      const body = (await res.json().catch(() => null)) as {
-        error_description?: unknown;
-        error?: unknown;
-        Error?: { Message?: unknown };
-      } | null;
+      const text = await res.text().catch(() => '');
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        // JSON でない（お店の API の前の仕組みが断った、など）
+      }
+      const body =
+        parsed && typeof parsed === 'object'
+          ? (parsed as { error_description?: unknown; error?: unknown; Error?: { Message?: unknown } | null })
+          : null;
       const reason = [body?.error_description, body?.Error?.Message, body?.error].find((r): r is string => typeof r === 'string') ?? '';
-      console.error(`${label} failed: ${res.status}${reason ? ` (${reason.replace(/[^\x20-\x7e]/g, '').slice(0, 120)})` : ''}`);
+      const values = requestValues(url, headers);
+      console.error(
+        `${label} failed: ${res.status}${
+          reason ? ` (${redact(reason, values).replace(/[^\x20-\x7e…]/g, '').slice(0, 120)})` : ` ${unexpectedBody(res, text, values)}`
+        }`
+      );
       return null;
     }
     return await res.json();
