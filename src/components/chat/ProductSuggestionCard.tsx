@@ -7,6 +7,7 @@ import { AlertTriangle, ShieldCheck, Layers, Search, ExternalLink } from 'lucide
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { getDisplayBrand } from '@/lib/display-brand';
+import { displayListingName } from '@/lib/search/listing-name';
 import { productSourceInfo } from '@/lib/product-source';
 import { quasiDrugActives } from '@/lib/quasi-drug';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
@@ -113,7 +114,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-sage-700">{getDisplayBrand(p.brand, p.name)}</div>
                     <h2 className="text-[15px] font-semibold line-clamp-2 mt-0.5 leading-snug break-keep [overflow-wrap:anywhere]">
-                      {p.name}
+                      {/* 代わりの商品はお店の商品名のことがあるので、【公式】などの飾りを外して出す */}
+                      {isAlternatives ? displayListingName(p.name, p.brand) : p.name}
                     </h2>
                     {isAlternatives && p.shopPrice && (
                       <p className="text-sm font-semibold text-ink mt-0.5">

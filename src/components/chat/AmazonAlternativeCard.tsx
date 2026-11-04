@@ -9,6 +9,7 @@ import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-cate
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { isPersistable } from '@/lib/current-use';
+import { displayListingName } from '@/lib/search/listing-name';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -73,7 +74,8 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                 </div>
 
                 <h4 className="text-[15px] font-semibold line-clamp-2 leading-snug break-keep [overflow-wrap:anywhere]">
-                  {p.name}
+                  {/* お店の商品名のことがあるので、【公式】などの飾りを外して出す（リンクと読み上げは元の名前） */}
+                  {displayListingName(p.name, p.brand)}
                 </h4>
                 <ProductSourceLink product={p} className="mt-1" />
 

@@ -8921,4 +8921,7 @@ test('149. Shop candidates show the product name without listing extras or a rep
   const { readFileSync } = await import('node:fs');
   const tray = readFileSync('src/components/search/LiveSearchCandidateTray.tsx', 'utf8');
   assert.match(tray, /displayListingName\(product\.name, product\.brand\)/);
+  // 代わりの商品のカードも同じ（owner request 2026-11-04）
+  assert.match(readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8'), /isAlternatives \? displayListingName\(p\.name, p\.brand\)/);
+  assert.match(readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8'), /displayListingName\(p\.name, p\.brand\)/);
 });
