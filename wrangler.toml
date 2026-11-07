@@ -132,6 +132,10 @@ SPEND_NEW_SESSION_MINUTES = "30"
 # クラウドの事業者（src/lib/server/hosting-networks.ts）ごと
 SPEND_PER_NETWORK_USD = "2"
 SPEND_PER_HOSTING_NETWORK_USD = "1"
+# 運営者のブラウザ（/owner で OWNER_KEY を入力した Cookie）の1日の上限（USD）。IP・セッションの上限の代わりに使い、
+# 下の「上限を下げる」は当てない。全体の予算・1回の要求の上限は同じ（src/lib/server/owner.ts）。
+# OWNER_KEY（32字以上）は秘密情報: pnpm exec wrangler secret put OWNER_KEY。無ければ /owner は使えない
+SPEND_PER_OWNER_USD = "5"
 # 今日の全体の合計が予算のこの割合に達したら、利用者ごとの上限（IP・/24・事業者・セッション）をこの % に下げる
 SPEND_TIGHTEN_AFTER_SHARE = "0.5"
 SPEND_TIGHTENED_PERCENT = "30"

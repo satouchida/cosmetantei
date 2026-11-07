@@ -44,7 +44,7 @@ export interface UsageEvent {
  *   session: Turnstile で確かめたブラウザのセッション /
  *   new_session: 発行したばかりのセッション（キーは session と同じで、上限だけ小さい）
  */
-export type BudgetClientKind = 'ip' | 'network' | 'hosting' | 'session' | 'new_session';
+export type BudgetClientKind = 'ip' | 'network' | 'hosting' | 'session' | 'new_session' | 'owner';
 export interface BudgetClient {
   kind: BudgetClientKind;
   key: string;

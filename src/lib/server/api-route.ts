@@ -1,6 +1,7 @@
 import 'server-only';
 import { getClientIp, getRequestAsn, ipv4Network24 } from './cloudflare';
 import { HOSTING_ASNS } from './hosting-networks';
+import { isOwnerRequest } from './owner';
 import { checkSession, isNewSession } from './session';
 import { BudgetClient, currentSpendLimit, withUsageRoute } from './usage';
 import { SPEND_LIMIT_HEADER } from '@/lib/spend-limit';
@@ -52,9 +53,11 @@ function isSameOrigin(origin: string, requestUrl: string, host: string | null): 
 
 /**
  * 要求の利用者ごとの予算のキー（IP は必ず。/24 は IPv4 のとき、事業者はクラウドのとき、セッションは確かめたとき）。
- * 発行したばかりのセッションは、同じキーで小さい上限（new_session）にする
+ * 発行したばかりのセッションは、同じキーで小さい上限（new_session）にする。運営者のブラウザは運営者の上限（owner）だけ
  */
 export async function budgetClients(request: Request, sessionId?: string, sessionIssuedAt?: number): Promise<BudgetClient[]> {
+  // 運営者のブラウザは、利用者ごとの上限の代わりに運営者の上限だけ（src/lib/server/owner.ts）
+  if (await isOwnerRequest(request)) return [{ kind: 'owner', key: 'owner' }];
   const ip = getClientIp(request.headers);
   const clients: BudgetClient[] = [{ kind: 'ip', key: `ip:${ip}` }];
   const network = ipv4Network24(ip);

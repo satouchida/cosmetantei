@@ -6910,6 +6910,7 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
     'chat/ProductSourceLink': 'inside the cards',
     'legal/LegalPage': 'checked at /terms and /privacy',
     'legal/ContactEmail': 'inside LegalLinks and the contact sections of /terms and /privacy',
+    'owner/OwnerForm': 'checked at /owner (the owner allowance page)',
     'ui/ApiCredits': 'inside the tray and the cards',
     'ui/ModalDialog': 'inside the dialogs',
     'ui/emoji': 'helper',
@@ -8022,7 +8023,7 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
   assert.ok(worker.includes('ctx.waitUntil(controller.cron === REFRESH_CRON ? runRefreshSchedule(env) : runSeedSchedule(env));'));
   assert.ok(worker.includes('return handler.fetch(request, env, ctx);'));
   // 内部の API は検索・巡回の対象外（/api/ はすべて）
-  assert.match(readFileSync('src/app/robots.ts', 'utf8'), /disallow: '\/api\/'/);
+  assert.match(readFileSync('src/app/robots.ts', 'utf8'), /disallow: \['\/api\/', '\/owner'\]/);
 });
 
 test('131. Upstream limits: a 429 from AI Gateway or Google counts as a limit, not "not found", and is not remembered as a failure (live test 2026-10-27)', async () => {
@@ -9298,4 +9299,89 @@ test('155. Colorants: tar dyes by name (Japanese certified colors), CI numbers b
   assert.strictEqual(byName(imported, 'CI 47000').riskLevel, 'safe');
   assert.ok(!byName(imported, 'CI 47000').jpDesignated);
   assert.notStrictEqual(byName(imported, 'CI 77491').matchedKnown?.id, 'synthetic_dye_ci');
+});
+
+test('156. Owner allowance: a signed cookie from the owner key replaces the per-visitor caps with the owner cap, which never tightens', async () => {
+  const { createOwnerValue, isOwnerCookie, OWNER_COOKIE } = await import('../src/lib/server/owner');
+  const { budgetClients } = await import('../src/lib/server/api-route');
+  const { POST: ownerRoute, DELETE: ownerDelete } = await import('../src/app/api/owner/route');
+  const { SpendCounter, MemorySpendStore } = await import('../src/lib/server/spend-cap-core');
+  const { clientBudgetMicros } = await import('../src/lib/server/spend-cap');
+  const { NextRequest } = await import('next/server');
+  const saved = { OWNER_KEY: process.env.OWNER_KEY, SPEND_PER_OWNER_USD: process.env.SPEND_PER_OWNER_USD };
+  const key = 'k7Qp2xVz9LmN4bRt8YwC3hJs6FdG1aEu5oKi';
+  const now = Date.UTC(2026, 10, 7, 12);
+  const post = (body: unknown) =>
+    ownerRoute(
+      new NextRequest('https://app.example/api/owner', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', 'cf-connecting-ip': '198.51.100.7' },
+        body: JSON.stringify(body),
+      })
+    );
+  try {
+    // Cookie：期限・署名。違う鍵・期限切れ・書き換えは通さない。鍵そのものは入れない
+    const value = await createOwnerValue(key, now);
+    assert.ok(!value.includes(key));
+    const cookie = (v: string) => `other=1; ${OWNER_COOKIE}=${v}`;
+    assert.ok(await isOwnerCookie(cookie(value), key, now));
+    assert.ok(!(await isOwnerCookie(cookie(value), 'x'.repeat(40), now)), 'Changing OWNER_KEY revokes old cookies');
+    assert.ok(!(await isOwnerCookie(cookie(value), key, now + 31 * 86_400_000)), 'Expires after 30 days');
+    assert.ok(!(await isOwnerCookie(cookie(value.replace(/^\d/, '9')), key, now)), 'A changed expiry fails the signature');
+    assert.ok(!(await isOwnerCookie(cookie(value), null, now)), 'No OWNER_KEY, no owner');
+
+    // OWNER_KEY が無い・短いときは使えない
+    delete process.env.OWNER_KEY;
+    assert.strictEqual((await post({ key })).status, 404);
+    process.env.OWNER_KEY = 'short';
+    assert.strictEqual((await post({ key: 'short' })).status, 404);
+    process.env.OWNER_KEY = 'a'.repeat(40);
+    assert.strictEqual((await post({ key: 'a'.repeat(40) })).status, 404, 'An obviously weak key is not used');
+    // 鍵が違えば断る。合えば Cookie（HttpOnly・Secure・SameSite=Strict・__Host-）
+    process.env.OWNER_KEY = key;
+    assert.strictEqual((await post({ key: 'wrong' })).status, 403);
+    assert.strictEqual((await post({ key: '' })).status, 403);
+    assert.strictEqual((await post({})).status, 403);
+    const ok = await post({ key });
+    assert.strictEqual(ok.status, 200);
+    const setCookie = ok.headers.get('set-cookie') ?? '';
+    assert.match(setCookie, /^__Host-owner=\d+\.[A-Za-z0-9_-]+; Path=\/; Max-Age=2592000; HttpOnly; Secure; SameSite=Strict$/);
+    assert.ok(!setCookie.includes(key));
+    const cleared = await ownerDelete(new NextRequest('https://app.example/api/owner', { method: 'DELETE', headers: { 'sec-fetch-site': 'same-origin' } }));
+    assert.match(cleared.headers.get('set-cookie') ?? '', /^__Host-owner=; Path=\/; Max-Age=0;/);
+    // ほかのサイトからは断る
+    const cross = await ownerRoute(
+      new NextRequest('https://app.example/api/owner', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' }, body: JSON.stringify({ key }) })
+    );
+    assert.strictEqual(cross.status, 403);
+
+    // 運営者のブラウザは、IP・セッションの上限の代わりに運営者の上限だけ
+    const fresh = await createOwnerValue(key, Date.now());
+    const withCookie = new Request('https://app.example/api/chat', { headers: { 'cf-connecting-ip': '203.0.113.77', cookie: `${OWNER_COOKIE}=${fresh}` } });
+    assert.deepStrictEqual(await budgetClients(withCookie, 'sess1', Date.now()), [{ kind: 'owner', key: 'owner' }]);
+    const without = new Request('https://app.example/api/chat', { headers: { 'cf-connecting-ip': '203.0.113.77' } });
+    assert.strictEqual((await budgetClients(without))[0].kind, 'ip');
+    delete process.env.SPEND_PER_OWNER_USD;
+    assert.strictEqual(clientBudgetMicros('owner'), 5_000_000, 'Default owner cap is $5 a day');
+    process.env.SPEND_PER_OWNER_USD = '2';
+    assert.strictEqual(clientBudgetMicros('owner'), 2_000_000);
+
+    // 全体の合計が多くなっても、運営者の上限は下げない（ほかの利用者は下がる）
+    const { isClientLimits } = await import('../src/lib/server/spend-cap-core');
+    assert.ok(isClientLimits([{ key: 'owner', dayMicros: 1, fixed: true }]));
+    assert.ok(!isClientLimits([{ key: 'ip:1', dayMicros: 1, fixed: true }]), 'Only the owner key may skip tightening');
+    const counter = new SpendCounter(new MemorySpendStore());
+    const limits = { perMinute: 1000, dayMicros: 10_000_000, monthMicros: 100_000_000, tightenAfterMicros: 1_000_000, tightenedPercent: 30 };
+    const t = Date.UTC(2026, 10, 7);
+    assert.ok((await counter.consume('gemini', limits, 1_000_000, t, [{ key: 'ip:a', dayMicros: 2_000_000 }])).allowed);
+    assert.strictEqual((await counter.consume('gemini', limits, 700_000, t, [{ key: 'ip:b', dayMicros: 2_000_000 }])).allowed, false, 'Visitors are tightened to 30%');
+    assert.ok((await counter.consume('gemini', limits, 1_500_000, t, [{ key: 'owner', dayMicros: 2_000_000, fixed: true }])).allowed);
+    // 全体の予算はそのまま効く
+    assert.strictEqual((await counter.consume('gemini', limits, 8_000_000, t, [{ key: 'owner', dayMicros: 20_000_000, fixed: true }])).allowed, false);
+  } finally {
+    for (const [name, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[name];
+      else process.env[name] = v;
+    }
+  }
 });

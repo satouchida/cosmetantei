@@ -21,6 +21,8 @@ import { SpendLimitReason } from '@/lib/spend-limit';
  *   - IPv4 の /24（隣り合う 256 個のアドレス）: SPEND_PER_NETWORK_USD（既定 $2）
  *   - クラウドの事業者（src/lib/server/hosting-networks.ts。借りたサーバーの IP を並べた呼び出し）:
  *     事業者ごとに SPEND_PER_HOSTING_NETWORK_USD（既定 $1）
+ *   - 運営者のブラウザ（src/lib/server/owner.ts）: 上のどれの代わりにも SPEND_PER_OWNER_USD（既定 $5）。
+ *     下の「上限を下げる」は当てない
  *   - 今日の全体の合計が予算の SPEND_TIGHTEN_AFTER_SHARE（既定 0.5）に達したら、どの上限も
  *     SPEND_TIGHTENED_PERCENT（既定 30）% に下げる（多くの IP を使われても、残りを多くの利用者で分ける）
  *   （利用者は API ルートの apiRoute が付ける。ルートの外の呼び出しには使わない）
@@ -45,6 +47,7 @@ export const DEFAULT_CLIENT_BUDGET_USD: Record<BudgetClientKind, number> = {
   new_session: 0.3,
   network: 2,
   hosting: 1,
+  owner: 5,
 };
 
 const CLIENT_BUDGET_ENV: Record<BudgetClientKind, string> = {
@@ -53,6 +56,7 @@ const CLIENT_BUDGET_ENV: Record<BudgetClientKind, string> = {
   new_session: 'SPEND_PER_NEW_SESSION_USD',
   network: 'SPEND_PER_NETWORK_USD',
   hosting: 'SPEND_PER_HOSTING_NETWORK_USD',
+  owner: 'SPEND_PER_OWNER_USD',
 };
 
 /** 利用者ごとの上限を下げ始める、全体の1日の予算の割合と、下げた後の割合（%） */
@@ -205,7 +209,12 @@ export async function reserveSpend(
       adjustRequestSpend(-cost);
       return null;
     }
-    const clients: ClientLimit[] = currentClients().map((c) => ({ key: c.key, dayMicros: clientBudgetMicros(c.kind) }));
+    // 運営者の上限は、全体の合計が多くなっても下げない（src/lib/server/owner.ts）
+    const clients: ClientLimit[] = currentClients().map((c) => ({
+      key: c.key,
+      dayMicros: clientBudgetMicros(c.kind),
+      ...(c.kind === 'owner' && { fixed: true }),
+    }));
     const decision =
       target.kind === 'memory'
         ? await memoryCounter.consume(bucket, limits, cost, Date.now(), clients)

@@ -33,6 +33,8 @@ export interface SpendLimits {
 export interface ClientLimit {
   key: string;
   dayMicros: number;
+  /** 全体の合計が多くなっても下げない上限（運営者。src/lib/server/owner.ts） */
+  fixed?: true;
 }
 
 /** 1回の呼び出しに付けられる利用者の上限の数 */
@@ -97,7 +99,10 @@ export function isClientLimits(v: unknown): v is ClientLimit[] {
   return (
     Array.isArray(v) &&
     v.length <= MAX_CLIENT_LIMITS &&
-    v.every((c) => !!c && isClientKey(c.key) && isCount(c.dayMicros)) &&
+    // 下げない上限（fixed）は運営者のキーだけ
+    v.every(
+      (c) => !!c && isClientKey(c.key) && isCount(c.dayMicros) && (c.fixed === undefined || (c.fixed === true && c.key === 'owner'))
+    ) &&
     new Set(v.map((c) => c.key)).size === v.length
   );
 }
@@ -251,7 +256,7 @@ export class SpendCounter {
     // 全体の合計が多くなったら、利用者ごとの上限を下げる
     const tightened = limits.tightenAfterMicros !== undefined && t.dayMicros >= limits.tightenAfterMicros;
     const clientLimit = (c: ClientLimit) =>
-      tightened ? Math.floor((c.dayMicros * (limits.tightenedPercent ?? 100)) / 100) : c.dayMicros;
+      tightened && !c.fixed ? Math.floor((c.dayMicros * (limits.tightenedPercent ?? 100)) / 100) : c.dayMicros;
     const reason =
       recent.length >= limits.perMinute
         ? 'minute'
