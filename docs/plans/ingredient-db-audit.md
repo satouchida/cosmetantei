@@ -76,6 +76,43 @@ Not used: brand sites, blogs, marketing copy, and Gemini.
   texts state only what these sources say; the limits per product type come from
   `cosmetic-standards-jp.ts` on the ingredient card. ([plan](alternative-recommendations.md))
 
+- 2026-11-07: colorants. Four entries, matched by name pattern (`src/lib/data/tar-dyes.ts`):
+  - **タール色素** (`tar_dye`): the 83 dyes of 医薬品等に使用することができるタール色素を定める省令
+    (e-Gov, version of 2019-07-01). Rated 刺激の報告が少ない; as 表示指定成分 No. 140 they show as
+    肌質により注意 and don't count toward the verdict. Before this they were unrated, which turned
+    lipsticks and eyeshadows into 「評価できた成分が少ない」.
+  - **赤色219号** (`brilliant_lake_red_r`) and **黄色204号** (`quinoline_yellow_ss`): やや注意, counted.
+    Red 219: Sugai 1977 (22/38 positive, higher than other tar dyes), Kozuka 1979 and 1980 (the
+    commercial dye held Sudan I, a strong allergen; purified dye a weak sensitizer). Yellow 204: the
+    ordinance defines it as 2-(2-quinolyl)-1,3-indandione, the identity of D&C Yellow No. 11 in
+    21 CFR 74.1711; case reports Björkner 1983, Komamura 1989, Sasseville 2009. Not rated higher:
+    the reports are allergy in sensitized people (one era of impure commercial dye for Red 219),
+    not evidence of irritation or of how often current products cause problems.
+  - **CI numbers:** the 38 CI numbers in JCIA's *The List of JCIA Standards for Tar Colors*
+    (2024-03-19, English summary pp.1–2) are read as the tar dye they name, so they get the same
+    rating and 表示指定成分 note as the Japanese name (CI 15850 = 赤201, CI 15850:1 = 赤202,
+    CI 15800:1 = 赤219). Other CI 10000–74999 numbers, except carotenoids 40800–40999 (Colour Index
+    CICN groups), are `synthetic_dye_ci`: rated 刺激の報告が少ない and not raised, because which tar
+    dye they are can't be told from the number. CI 47000 stays there: it is not in the JCIA table,
+    and only chemical catalogs equate it with 黄色204号. Natural colorants (75000–75999) and
+    inorganic pigments (77000–77999) are left to their own entries.
+  - **JCIA standards** (read 2026-11-07 from the six PDFs on
+    https://www.jcia.org/home/business/guideline/tarcolor.html and the quasi-drug label name list):
+    - The 1988 standard limits 1-phenylazo-2-naphthol (Sudan I) to 5 ppm or less in 赤色219号 and
+      seven other red dyes. Added to the 赤色219号 text. Red 219 stays やや注意: the purified dye was
+      still a weak sensitizer (Kozuka 1980), and imported products are outside JCIA's standards.
+    - JCIA members refrain from using 20 of the 83 dyes (1970, 2017, 2019), but JCIA says the 2017
+      and 2019 additions concern worker safety and starting materials and do not mean an effect on
+      consumers' health. Not used as a rating.
+    - The documents don't mention allergy or pigmented dermatitis, Sudan I by that name, or use-site
+      limits such as lips or eyes. The mucous-membrane rule for the 400 and 500 series comes from
+      the ordinance itself (Article 3 and its table, Part 3).
+    - The quasi-drug label name list (2008) gives the short names used in the pattern: 赤202, 黄4,
+      橙205, 赤104(1), 褐201; a lake's short name is the parent dye's (黄4 for
+      黄色4号アルミニウムレーキ).
+  - Not used: the Nara Prefecture copy of the 2024 standard, which could not be fetched (HTTP 403);
+    the JCIA PDF above replaces it.
+
 ## Next review
 
 Due by 2027-10-12; test 55 warns in CI from then on. At each review: re-read the

@@ -9231,3 +9231,71 @@ test('154. Close matches: when nothing matches the searched name, checked produc
     clearGatewayEnv();
   }
 });
+
+test('155. Colorants: tar dyes by name (Japanese certified colors), CI numbers by range, and Red 219 / Yellow 204 with their own reports (2026-11-07)', async () => {
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { findDesignatedEntry } = await import('../src/lib/analyzer/jp-designated');
+  const { isSyntheticOrganicCiNumber, tarDyeOf } = await import('../src/lib/data/tar-dyes');
+  const { normalizeIngredientName } = await import('../src/lib/utils/ingredient-name');
+  const lip = (ingredients: string[]) =>
+    analyzeProduct(verifiedProduct({ id: `t155_${ingredients.join('')}`, category: 'lip', ingredients, ingredientSource: 'web_page' }));
+  const byName = (r: ReturnType<typeof analyzeProduct>, name: string) => r.ingredients.find((i) => i.rawName === name)!;
+
+  // タール色素：省令の名前・表示の名前（赤202・橙205・だいだい色205号・かっ色201号・レーキ）
+  for (const name of ['赤色２０２号', '赤202', '赤色104号の(1)', '赤104(1)', '赤色230号の(2)', '橙205', 'だいだい色205号', 'かっ色201号', '黄4アルミニウムレーキ', '青1', '黒401']) {
+    assert.ok(tarDyeOf(normalizeIngredientName(name)), name);
+    assert.ok(findDesignatedEntry(name), `${name} is on the designated list (No. 140)`);
+  }
+  assert.deepStrictEqual(tarDyeOf(normalizeIngredientName('だいだい色205号')), { color: '橙', number: 205 });
+  assert.strictEqual(tarDyeOf(normalizeIngredientName('赤ブドウ葉エキス')), null);
+  // 別表に無い番号（米国・EU の色素の番号など）と、枝番の無い品目の枝番は当てない
+  for (const name of ['赤40', '青3', '赤999', '黄1', '赤2021', '赤2191', '黒糖', '緑茶エキス', '紫根エキス']) {
+    assert.strictEqual(tarDyeOf(normalizeIngredientName(name)), null, name);
+    assert.ok(!findDesignatedEntry(name), `${name} is not designated as a tar dye`);
+  }
+  const { TAR_DYE_COUNT } = await import('../src/lib/data/tar-dyes');
+  assert.strictEqual(TAR_DYE_COUNT, 83, 'The ordinance lists 83 tar dyes');
+
+  // 色素の多くは「刺激の報告が少ない」の評価で、表示指定成分として「肌質により注意」に（総合判定には数えない）
+  const many = lip(['ミネラルオイル', '赤202', '黄4', '青1', '赤色104号の(1)', '酸化鉄']);
+  for (const name of ['赤202', '黄4', '青1', '赤色104号の(1)']) {
+    const i = byName(many, name);
+    assert.strictEqual(i.matchedKnown?.id, 'tar_dye', name);
+    assert.strictEqual(i.riskLevel, 'low_caution');
+    assert.ok(i.raisedForLabel && i.jpDesignated, name);
+  }
+  assert.strictEqual(many.overallRiskLevel, 'safe', 'Dyes alone do not make the product a caution, and are no longer unrated');
+
+  // 個別の報告がある色素は、総合判定に数える「やや注意」
+  const reported = lip(['ミネラルオイル', '赤219', '黄色204号', 'キノリンイエローSS']);
+  assert.strictEqual(byName(reported, '赤219').matchedKnown?.id, 'brilliant_lake_red_r');
+  assert.strictEqual(byName(reported, '黄色204号').matchedKnown?.id, 'quinoline_yellow_ss');
+  assert.strictEqual(byName(reported, 'キノリンイエローSS').matchedKnown?.id, 'quinoline_yellow_ss');
+  for (const name of ['赤219', '黄色204号']) {
+    const i = byName(reported, name);
+    assert.strictEqual(i.riskLevel, 'low_caution');
+    assert.ok(!i.raisedForLabel, `${name} is rated on its own reports`);
+    assert.ok(i.jpDesignated, `${name} still shows the designated note`);
+  }
+
+  // CI 番号：合成の有機色素だけ（カロテノイド・天然の色素・無機顔料・6桁は当てない）
+  for (const [name, synthetic] of [['CI 15850', true], ['C.I. 15850:1', true], ['CI 19140', true], ['CI 42090', true], ['CI 40800', false], ['CI 75470', false], ['CI 77491', false], ['CI 77891', false], ['CI 123456', false]] as const) {
+    assert.strictEqual(isSyntheticOrganicCiNumber(normalizeIngredientName(name)), synthetic, name);
+  }
+  // 日本化粧品工業会の対応表にある CI 番号は、そのタール色素として（表示指定成分にも当たる）。塩の違いはコロンの後の番号
+  const { tarDyeOfCi, CI_TAR_DYE_COUNT } = await import('../src/lib/data/tar-dyes');
+  assert.strictEqual(CI_TAR_DYE_COUNT, 38);
+  assert.deepStrictEqual(tarDyeOfCi(normalizeIngredientName('CI 15850')), { color: '赤', number: 201 });
+  assert.deepStrictEqual(tarDyeOfCi(normalizeIngredientName('C.I. 15850:1')), { color: '赤', number: 202 });
+  assert.strictEqual(tarDyeOfCi(normalizeIngredientName('CI 15850:9')), null);
+  const imported = lip(['Ricinus Communis Seed Oil', 'CI 15850:1', 'CI 15800:1', 'CI 47000', 'CI 77491']);
+  const ci202 = byName(imported, 'CI 15850:1');
+  assert.strictEqual(ci202.matchedKnown?.id, 'tar_dye');
+  assert.ok(ci202.raisedForLabel && ci202.jpDesignated);
+  assert.strictEqual(byName(imported, 'CI 15800:1').matchedKnown?.id, 'brilliant_lake_red_r');
+  // 表に無い番号は、合成の有機色素の帯で（CI 47000 は黄色204号と同じ色素とする資料もあるが、表に無いので対応させない）
+  assert.strictEqual(byName(imported, 'CI 47000').matchedKnown?.id, 'synthetic_dye_ci');
+  assert.strictEqual(byName(imported, 'CI 47000').riskLevel, 'safe');
+  assert.ok(!byName(imported, 'CI 47000').jpDesignated);
+  assert.notStrictEqual(byName(imported, 'CI 77491').matchedKnown?.id, 'synthetic_dye_ci');
+});

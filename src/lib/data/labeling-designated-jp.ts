@@ -1,4 +1,5 @@
 import { ReferenceLink } from '../types';
+import { tarDyeOf, tarDyeOfCi } from './tar-dyes';
 
 /**
  * 表示指定成分：名称を記載しなければならない医薬部外品の成分（平成12年厚生省告示第332号の
@@ -39,7 +40,7 @@ export interface DesignatedEntry {
   nameJa: string;
   names: string[];
   quasiDrugNames?: string[];
-  namePattern?: RegExp;
+  namePattern?: { test(name: string): boolean };
 }
 
 /** 塩の部分（designatedKey・abbreviateIngredientName でそろえた形。ナトリウム→na など） */
@@ -48,7 +49,7 @@ const SALT =
 const salts = (base: string) => new RegExp(`^${base}${SALT}(液|末)?$`);
 const andSalts = (base: string) => new RegExp(`^${base}(${SALT}(液|末)?)?$`);
 
-const e = (no: number, nameJa: string, names: string[] = [], namePattern?: RegExp): DesignatedEntry => ({
+const e = (no: number, nameJa: string, names: string[] = [], namePattern?: { test(name: string): boolean }): DesignatedEntry => ({
   no,
   nameJa,
   names: [nameJa, ...names],
@@ -331,11 +332,9 @@ export const DESIGNATED_INGREDIENTS: DesignatedEntry[] = [
   e(138, 'レゾルシン', ['resorcinol']),
   e(139, 'ロジン', ['rosin']),
   // 省令（昭和41年厚生省令第30号）別表第1〜3のタール色素は、どれも「赤色2号」の形の名前
-  // （「赤色104号の(1)」「Ext.紫201号」も）
-  e(
-    140,
-    'タール色素（医薬品等に使用することができるタール色素を定める省令 別表第1〜第3）',
-    [],
-    /^(ext\.?)?(赤|黄|青|緑|橙|褐|紫|黒)色?\d{1,3}号?(の?[12])?(.*レーキ)?$/
-  ),
+  // （「赤色104号の(1)」「Ext.紫201号」「だいだい色205号」も。別表の番号だけ。src/lib/data/tar-dyes.ts）
+  // CI 番号は、日本化粧品工業会の対応表にある番号だけ（「CI 15850:1」＝赤202）
+  e(140, 'タール色素（医薬品等に使用することができるタール色素を定める省令 別表第1〜第3）', [], {
+    test: (key) => tarDyeOf(key) !== null || tarDyeOfCi(key) !== null,
+  }),
 ];

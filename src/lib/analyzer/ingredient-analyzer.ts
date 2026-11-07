@@ -1,4 +1,5 @@
 import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES, WHEAT_LABEL_REFERENCES } from '../data/ingredients-db';
+import { isSyntheticOrganicCiNumber, tarDyeOf, tarDyeOfCi } from '../data/tar-dyes';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { isSellerTextProduct } from '../product-source';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
@@ -110,6 +111,15 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
   const abbreviated = abbreviateIngredientName(norm);
   const byAbbreviation = knownAbbreviatedNames().find(({ names }) => names.has(abbreviated));
   if (byAbbreviation) return byAbbreviation.item;
+
+  // 色素は名前の形で（src/lib/data/tar-dyes.ts）。個別の報告がある赤色219号・黄色204号は、その項目に
+  // CI 番号は、日本化粧品工業会の対応表にある番号ならそのタール色素として
+  const dye = tarDyeOf(norm) ?? tarDyeOfCi(norm);
+  if (dye) {
+    const id = dye.color === '赤' && dye.number === 219 ? 'brilliant_lake_red_r' : dye.color === '黄' && dye.number === 204 ? 'quinoline_yellow_ss' : 'tar_dye';
+    return KNOWN_INGREDIENTS.find((i) => i.id === id);
+  }
+  if (isSyntheticOrganicCiNumber(norm)) return KNOWN_INGREDIENTS.find((i) => i.id === 'synthetic_dye_ci');
 
   // 加水分解コムギデンプンはタンパク質ではない（加水分解コムギの事例はタンパク質の成分）
   if (/加水分解(コムギ|小麦)(でんぷん|デンプン)|hydrolyzedwheatstarch/.test(norm)) return undefined;

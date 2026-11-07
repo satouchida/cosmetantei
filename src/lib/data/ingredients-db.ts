@@ -179,6 +179,50 @@ const REF = {
     title: '日本皮膚科学会 ロドデノール含有化粧品の安全性に関する特別委員会「患者さんの質問にお答えします」（2015年8月7日改訂）',
     url: 'https://www.dermatol.or.jp/uploads/uploads/files/news/J20150807_1.pdf',
   },
+  jpTarDyeOrdinance: {
+    title: '医薬品等に使用することができるタール色素を定める省令（昭和41年厚生省令第30号）第3条・別表',
+    url: 'https://laws.e-gov.go.jp/law/341M50000100030',
+  },
+  colourIndexGroups: {
+    title: 'Colour Index (SDC / AATCC): CICN Groups & Sub-groups',
+    url: 'https://v1.colour-index.com/cicn-groups-sub-groups',
+  },
+  sugaiTarDyes1977: {
+    title: 'Sugai T, et al. Pigmented cosmetic dermatitis and coal tar dyes. Contact Dermatitis 1977;3(5):249-56',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/589997/',
+  },
+  kozukaLakeRed1979: {
+    title: 'Kozuka T, et al. Brilliant Lake Red R as a cause of pigmented contact dermatitis. Contact Dermatitis 1979;5(5):297-304',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/509931/',
+  },
+  kozukaAzoDyes1980: {
+    title: 'Kozuka T, et al. Pigmented contact dermatitis from azo dyes. I. Cross-sensitivity in humans. Contact Dermatitis 1980;6(5):330-6',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/7418389/',
+  },
+  jciaTarColorSummaryJa: {
+    title: '日本化粧品工業会「タール色素に関わる自主基準リスト」(2024年3月19日)',
+    url: 'https://www.jcia.org/user/common/download/business/guideline/tarcolor/20240319_TarColor_Summary_ja.pdf',
+  },
+  jciaTarColorSummaryEn: {
+    title: 'Japan Cosmetic Industry Association: The List of JCIA Standards for Tar Colors (March 19, 2024)',
+    url: 'https://www.jcia.org/user/common/download/business/guideline/tarcolor/20240319_TarColor_Summary_en.pdf',
+  },
+  cfrDcYellow11: {
+    title: '21 CFR 74.1711 D&C Yellow No. 11 (identity: 2-(2-quinolyl)-1,3-indandione)',
+    url: 'https://www.ecfr.gov/current/title-21/chapter-I/subchapter-A/part-74/subpart-B/section-74.1711',
+  },
+  bjorknerYellow11_1983: {
+    title: 'Björkner B, Niklasson B. Contact allergic reaction to D & C Yellow No. 11 and Quinoline Yellow. Contact Dermatitis 1983;9(4):263-8',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/6684529/',
+  },
+  komamuraQuinophthalone1989: {
+    title: 'Komamura H, et al. Allergic contact sensitivity to quinophthalone. Contact Dermatitis 1989;20(3):177-81',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/2524349/',
+  },
+  sassevilleYellow11_2009: {
+    title: 'Sasseville D, Joncas V. Allergic contact cheilitis from D & C Yellow 11. Contact Dermatitis 2009;60(5):294-5',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/19397626/',
+  },
 } satisfies Record<string, ReferenceLink>;
 
 /** 小麦由来の成分の表示（成分カードの出典）。厚生労働省の2011年の通知と、茶のしずく石鹸の回収のページ */
@@ -789,5 +833,67 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
       '小麦アレルギーがある方や、この成分を含む製品で顔のかゆみ・腫れが出たことがある方は避けてください。厚生労働省は2011年の通知で、小麦由来の成分に「小麦由来」などと表示するよう業界に求めています（成分名に「小麦」「コムギ」が入る場合は成分名だけでよいとされています）。',
     sources: [REF.mhlwWheatSoapRecall, REF.mhlwWheatNotice2010, REF.mhlwWheatLabelling2011],
     reviewedAt: '2026-10-14',
+  },
+
+  // ==========================================
+  // 色素（2026-11-07。docs/plans/ingredient-db-audit.md の Additions）
+  // 名前の形で照合する（src/lib/data/tar-dyes.ts。ingredient-analyzer の findKnownIngredient）。
+  // 個別の報告がある赤色219号・黄色204号は別の項目にして、総合判定に数える
+  // ==========================================
+  {
+    id: 'brilliant_lake_red_r',
+    nameJa: '赤色219号（ブリリアントレーキレッドR）',
+    nameEn: 'Red No. 219 (Brilliant Lake Red R)',
+    aliases: ['赤色219号', '赤219', 'ブリリアントレーキレッドR', 'Brilliant Lake Red R'],
+    category: 'other',
+    riskLevel: 'low_caution',
+    reasonJa:
+      '1970年代の日本で、化粧品による顔の色素沈着を伴う皮膚炎の主な原因と報告された色素です。患者53人の調査では、パッチテストで陽性になった割合がほかのタール色素より高く（38人中22人）、のちの研究で、当時市販されていたこの色素に不純物として混じっていたスダンIが強いアレルゲンで、精製した色素そのものの感作性は弱いと報告されています。日本化粧品工業会の自主基準（1988年）は、この色素に含まれる1-フェニルアゾ-2-ナフトール（スダンI）を5ppm以下に決めています。',
+    sensitiveSkinAdviceJa:
+      '色の付いた化粧品で肌が荒れたことや、顔に色素沈着が出たことがある場合は、全成分表示の「赤219」「赤色219号」を確かめてください。',
+    sources: [REF.jpTarDyeOrdinance, REF.sugaiTarDyes1977, REF.kozukaLakeRed1979, REF.kozukaAzoDyes1980, REF.jciaTarColorSummaryJa],
+    reviewedAt: '2026-11-07',
+  },
+  {
+    id: 'quinoline_yellow_ss',
+    nameJa: '黄色204号（キノリンイエローSS）',
+    nameEn: 'Yellow No. 204 (Quinoline Yellow SS, D&C Yellow No. 11)',
+    aliases: ['黄色204号', '黄204', 'キノリンイエローSS', 'Quinoline Yellow SS', 'D&C Yellow No. 11', 'D&C Yellow 11'],
+    category: 'other',
+    riskLevel: 'low_caution',
+    reasonJa:
+      '米国の D&C Yellow No. 11 と同じ色素（2-(2-キノリル)-1,3-インダンジオン）です。整髪料や唇の皮膚炎などで、この色素によるアレルギー性接触皮膚炎の症例が複数報告されており、ごく低い濃度で反応した例もあります。',
+    sensitiveSkinAdviceJa:
+      '色の付いた化粧品で肌が荒れたことがある場合は、全成分表示の「黄204」「黄色204号」を確かめてください。',
+    sources: [REF.jpTarDyeOrdinance, REF.cfrDcYellow11, REF.bjorknerYellow11_1983, REF.komamuraQuinophthalone1989, REF.sassevilleYellow11_2009],
+    reviewedAt: '2026-11-07',
+  },
+  {
+    id: 'tar_dye',
+    nameJa: 'タール色素（赤202・黄4 など）',
+    nameEn: 'Japanese certified colors (tar dyes)',
+    aliases: ['タール色素', '法定色素'],
+    category: 'other',
+    riskLevel: 'safe',
+    reasonJa:
+      '「赤色202号」「黄4」のような名前の色素は、厚生労働省の省令で化粧品に使えると決められた合成の色素（タール色素、83品目）です。400番台・500番台は、粘膜に使わない化粧品だけに使えます。1970年代に化粧品の色素で顔に色素沈着を伴う皮膚炎が報告され、患者のパッチテストでは、特に赤色219号が、ほかのタール色素より高い割合で陽性になりました（赤色219号は別の項目で説明しています）。',
+    sensitiveSkinAdviceJa:
+      '色の付いた化粧品で肌が荒れたことがある場合は、その製品の色素の名前（赤202、黄4 など）を控えておくと、次に避ける目安になります。',
+    sources: [REF.jpTarDyeOrdinance, REF.sugaiTarDyes1977, REF.kozukaAzoDyes1980, REF.jciaTarColorSummaryEn],
+    reviewedAt: '2026-11-07',
+  },
+  {
+    id: 'synthetic_dye_ci',
+    nameJa: '合成色素（CI番号の表示）',
+    nameEn: 'Synthetic organic colorant (CI 10000–74999)',
+    aliases: [],
+    category: 'other',
+    riskLevel: 'safe',
+    reasonJa:
+      'Colour Index の番号（CI）で書かれた色素のうち、10000〜74999 番台は合成の有機色素です（11000〜39999 番台がアゾ色素）。日本で化粧品に使えるタール色素のどれに当たるかは、この番号だけでは分かりません。色素は、刺激よりも、一部の色素と不純物によるアレルギー性の皮膚炎が報告されています。',
+    sensitiveSkinAdviceJa:
+      '色の付いた化粧品で肌が荒れたことがある場合は、その製品の CI 番号を控えておくと、次に避ける目安になります。',
+    sources: [REF.colourIndexGroups, REF.jciaTarColorSummaryEn, REF.sugaiTarDyes1977, REF.kozukaAzoDyes1980],
+    reviewedAt: '2026-11-07',
   },
 ];
