@@ -17,6 +17,35 @@ export const CATEGORY_SYNONYMS: Record<string, string[]> = {
   foundation: ['ファンデーション', 'ファンデ', 'bbクリーム', 'ccクリーム', 'クッションファンデ'],
 };
 
+/**
+ * ブランドごとの製品名の略し方。そのブランドの製品だけ、製品名を書き換えた形でも照合する
+ * （SP がスーパーの略なのは一部のブランドだけ。オーナーの判断 2026-11-07）。brand は照合用のキーで比べる
+ */
+const BRAND_NAME_ALIASES: readonly { brands: string[]; pattern: RegExp; replacement: string }[] = [
+  // メイベリン：「SPステイ」＝「スーパーステイ」（語の頭の SP の後にカタカナが続くとき）
+  { brands: ['メイベリン', 'maybelline'], pattern: /(^|[\s【「（(・])SP(?=[ァ-ヶー])/gi, replacement: '$1スーパー' },
+];
+
+/** 書き換えた形（製品ごとに作り直さない。rankProducts は入力のたびに呼ばれる） */
+const aliasCache = new WeakMap<Product, Product[]>();
+
+/** 製品と、ブランドの略し方で製品名を書き換えた形（略し方の無いブランドは製品だけ） */
+export function withNameAliases(p: Product): Product[] {
+  let variants = aliasCache.get(p);
+  if (!variants) {
+    variants = [p];
+    const brand = searchKey(p.brand);
+    const name = p.name.normalize('NFKC');
+    for (const a of BRAND_NAME_ALIASES) {
+      if (!a.brands.some((b) => brand.includes(searchKey(b)))) continue;
+      const aliased = name.replace(a.pattern, a.replacement);
+      if (aliased !== name) variants.push({ ...p, name: aliased });
+    }
+    aliasCache.set(p, variants);
+  }
+  return variants;
+}
+
 /** 照合で無視する文字（空白・区切り・括弧）。長音「ー」は意味を変えるので残す */
 const IGNORED = /[\s\-−·‐‑–—―_・･/\\,，.．、。'"`「」『』【】()（）[\]［］{}｛｝<>〈〉《》!！?？~〜～&＆:：;；]+/g;
 
@@ -121,7 +150,8 @@ export function rankProducts(products: Product[], query: string, isVerified: (p:
 
   const scored: { product: Product; score: number }[] = [];
   for (const product of products) {
-    const score = scoreProduct(product, prepared);
+    // ブランドの略し方で書き換えた製品名でも比べ、よい方の点数にする
+    const score = Math.max(...withNameAliases(product).map((v) => scoreProduct(v, prepared)));
     if (score === 0) continue;
     scored.push({ product, score: score + (isVerified(product) ? 10 : 0) });
   }

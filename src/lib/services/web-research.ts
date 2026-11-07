@@ -20,7 +20,7 @@ import { isPlainLabelText } from '../utils/safe-text';
 import { isJailbreakAttempt } from './gemini';
 import { isTrustedSource, logSourceTrust, mayShareWebProduct, trustedSitesMode } from '../data/trusted-sites';
 import { canonicalSiteUrl, isSiteReadable, readSitePage } from './site-readers';
-import { matchesProductWords } from '../search/product-match';
+import { matchesProductWords, withNameAliases } from '../search/product-match';
 
 /**
  * AI への指示のような語（検索語・ページの成分名に入っていたら使わない）。検索語は Gemini のページ読み取りにも渡るため、
@@ -335,7 +335,10 @@ function namesTarget(item: { brand: string; name: string; category: string }, ta
     .split(/\s+/)
     .filter((w) => !/\d/.test(w.normalize('NFKC')))
     .join(' ');
-  return matchesProductWords(product, target) || (!!withoutNumbers && matchesProductWords(product, withoutNumbers));
+  // ブランドの略し方（メイベリンの「SPステイ」＝「スーパーステイ」）で書き換えた製品名でも比べる
+  return withNameAliases(product).some(
+    (v) => matchesProductWords(v, target) || (!!withoutNumbers && matchesProductWords(v, withoutNumbers))
+  );
 }
 
 /** 1回の Gemini 呼び出しでページを読む。RECITATION で止められたら 'recitation'、出力の上限で切れたら 'truncated' */

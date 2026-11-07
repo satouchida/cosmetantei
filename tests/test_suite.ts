@@ -9103,3 +9103,51 @@ test('151. Trusted sites: LIPS and @cosme SHOPPING are trusted on product pages 
     clearGatewayEnv();
   }
 });
+
+test('152. A checked product with a known category counts as a cosmetic without a category word in its name; brand name aliases (Maybelline searches 2026-11-07)', async () => {
+  const { isActualCosmeticProduct, namesSearchedProduct, namesProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const lip = (name: string, extra: Partial<Product> = {}): Product => ({
+    id: 'web_maybelline',
+    brand: 'メイベリン ニューヨーク',
+    name,
+    country: 'JP',
+    category: 'lip',
+    ingredients: ['イソドデカン', 'ジメチコン', 'トリメチルシロキシケイ酸'],
+    ingredientSource: 'web_page',
+    ...extra,
+  });
+  const vinyl = lip('SPステイ ヴィニルインク');
+  const matte = lip('SPステイ マットインク');
+
+  // 全成分を確かめた製品で、分類が分かっていれば、製品名に「リップ」などが無くてもコスメ
+  assert.ok(isActualCosmeticProduct(vinyl));
+  assert.ok(isActualCosmeticProduct(matte));
+  // 分類が分からない・全成分を確かめていない製品は、今までどおり製品名の語で決める
+  assert.ok(!isActualCosmeticProduct(lip('SPステイ ヴィニルインク', { category: 'other' })));
+  assert.ok(!isActualCosmeticProduct(lip('SPステイ ヴィニルインク', { ingredientSource: undefined })));
+  assert.ok(!isActualCosmeticProduct(lip('SPステイ ヴィニルインク', { ingredients: [] })));
+  // ノイズの語・架空のブランドは、全成分があっても通さない
+  assert.ok(!isActualCosmeticProduct(lip('SPステイ ヴィニルインク 口コミ')));
+  assert.ok(!isActualCosmeticProduct(lip('SPステイ ヴィニルインク', { brand: '注目コスメ' })));
+
+  // チャットの検索語に合うか（全角の空白も区切り）。分類の語は製品の分類で合う
+  assert.ok(namesSearchedProduct(vinyl, 'メイベリン　ヴィニルインク'));
+  assert.ok(namesSearchedProduct(matte, 'メイベリン マットインク リップ'));
+  assert.ok(!namesSearchedProduct(matte, 'マットインク 化粧水'));
+  // ブランドごとの略し方：メイベリンの製品だけ「SPステイ」を「スーパーステイ」とも読む（オーナーの判断 2026-11-07）
+  assert.ok(namesSearchedProduct(matte, 'メイベリン　スーパーステイ　リップ'));
+  assert.ok(namesSearchedProduct(matte, 'メイベリン　スーパーステイ'));
+  assert.ok(namesSearchedProduct(vinyl, 'スーパーステイ ヴィニルインク'));
+  assert.ok(namesProduct(vinyl, 'スーパーステイ ヴィニルインク'), 'A cached answer is found without new research');
+  assert.ok(namesSearchedProduct(matte, 'メイベリン SPステイ'), 'The written name still matches');
+  // ほかのブランドの SP は読み替えない。語の途中の SP（ASPステイ）も読み替えない
+  assert.ok(!namesSearchedProduct(lip('SPステイ マットインク', { brand: 'ほかのブランド' }), 'ほかのブランド スーパーステイ'));
+  const { withNameAliases, rankProducts } = await import('../src/lib/search/product-match');
+  assert.strictEqual(withNameAliases(lip('ASPステイ マットインク')).length, 1, 'SP inside a word is not read as スーパー');
+  assert.deepStrictEqual(withNameAliases(lip('【SPステイ】マットインク')).map((v) => v.name), ['【SPステイ】マットインク', '【スーパーステイ】マットインク']);
+  // 英字のブランド名でも
+  assert.ok(namesSearchedProduct(lip('SPステイ マットインク', { brand: 'MAYBELLINE NEW YORK' }), 'スーパーステイ マットインク'));
+  // 入力途中の候補・保存済みの製品の並べ替えでも、ブランド名だけの一致より上に来る
+  const other = lip('ラッシュニスタ', { id: 'web_other' });
+  assert.deepStrictEqual(rankProducts([other, matte], 'メイベリン スーパーステイ').map((p) => p.name)[0], 'SPステイ マットインク');
+});

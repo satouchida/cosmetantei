@@ -17,7 +17,7 @@ import { isShopListingProduct } from '../product-source';
 import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
-import { matchesProductWords, onePerBarcode, rankProducts, searchKey } from '../search/product-match';
+import { matchesProductWords, onePerBarcode, rankProducts, searchKey, withNameAliases } from '../search/product-match';
 import { contactEmail, SITE_URL } from '../site';
 
 /**
@@ -166,6 +166,10 @@ export function isActualCosmeticProduct(p: Product | string): boolean {
     if (p.brand === p.name && (/^(洗顔|化粧水|乳液|クリーム|美容液|リップ|日焼け止め)$/i.test(p.name) || ENGLISH_BARE.test(p.name.trim()))) {
       return false;
     }
+
+    // 全成分を確かめた製品で、分類が分かっているもの。製品名に分類の語が無くてもよい
+    // （「SPステイ マットインク」は分類 lip。2026-11-07 のログ）
+    if (p.category !== 'other' && hasVerifiedIngredientList(p)) return true;
   }
 
   // 2. 単一カテゴリのみの場合もNG
@@ -383,6 +387,11 @@ export function hasVerifiedIngredientList(p: Product): boolean {
  * 無くてもよい（「資生堂 マキアージュ …リキッド オークル10」）
  */
 export function namesSearchedProduct(p: Product, text: string): boolean {
+  // ブランドの略し方（メイベリンの「SPステイ」＝「スーパーステイ」）で書き換えた製品名でも比べる
+  return withNameAliases(p).some((v) => namesSearchedName(v, text));
+}
+
+function namesSearchedName(p: Product, text: string): boolean {
   const target = isShopListingProduct(p) ? { ...p, name: withoutListingNoise(p.name) } : p;
   const productQuery = toProductSearchQuery(text);
   const queries = [text, ...(productQuery ? [productQuery, productQuery.replace(/の/g, ' ')] : [])];
@@ -400,6 +409,10 @@ export function namesSearchedProduct(p: Product, text: string): boolean {
 
 /** 製品名（ブランド名つきも含む）が検索語を含むか。ブランド名だけの一致は数えない */
 export function namesProduct(p: Product, query: string): boolean {
+  return withNameAliases(p).some((v) => namesProductName(v, query));
+}
+
+function namesProductName(p: Product, query: string): boolean {
   // 候補の照合（rankProducts）と同じキーで比べる。ひらがなで聞かれても、確認済みの製品があれば有料の Web リサーチをしない
   const q = searchKey(query);
   if (!q) return false;
