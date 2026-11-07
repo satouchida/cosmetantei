@@ -1,3 +1,5 @@
+import { AMBIGUOUS_BRAND_SPELLINGS, BRANDS_JP } from '../data/brands-jp';
+import { NAME_ALIASES } from '../data/name-aliases';
 import { Product } from '../types';
 
 /**
@@ -17,34 +19,7 @@ export const CATEGORY_SYNONYMS: Record<string, string[]> = {
   foundation: ['ファンデーション', 'ファンデ', 'bbクリーム', 'ccクリーム', 'クッションファンデ'],
 };
 
-/**
- * ブランドごとの製品名の略し方。そのブランドの製品だけ、製品名を書き換えた形でも照合する
- * （SP がスーパーの略なのは一部のブランドだけ。オーナーの判断 2026-11-07）。brand は照合用のキーで比べる
- */
-const BRAND_NAME_ALIASES: readonly { brands: string[]; pattern: RegExp; replacement: string }[] = [
-  // メイベリン：「SPステイ」＝「スーパーステイ」（語の頭の SP の後にカタカナが続くとき）
-  { brands: ['メイベリン', 'maybelline'], pattern: /(^|[\s【「（(・])SP(?=[ァ-ヶー])/gi, replacement: '$1スーパー' },
-];
-
-/** 書き換えた形（製品ごとに作り直さない。rankProducts は入力のたびに呼ばれる） */
-const aliasCache = new WeakMap<Product, Product[]>();
-
-/** 製品と、ブランドの略し方で製品名を書き換えた形（略し方の無いブランドは製品だけ） */
-export function withNameAliases(p: Product): Product[] {
-  let variants = aliasCache.get(p);
-  if (!variants) {
-    variants = [p];
-    const brand = searchKey(p.brand);
-    const name = p.name.normalize('NFKC');
-    for (const a of BRAND_NAME_ALIASES) {
-      if (!a.brands.some((b) => brand.includes(searchKey(b)))) continue;
-      const aliased = name.replace(a.pattern, a.replacement);
-      if (aliased !== name) variants.push({ ...p, name: aliased });
-    }
-    aliasCache.set(p, variants);
-  }
-  return variants;
-}
+const VU_ROW: Record<string, string> = { ァ: 'バ', ィ: 'ビ', ェ: 'ベ', ォ: 'ボ' };
 
 /** 照合で無視する文字（空白・区切り・括弧）。長音「ー」は意味を変えるので残す */
 const IGNORED = /[\s\-−·‐‑–—―_・･/\\,，.．、。'"`「」『』【】()（）[\]［］{}｛｝<>〈〉《》!！?？~〜～&＆:：;；]+/g;
@@ -62,6 +37,9 @@ export function searchKey(text: string): string {
       .toLowerCase()
       // ひらがな → カタカナ（ゔ・ゕ・ゖ を含む）
       .replace(/[\u3041-\u3096]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60))
+      // ヴ の書き方の揺れ（ヴィニル・ビニル）。意味は変わらない
+      .replace(/ヴ([ァィェォ])/g, (_, small: string) => VU_ROW[small])
+      .replace(/ヴ/g, 'ブ')
       .replace(IGNORED, '')
   );
 }
@@ -73,15 +51,123 @@ const CATEGORY_KEYS: Record<string, string[]> = Object.fromEntries(
   Object.entries(CATEGORY_SYNONYMS).map(([category, words]) => [category, words.map(searchKey)])
 );
 
+// ---------- ブランドの書き方・製品名の略し方 ----------
+
+/**
+ * 一覧のブランドの書き方（名前・読み・英字表記）の照合キー → そのブランドの照合キー（名前のキー）。
+ * forQuery: 検索語の語に使う一覧（普通の英語の語でもある書き方 AMBIGUOUS_BRAND_SPELLINGS を除く）
+ */
+let brandIndex: { all: Map<string, string>; forQuery: Map<string, string> } | null = null;
+
+function listedBrands(forQuery: boolean): Map<string, string> {
+  if (!brandIndex) {
+    const all = new Map<string, string>();
+    for (const b of BRANDS_JP) {
+      const canonical = searchKey(b.name);
+      for (const spelling of [b.name, b.kana, ...(b.aliases ?? [])]) {
+        const key = spelling ? searchKey(spelling) : '';
+        if (key && !all.has(key)) all.set(key, canonical);
+      }
+    }
+    const forQuery = new Map(all);
+    for (const w of AMBIGUOUS_BRAND_SPELLINGS) forQuery.delete(searchKey(w));
+    brandIndex = { all, forQuery };
+  }
+  return forQuery ? brandIndex.forQuery : brandIndex.all;
+}
+
+/** 語の並びの頭から、一覧のブランドの最も長い書き方（最大4語）。[ブランドの照合キー, 語の数] */
+function leadingBrand(words: string[], forQuery = false): [string, number] | null {
+  const index = listedBrands(forQuery);
+  for (let n = Math.min(4, words.length); n >= 1; n--) {
+    const hit = index.get(searchKey(words.slice(0, n).join(' ')));
+    if (hit) return [hit, n];
+  }
+  return null;
+}
+
+/**
+ * 製品のブランド欄の、一覧のブランドの照合キー（「メイベリン ニューヨーク」「MAYBELLINE NEW YORK」→ メイベリン）。
+ * 「花王 / キュレル」は両方。ブランド欄の頭が一覧の書き方のときだけ（語の途中では合わせない）
+ */
+export function listedBrandKeys(brandField: string): string[] {
+  const keys = new Set<string>();
+  for (const part of brandField.normalize('NFKC').split(/[/,、]/)) {
+    const hit = leadingBrand(part.trim().split(/\s+/).filter(Boolean));
+    if (hit) keys.add(hit[0]);
+  }
+  return [...keys];
+}
+
+/** 検索語の語。一覧のブランドの書き方（続く語を含む）はブランドの照合キーにする（「Maybelline」→ メイベリン） */
+function brandedTokens(query: string): string[] {
+  const words = query.normalize('NFKC').split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < words.length; ) {
+    const hit = leadingBrand(words.slice(i), true);
+    out.push(hit ? hit[0] : searchKey(words[i]));
+    i += hit ? hit[1] : 1;
+  }
+  return out.filter(Boolean);
+}
+
+/** 製品のブランドが検索語にあるか（一覧の別の書き方を含む。「Maybelline」で「メイベリン ニューヨーク」の製品） */
+export function queryNamesBrand(product: Product, query: string): boolean {
+  const { brand, brands } = productKeys(product);
+  const tokens = brandedTokens(query);
+  if (brands.some((b) => tokens.includes(b)) || tokens.includes(brand)) return true;
+  // 語の途中の一致は、語の途中に当たりにくい長さのブランド名だけ（「リペア」の「ペア」、「repair」の「pair」に合わせない）。
+  // 漢字を含むブランド名は2文字から（「花王の化粧水」）
+  const minLength = /[\u4e00-\u9fff]/.test(brand) ? 2 : /^[a-z0-9]+$/.test(brand) ? 4 : 3;
+  return brand.length >= minLength && searchKey(query).includes(brand);
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** 略し方ごとの書き換え（written を語の頭で探す正規表現） */
+const NAME_ALIAS_RULES = NAME_ALIASES.map((a) => ({
+  brand: searchKey(a.brand),
+  pattern: new RegExp(`(^|[\\s【「（(・])${escapeRegExp(a.written.normalize('NFKC'))}${/[a-z]$/i.test(a.written) ? '(?![a-z])' : ''}`, 'gi'),
+  readAs: a.readAs.map((r) => r.normalize('NFKC')),
+}));
+
+/** 書き換えた形（製品ごとに作り直さない。rankProducts は入力のたびに呼ばれる） */
+const aliasCache = new WeakMap<Product, Product[]>();
+
+/** 製品と、ブランドの略し方（src/lib/data/name-aliases.ts）で製品名を書き換えた形。略し方の無いブランドは製品だけ */
+export function withNameAliases(p: Product): Product[] {
+  let variants = aliasCache.get(p);
+  if (!variants) {
+    variants = [p];
+    const { brand, brands } = productKeys(p);
+    const name = p.name.normalize('NFKC');
+    const names = new Set([name]);
+    for (const rule of NAME_ALIAS_RULES) {
+      if (!brands.includes(rule.brand) && !brand.includes(rule.brand)) continue;
+      for (const r of rule.readAs) {
+        const aliased = name.replace(rule.pattern, (_, before: string) => `${before}${r}`);
+        if (!names.has(aliased)) {
+          names.add(aliased);
+          variants.push({ ...p, name: aliased });
+        }
+      }
+    }
+    aliasCache.set(p, variants);
+  }
+  return variants;
+}
+
 /** 製品ごとの照合キー（入力のたびに作り直さない。製品が差し替わればオブジェクトが変わるので作り直す） */
-const productKeyCache = new WeakMap<Product, { name: string; brand: string; full: string }>();
+const productKeyCache = new WeakMap<Product, { name: string; brand: string; full: string; brands: string[]; fulls: string[] }>();
 
 function productKeys(p: Product) {
   let keys = productKeyCache.get(p);
   if (!keys) {
     const name = searchKey(p.name);
     const brand = searchKey(p.brand);
-    keys = { name, brand, full: brand + name };
+    // 一覧のブランドの書き方（名前のキー）でも「ブランド名＋製品名」を作る（英字のブランド欄を「メイベリン」で探せるように）
+    const brands = listedBrandKeys(p.brand || '');
+    keys = { name, brand, full: brand + name, brands, fulls: [brand + name, ...brands.map((b) => b + name)] };
     productKeyCache.set(p, keys);
   }
   return keys;
@@ -90,26 +176,32 @@ function productKeys(p: Product) {
 /** 検索語を照合用にしたもの（製品ごとに作り直さない） */
 interface PreparedQuery {
   q: string;
+  /** ブランドの書き方を一覧の名前にした検索語（「Maybelline マットインク」→ メイベリンマットインク） */
+  branded: string;
   digits: string;
   tokens: string[];
+  brandedTokens: string[];
 }
 
 function prepareQuery(query: string): PreparedQuery {
+  const brandedWords = brandedTokens(query);
   return {
     q: searchKey(query),
+    branded: brandedWords.join(''),
     digits: query.replace(/[\s\-]/g, ''),
     tokens: query
       .split(/[\s　]+/)
       .map(searchKey)
       .filter(Boolean),
+    brandedTokens: brandedWords,
   };
 }
 
 /** rankProducts の点数（0 は合わない。BRAND_ONLY はブランド名だけの一致） */
-function scoreProduct(product: Product, { q, digits, tokens }: PreparedQuery): number {
-  const { name, brand, full } = productKeys(product);
+function scoreProduct(product: Product, { q, branded, digits, tokens, brandedTokens }: PreparedQuery): number {
+  const { name, brand, full, brands, fulls } = productKeys(product);
   const categories = Object.hasOwn(CATEGORY_KEYS, product.category) ? CATEGORY_KEYS[product.category] : [];
-  const inFields = (t: string) => full.includes(t) || categories.some((c) => c.includes(t));
+  const inFields = (t: string) => fulls.some((f) => f.includes(t)) || categories.some((c) => c.includes(t));
 
   // Yahoo! の商品説明の製品のバーコードは出品者1人が書いた値なので、バーコードの一致として先頭に出さない
   // （search-barcode-service の matchesOwnBarcode と同じ）
@@ -121,16 +213,17 @@ function scoreProduct(product: Product, { q, digits, tokens }: PreparedQuery): n
   )
     return 1000;
   if (name.startsWith(q)) return 400;
-  if (full.startsWith(q)) return 350;
+  if (full.startsWith(q) || fulls.some((f) => f.startsWith(branded))) return 350;
   // 1文字の入力（入力し始め）は、名前の先頭だけで照合する
   if (q.length < 2) return 0;
   if (name.includes(q)) return 250;
-  if (full.includes(q)) return 200;
+  if (full.includes(q) || (branded.length >= 2 && fulls.some((f) => f.includes(branded)))) return 200;
   // チャットの文の中に製品名がある（「キュレルの泡洗顔料を調べて」）。短い名前は別の語の一部になりやすいので4文字から
   if (name.length >= 4 && q.includes(name)) return 220;
-  if (tokens.every(inFields)) return 120;
+  if (tokens.every(inFields) || brandedTokens.every(inFields)) return 120;
   // 英字だけの短いブランド名は別の語の一部になりやすいので3文字から
   if (brand.length >= (/^[a-z0-9]+$/.test(brand) ? 3 : 2) && q.includes(brand)) return BRAND_ONLY;
+  if (brands.some((b) => brandedTokens.includes(b))) return BRAND_ONLY;
   return 0;
 }
 

@@ -157,7 +157,7 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'ニュートロジーナ', aliases: ['Neutrogena'] },
   { name: 'ポンズ', aliases: ['POND\'S', 'PONDS'] },
   { name: 'ダヴ', aliases: ['Dove'] },
-  { name: 'メイベリン', aliases: ['MAYBELLINE'] },
+  { name: 'メイベリン', aliases: ['MAYBELLINE', 'メイベリン ニューヨーク', 'MAYBELLINE NEW YORK'] },
   { name: 'ロレアル パリ', aliases: ['L\'Oréal Paris', 'LOREAL PARIS', 'ロレアルパリ'] },
   { name: 'レブロン', aliases: ['REVLON'] },
   // 韓国ブランド
@@ -182,3 +182,9 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'バニラコ', aliases: ['banila co', 'BANILA CO'] },
   { name: 'イッツスキン', aliases: ['It\'s skin', 'Its skin'] },
 ];
+
+/**
+ * 普通の英語の語でもある書き方。検索語の語としては、一覧のブランドに読み替えない（「Morning Dew」の dew を デュウ に、
+ * 「repair」の語を ペア にしない）。製品のブランド欄（「DEW」）は今までどおり一覧のブランドとして読む
+ */
+export const AMBIGUOUS_BRAND_SPELLINGS: readonly string[] = ['est', 'DEW', 'PAIR', 'NOV', 'excel', 'OPERA', 'THREE'];

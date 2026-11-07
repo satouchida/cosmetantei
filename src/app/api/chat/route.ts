@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   searchCosmeticsLive,
+  searchCosmeticsLiveWithCloseMatches,
   lookupByBarcode,
   getServicePurposeExplanation,
   BARCODE_PATTERN,
@@ -17,6 +18,7 @@ import {
   answerIngredientQuestion,
   explainCulprits,
   findIngredientsInText,
+  summarizeCloseMatches,
   summarizeProductAnalysis,
   summarizeProductResults,
 } from '@/lib/services/chat-replies';
@@ -464,9 +466,19 @@ async function handlePost(request: NextRequest) {
     // E. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
     // Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
     const webResearch = gate?.intent === 'product_lookup';
-    const matchedProducts = await searchCosmeticsLive(userText, 6, { webResearch });
+    const { products: matchedProducts, closeMatches } = await searchCosmeticsLiveWithCloseMatches(userText, 6, { webResearch });
 
-    // F. 商品名の入力など。該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
+    // F. 商品名の入力など。合う商品が無く、検索語にあるブランドの近い製品があれば、答えではなく近い候補として見せる
+    if (matchedProducts.length === 0 && closeMatches.length > 0) {
+      // 上限で Web を調べられなかったときは、その理由も書く（「見つからなかった」だけにしない）
+      const limit = webResearch ? currentSpendLimit(RESEARCH_BUCKETS) : null;
+      return NextResponse.json({
+        reply: limit ? `${spendLimitMessage(limit)}\n\n${summarizeCloseMatches(closeMatches)}` : summarizeCloseMatches(closeMatches),
+        productSuggestions: closeMatches,
+        quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '📝 成分表示を入力する'],
+      });
+    }
+    // 該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
     if (matchedProducts.length === 0) {
       const limit = webResearch ? currentSpendLimit(RESEARCH_BUCKETS) : null;
       return NextResponse.json({

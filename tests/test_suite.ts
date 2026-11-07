@@ -3975,7 +3975,9 @@ test('80. Type-ahead: Japanese matching (kana, half-width, accents, several word
   assert.strictEqual(searchKey('きゅれる'), searchKey('キュレル'));
   assert.strictEqual(searchKey('ｷｭﾚﾙ'), searchKey('キュレル'));
   assert.strictEqual(searchKey('ｶﾞ'), searchKey('が'));
-  assert.strictEqual(searchKey('ゔ'), 'ヴ');
+  // ゔ はカタカナの ヴ にしてから、ヴ の行のゆれ（ヴ＝ブ）をそろえる
+  assert.strictEqual(searchKey('ゔ'), searchKey('ヴ'));
+  assert.strictEqual(searchKey('ゔ'), 'ブ');
   assert.strictEqual(searchKey('Curél'), 'curel');
   assert.strictEqual(searchKey('ＮＩＶＥＡ　クリーム'), 'niveaクリーム');
   assert.strictEqual(searchKey('「潤浸保湿」・フェイス（40g）'), '潤浸保湿フェイス40g');
@@ -7683,10 +7685,11 @@ test('128. Spend limits reach the screen: the route says which limit refused, th
     assert.match(readFileSync('src/components/chat/ChatContainer.tsx', 'utf8'), /<SpendLimitNotice reason=\{spendLimit\.reason\}/);
     assert.match(readFileSync('src/app/api/label/read/route.ts', 'utf8'), /error: spendLimitMessage\(limit\)/);
     // チャット：上限で Web を調べられなかったときは「見つかりませんでした」と言わない（2か所）
-    // （調べた呼び出しの種類だけを見る。3か所）
+    // （調べた呼び出しの種類だけを見る。3か所と、近い候補を出すときに理由を添える1か所）
     const chatRoute = readFileSync('src/app/api/chat/route.ts', 'utf8');
     assert.strictEqual(chatRoute.match(/\? spendLimitMessage\(limit\)/g)?.length, 3);
-    assert.strictEqual(chatRoute.match(/currentSpendLimit\(RESEARCH_BUCKETS\)/g)?.length, 3);
+    assert.strictEqual(chatRoute.match(/currentSpendLimit\(RESEARCH_BUCKETS\)/g)?.length, 4);
+    assert.match(chatRoute, /limit \? `\$\{spendLimitMessage\(limit\)\}\\n\\n\$\{summarizeCloseMatches\(closeMatches\)\}`/);
     assert.doesNotMatch(chatRoute, /currentSpendLimit\(\)/);
     // 写真：今月・本日・端末の上限では「もう一度読み取る」を出さない
     assert.match(readFileSync('src/components/label/LabelInputModal.tsx', 'utf8'), /&& !lasting\);/);
@@ -9144,10 +9147,87 @@ test('152. A checked product with a known category counts as a cosmetic without 
   assert.ok(!namesSearchedProduct(lip('SPステイ マットインク', { brand: 'ほかのブランド' }), 'ほかのブランド スーパーステイ'));
   const { withNameAliases, rankProducts } = await import('../src/lib/search/product-match');
   assert.strictEqual(withNameAliases(lip('ASPステイ マットインク')).length, 1, 'SP inside a word is not read as スーパー');
-  assert.deepStrictEqual(withNameAliases(lip('【SPステイ】マットインク')).map((v) => v.name), ['【SPステイ】マットインク', '【スーパーステイ】マットインク']);
+  assert.ok(withNameAliases(lip('【SPステイ】マットインク')).some((v) => v.name === '【スーパーステイ】マットインク'));
   // 英字のブランド名でも
   assert.ok(namesSearchedProduct(lip('SPステイ マットインク', { brand: 'MAYBELLINE NEW YORK' }), 'スーパーステイ マットインク'));
   // 入力途中の候補・保存済みの製品の並べ替えでも、ブランド名だけの一致より上に来る
   const other = lip('ラッシュニスタ', { id: 'web_other' });
   assert.deepStrictEqual(rankProducts([other, matte], 'メイベリン スーパーステイ').map((p) => p.name)[0], 'SPステイ マットインク');
+});
+
+test('153. Search cases: brand spellings, per-brand name aliases and kana folds (tests/search-cases.ts)', async () => {
+  const { SEARCH_CASES } = await import('./search-cases');
+  const { namesSearchedProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { withNameAliases, searchKey, listedBrandKeys } = await import('../src/lib/search/product-match');
+  for (const c of SEARCH_CASES) {
+    const product = verifiedProduct({ id: `case_${c.query}`, brand: c.brand, name: c.name, category: c.category as Product['category'], ingredientSource: 'web_page' });
+    assert.strictEqual(namesSearchedProduct(product, c.query), c.matches, `${c.query} → ${c.brand} ${c.name} (${c.note})`);
+  }
+  // 略し方は語の頭だけ。英字で終わる形の後ろに英字が続けば書き換えない（SPF は SP＋F）
+  const uv = verifiedProduct({ brand: 'メイベリン', name: 'SPF50 UVミルク', category: 'sunscreen' });
+  assert.strictEqual(withNameAliases(uv).length, 1);
+  // ヴ の行のゆれ
+  assert.strictEqual(searchKey('ヴィニル ヴァ ヴェ ヴォ ヴ'), searchKey('ビニル バ ベ ボ ブ'));
+  // 一覧のブランドの書き方。語の途中の書き方には合わせない（エスト の est で Estee Lauder にしない）
+  assert.deepStrictEqual(listedBrandKeys('MAYBELLINE NEW YORK'), [searchKey('メイベリン')]);
+  assert.deepStrictEqual(listedBrandKeys('花王 / キュレル'), [searchKey('花王'), searchKey('キュレル')]);
+  assert.ok(!listedBrandKeys('Estee Lauder').includes(searchKey('エスト')));
+  // 製品のブランド欄の英字表記は読む（DEW → デュウ）が、検索語の普通の英語の語はブランドにしない
+  const { queryNamesBrand } = await import('../src/lib/search/product-match');
+  assert.deepStrictEqual(listedBrandKeys('DEW'), [searchKey('デュウ')]);
+  const dew = verifiedProduct({ brand: 'デュウ', name: 'モイストリッチ ローション', category: 'toner' });
+  assert.ok(!queryNamesBrand(dew, 'Morning Dew Tint'));
+  assert.ok(queryNamesBrand(dew, 'デュウ ローション'));
+  // 短いブランド名は語の途中では合わない。語としてなら合う。漢字2文字は語の途中でも
+  const pair = verifiedProduct({ brand: 'ペア', name: 'ペアアクネクリームW', category: 'cream' });
+  assert.ok(!queryNamesBrand(pair, 'ヘアリペア トリートメント'));
+  assert.ok(queryNamesBrand(pair, 'ペア クリーム'));
+  assert.ok(queryNamesBrand(verifiedProduct({ brand: '花王', name: 'ビオレ UV', category: 'sunscreen' }), '花王の日焼け止め'));
+});
+
+test('154. Close matches: when nothing matches the searched name, checked products of a brand in the search are shown as close matches, not as the answer', async () => {
+  const { searchCosmeticsLiveWithCloseMatches } = await import('../src/lib/services/live-cosmetics-service');
+  const { summarizeCloseMatches } = await import('../src/lib/services/chat-replies');
+  const { cachePutJSON, hashedCacheKey } = await import('../src/lib/server/cloudflare');
+  const { toProductSearchQuery } = await import('../src/lib/services/web-research');
+  const lip = (id: string, name: string) =>
+    verifiedProduct({ id, brand: 'メイベリン ニューヨーク', name, category: 'lip', ingredientSource: 'web_page', sourceUrl: `https://www.maybelline.co.jp/all-products/lip/${id}` });
+  const found = [lip('web_t154_matte', 'SPステイ マットインク'), lip('web_t154_vinyl', 'SPステイ ヴィニルインク')];
+  const seed = async (text: string) =>
+    cachePutJSON(await hashedCacheKey('webfacts:v2', toProductSearchQuery(text)!.normalize('NFKC').toLowerCase()), found, 3600);
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const logs: string[] = [];
+  console.log = (...args: unknown[]) => {
+    if (typeof args[0] === 'string' && args[0].startsWith('[search-miss]')) logs.push(args[0]);
+    else originalLog(...args);
+  };
+  globalThis.fetch = (async () => new Response('offline in tests', { status: 503 })) as typeof fetch;
+  setGatewayEnv();
+  try {
+    // 調べた製品が検索語に合わない：検索語にあるブランドの製品を近い候補に（答えにはしない）。ログに出す（検索語は出さない）
+    await seed('メイベリン ラッシュニスタ');
+    const miss = await searchCosmeticsLiveWithCloseMatches('メイベリン ラッシュニスタ', 6, { webResearch: true, openBeautyFacts: false });
+    assert.deepStrictEqual(miss.products, []);
+    assert.deepStrictEqual(miss.closeMatches.map((p) => p.id).sort(), ['web_t154_matte', 'web_t154_vinyl']);
+    assert.strictEqual(logs.length, 1);
+    assert.ok(logs[0].includes('SPステイ マットインク') && !logs[0].includes('ラッシュニスタ'), logs[0]);
+    const reply = summarizeCloseMatches(miss.closeMatches);
+    assert.match(reply, /ぴったり合う製品は見つかりませんでした。メイベリンの近い製品/);
+
+    // 検索語にそのブランドが無ければ、近い候補も出さない
+    await seed('ほかのブランド ラッシュニスタ');
+    const other = await searchCosmeticsLiveWithCloseMatches('ほかのブランド ラッシュニスタ', 6, { webResearch: true, openBeautyFacts: false });
+    assert.deepStrictEqual([other.products, other.closeMatches], [[], []]);
+
+    // 合う製品があれば、それが答え（近い候補は無し）。英字のブランド名でも
+    await seed('Maybelline マットインク');
+    const hit = await searchCosmeticsLiveWithCloseMatches('Maybelline マットインク', 6, { webResearch: true, openBeautyFacts: false });
+    assert.deepStrictEqual(hit.products.map((p) => p.id), ['web_t154_matte']);
+    assert.deepStrictEqual(hit.closeMatches, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalLog;
+    clearGatewayEnv();
+  }
 });

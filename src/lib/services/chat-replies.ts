@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { isPlainReplyText } from '../utils/safe-text';
-import { productLabel } from '../display-brand';
+import { getDisplayBrand, productLabel } from '../display-brand';
 import { hasProhibitedClaim, PROMPT_WORDING_RULES } from '../wording';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import {
@@ -126,6 +126,19 @@ export function summarizeProductResults(products: Product[]): string {
     parts.push('全成分を確認できなかった商品は、パッケージの全成分表示をご確認ください。');
   }
   return parts.join('\n\n');
+}
+
+/**
+ * 調べた商品名に合う製品が無く、検索語にあるブランドの近い製品を見せるとき。答えではないとはっきり書く
+ * （別の製品を、調べた製品として選ばないように）
+ */
+export function summarizeCloseMatches(products: Product[]): string {
+  const brands = uniq(products.map((p) => getDisplayBrand(p.brand, p.name)));
+  const brand = brands.length === 1 ? `${brands[0]}の` : '';
+  return [
+    `お探しの商品にぴったり合う製品は見つかりませんでした。${brand}近い製品（全成分を確認済み）：`,
+    'この中にお探しの商品があればカードを選んでください。無ければ、パッケージに書かれた商品名で調べ直すか、バーコードを読み取ってください。',
+  ].join('\n\n');
 }
 
 /** 単品解析・バーコード読み取りの結果（T6）。製品名・成分の数・出典（判定は下のカード） */

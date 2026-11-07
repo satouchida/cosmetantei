@@ -17,7 +17,7 @@ import { isShopListingProduct } from '../product-source';
 import { runAfterResponse } from '../server/cloudflare';
 import { getDisplayBrand as getDisplayBrandWith } from '../display-brand';
 import { filterSearchResults } from './search-filter';
-import { matchesProductWords, onePerBarcode, rankProducts, searchKey, withNameAliases } from '../search/product-match';
+import { matchesProductWords, onePerBarcode, queryNamesBrand, rankProducts, searchKey, withNameAliases } from '../search/product-match';
 import { contactEmail, SITE_URL } from '../site';
 
 /**
@@ -397,7 +397,8 @@ function namesSearchedName(p: Product, text: string): boolean {
   const queries = [text, ...(productQuery ? [productQuery, productQuery.replace(/の/g, ' ')] : [])];
   if (queries.some((q) => matchesProductWords(target, q))) return true;
   const brand = searchKey(target.brand);
-  if (!productQuery || brand.length < 2 || !searchKey(productQuery).includes(brand)) return false;
+  // 製品のブランドが検索語にあるか（一覧の英字表記などの書き方を含む。「Maybelline …」で「メイベリン ニューヨーク」）
+  if (!productQuery || !queryNamesBrand(target, productQuery)) return false;
   const words = productQuery.replace(/の/g, ' ').split(/\s+/).filter(Boolean);
   const optional = (w: string) => {
     const key = searchKey(w);
@@ -473,15 +474,34 @@ export async function fetchDynamicTrendingCosmetics(
  * webResearch: 見つからない場合に Web 検索と出典ページの読み取り（有料）まで行うか。
  * 入力途中の候補表示（/api/products/search）では使わず、チャットで商品名が送られたときだけ使う
  */
+type LiveSearchOptions = { webResearch?: boolean; openBeautyFacts?: boolean; retryEmpty?: boolean };
+
 export async function searchCosmeticsLive(
   query: string,
   limit = 6,
   // retryEmpty: Web リサーチで、前に全成分が見つからなかった結果のキャッシュを使わない（利用者が調べ直しを頼んだとき）
-  options: { webResearch?: boolean; openBeautyFacts?: boolean; retryEmpty?: boolean } = {}
+  options: LiveSearchOptions = {}
 ): Promise<Product[]> {
+  return (await searchCosmeticsLiveWithCloseMatches(query, limit, options)).products;
+}
+
+/** 近い候補の件数の上限 */
+const MAX_CLOSE_MATCHES = 4;
+
+/**
+ * searchCosmeticsLive と同じ検索。チャットで商品名を調べて合う製品が無かったときは、closeMatches に近い候補を返す：
+ * 検索語にあるブランドの、全成分を確認した製品（答えではなく「近い製品」として見せる。docs/plans/search-flexibility.md）
+ */
+export async function searchCosmeticsLiveWithCloseMatches(
+  query: string,
+  limit = 6,
+  options: LiveSearchOptions = {}
+): Promise<{ products: Product[]; closeMatches: Product[] }> {
   const clean = query ? query.replace(/\u3000/g, ' ').trim() : '';
 
   const collected: Product[] = [];
+  // Web リサーチで見つけた製品（合う製品が無かったときのログ用）
+  let researched: Product[] = [];
 
   // 1. 空入力または挨拶・相談の場合：外部APIから動的に実在人気コスメを取得
   if (!clean || isGreetingOrConsultation(clean)) {
@@ -490,7 +510,7 @@ export async function searchCosmeticsLive(
       if (collected.length >= limit) break;
       collected.push(t);
     }
-    if (collected.length >= limit) return collected.slice(0, limit);
+    if (collected.length >= limit) return { products: collected.slice(0, limit), closeMatches: [] };
   }
 
   // 2. 通常の検索語の場合
@@ -545,6 +565,7 @@ export async function searchCosmeticsLive(
       }
     } else {
       const webResults = await researchProducts(productQuery, Math.min(limit, 4), { retryEmpty: options.retryEmpty });
+      researched = webResults;
       // 調べた製品を先に置く（Web リサーチは、検索語を名前に含む確認済みの候補が無いときだけ行うので、
       // ここまでの候補より合っている。後ろに置くと、同じブランドの候補で件数が埋まり切り捨てられる）
       const found: Product[] = [];
@@ -574,6 +595,34 @@ export async function searchCosmeticsLive(
   const strict = options.webResearch && clean && !isGreetingOrConsultation(clean);
   const validProducts = (strict ? valid.filter((p) => namesSearchedProduct(p, clean)) : valid).slice(0, limit);
 
+  // 合う製品が無いとき：検索語にあるブランドの、全成分を確認した製品を近い候補にする（答えとしては出さない）
+  const closeMatches =
+    strict && validProducts.length === 0
+      ? valid.filter((p) => hasVerifiedIngredientList(p) && queryNamesBrand(p, clean)).slice(0, MAX_CLOSE_MATCHES)
+      : [];
+  if (strict && validProducts.length === 0) logSearchMiss(researched, valid, closeMatches.length);
+
   // E. Clef による検索語との照合（SEARCH_FILTER_MODE。既定は off）。空の検索・挨拶は照合しない
-  return filterSearchResults(clean && !isGreetingOrConsultation(clean) ? clean : '', validProducts);
+  const products = await filterSearchResults(clean && !isGreetingOrConsultation(clean) ? clean : '', validProducts);
+  return { products, closeMatches };
+}
+
+/**
+ * チャットで商品名を調べて、合う製品が1つも無かったときのログ（[search-miss]）。足りない書き方・略し方を見つけるため
+ * （src/lib/data/brands-jp.ts・name-aliases.ts に足す）。調べた製品のブランド名・製品名と、どこで外れたかだけ。
+ * 利用者の検索語は出さない
+ */
+function logSearchMiss(researched: Product[], valid: Product[], closeMatches: number): void {
+  if (researched.length === 0) return;
+  const label = (p: Product) => `${p.brand} / ${p.name}`.replace(/[\u0000-\u001f]/g, ' ').slice(0, 80);
+  const notCosmetic = researched.filter((p) => !valid.some((v) => v.id === p.id));
+  const notNamed = researched.filter((p) => valid.some((v) => v.id === p.id));
+  console.log(
+    `[search-miss] ${JSON.stringify({
+      researched: researched.length,
+      notCosmetic: notCosmetic.slice(0, 3).map(label),
+      notNamed: notNamed.slice(0, 3).map(label),
+      closeMatches,
+    })}`
+  );
 }

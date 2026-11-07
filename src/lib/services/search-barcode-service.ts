@@ -22,6 +22,7 @@ import { ETHANOL_IN_LABEL } from './label-reader';
 import { contactEmail, SITE_URL } from '../site';
 import {
   searchCosmeticsLive,
+  searchCosmeticsLiveWithCloseMatches,
   searchOpenBeautyFacts,
   normalizeSearchString,
   isGreetingOrConsultation,
@@ -35,6 +36,7 @@ import {
 export {
   normalizeSearchString,
   searchCosmeticsLive,
+  searchCosmeticsLiveWithCloseMatches,
   searchOpenBeautyFacts,
   isGreetingOrConsultation,
   getServicePurposeExplanation,
