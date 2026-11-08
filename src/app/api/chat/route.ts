@@ -157,6 +157,8 @@ async function handlePost(request: NextRequest) {
     // サーバーが持っている製品は、ブラウザから送られた内容ではなくサーバーの内容を使う
     const routine = sentRoutine && (await resolveClientRoutine(sentRoutine));
     const selectedProduct = sentProduct && (await resolveClientProduct(sentProduct));
+    // 比較リストに登録した製品（代わりの商品に出さない）
+    const registered = routine ? [...routine.badProducts, ...(routine.safeProducts ?? []), ...(routine.currentlyUsing ?? [])] : [];
 
     const userText = (message || '').trim();
     const cleanNumeric = userText.replace(/[\s\-_]/g, '');
@@ -180,7 +182,7 @@ async function handlePost(request: NextRequest) {
       }
 
       // 結果はカードに出るので、返答は定型のまとめ（Gemini は使わない）
-      const analysis = analyzeProduct(product);
+      const analysis = analyzeProduct(product, undefined, registered);
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis, targetBarcode),
         singleAnalysis: analysis,
@@ -206,7 +208,7 @@ async function handlePost(request: NextRequest) {
           quickReplies: ['📝 成分表示を入力する'],
         });
       }
-      const analysis = analyzeProduct(built.product);
+      const analysis = analyzeProduct(built.product, undefined, registered);
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
@@ -220,7 +222,7 @@ async function handlePost(request: NextRequest) {
 
     // 2. 単一製品解析指定の場合
     if (action === 'analyze_single' && selectedProduct) {
-      const analysis = analyzeProduct(selectedProduct);
+      const analysis = analyzeProduct(selectedProduct, undefined, registered);
       return NextResponse.json({
         reply: summarizeProductAnalysis(analysis),
         singleAnalysis: analysis,
@@ -240,7 +242,7 @@ async function handlePost(request: NextRequest) {
       }
       // 別の人が調べて、サーバーにもう全成分がある製品なら、その分析を返す
       if (!hasNoIngredients(selectedProduct)) {
-        const analysis = analyzeProduct(selectedProduct);
+        const analysis = analyzeProduct(selectedProduct, undefined, registered);
         return NextResponse.json({
           reply: summarizeProductAnalysis(analysis),
           singleAnalysis: analysis,
@@ -281,7 +283,7 @@ async function handlePost(request: NextRequest) {
       // 全成分の無い結果（Open Beauty Facts に JAN だけある）は使わず、商品名で調べる
       const byBarcode = fromBarcode && !hasNoIngredients(fromBarcode) ? fromBarcode : null;
       if (byBarcode) {
-        const analysis = analyzeProduct(byBarcode);
+        const analysis = analyzeProduct(byBarcode, undefined, registered);
         return NextResponse.json({
           reply: summarizeProductAnalysis(analysis, shopBarcode),
           singleAnalysis: analysis,
@@ -402,7 +404,7 @@ async function handlePost(request: NextRequest) {
         });
       }
 
-      const diffResult = performDifferentialAnalysis(routine.badProducts, routine.safeProducts || []);
+      const diffResult = performDifferentialAnalysis(routine.badProducts, routine.safeProducts || [], routine.currentlyUsing ?? []);
       // 候補成分が刺激になりやすい理由だけを Gemini に説明させる（商品名・ユーザーの文章は渡さない）
       return NextResponse.json({
         reply: await explainCulprits(diffResult),

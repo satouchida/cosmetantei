@@ -1,5 +1,6 @@
 import 'server-only';
 import { Product } from '../types';
+import { productIdentityKey } from '../search/product-identity';
 import { addProductToDynamicCache, isVerifiedSource, rememberVerifiedProducts } from '../data/cosmetics-db';
 import {
   cacheGetJSON,
@@ -556,27 +557,6 @@ export async function toProduct(p: PageProduct): Promise<Product> {
   };
 }
 
-/** ブランド表記の会社名部分（「ちふれ化粧品」「〇〇株式会社」等） */
-const COMPANY_SUFFIX = /(株式会社|化粧品|コスメティックス?|cosmetics?|inc|co|ltd)$/;
-
-/**
- * ページごとに表記が違う同じ製品を同一視するためのキー
- * 例: 「ちふれ・CHIFURE / 美白化粧水 Ｗ」と「ちふれ化粧品 / ちふれ美白化粧水 W」は同じキーになる
- */
-export function productIdentityKey(brand: string, name: string): string {
-  const compact = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[\s・･.,、。()（）\[\]【】'"’-]/g, '');
-  const brandTokens = brand
-    .normalize('NFKC')
-    .toLowerCase()
-    .split(/[\s・･/()（）,、]+/)
-    .map((t) => compact(t).replace(COMPANY_SUFFIX, ''))
-    .filter((t) => t.length >= 2);
-  // 容量（150ml・つめかえ用の 130ml 等）は成分が同じなので区別しない
-  let key = compact(name).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
-  for (const token of brandTokens) key = key.split(token).join('');
-  return key || compact(name);
-}
-
 /** 一般名詞がブランド欄に入った製品を除く（語彙チェック → キャッシュ → Clef。Gemini の追加呼び出しなし） */
 async function keepRealBrands(products: Product[]): Promise<Product[]> {
   if (products.length === 0) return [];
@@ -872,3 +852,6 @@ export async function refreshPageProduct(stored: Product): Promise<Product | nul
   }
   return read.incomplete ? undefined : null;
 }
+
+/** 同じ製品のキー（src/lib/search/product-identity.ts。今までの import のため） */
+export { productIdentityKey };

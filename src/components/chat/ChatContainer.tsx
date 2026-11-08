@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChatMessage,
@@ -80,6 +80,7 @@ import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 import { ConsentDialog } from '@/components/legal/ConsentDialog';
 import { getConsentServerSnapshot, hasConsented, subscribeConsent } from '@/lib/consent';
 import { MAX_ROUTINE_PRODUCTS } from '@/lib/product-validation';
+import { RegisteredProductsContext } from './RegisteredProducts';
 
 let messageSequence = 0;
 
@@ -394,6 +395,11 @@ export const ChatContainer: React.FC = () => {
     wasConsented.current = consented;
   }, [consented]);
   const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
+  // 代わりの商品のカードに出さない、登録した製品（RegisteredProducts.tsx）
+  const registeredProducts = useMemo(
+    () => [...comparison.badProducts, ...comparison.safeProducts, ...currentUse.map((e) => e.product)],
+    [comparison, currentUse]
+  );
   useEffect(() => {
     routineRef.current = routine;
   });
@@ -1077,6 +1083,7 @@ export const ChatContainer: React.FC = () => {
 
   return (
     // 同意を確かめるまで（サーバーで描いた直後を含む）は、画面を操作も読み上げもさせない（inert）
+    <RegisteredProductsContext.Provider value={registeredProducts}>
     <div inert={consented !== true} className="flex flex-col h-dvh bg-surface text-ink font-sans">
       {/* 初めて開いたとき：利用規約・プライバシーポリシーと Cookie の使用への同意。
           inert の外に置く（inert の中のダイアログは押せない）。同意していないと分かるのはブラウザだけなので、document がある */}
@@ -1619,5 +1626,6 @@ export const ChatContainer: React.FC = () => {
       {/* 画像の QR コードを読むときに html5-qrcode が使う（画面には出さない） */}
       <div id={ROUTINE_QR_READER_ID} hidden />
     </div>
+    </RegisteredProductsContext.Provider>
   );
 };

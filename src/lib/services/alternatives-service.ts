@@ -16,7 +16,8 @@ import {
 } from '../analyzer/product-category';
 import { findShopAlternatives } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
-import { productIdentityKey, researchAlternativeCandidates } from './web-research';
+import { researchAlternativeCandidates } from './web-research';
+import { productIdentityKey, ProductIdentity, registeredMatcher } from '../search/product-identity';
 
 /**
  * 原因成分を含まない代わりの商品探し（T3）。手順: docs/plans/gemini-role-redesign.md「Phases 3 and 4」
@@ -36,10 +37,12 @@ export interface AlternativeRequest {
   category?: AlternativeCategory;
   /** 比較リストから作ったが、肌荒れしたコスメの種類が分からない（同数・不明）。別の種類を勧めないよう探さない */
   unknownKind?: boolean;
-  /** 候補から除く製品（肌荒れしたコスメ） */
+  /** 候補から除く製品の ID（分析した製品・比較リストに登録した製品） */
   excludeIds: string[];
-  /** お店の候補から除く製品の名前（同じ製品・同じシリーズを、別のお店の商品として勧めない） */
-  excludeProducts?: (Pick<Product, 'id' | 'name'> & Partial<Pick<Product, 'barcode'>>)[];
+  /**
+   * 候補から除く製品。別の表記で保存された同じ製品（JAN コード・ブランドと名前）も除き、お店の商品は同じシリーズも除く
+   */
+  excludeProducts?: ProductIdentity[];
   /** お店で足りないとき、JAN コードで製品を調べてよいか（有料のことがある。既定は調べる） */
   allowPaidLookups?: boolean;
 }
@@ -89,6 +92,7 @@ function isNegatedInText(item: KnownIngredient, text: string): boolean {
 export function alternativeRequestFromRoutine(routine: UserRoutineState | undefined): AlternativeRequest | null {
   if (!routine || routine.badProducts.length === 0) return null;
   const diff = performDifferentialAnalysis(routine.badProducts, routine.safeProducts ?? []);
+  const registered = [...routine.badProducts, ...(routine.safeProducts ?? []), ...(routine.currentlyUsing ?? [])];
   const known: KnownIngredient[] = [];
   for (const c of diff.culprits) {
     if (c.riskLevel === 'safe') continue;
@@ -99,8 +103,9 @@ export function alternativeRequestFromRoutine(routine: UserRoutineState | undefi
     avoid: diff.culprits,
     known,
     category: mostCommonCategory(routine.badProducts),
-    excludeIds: routine.badProducts.map((p) => p.id),
-    excludeProducts: routine.badProducts,
+    // 登録した製品（肌荒れした・普段使えている・今使っているコスメ）は勧めない
+    excludeIds: registered.map((p) => p.id),
+    excludeProducts: registered,
   };
 }
 
@@ -173,7 +178,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   const check = () => {
     const unique: Product[] = [];
     const seen = new Set<string>();
-    for (const p of findSafeAlternatives(req.avoid, req.excludeIds, limit * 4, { category: req.category })) {
+    for (const p of findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], limit * 4, { category: req.category })) {
       const key = productIdentityKey(p.brand, p.name);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -195,7 +200,9 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       limit: limit - local.length,
       allowPaidLookups: req.allowPaidLookups ?? true,
     });
-    shopProducts = shop.products;
+    // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
+    const isRegistered = registeredMatcher(req.excludeProducts ?? []);
+    shopProducts = shop.products.filter((p) => !isRegistered(p));
     credits = shop.credits;
     if (local.length + shopProducts.length >= limit) return { products: [...local, ...shopProducts], researched: false, credits };
   }

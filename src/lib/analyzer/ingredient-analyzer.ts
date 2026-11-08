@@ -2,6 +2,7 @@ import { KNOWN_INGREDIENTS, QUASI_DRUG_LABEL_REFERENCES, WHEAT_LABEL_REFERENCES 
 import { isSyntheticOrganicCiNumber, tarDyeOf, tarDyeOfCi } from '../data/tar-dyes';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { isSellerTextProduct } from '../product-source';
+import { ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, isWheatDerivedName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
@@ -319,16 +320,23 @@ export function alternativeGate(
   };
 }
 
+/**
+ * 代わりの商品（成分確認済みの製品のうち、避ける成分・強い刺激成分を含まない同じ種類の製品）。
+ * excluded：勧めない製品。ID、または製品（ID・JAN コード・ブランドと名前で同じ製品を除く。比較リストに登録した製品は、
+ * 別の表記で保存された同じ製品も勧めない）
+ */
 export function findSafeAlternatives(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
-  excludedProductIds: string[] = [],
+  excluded: readonly (string | ProductIdentity)[] = [],
   limit = 3,
   options: { category?: Product['category'] } = {}
 ): Product[] {
   const passes = alternativeGate(avoidCulprits);
+  const excludedIds = new Set(excluded.filter((e): e is string => typeof e === 'string'));
+  const isExcluded = registeredMatcher(excluded.filter((e): e is ProductIdentity => typeof e !== 'string'));
   // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
   const safeItems = COSMETICS_DATABASE.filter(
-    (product) => !excludedProductIds.includes(product.id) && passes(product, { category: options.category })
+    (product) => !excludedIds.has(product.id) && passes(product, { category: options.category }) && !isExcluded(product)
   );
 
   // 無香料・アルコールフリーを優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、
@@ -353,7 +361,9 @@ export function unratedIngredientNames(analysis: ProductAnalysisResult): string[
  */
 export function analyzeProduct(
   product: Product,
-  aiEvaluations?: Map<string, KnownIngredient>
+  aiEvaluations?: Map<string, KnownIngredient>,
+  /** 代わりの商品に出さない製品（比較リストに登録した製品） */
+  registered: readonly ProductIdentity[] = []
 ): ProductAnalysisResult {
   const analyzedIngredients: AnalyzedIngredient[] = [];
   const riskCounts = {
@@ -533,7 +543,7 @@ export function analyzeProduct(
   const safeAlternatives =
     overallRiskLevel === 'caution' || overallRiskLevel === 'warning'
       ? category
-        ? findSafeAlternatives(suspectItems, [product.id], 3, { category })
+        ? findSafeAlternatives(suspectItems, [product, ...registered], 3, { category })
         : []
       : undefined;
 
@@ -562,7 +572,9 @@ export function analyzeProduct(
  */
 export function performDifferentialAnalysis(
   badProducts: Product[],
-  safeProducts: Product[]
+  safeProducts: Product[],
+  /** 代わりの商品に出さない、ほかに登録した製品（今使っているコスメ）。肌荒れした・普段使えているコスメは必ず除く */
+  otherRegistered: readonly ProductIdentity[] = []
 ): DifferentialAnalysisResult {
   if (badProducts.length === 0) {
     return {
@@ -704,10 +716,12 @@ export function performDifferentialAnalysis(
   // 肌荒れした製品を一緒に使っていた場合の組み合わせの注意
   const pairFindings = pairFindingsFor(badProducts, 'trouble');
 
-  // あぶり出された疑わしい成分を含まない代替コスメを、肌荒れした製品に多い種類から探す（種類が分からなければ出さない）
-  const badProductIds = badProducts.map((p) => p.id);
+  // あぶり出された疑わしい成分を含まない代替コスメを、肌荒れした製品に多い種類から探す（種類が分からなければ出さない）。
+  // 登録した製品（肌荒れした・普段使えている・今使っているコスメ）は勧めない
   const category = mostCommonCategory(badProducts);
-  const safeAlternatives = category ? findSafeAlternatives(culprits, badProductIds, 3, { category }) : [];
+  const safeAlternatives = category
+    ? findSafeAlternatives(culprits, [...badProducts, ...safeProducts, ...otherRegistered], 3, { category })
+    : [];
 
   return {
     badProducts,

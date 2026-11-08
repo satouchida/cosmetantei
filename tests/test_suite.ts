@@ -2326,7 +2326,7 @@ test('63. Alternatives: the search query uses only DB names and fixed words; the
   const fromRoutine = alternativeRequestFromRoutine(routine)!;
   assert.deepStrictEqual(fromRoutine.known.map((k) => k.id).sort(), ['ethanol', 'fragrance']);
   assert.strictEqual(fromRoutine.category, 'toner');
-  assert.deepStrictEqual(fromRoutine.excludeIds, ['alt_bad_1']);
+  assert.deepStrictEqual(fromRoutine.excludeIds, ['alt_bad_1', 'alt_safe_1'], 'Registered products are never suggested');
   assert.strictEqual(alternativeRequest('💡 原因候補を含まないアイテムは？', routine)?.category, 'toner');
   assert.strictEqual(alternativeRequest('クリームでおすすめは？', routine)?.category, 'cream');
   assert.deepStrictEqual(alternativeRequest('パラベンが入っていないクリーム', routine)?.known.map((k) => k.id), ['parabens']);
@@ -6908,6 +6908,7 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
     'chat/MedicalNotice': 'inside the result cards',
     'chat/PairFindingList': 'inside DifferentialResultCard and CurrentUseResultCard',
     'chat/ProductSourceLink': 'inside the cards',
+    'chat/RegisteredProducts': 'context and hook, no layout of its own',
     'legal/LegalPage': 'checked at /terms and /privacy',
     'legal/ContactEmail': 'inside LegalLinks and the contact sections of /terms and /privacy',
     'owner/OwnerForm': 'checked at /owner (the owner allowance page)',
@@ -9383,5 +9384,53 @@ test('156. Owner allowance: a signed cookie from the owner key replaces the per-
       if (v === undefined) delete process.env[name];
       else process.env[name] = v;
     }
+  }
+});
+
+test('157. Alternatives never suggest a registered product (problem, usable or current), including the same product saved under another id', async () => {
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { analyzeProduct, findSafeAlternatives, performDifferentialAnalysis } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { isSameProduct } = await import('../src/lib/search/product-identity');
+  const { alternativeRequestFromRoutine } = await import('../src/lib/services/alternatives-service');
+
+  // 同じ製品：ID・JAN コード、またはブランドが同じで名前のキーが同じ（表記違い・容量違い・ブランドの別の書き方）
+  const base = { id: 'a', brand: '資生堂', name: 'モアリップN' };
+  assert.ok(isSameProduct(base, { id: 'b', brand: '資生堂', name: '資生堂 モアリップ N 8g' }));
+  assert.ok(isSameProduct({ id: 'a', brand: 'メイベリン ニューヨーク', name: 'SPステイ ヴィニルインク' }, { id: 'b', brand: 'Maybelline', name: 'SPステイ ヴィニルインク' }));
+  assert.ok(isSameProduct({ ...base, barcode: '04901872000000' }, { id: 'c', brand: 'x', name: 'y', barcode: '4901872000000' }));
+  // 名前だけでは同じにしない（一般的な名前の、別のブランドの製品）
+  assert.ok(!isSameProduct({ id: 'a', brand: 'ニベア', name: 'リップクリーム' }, { id: 'b', brand: 'メンソレータム', name: 'リップクリーム' }));
+  assert.ok(!isSameProduct(base, { id: 'b', brand: '資生堂', name: 'モアリップ ベビー' }));
+
+  // 成分確認済みの同じリップが、別の ID で2つ保存されている
+  const lip = (id: string, name: string) =>
+    verifiedProduct({ id, brand: '資生堂', name, category: 'lip', ingredients: ['ワセリン', 'グリセリン'] });
+  const saved = [lip('reg_more_lip_db', 'モアリップN'), lip('reg_other_lip_db', 'ほかのリップ')];
+  COSMETICS_DATABASE.unshift(...saved);
+  try {
+    const bad = verifiedProduct({ id: 'reg_bad', brand: 'KATE', name: 'リップモンスター', category: 'lip', ingredients: ['ワセリン', '香料'] });
+    // 比較リストの「普段使えている」は、別の ID で登録された同じ製品
+    const usable = lip('reg_more_lip_client', '資生堂 モアリップ N');
+    const ids = (ps: { id: string }[]) => ps.map((p) => p.id);
+
+    const diff = performDifferentialAnalysis([bad], [usable]);
+    assert.ok(!ids(diff.safeAlternatives).includes('reg_more_lip_db'), 'A usable product is not suggested back');
+    assert.ok(ids(diff.safeAlternatives).includes('reg_other_lip_db'));
+    // 今使っているコスメも除く
+    const current = lip('reg_other_lip_client', 'ほかのリップ');
+    assert.ok(!ids(performDifferentialAnalysis([bad], [usable], [current]).safeAlternatives).includes('reg_other_lip_db'));
+
+    // 1つの製品の分析も、登録した製品を除く
+    const single = analyzeProduct(bad, undefined, [usable]);
+    assert.ok(!ids(single.safeAlternatives ?? []).includes('reg_more_lip_db'));
+    assert.ok(ids(analyzeProduct(bad).safeAlternatives ?? []).includes('reg_more_lip_db'), 'Without a list, it may be suggested');
+
+    // 「原因候補を含まないアイテムは？」：比較リストのすべての製品を除く
+    const req = alternativeRequestFromRoutine({ badProducts: [bad], safeProducts: [usable], currentlyUsing: [current] })!;
+    assert.deepStrictEqual(req.excludeIds, ['reg_bad', 'reg_more_lip_client', 'reg_other_lip_client']);
+    const found = ids(findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], 50, { category: 'lip' }));
+    assert.ok(!found.includes('reg_more_lip_db') && !found.includes('reg_other_lip_db'));
+  } finally {
+    for (const p of saved) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.findIndex((x) => x.id === p.id), 1);
   }
 });

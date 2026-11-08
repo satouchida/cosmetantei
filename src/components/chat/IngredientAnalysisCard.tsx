@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Product, ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
 import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
+import { useUnregisteredProducts } from './RegisteredProducts';
 import { ProductSourceLink } from './ProductSourceLink';
 import { MedicalNotice } from './MedicalNotice';
 import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
@@ -161,6 +162,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   const cardRef = useRef<HTMLDivElement | null>(null);
   const settled = ai?.source === initialAnalysis ? ai : null;
   const analysis = settled?.result ?? initialAnalysis;
+  // 代わりの商品のうち、比較リストに登録していないもの（カードに出る数。RegisteredProducts.tsx）
+  const shownAlternatives = useUnregisteredProducts(analysis.safeAlternatives ?? []);
   const aiStatus: 'idle' | 'loading' | 'failed' =
     !needsAIEvaluation(initialAnalysis) || settled?.result ? 'idle' : settled ? 'failed' : 'loading';
 
@@ -708,7 +711,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         <AmazonAlternativeCard products={safeAlternatives} onPriceLookup={onPriceLookup} busy={busy} />
       )}
       {/* 保存済みの製品だけでは3件に満たないとき、お店で同じ種類の商品を探す（種類が分かるときだけ） */}
-      {onFindAlternatives && safeAlternatives !== undefined && safeAlternatives.length < 3 && productCategory(product) && (
+      {onFindAlternatives && safeAlternatives !== undefined && shownAlternatives.length < 3 && productCategory(product) && (
         <button
           type="button"
           onClick={onFindAlternatives}

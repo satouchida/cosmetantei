@@ -10,6 +10,7 @@ import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { isPersistable } from '@/lib/current-use';
 import { displayListingName } from '@/lib/search/listing-name';
+import { useUnregisteredProducts } from './RegisteredProducts';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -20,11 +21,13 @@ interface AmazonAlternativeCardProps {
 }
 
 export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
-  products,
+  products: suggested,
   onPriceLookup,
   busy = false,
 }) => {
-  if (!products || products.length === 0) return null;
+  // 比較リストに登録した製品は勧めない
+  const products = useUnregisteredProducts(suggested ?? []);
+  if (products.length === 0) return null;
   // 「同じ種類」と書くのは、全商品の種類がそろうときだけ（src/lib/analyzer/product-category.ts）
   const categories = new Set(products.map((p) => productCategory(p)));
   const category = categories.size === 1 ? [...categories][0] : undefined;

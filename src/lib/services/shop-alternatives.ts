@@ -4,6 +4,7 @@ import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
 import { alternativeGate } from '../analyzer/ingredient-analyzer';
 import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
+import { normalJan } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { NOT_SINGLE_ITEM } from './price-service';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
@@ -95,9 +96,6 @@ const CATEGORY_KEYS = Object.values(CATEGORY_SYNONYMS)
   .sort((a, b) => b.length - a.length);
 /** 調べる製品の時間の上限（JAN コードでの調べもの。超えたら、その製品は使わない） */
 const LOOKUP_DEADLINE_MS = 15_000;
-
-/** JAN コードの比べ方（先頭の 0 の数をそろえる） */
-const normalJan = (code: string | undefined): string => (code ? code.replace(/\D/g, '').replace(/^0+/, '') : '');
 
 /** 製品の系列のキー（飾り・容量・種類の語を外す。「化粧水」だけの名前が、すべての化粧水に合わないように） */
 function seriesKey(name: string): string {
