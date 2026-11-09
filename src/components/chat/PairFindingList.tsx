@@ -9,7 +9,7 @@ interface PairFindingListProps {
   heading: string;
 }
 
-/** 製品をまたぐ組み合わせの注意（差分分析と、使えているコスメのうち今も使っている製品の組み合わせチェック） */
+/** 製品をまたぐ組み合わせの注意（差分分析と、使えるコスメのうち今も使っている製品の組み合わせチェック） */
 export const PairFindingList: React.FC<PairFindingListProps> = ({ findings, heading }) => {
   // チャットに同じカードが何枚あっても見出しの ID が重ならないように
   const headingId = useId();

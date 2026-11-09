@@ -4,7 +4,7 @@ import { addPngText, ROUTINE_PNG_KEYWORD } from '../routine-share';
 /**
  * マイルーティンの画像（1080×1350 の PNG。Instagram・X・LINE の縦長に合う）を canvas で描く。
  * docs/plans/routine-image.md
- * - 見えるのは「使えている」側のまとめ（気をつけたい成分の候補・使えているコスメ・件数）。
+ * - 見えるのは「使えている」側のまとめ（気をつけたい成分の候補・使えるコスメ・件数）。
  *   肌荒れしたコスメの名前は、公開する画像に出さない（件数だけ）
  * - 読み込み用のデータ（QR コードのリンクと、PNG の中のデータ）は、利用者が切れる
  */
@@ -12,7 +12,7 @@ import { addPngText, ROUTINE_PNG_KEYWORD } from '../routine-share';
 export interface RoutineImageContent {
   /** 最近の差分分析の「原因の可能性がある成分」（無ければ空） */
   culprits: string[];
-  /** 使えているコスメ */
+  /** 使えるコスメ */
   usableProducts: { brand: string; name: string }[];
   badCount: number;
   /** QR コードに入れるリンク（読み込み用のデータを入れないとき・入りきらないときは null） */
@@ -28,7 +28,7 @@ const PAD = 72;
 const MAX_CULPRITS = 5;
 /** 成分のチップは2行まで */
 const MAX_CHIP_ROWS = 2;
-/** 使えているコスメの行数（QR コードを入れるときは、その場所を空けるため少なく） */
+/** 使えるコスメの行数（QR コードを入れるときは、その場所を空けるため少なく） */
 const MAX_SAFE = 6;
 const MAX_SAFE_WITH_QR = 3;
 /** QR コードの大きさ。MAX_SHARE_URL_BYTES のリンクでも1マス 4px 以上（SNS で縮められても読める） */
@@ -194,7 +194,7 @@ export async function renderRoutineImage(content: RoutineImageContent): Promise<
     y += cardHeight + 24;
   }
 
-  // 使えているコスメ
+  // 使えるコスメ
   const maxSafe = content.shareUrl ? MAX_SAFE_WITH_QR : MAX_SAFE;
   const safe = content.usableProducts.slice(0, maxSafe);
   const more = content.usableProducts.length - safe.length;
@@ -202,7 +202,7 @@ export async function renderRoutineImage(content: RoutineImageContent): Promise<
   roundRect(ctx, PAD, y, contentWidth, safeHeight, 32, COLORS.card);
   ctx.fillStyle = COLORS.primary;
   setFont(30, 700);
-  ctx.fillText('使えているコスメ', PAD + 36, y + 28);
+  ctx.fillText('使えるコスメ', PAD + 36, y + 28);
   let sy = y + 80;
   if (safe.length === 0) {
     ctx.fillStyle = COLORS.muted;
@@ -232,7 +232,7 @@ export async function renderRoutineImage(content: RoutineImageContent): Promise<
   ctx.fillStyle = COLORS.ink;
   setFont(28, 700);
   ctx.fillText(`肌荒れしたコスメ ${content.badCount}点`, PAD + 8, y + 8);
-  ctx.fillText(`使えているコスメ ${content.usableProducts.length}点`, PAD + 8, y + 52);
+  ctx.fillText(`使えるコスメ ${content.usableProducts.length}点`, PAD + 8, y + 52);
   if (content.shareUrl) {
     drawQr(ctx, content.shareUrl, WIDTH - PAD - qrSize, y, qrSize);
     ctx.fillStyle = COLORS.muted;

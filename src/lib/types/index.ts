@@ -259,8 +259,8 @@ export interface ChatMessage {
 }
 
 export interface UserRoutineState {
-  /** 使えているコスメのうち、今も使っている製品（組み合わせチェックに使う。docs/plans/two-lists.md） */
+  /** 使えるコスメのうち、今も使っている製品（組み合わせチェックに使う。docs/plans/two-lists.md） */
   currentlyUsing: Product[];
   badProducts: Product[];    // 肌荒れしたコスメ
-  safeProducts: Product[];   // 使えているコスメ（すべて。以前使っていた製品も）
+  safeProducts: Product[];   // 使えるコスメ（すべて。以前使っていた製品も）
 }

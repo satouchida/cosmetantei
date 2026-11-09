@@ -126,7 +126,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
         </div>
 
         <p className="text-sm text-ink-muted leading-relaxed">
-          画像に書かれるのは、気をつけたい成分の候補と、使えているコスメです。肌荒れしたコスメの名前は書かれません（読み込み用のデータを入れると、QRコードの中には入ります）。
+          画像に書かれるのは、気をつけたい成分の候補と、使えるコスメです。肌荒れしたコスメの名前は書かれません（読み込み用のデータを入れると、QRコードの中には入ります）。
         </p>
 
         <label className="flex items-start gap-3 min-h-12 p-3 rounded-xl bg-surface-container-low cursor-pointer">
@@ -151,7 +151,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
             // eslint-disable-next-line @next/next/no-img-element -- その場で作った画像（blob の URL）
             <img
               src={rendered.url}
-              alt={`マイルーティンの画像（使えているコスメ ${snapshot.usable.filter((e) => isPersistable(e.product)).length}点${
+              alt={`マイルーティンの画像（使えるコスメ ${snapshot.usable.filter((e) => isPersistable(e.product)).length}点${
                 culprits.length > 0 ? `、気をつけたい成分の候補 ${culprits.slice(0, 5).join('、')}` : ''
               }${includeData && !rendered.qrSkipped ? '、読み込み用のQRコードつき' : ''}）`}
               className="w-full h-full object-contain"
@@ -169,7 +169,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
                 }}
                 className={buttonSecondaryCompact}
               >
-                もう一度<wbr />作る
+                <span>もう一度<wbr />作る</span>
               </button>
             </div>
           ) : (
@@ -202,7 +202,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
             className={`${canShare ? buttonSecondaryCompact : buttonPrimaryCompact} ${canShare ? '' : 'col-span-2'}`}
           >
             <Download className="w-5 h-5" aria-hidden />
-            画像を<wbr />保存
+            <span>画像を<wbr />保存</span>
           </button>
         </div>
         <p role="status" className="text-xs text-ink-muted min-h-4">

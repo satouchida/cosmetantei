@@ -245,7 +245,7 @@ export const ChatContainer: React.FC = () => {
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: `🔍 肌荒れの原因になりうる成分の候補を調べるサービスです。化粧品名を入力するか、バーコードを読み取ってください。\n\n肌荒れしたコスメと使えているコスメを比べて候補を絞り込み、その成分を含まない商品（販売ページへのリンク付き。PR）を探します。医療上の診断ではありません。肌に異常があるときは皮膚科専門医にご相談ください。`,
+      content: `🔍 肌荒れの原因になりうる成分の候補を調べるサービスです。化粧品名を入力するか、バーコードを読み取ってください。\n\n肌荒れしたコスメと使えるコスメを比べて候補を絞り込み、その成分を含まない商品（販売ページへのリンク付き。PR）を探します。医療上の診断ではありません。肌に異常があるときは皮膚科専門医にご相談ください。`,
       timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
@@ -394,7 +394,7 @@ export const ChatContainer: React.FC = () => {
       : lineupCredits;
 
   // 肌荒れしたコスメ（このページを開いている間だけ。保存しない。docs/plans/two-lists.md）。
-  // badRef は最新の値（再描画の前に続けて呼ばれても正しく数える。使えているコスメの getUsableSnapshot と同じ役目）。
+  // badRef は最新の値（再描画の前に続けて呼ばれても正しく数える。使えるコスメの getUsableSnapshot と同じ役目）。
   // 変えるときは updateBad だけを使う
   const [badProducts, setBadState] = useState<Product[]>([]);
   const badRef = useRef<Product[]>([]);
@@ -402,8 +402,8 @@ export const ChatContainer: React.FC = () => {
     badRef.current = change(badRef.current);
     setBadState(badRef.current);
   };
-  // 使えているコスメはこの端末のブラウザに保存する（src/lib/usable-products.ts）。ほかのタブで、このタブの肌荒れした
-  // コスメにある製品が使えているコスメに追加されたときは、このタブでは肌荒れしたコスメだけに出す（1つの製品は1つのリスト）
+  // 使えるコスメはこの端末のブラウザに保存する（src/lib/usable-products.ts）。ほかのタブで、このタブの肌荒れした
+  // コスメにある製品が使えるコスメに追加されたときは、このタブでは肌荒れしたコスメだけに出す（1つの製品は1つのリスト）
   const storedUsable = useSyncExternalStore(subscribeUsable, getUsableSnapshot, getUsableServerSnapshot);
   // 「リストを画像で保存しませんか？」を今後表示しない（ほかのタブで選んだときも、購読して読み直す）
   const exportReminderOff = useSyncExternalStore(subscribeExportReminderOff, isExportReminderOff, getExportReminderOffServerSnapshot);
@@ -427,7 +427,7 @@ export const ChatContainer: React.FC = () => {
     }
     wasConsented.current = consented;
   }, [consented]);
-  // サーバーに送る形：比較には使えているコスメのすべて、組み合わせチェックには今も使っているものだけ
+  // サーバーに送る形：比較には使えるコスメのすべて、組み合わせチェックには今も使っているものだけ
   const routine: UserRoutineState = routineFromLists(badProducts, usable);
   // 代わりの商品のカードに出さない、登録した製品（RegisteredProducts.tsx）
   const registeredProducts = useMemo(() => [...badProducts, ...usable.map((e) => e.product)], [badProducts, usable]);
@@ -763,7 +763,7 @@ export const ChatContainer: React.FC = () => {
    */
   type AddResult = 'added' | 'exists' | 'conflict' | 'full';
 
-  /** 肌荒れしたコスメに追加する。使えているコスメにあれば、移すか削除するかを聞く（1つの製品は1つのリストだけ） */
+  /** 肌荒れしたコスメに追加する。使えるコスメにあれば、移すか削除するかを聞く（1つの製品は1つのリストだけ） */
   const handleAddToBad = (product: Product): AddResult => {
     if (badRef.current.some((p) => p.id === product.id)) {
       showToast('すでに肌荒れしたコスメに登録されています', 'error');
@@ -783,18 +783,18 @@ export const ChatContainer: React.FC = () => {
     return 'added';
   };
 
-  /** 使えているコスメに追加する（今も使っている製品として）。肌荒れしたコスメにあれば、移すか削除するかを聞く */
+  /** 使えるコスメに追加する（今も使っている製品として）。肌荒れしたコスメにあれば、移すか削除するかを聞く */
   const handleAddToUsable = (product: Product): AddResult => {
     // 再描画の前に続けて押されても正しく数えるよう、最新のリストで確かめる
     const latest = getUsableSnapshot();
     const inBad = badRef.current.some((p) => p.id === product.id);
-    // このタブの肌荒れしたコスメにある製品は、ほかのタブで使えているコスメに保存されていても、移すかを聞く
+    // このタブの肌荒れしたコスメにある製品は、ほかのタブで使えるコスメに保存されていても、移すかを聞く
     if (!inBad && latest.some((e) => e.product.id === product.id)) {
-      showToast('すでに使えているコスメに登録されています', 'error');
+      showToast('すでに使えるコスメに登録されています', 'error');
       return 'exists';
     }
     if (latest.length >= MAX_USABLE && !latest.some((e) => e.product.id === product.id)) {
-      showToast(`使えているコスメは${MAX_USABLE}点まで登録できます`, 'error');
+      showToast(`使えるコスメは${MAX_USABLE}点まで登録できます`, 'error');
       return 'full';
     }
     if (inBad) {
@@ -805,8 +805,8 @@ export const ChatContainer: React.FC = () => {
     updateUsable((prev) => [...prev, { product, addedAt, inUse: true }]);
     showToast(
       isPersistable(product)
-        ? `「${product.name}」を【使えているコスメ】に追加しました`
-        : `「${product.name}」を【使えているコスメ】に追加しました（入力した成分表示・お店の商品説明から読んだ成分は保存しません）`
+        ? `「${product.name}」を【使えるコスメ】に追加しました`
+        : `「${product.name}」を【使えるコスメ】に追加しました（入力した成分表示・お店の商品説明から読んだ成分は保存しません）`
     );
     return 'added';
   };
@@ -826,14 +826,14 @@ export const ChatContainer: React.FC = () => {
     } else {
       const latest = getUsableSnapshot();
       if (latest.length >= MAX_USABLE && !latest.some((e) => e.product.id === product.id)) {
-        showToast(`使えているコスメは${MAX_USABLE}点まで登録できます`, 'error');
+        showToast(`使えるコスメは${MAX_USABLE}点まで登録できます`, 'error');
         return;
       }
       updateBad((prev) => prev.filter((p) => p.id !== product.id));
       updateUsable((prev) =>
         prev.some((e) => e.product.id === product.id) ? prev : [...prev, { product, addedAt: currentTime(), inUse: true }]
       );
-      showToast(`「${product.name}」を【使えているコスメ】に移しました`);
+      showToast(`「${product.name}」を【使えるコスメ】に移しました`);
     }
   };
 
@@ -842,7 +842,7 @@ export const ChatContainer: React.FC = () => {
     setListConflict(null);
     if (target === 'bad') {
       updateUsable((prev) => prev.filter((e) => e.product.id !== product.id));
-      showToast(`「${product.name}」を使えているコスメから削除しました`);
+      showToast(`「${product.name}」を使えるコスメから削除しました`);
     } else {
       updateBad((prev) => prev.filter((p) => p.id !== product.id));
       showToast(`「${product.name}」を肌荒れしたコスメから削除しました`);
@@ -879,7 +879,7 @@ export const ChatContainer: React.FC = () => {
       showToast('肌荒れしたコスメのリストをクリアしました');
     } else {
       updateUsable(() => []);
-      showToast('使えているコスメのリストをクリアしました');
+      showToast('使えるコスメのリストをクリアしました');
     }
   };
 
@@ -944,9 +944,9 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(
             label,
             result === 'added'
-              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
-            ['✅ 使えているコスメを入力する']
+              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。問題なく使えるコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。問題なく使えるコスメも追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
+            ['✅ 使えるコスメを入力する']
           );
         } else {
           const result = handleAddToUsable(product);
@@ -954,8 +954,8 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(
             label,
             result === 'added'
-              ? `「${product.name}」を【使えているコスメ】に追加しました。肌荒れしたコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、原因になりうる成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【使えているコスメ】に登録されています。肌荒れしたコスメを追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
+              ? `「${product.name}」を【使えるコスメ】に追加しました。肌荒れしたコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、原因になりうる成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【使えるコスメ】に登録されています。肌荒れしたコスメを追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
             ['🧴 肌荒れしたコスメを入力する']
           );
         }
@@ -981,9 +981,9 @@ export const ChatContainer: React.FC = () => {
         appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
       case 'reset':
-        // 保存している使えているコスメは消さない（消すときはサイドバーの「使えているコスメのリストをクリア」）
+        // 保存している使えるコスメは消さない（消すときはサイドバーの「使えるコスメのリストをクリア」）
         updateBad(() => []);
-        appendLocalExchange(label, '肌荒れしたコスメのリストを空にしました（使えているコスメはそのままです）。', [
+        appendLocalExchange(label, '肌荒れしたコスメのリストを空にしました（使えるコスメはそのままです）。', [
           '🧴 肌荒れしたコスメを入力する',
         ]);
         return;
@@ -1013,7 +1013,7 @@ export const ChatContainer: React.FC = () => {
     void handleRunDifferential();
   };
 
-  /** 使えているコスメのうち、今も使っているものの組み合わせを調べる（サーバーはルールだけで判定する） */
+  /** 使えるコスメのうち、今も使っているものの組み合わせを調べる（サーバーはルールだけで判定する） */
   const handleCheckCurrentUse = async () => {
     const inUse = usable.filter((e) => e.inUse);
     if (inUse.length < 2) return;
@@ -1039,14 +1039,14 @@ export const ChatContainer: React.FC = () => {
           result.status === 400
             ? {
                 content:
-                  '「使えているコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
+                  '「使えるコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
               }
             : {},
       }
     );
   };
 
-  /** 開発用のサンプル。使えているコスメの分は保存しない（sessionOnly。利用者の保存したリストを書き換えない） */
+  /** 開発用のサンプル。使えるコスメの分は保存しない（sessionOnly。利用者の保存したリストを書き換えない） */
   const handleLoadSample = () => {
     // Load sample irritation scenario (Melano CC as bad, Curel Wash & Ihada Lotion as safe)
     const sampleMelano: Product = {
@@ -1365,14 +1365,14 @@ export const ChatContainer: React.FC = () => {
             </div>
           </div>
 
-          {/* 3か月以上前に追加した、今も使っている「使えているコスメ」の確認（今も使っている・もう使っていない・削除で消える） */}
+          {/* 3か月以上前に追加した、今も使っている「使えるコスメ」の確認（今も使っている・もう使っていない・削除で消える） */}
           {/* ステータスの入れ物は常に置く（中身ごと作ると読み上げられないことがある） */}
           <div role="status">
           {staleEntries.length > 0 && (
             <div className="mx-3 sm:mx-6 mt-3 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex items-center gap-2">
               <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" aria-hidden />
               <p className="flex-1 min-w-0 break-words">
-                「使えているコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加した、今も使っているものがあります（
+                「使えるコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加した、今も使っているものがあります（
                 {staleEntries.slice(0, 3).map((e) => e.product.name).join('、')}
                 {staleEntries.length > 3 && ` ほか${staleEntries.length - 3}点`}
                 ）。今も使っているか確かめてください。
@@ -1381,7 +1381,7 @@ export const ChatContainer: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setIsSidebarOpen(true);
-                  // 使えているコスメはリストの下のほうにあるので、開いたら（閉じるボタンにフォーカスが移ったあとで）
+                  // 使えるコスメはリストの下のほうにあるので、開いたら（閉じるボタンにフォーカスが移ったあとで）
                   // 見出しへフォーカスと表示を送る
                   requestAnimationFrame(() => {
                     const section = document.getElementById(USABLE_SECTION_ID);
@@ -1389,7 +1389,7 @@ export const ChatContainer: React.FC = () => {
                     section?.scrollIntoView({ block: 'start', inline: 'nearest' });
                   });
                 }}
-                aria-label="使えているコスメを確認する"
+                aria-label="使えるコスメを確認する"
                 className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg text-sm font-semibold"
               >
                 確認する
@@ -1749,20 +1749,20 @@ export const ChatContainer: React.FC = () => {
       {/* もう一方のリストにある製品を登録しようとした：移すか、そのリストから削除するか（1つの製品は1つのリストだけ） */}
       {listConflict && (
         <ChoiceDialog
-          title={listConflict.target === 'bad' ? '使えているコスメに登録されています' : '肌荒れしたコスメに登録されています'}
+          title={listConflict.target === 'bad' ? '使えるコスメに登録されています' : '肌荒れしたコスメに登録されています'}
           message={
             listConflict.target === 'bad'
-              ? `「${listConflict.product.name}」は【使えているコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`
+              ? `「${listConflict.product.name}」は【使えるコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`
               : `「${listConflict.product.name}」は【肌荒れしたコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`
           }
           choices={[
             {
-              label: listConflict.target === 'bad' ? '肌荒れしたコスメに移す' : '使えているコスメに移す',
+              label: listConflict.target === 'bad' ? '肌荒れしたコスメに移す' : '使えるコスメに移す',
               tone: 'primary',
               onSelect: () => moveToList(listConflict.product, listConflict.target),
             },
             {
-              label: listConflict.target === 'bad' ? '使えているコスメから削除' : '肌荒れしたコスメから削除',
+              label: listConflict.target === 'bad' ? '使えるコスメから削除' : '肌荒れしたコスメから削除',
               tone: 'secondary',
               onSelect: () => removeFromOtherList(listConflict.product, listConflict.target),
             },
@@ -1775,11 +1775,11 @@ export const ChatContainer: React.FC = () => {
       {clearTarget && (
         <ChoiceDialog
           warning
-          title={clearTarget === 'bad' ? '肌荒れしたコスメのリストをクリア' : '使えているコスメのリストをクリア'}
+          title={clearTarget === 'bad' ? '肌荒れしたコスメのリストをクリア' : '使えるコスメのリストをクリア'}
           message={
             clearTarget === 'bad'
               ? `肌荒れしたコスメ（${badProducts.length}点）をリストから削除します。元に戻せません。`
-              : `使えているコスメ（${usable.length}点）をリストから削除します。この端末に保存したリストも消え、元に戻せません。`
+              : `使えるコスメ（${usable.length}点）をリストから削除します。この端末に保存したリストも消え、元に戻せません。`
           }
           choices={[{ label: 'クリアする', tone: 'danger', onSelect: () => clearList(clearTarget) }]}
           onCancel={() => setClearTarget(null)}

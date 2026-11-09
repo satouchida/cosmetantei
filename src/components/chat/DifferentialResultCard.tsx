@@ -27,7 +27,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         </div>
         <div className="min-w-0">
           <h2 className="text-lg font-semibold text-ink leading-snug">差分分析の結果（原因候補の成分）</h2>
-          <p className="text-xs text-ink-muted">問題なく使えているコスメに含まれる成分を除外し、原因になりうる成分の候補を絞り込みます</p>
+          <p className="text-xs text-ink-muted">問題なく使えるコスメに含まれる成分を除外し、原因になりうる成分の候補を絞り込みます</p>
         </div>
       </div>
 
@@ -50,7 +50,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
         <div className={panel('safe')}>
           <h3 className="font-semibold text-emerald-800 flex items-center gap-1 mb-1">
             <CheckCircle2 className="w-4 h-4" aria-hidden />
-            <span>使えているコスメ ({safeProducts.length}品)</span>
+            <span>使えるコスメ ({safeProducts.length}品)</span>
           </h3>
           {safeProducts.length > 0 ? (
             <ul className="list-disc pl-5 text-ink space-y-0.5">
@@ -61,7 +61,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
               ))}
             </ul>
           ) : (
-            <p className="text-ink-muted">使えているコスメが未登録（登録すると候補を絞り込めます）</p>
+            <p className="text-ink-muted">使えるコスメが未登録（登録すると候補を絞り込めます）</p>
           )}
         </div>
       </div>

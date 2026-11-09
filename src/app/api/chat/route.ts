@@ -358,12 +358,12 @@ async function handlePost(request: NextRequest) {
       return priceReply(productSearchQuery(priced), getClientIp(request.headers));
     }
 
-    // 2c. 使えているコスメのうち、今も使っている製品の組み合わせチェック（ボタン操作。ルールだけで判定し、Gemini は呼ばない）
+    // 2c. 使えるコスメのうち、今も使っている製品の組み合わせチェック（ボタン操作。ルールだけで判定し、Gemini は呼ばない）
     if (action === 'check_current_use') {
       const products = routine?.currentlyUsing ?? [];
       if (new Set(products.map((p) => p.id)).size < 2) {
         return NextResponse.json({
-          reply: '組み合わせを調べるには、今も使っている「使えているコスメ」を2点以上にしてください。',
+          reply: '組み合わせを調べるには、今も使っている「使えるコスメ」を2点以上にしてください。',
           quickReplies: ['🔍 商品名で検索する', '📸 バーコードをスキャン'],
         });
       }
@@ -399,7 +399,7 @@ async function handlePost(request: NextRequest) {
       if (!routine || !hasBadProducts) {
         return NextResponse.json({
           reply:
-            '原因になりうる成分の候補を絞り込むには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「使えているコスメ」もあると、共通の成分を除外して、原因になりうる成分の候補を絞り込めます。',
+            '原因になりうる成分の候補を絞り込むには、まず「肌荒れしたコスメ」を1点以上追加してください。さらに「使えるコスメ」もあると、共通の成分を除外して、原因になりうる成分の候補を絞り込めます。',
           quickReplies: ['🔍 肌荒れしたコスメを検索', '📸 バーコードをスキャン'],
         });
       }
@@ -420,7 +420,7 @@ async function handlePost(request: NextRequest) {
         reply: getServicePurposeExplanation(),
         quickReplies: [
           '🧴 肌荒れしたコスメを入力する',
-          '✅ 使えているコスメを入力する',
+          '✅ 使えるコスメを入力する',
           '📸 バーコードをスキャンする',
           '🔍 キュレルの泡洗顔を調べる',
         ],

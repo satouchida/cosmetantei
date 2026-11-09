@@ -736,7 +736,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         {onAddToUsableRoutine && (
           <button type="button" onClick={onAddToUsableRoutine} className={`${routineActionWide} ${routineAction.safe}`}>
             <ShieldCheck className="w-4 h-4" aria-hidden />
-            <span>「使えているコスメ」に登録</span>
+            <span>「使えるコスメ」に登録</span>
           </button>
         )}
       </div>

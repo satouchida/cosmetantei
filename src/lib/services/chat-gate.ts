@@ -126,8 +126,8 @@ export function quickReplyIntent(text: string): GateIntent | undefined {
 export const GATE_REPLIES: Readonly<Record<Exclude<GateScope, 'in_scope'>, { reply: string; quickReplies: string[] }>> = {
   personal_medical: {
     reply:
-      '肌の症状や治療・お薬についてのご相談には、コスメ探偵ではお答えできません。症状が続く・悪化している場合は、皮膚科専門医にご相談ください。\n\nコスメ探偵では、肌荒れの原因になった可能性のある成分を、お使いの化粧品の成分を比べて探すお手伝いができます。肌荒れしたコスメと、問題なく使えているコスメの名前を入力してください。',
-    quickReplies: ['🧴 肌荒れしたコスメを入力する', '✅ 使えているコスメを入力する'],
+      '肌の症状や治療・お薬についてのご相談には、コスメ探偵ではお答えできません。症状が続く・悪化している場合は、皮膚科専門医にご相談ください。\n\nコスメ探偵では、肌荒れの原因になった可能性のある成分を、お使いの化粧品の成分を比べて探すお手伝いができます。肌荒れしたコスメと、問題なく使えるコスメの名前を入力してください。',
+    quickReplies: ['🧴 肌荒れしたコスメを入力する', '✅ 使えるコスメを入力する'],
   },
   free_conversation: {
     reply:

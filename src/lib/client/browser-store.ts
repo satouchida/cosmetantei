@@ -1,6 +1,6 @@
 /**
  * ブラウザ（localStorage）に保存する値を、useSyncExternalStore で読める形にする。
- * 「使えているコスメ」（src/lib/usable-products.ts）と、利用規約への同意（src/lib/consent.ts）、
+ * 「使えるコスメ」（src/lib/usable-products.ts）と、利用規約への同意（src/lib/consent.ts）、
  * 画像で保存するおすすめの設定（src/lib/client/export-reminder.ts）で使う。
  *
  * - 最初に読むときだけ保存先を読み、その後は同じ値（同じ参照）を返す。変えたときだけ新しい値にする

@@ -3,7 +3,7 @@
  * 色の値は src/app/globals.css の @theme にある。カード・ボタン・注意書き・バッジはここの組み合わせだけを使う
  * - タップできるものは高さ 48px 以上、文字は 12px 以上
  * - 赤（rose）は刺激・肌荒れの警告と、取り消せない操作の確定（buttonDanger）だけに使う。緑（emerald）は安全、
- *   水色（sky）は使えているコスメのうち今も使っている製品（組み合わせチェック）
+ *   水色（sky）は使えるコスメのうち今も使っている製品（組み合わせチェック）
  */
 import type { IngredientRiskLevel } from '@/lib/types';
 

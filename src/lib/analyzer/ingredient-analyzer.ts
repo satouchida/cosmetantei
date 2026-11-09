@@ -568,12 +568,12 @@ export function analyzeProduct(
 
 /**
  * 差分分析（あぶり出し）：
- * 「肌荒れしたコスメ群」に含まれ、「安全に使えているコスメ群」には含まれていない成分を抽出してランク付けする
+ * 「肌荒れしたコスメ群」に含まれ、「安全に使えるコスメ群」には含まれていない成分を抽出してランク付けする
  */
 export function performDifferentialAnalysis(
   badProducts: Product[],
   safeProducts: Product[],
-  /** 代わりの商品に出さない、ほかに登録した製品。肌荒れした・使えているコスメ（badProducts・safeProducts）は必ず除く */
+  /** 代わりの商品に出さない、ほかに登録した製品。肌荒れした・使えるコスメ（badProducts・safeProducts）は必ず除く */
   otherRegistered: readonly ProductIdentity[] = []
 ): DifferentialAnalysisResult {
   if (badProducts.length === 0) {
@@ -657,7 +657,7 @@ export function performDifferentialAnalysis(
         ? matched.reasonJa
         : safeProducts.length > 0
           ? '使えているアイテムには入っていない成分です。個人のアレルギー・相性の可能性があります。'
-          : '刺激性のデータがない成分です。問題なく使えているコスメと比較すると、候補かどうかを絞り込めます。',
+          : '刺激性のデータがない成分です。問題なく使えるコスメと比較すると、候補かどうかを絞り込めます。',
       foundInProducts: c.foundInProducts,
       absenceConfirmedInSafeCount: safeProducts.length,
     };
@@ -690,7 +690,7 @@ export function performDifferentialAnalysis(
     summaryJa =
       safeProducts.length > 0
         ? `使えているアイテムと比較した結果、肌トラブルの要因になった可能性のある成分として「${topCulprits.join('、')}」など ${culprits.length} 個の成分が候補に挙がりました。`
-        : `使えているコスメが未登録のため、比較による絞り込みはしていません。肌荒れしたコスメの成分のうち「${topCulprits.join('、')}」など ${culprits.length} 個を候補として挙げています。使えているコスメを追加すると、候補を絞り込めます。`;
+        : `使えるコスメが未登録のため、比較による絞り込みはしていません。肌荒れしたコスメの成分のうち「${topCulprits.join('、')}」など ${culprits.length} 個を候補として挙げています。使えるコスメを追加すると、候補を絞り込めます。`;
 
     const highRisks = culprits.filter(
       (c) => c.riskLevel === 'high_irritant' || c.riskLevel === 'moderate_irritant'
@@ -717,7 +717,7 @@ export function performDifferentialAnalysis(
   const pairFindings = pairFindingsFor(badProducts, 'trouble');
 
   // あぶり出された疑わしい成分を含まない代替コスメを、肌荒れした製品に多い種類から探す（種類が分からなければ出さない）。
-  // 登録した製品（肌荒れした・使えているコスメ）は勧めない
+  // 登録した製品（肌荒れした・使えるコスメ）は勧めない
   const category = mostCommonCategory(badProducts);
   const safeAlternatives = category
     ? findSafeAlternatives(culprits, [...badProducts, ...safeProducts, ...otherRegistered], 3, { category })
@@ -745,7 +745,7 @@ function pairFindingsFor(products: Product[], context: PairContext): PairFinding
   );
 }
 
-/** 今使っている製品の組み合わせチェック（使えているコスメの「組み合わせをチェック」。今も使っている製品だけ） */
+/** 今使っている製品の組み合わせチェック（使えるコスメの「組み合わせをチェック」。今も使っている製品だけ） */
 export function checkCurrentUse(products: Product[]): CurrentUseCheckResult {
   const unique = [...new Map(products.map((p) => [p.id, p])).values()];
   return {

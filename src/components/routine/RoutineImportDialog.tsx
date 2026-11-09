@@ -31,7 +31,7 @@ export function RoutineImportDialog({
 }: RoutineImportDialogProps) {
   const rows: [string, number][] = [
     ['肌荒れしたコスメ', snapshot.badProducts.length],
-    ['使えているコスメ', snapshot.usable.length],
+    ['使えるコスメ', snapshot.usable.length],
   ];
   return (
     <ModalDialog labelledBy="routine-import-title" onClose={onClose} sheet fallbackFocus={fallbackFocus}>
@@ -72,7 +72,7 @@ export function RoutineImportDialog({
         {hasCurrentLists ? (
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => onImport('append')} className={buttonPrimaryCompact}>
-              今の<wbr />リストに<wbr />追加
+              <span>今の<wbr />リストに<wbr />追加</span>
             </button>
             <button type="button" onClick={() => onImport('replace')} className={buttonSecondaryCompact}>
               置き換える

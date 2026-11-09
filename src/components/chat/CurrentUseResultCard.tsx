@@ -12,7 +12,7 @@ interface CurrentUseResultCardProps {
   result: CurrentUseCheckResult;
 }
 
-/** 今使っているコスメ（使えているコスメのうち今も使っている製品）の組み合わせチェックの結果 */
+/** 今使っているコスメ（使えるコスメのうち今も使っている製品）の組み合わせチェックの結果 */
 export const CurrentUseResultCard: React.FC<CurrentUseResultCardProps> = ({ result }) => {
   const { productNames, findings, staleProductNames } = result;
 

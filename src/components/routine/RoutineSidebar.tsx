@@ -22,14 +22,14 @@ import type { Product } from '@/lib/types';
 /** 差分分析を始めるボタンの文言（サイドバーとスマホの登録状況バー、案内の文で同じにする） */
 export const DIFFERENTIAL_LABEL = '肌荒れの原因候補を調べる';
 
-/** 使えているコスメの見出しの ID（3か月の確認の「確認する」から、ここへ移る） */
+/** 使えるコスメの見出しの ID（3か月の確認の「確認する」から、ここへ移る） */
 export const USABLE_SECTION_ID = 'usable-section';
 /** 肌荒れしたコスメの見出しの ID（リストをクリアした後のフォーカスの移り先） */
 export const BAD_SECTION_ID = 'bad-section';
 
 interface RoutineSidebarProps {
   badProducts: Product[];
-  /** 使えているコスメ（追加した日・今も使っているかつき） */
+  /** 使えるコスメ（追加した日・今も使っているかつき） */
   usable: UsableEntry[];
   /** 今も使っている製品のうち、3か月以上前に追加した製品の ID */
   staleIds: ReadonlySet<string>;
@@ -44,7 +44,7 @@ interface RoutineSidebarProps {
   onClearUsable: () => void;
   onCheckCurrentUse: () => void;
   onRunDifferential: () => void;
-  /** 開発用のサンプル（使えているコスメは保存しない） */
+  /** 開発用のサンプル（使えるコスメは保存しない） */
   onLoadSample: () => void;
   /** 応答を待っている（調べる操作は押しても受け付けず、案内が出る） */
   busy?: boolean;
@@ -140,11 +140,11 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           )}
         </section>
 
-        {/* 使えているコスメ（比較にはすべて、組み合わせチェックには今も使っているものだけ） */}
+        {/* 使えるコスメ（比較にはすべて、組み合わせチェックには今も使っているものだけ） */}
         <section id={USABLE_SECTION_ID} className="space-y-2 scroll-mt-4">
           <SectionHeading
             icon={<ShieldCheck className="w-4 h-4 text-emerald-600" aria-hidden />}
-            title="使えているコスメ"
+            title="使えるコスメ"
             count={usable.length}
             countClassName="bg-tint-safe text-emerald-800"
           />
@@ -163,7 +163,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
 
           {usable.length === 0 ? (
             <EmptyState>
-              問題なく使えているコスメを追加すると、共通の成分を除外して原因の候補を絞り込めます。今使っているものは、一緒に使うときの組み合わせもチェックできます
+              問題なく使えるコスメを追加すると、共通の成分を除外して原因の候補を絞り込めます。今使っているものは、一緒に使うときの組み合わせもチェックできます
             </EmptyState>
           ) : (
             <ul role="list" className="space-y-2">
@@ -176,7 +176,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                       accentClassName={stale ? 'border-l-orange-600' : inUse ? 'border-l-sky-600' : 'border-l-emerald-600'}
                       brandClassName="text-emerald-800"
                       onRemove={() => onRemoveUsable(p.id)}
-                      removeLabel={`「${p.name}」を使えているコスメから削除`}
+                      removeLabel={`「${p.name}」を使えるコスメから削除`}
                       note={
                         <p className={`text-xs ${stale ? 'text-orange-800 font-semibold' : 'text-ink-muted'}`}>
                           {formatAddedDate(addedAt)}に追加{stale && `（${STALE_AFTER_MONTHS}か月以上前）`}
@@ -230,7 +230,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                 {inUseCount < 2 && '今も使っているコスメが2点以上あると調べられます。'}
                 このリストはこの端末のブラウザにだけ保存されます。
               </p>
-              <ClearButton onClick={onClearUsable}>使えているコスメのリストをクリア</ClearButton>
+              <ClearButton onClick={onClearUsable}>使えるコスメのリストをクリア</ClearButton>
             </>
           )}
         </section>
@@ -297,7 +297,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             肌荒れしたコスメ {badProducts.length}点（1点以上）
           </ChecklistItem>
           <ChecklistItem done={usable.length > 0} optional>
-            使えているコスメ {usable.length}点（任意・あると候補を絞り込めます）
+            使えるコスメ {usable.length}点（任意・あると候補を絞り込めます）
           </ChecklistItem>
         </ul>
       </div>

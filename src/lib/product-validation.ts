@@ -4,7 +4,7 @@ import { LABEL_LIMITS } from './analyzer/label-parser';
 /**
  * APIリクエストで受け取る製品データの検証
  * 分析処理は成分数×既知DBの計算量になるため、件数と文字数に上限を設ける。
- * ブラウザに保存した「使えているコスメ」の読み込み（usable-products.ts）でも同じ検証を使い、
+ * ブラウザに保存した「使えるコスメ」の読み込み（usable-products.ts）でも同じ検証を使い、
  * サーバーが受け付けない製品を保存したまま送り続けないようにする
  */
 const MAX_INGREDIENTS = LABEL_LIMITS.ingredients;

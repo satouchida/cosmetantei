@@ -125,7 +125,7 @@ test('4. Differential culprit isolation & alternatives only from verified ingred
 
   const safeProduct: Product = {
     id: 'safe_test_prod',
-    name: '安全に使えているコスメ',
+    name: '安全に使えるコスメ',
     brand: 'サンプルB',
     country: 'JP',
     category: 'toner',
@@ -5898,7 +5898,7 @@ test('103. Routine image data: file data and QR link round-trip (two lists, vers
   assert.strictEqual(share.parseRoutine('{"app":"other","v":2}', now), null);
   assert.strictEqual(share.parseRoutine('{"app":"cosmetantei","v":3}', now), null, 'Unknown versions are not read');
 
-  // 版 1（3つのリスト）：普段使えている・今使っているを使えているコスメにまとめる。今使っているの製品は追加した日つきで
+  // 版 1（3つのリスト）：普段使えている・今使っているを使えるコスメにまとめる。今使っているの製品は追加した日つきで
   // 今も使っている、普段使えているだけの製品は以前使っていた。肌荒れにもある製品は肌荒れだけ
   const otherUsable = verifiedProduct({ id: 'obf_other1', brand: 'ブランドC', name: 'クリーム' });
   const v1 = share.parseRoutine(
@@ -6596,13 +6596,13 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   assert.match(session, /SESSION_TTL_SECONDS = 24 \* 60 \* 60/);
   assert.match(session, /HttpOnly; Secure; SameSite=Strict/);
   assert.ok(privacy.includes('SameSite=Strict') && privacy.includes('有効期間：24時間'));
-  // 端末に保存するもの：使えているコスメ・以前の保存先（移して消す）・画像で保存するおすすめの設定（docs/plans/two-lists.md）
+  // 端末に保存するもの：使えるコスメ・以前の保存先（移して消す）・画像で保存するおすすめの設定（docs/plans/two-lists.md）
   const { USABLE_STORAGE_KEY, LEGACY_CURRENT_USE_KEY } = await import('../src/lib/usable-products');
   const { EXPORT_REMINDER_STORAGE_KEY } = await import('../src/lib/client/export-reminder');
   for (const key of [USABLE_STORAGE_KEY, LEGACY_CURRENT_USE_KEY, EXPORT_REMINDER_STORAGE_KEY]) assert.ok(privacy.includes(key), key);
   // 肌荒れしたコスメは保存しない。画像・QR に肌荒れしたコスメが入ること、データを入れない保存の方法を書く
   assert.ok(privacy.includes('「肌荒れしたコスメ」のリストは、ページを開いている間だけ保持され、端末にもサーバーにも保存されません。'));
-  assert.ok(privacy.includes('「肌荒れしたコスメ」と「使えているコスメ」の製品のID・ブランド名・商品名'));
+  assert.ok(privacy.includes('「肌荒れしたコスメ」と「使えるコスメ」の製品のID・ブランド名・商品名'));
   assert.ok(privacy.includes('「読み込み用のデータを入れる（QRコード）」の選択を外して保存してください'));
   assert.match(read('src/components/routine/RoutineExportDialog.tsx'), /読み込み用のデータを入れる（QRコード）/);
   // 短期の保存の最短は、検索結果が無かったときの5分（src/app/api/products/search/route.ts）
@@ -9511,12 +9511,12 @@ test('157. Alternatives never suggest a registered product (problem, usable or c
   }
 });
 
-test('158. Two lists: 肌荒れしたコスメ and 使えているコスメ (what is sent, the export reminder, one list per product, wording)', async () => {
+test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is sent, the export reminder, one list per product, wording)', async () => {
   const { readFileSync } = await import('node:fs');
   const { routineFromLists } = await import('../src/lib/usable-products');
   const p = (id: string): Product => ({ id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients: ['水'] });
 
-  // サーバーに送る形：比較には使えているコスメのすべて、組み合わせチェックには今も使っている製品だけ
+  // サーバーに送る形：比較には使えるコスメのすべて、組み合わせチェックには今も使っている製品だけ
   const sent = routineFromLists([p('B')], [
     { product: p('U1'), addedAt: 1, inUse: true },
     { product: p('U2'), addedAt: 1, inUse: false },
@@ -9574,13 +9574,21 @@ test('158. Two lists: 肌荒れしたコスメ and 使えているコスメ (wha
   assert.match(chat, /const moveToList = [\s\S]*?badRef\.current\.length >= MAX_ROUTINE_PRODUCTS[\s\S]*?return;[\s\S]*?latest\.length >= MAX_USABLE[\s\S]*?return;/);
   // おすすめは、応答の後の最新の値で決める（押したときの描画の値ではない）
   assert.match(chat, /const latest = reminderStateRef\.current;/);
-  assert.ok(chat.includes("'肌荒れしたコスメに移す'") && chat.includes("'使えているコスメから削除'"));
+  assert.ok(chat.includes("'肌荒れしたコスメに移す'") && chat.includes("'使えるコスメから削除'"));
   const sidebar = readFileSync('src/components/routine/RoutineSidebar.tsx', 'utf8');
-  assert.ok(sidebar.includes('肌荒れしたコスメのリストをクリア') && sidebar.includes('使えているコスメのリストをクリア'));
+  assert.ok(sidebar.includes('肌荒れしたコスメのリストをクリア') && sidebar.includes('使えるコスメのリストをクリア'));
   assert.ok(!/>\s*クリア\s*</.test(sidebar), 'No unnamed 「クリア」');
   assert.match(chat, /choices=\{\[\{ label: 'クリアする', tone: 'danger', onSelect: \(\) => clearList\(clearTarget\) \}\]\}/);
   assert.match(chat, /case 'reset':\n(?:.*\n){1,2}\s*updateBad\(\(\) => \[\]\);/);
   assert.match(chat, /sessionOnly: true/);
+  // ボタンの文字の <wbr /> は <span> の中に（inline-flex の gap で、区切った文字の間に空白が出ないように）
+  const { readdirSync } = await import('node:fs');
+  const tsxFiles = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? tsxFiles(`${dir}/${d.name}`) : d.name.endsWith('.tsx') ? [`${dir}/${d.name}`] : []));
+  for (const file of tsxFiles('src/components')) {
+    const bare = readFileSync(file, 'utf8').split('\n').filter((line) => /^\s*[^\s<{/*].*<wbr \/>/.test(line));
+    assert.deepStrictEqual(bare, [], `${file}: wrap the label in <span>`);
+  }
   // 比較の結果を出したときに、おすすめを出すか確かめる
   assert.match(chat, /if \(reply\.differentialAnalysis\) offerExportAfterResult\(\);/);
 });

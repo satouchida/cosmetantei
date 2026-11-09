@@ -387,11 +387,11 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       layout: 'full',
       render: () => (
         <ChoiceDialog
-          title="使えているコスメに登録されています"
-          message={`「${longJapanese.name}」は【使えているコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`}
+          title="使えるコスメに登録されています"
+          message={`「${longJapanese.name}」は【使えるコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`}
           choices={[
             { label: '肌荒れしたコスメに移す', tone: 'primary', onSelect: noop },
-            { label: '使えているコスメから削除', tone: 'secondary', onSelect: noop },
+            { label: '使えるコスメから削除', tone: 'secondary', onSelect: noop },
           ]}
           onCancel={noop}
         />
@@ -404,8 +404,8 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       render: () => (
         <ChoiceDialog
           warning
-          title="使えているコスメのリストをクリア"
-          message="使えているコスメ（4点）をリストから削除します。この端末に保存したリストも消え、元に戻せません。"
+          title="使えるコスメのリストをクリア"
+          message="使えるコスメ（4点）をリストから削除します。この端末に保存したリストも消え、元に戻せません。"
           choices={[{ label: 'クリアする', tone: 'danger', onSelect: noop }]}
           onCancel={noop}
         />

@@ -225,7 +225,7 @@ export const routineProducts = {
 
 const DAY = 24 * 60 * 60 * 1000;
 /**
- * 使えているコスメ（2つ目は3か月以上前に追加した、今も使っている製品。3つ目は以前使っていた製品）。
+ * 使えるコスメ（2つ目は3か月以上前に追加した、今も使っている製品。3つ目は以前使っていた製品）。
  * 肌荒れしたコスメ（routineProducts.bad）とは重ならない（1つの製品は1つのリストだけ）
  */
 export function usableEntries(now: number): UsableEntry[] {

@@ -4,7 +4,7 @@ import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 import { createBrowserStore } from './client/browser-store';
 
 /**
- * 「使えているコスメ」のリスト（ブラウザ側。docs/plans/two-lists.md）。
+ * 「使えるコスメ」のリスト（ブラウザ側。docs/plans/two-lists.md）。
  * 比較（肌荒れしたコスメと比べて原因の候補を絞り込む）にはすべての製品を、組み合わせチェックには今も使っている製品
  * （inUse）だけを使う。この端末のブラウザ（localStorage）にだけ保存し、サーバーには保存しない。
  * 追加した日を持ち、今も使っている製品は 3か月以上たつと「今も使っているか」確かめてもらう
@@ -54,7 +54,7 @@ export function isPersistable(product: Product): boolean {
 }
 
 /**
- * サーバーに送る形（docs/plans/two-lists.md）：比較（safeProducts）には使えているコスメのすべて（以前使っていた製品も）、
+ * サーバーに送る形（docs/plans/two-lists.md）：比較（safeProducts）には使えるコスメのすべて（以前使っていた製品も）、
  * 組み合わせチェック（currentlyUsing）には今も使っている製品だけ
  */
 export function routineFromLists(badProducts: Product[], usable: readonly UsableEntry[]): UserRoutineState {
