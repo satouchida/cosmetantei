@@ -54,6 +54,15 @@ export const LEGAL_ENACTED = '2026-10-20';
  */
 export const LEGAL_VERSION = '2026-10-30-2';
 
+/**
+ * ページに出す「最終改定日」。同意をもう一度お願いしない（重要な変更ではない）改定のときは、これだけを変える
+ * （LEGAL_VERSION は同意の版。変えると同意の確認画面がもう一度出る。プライバシーポリシー第10条）。
+ * 同意をお願いする改定では、LEGAL_VERSION と同じ日にする
+ * （2026-11-09：2つのリスト。docs/plans/two-lists.md、docs/legal/privacy-policy-two-lists-draft.md。プライバシーポリシーの
+ *  第2条第4号・第5号・第6号・第7条3.・第8条第2項、利用規約の第2条第3号・第6条第2項。同意の版は据え置き）
+ */
+export const LEGAL_REVISED = '2026-11-09';
+
 /** '2026-10-20' → '2026年10月20日'（同じ日の2回目の改定の '2026-10-30-2' も年月日だけ） */
 export function formatLegalDate(version: string): string {
   const [year, month, day] = version.split('-').map(Number);

@@ -1,5 +1,8 @@
 # 「今使っているコスメ」 and the combination check (2026-10-14)
 
+> Superseded 2026-11-09: 今使っているコスメ and 普段使えているコスメ became one list, 使えているコスメ, with an in-use
+> switch. See [2026-11-09-two-lists.md](2026-11-09-two-lists.md).
+
 `UserRoutineState.currentlyUsing` existed since the first commit, but nothing filled it. The
 owner asked for it to be built, with a warning when the list holds items added more than three
 months ago.

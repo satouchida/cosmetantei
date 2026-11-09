@@ -3399,17 +3399,17 @@ test('75. Pair rules across products: retinoid with salicylic acid, overlapping 
   assert.deepStrictEqual(ids([p('J', ['レチノール', '香料']), p('K', ['水', 'グリセリン'])]), []);
 });
 
-test('76. Products in use now: combination check, wording, the stored list and the 3-month check', async () => {
+test('76. Usable products: combination check (in use only), wording, the stored list and the 3-month check', async () => {
   const { checkCurrentUse } = await import('../src/lib/analyzer/ingredient-analyzer');
   const {
     isStale,
-    parseCurrentUse,
-    serializeCurrentUse,
-    setCurrentUse,
-    updateCurrentUse,
-    getCurrentUseSnapshot,
-    MAX_CURRENT_USE,
-  } = await import('../src/lib/current-use');
+    parseUsable,
+    serializeUsable,
+    setUsable,
+    updateUsable,
+    getUsableSnapshot,
+    MAX_USABLE,
+  } = await import('../src/lib/usable-products');
   const p = (id: string, ingredients: string[], extra: Partial<Product> = {}): Product => ({
     id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients, ...extra,
   });
@@ -3435,8 +3435,8 @@ test('76. Products in use now: combination check, wording, the stored list and t
   assert.strictEqual(isStale(monthEnd, new Date(2027, 1, 28).getTime()), true);
 
   // 保存した値の読み込み：壊れた値・形の違う項目・重複・入力した成分表示・上限を超えた分は捨てる
-  assert.deepStrictEqual(parseCurrentUse('not json'), []);
-  assert.deepStrictEqual(parseCurrentUse('{"a":1}'), []);
+  assert.deepStrictEqual(parseUsable('not json'), []);
+  assert.deepStrictEqual(parseUsable('{"a":1}'), []);
   const label = p('L', ['水'], { ingredientSource: 'user_label' });
   const stored = JSON.stringify([
     { product: p('E', ['水']), addedAt: added },
@@ -3450,21 +3450,27 @@ test('76. Products in use now: combination check, wording, the stored list and t
     // ID が label_ で始まる製品は、入力した成分表示として扱う
     { product: p('label_123', ['水']), addedAt: added },
   ]);
-  assert.deepStrictEqual(parseCurrentUse(stored).map((e) => e.product.id), ['E']);
+  assert.deepStrictEqual(parseUsable(stored).map((e) => e.product.id), ['E']);
+  // 以前の「今使っているコスメ」の項目（inUse が無い）は、今も使っている製品として読む
+  assert.strictEqual(parseUsable(stored)[0].inUse, true);
   const many = JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ product: p(`M${i}`, ['水']), addedAt: added })));
-  assert.strictEqual(parseCurrentUse(many).length, MAX_CURRENT_USE);
-  // 入力した成分表示は保存しない
-  const saved = serializeCurrentUse([{ product: p('H', ['水']), addedAt: added }, { product: label, addedAt: added }]);
-  assert.deepStrictEqual(parseCurrentUse(saved).map((e) => e.product.id), ['H']);
-  assert.ok(!saved.includes('"L"'));
+  assert.strictEqual(parseUsable(many).length, MAX_USABLE);
+  // 入力した成分表示・サンプル（sessionOnly）は保存しない。今も使っているか（inUse）は保存する
+  const saved = serializeUsable([
+    { product: p('H', ['水']), addedAt: added, inUse: false },
+    { product: label, addedAt: added, inUse: true },
+    { product: p('S', ['水']), addedAt: added, inUse: true, sessionOnly: true },
+  ]);
+  assert.deepStrictEqual(parseUsable(saved).map((e) => [e.product.id, e.inUse]), [['H', false]]);
+  assert.ok(!saved.includes('"L"') && !saved.includes('"S"') && !saved.includes('sessionOnly'));
   // 保存できない環境（ここでは window が無い）でも、メモリの値で動く
-  setCurrentUse([{ product: label, addedAt: added }]);
-  assert.deepStrictEqual(getCurrentUseSnapshot().map((e) => e.product.id), ['L']);
+  setUsable([{ product: label, addedAt: added, inUse: true }]);
+  assert.deepStrictEqual(getUsableSnapshot().map((e) => e.product.id), ['L']);
   // 続けて変えても、先の変更が消えない
-  updateCurrentUse((prev) => [...prev, { product: p('N1', ['水']), addedAt: added }]);
-  updateCurrentUse((prev) => [...prev, { product: p('N2', ['水']), addedAt: added }]);
-  assert.deepStrictEqual(getCurrentUseSnapshot().map((e) => e.product.id), ['L', 'N1', 'N2']);
-  setCurrentUse([]);
+  updateUsable((prev) => [...prev, { product: p('N1', ['水']), addedAt: added, inUse: true }]);
+  updateUsable((prev) => [...prev, { product: p('N2', ['水']), addedAt: added, inUse: false }]);
+  assert.deepStrictEqual(getUsableSnapshot().map((e) => e.product.id), ['L', 'N1', 'N2']);
+  setUsable([]);
 
   // チャットのボタン：ルールだけで判定し、Gemini も Workers AI も呼ばない
   const { POST } = await import('../src/app/api/chat/route');
@@ -5870,7 +5876,7 @@ test('102. A product without ingredients offers a web re-search that skips the c
   }
 });
 
-test('103. Routine image data: file data and QR link round-trip; typed labels, prices and forged payloads are dropped', async () => {
+test('103. Routine image data: file data and QR link round-trip (two lists, version 2; version 1 still read); typed labels, prices and forged payloads are dropped', async () => {
   const share = await import('../src/lib/routine-share');
   const now = Date.UTC(2026, 9, 19, 12);
   const bad = verifiedProduct({ id: 'web_bad1', brand: 'ブランドA', name: '刺激の美容液', ingredients: ['水', '香料'] });
@@ -5878,8 +5884,7 @@ test('103. Routine image data: file data and QR link round-trip; typed labels, p
   const typed = verifiedProduct({ id: 'label_1', name: '入力した成分表示', ingredientSource: 'user_label' });
   const snapshot = {
     badProducts: [bad, typed],
-    safeProducts: [safe],
-    currentUse: [{ product: safe, addedAt: now - 1000 }],
+    usable: [{ product: safe, addedAt: now - 1000, inUse: false }],
   };
 
   // ファイルの中のデータ：成分つきで戻る。入力した成分表示・価格は入れない
@@ -5889,9 +5894,31 @@ test('103. Routine image data: file data and QR link round-trip; typed labels, p
   const back = share.parseRoutine(text, now);
   assert.ok(back);
   assert.deepStrictEqual(back.badProducts.map((p) => p.ingredients), [['水', '香料']]);
-  assert.deepStrictEqual(back.safeProducts.map((p) => p.id), ['obf_safe1']);
-  assert.strictEqual(back.currentUse[0].addedAt, now - 1000);
-  assert.strictEqual(share.parseRoutine('{"app":"other","v":1}', now), null);
+  assert.deepStrictEqual(back.usable.map((e) => [e.product.id, e.addedAt, e.inUse]), [['obf_safe1', now - 1000, false]]);
+  assert.strictEqual(share.parseRoutine('{"app":"other","v":2}', now), null);
+  assert.strictEqual(share.parseRoutine('{"app":"cosmetantei","v":3}', now), null, 'Unknown versions are not read');
+
+  // 版 1（3つのリスト）：普段使えている・今使っているを使えているコスメにまとめる。今使っているの製品は追加した日つきで
+  // 今も使っている、普段使えているだけの製品は以前使っていた。肌荒れにもある製品は肌荒れだけ
+  const otherUsable = verifiedProduct({ id: 'obf_other1', brand: 'ブランドC', name: 'クリーム' });
+  const v1 = share.parseRoutine(
+    JSON.stringify({
+      app: 'cosmetantei',
+      v: 1,
+      bad: [bad],
+      safe: [otherUsable, safe, bad],
+      current: [{ product: safe, addedAt: now - 5000 }],
+    }),
+    now
+  );
+  assert.deepStrictEqual(v1?.badProducts.map((p) => p.id), ['web_bad1']);
+  assert.deepStrictEqual(
+    v1?.usable.map((e) => [e.product.id, e.addedAt, e.inUse]),
+    [
+      ['obf_safe1', now - 5000, true],
+      ['obf_other1', now, false],
+    ]
+  );
   assert.strictEqual(share.parseRoutine('not json', now), null);
   // 未来の日付・リンクの入った名前・重複は受け付けない
   const forged = JSON.stringify({
@@ -5903,7 +5930,13 @@ test('103. Routine image data: file data and QR link round-trip; typed labels, p
   });
   const cleaned = share.parseRoutine(forged, now);
   assert.deepStrictEqual(cleaned?.badProducts.map((p) => p.id), ['web_bad1']);
-  assert.strictEqual(cleaned?.currentUse[0].addedAt, now);
+  assert.strictEqual(cleaned?.usable[0].addedAt, now);
+  // 版 2 でも、未来の日付は今に、inUse が true でない値は「以前使っていた」ではなく今も使っている（false だけが以前）
+  const v2 = share.parseRoutine(
+    JSON.stringify({ app: 'cosmetantei', v: 2, bad: [], usable: [{ product: safe, addedAt: now + 1, inUse: 'yes' }] }),
+    now
+  );
+  assert.deepStrictEqual(v2?.usable.map((e) => [e.addedAt, e.inUse]), [[now, true]]);
 
   // PNG の中のデータ（iTXt）。IEND の前に入れ、読み戻せる。ほかの PNG・壊れたデータは null
   const chunk = (type: string, data: number[] = []) => [0, 0, 0, data.length, ...Buffer.from(type), ...data, 0, 0, 0, 0];
@@ -5927,13 +5960,17 @@ test('103. Routine image data: file data and QR link round-trip; typed labels, p
   assert.strictEqual(share.shareFragment('4901234567894'), null, 'A barcode is not a share link');
   const fromLink = await share.decodeShareFragment(share.shareFragment(link)!, now);
   assert.deepStrictEqual(fromLink?.badProducts.map((p) => [p.id, p.brand, p.name, p.ingredients.length]), [['web_bad1', 'ブランドA', '刺激の美容液', 0]]);
-  assert.deepStrictEqual(fromLink?.currentUse.map((e) => [e.product.id, e.addedAt]), [['obf_safe1', now]]);
+  // リンクには今も使っているかを入れない：読み込んだ製品は今も使っている
+  assert.deepStrictEqual(fromLink?.usable.map((e) => [e.product.id, e.addedAt, e.inUse]), [['obf_safe1', now, true]]);
 
   // 入りきらなければ null。壊れた・巨大に展開されるデータは読まない
   // 圧縮で縮まない（ばらばらの）ID・名前
   const random = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (n) => n.toString(16).padStart(2, '0')).join('');
   const many = Array.from({ length: 20 }, () => verifiedProduct({ id: `web_${random()}`, brand: random(), name: random() }));
-  assert.strictEqual(await share.encodeShareLink({ badProducts: many, safeProducts: many, currentUse: [] }), null);
+  assert.strictEqual(
+    await share.encodeShareLink({ badProducts: many, usable: many.map((product) => ({ product, addedAt: now, inUse: true })) }),
+    null
+  );
   assert.strictEqual(await share.decodeShareFragment('#r=!!!', now), null);
   assert.strictEqual(await share.decodeShareFragment('#r=AAAA', now), null);
   const bomb = new Uint8Array(await new Response(new Blob(['['.repeat(200_000)]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
@@ -5956,16 +5993,20 @@ test('103. Routine image data: file data and QR link round-trip; typed labels, p
   const imported = share.parseRoutine(hostile, now);
   assert.ok(imported);
   assert.deepStrictEqual(Object.keys(imported.badProducts[0]).sort(), ['brand', 'category', 'country', 'id', 'ingredientSource', 'ingredients', 'name']);
-  assert.ok(!imported.safeProducts.some((p) => p.id === 'obf_link' || p.id === 'web_bad1'), 'Links in ingredients and the same product in both lists are dropped');
-  assert.strictEqual(imported.safeProducts.length, 20, 'Capped at MAX_ROUTINE_PRODUCTS');
+  assert.ok(!imported.usable.some((e) => e.product.id === 'obf_link' || e.product.id === 'web_bad1'), 'Links in ingredients and the same product in both lists are dropped');
+  assert.strictEqual(imported.usable.length, 20, 'Capped at MAX_ROUTINE_PRODUCTS');
   assert.strictEqual(({} as Record<string, unknown>).polluted, undefined);
   // 入力した成分表示の ID は、リンクからも読まない
   const refs = { v: 1, b: [['label_1', 'B', '入力'], ['web_ok', 'B', 'OK'], ['x', 1, 'bad'], ['y', 'B', 'z'.repeat(201)]], s: [['web_ok', 'B', 'OK']], c: 'no' };
   const packed = new Uint8Array(await new Response(new Blob([JSON.stringify(refs)]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
   const fromRefs = await share.decodeShareFragment(`#r=${Buffer.from(packed).toString('base64url')}`, now);
   assert.deepStrictEqual(fromRefs?.badProducts.map((p) => p.id), ['web_ok']);
-  assert.deepStrictEqual(fromRefs?.safeProducts, [], 'A product in both lists stays in 肌荒れ only');
-  assert.deepStrictEqual(fromRefs?.currentUse, []);
+  assert.deepStrictEqual(fromRefs?.usable, [], 'A product in both lists stays in 肌荒れ only');
+  // 版 1 のリンク：普段使えている（s）は以前使っていた、今使っている（c）は今も使っている
+  const legacyRefs = { v: 1, b: [], s: [['web_s', 'B', 'S'], ['web_c', 'B', 'C']], c: [['web_c', 'B', 'C']] };
+  const legacyPacked = new Uint8Array(await new Response(new Blob([JSON.stringify(legacyRefs)]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  const fromLegacy = await share.decodeShareFragment(`#r=${Buffer.from(legacyPacked).toString('base64url')}`, now);
+  assert.deepStrictEqual(fromLegacy?.usable.map((e) => [e.product.id, e.inUse]), [['web_c', true], ['web_s', false]]);
   // リンクはこのサイト（https）だけ
   assert.strictEqual(share.shareFragment('http://cosmetantei.app/#r=abc'), null);
   assert.strictEqual(share.shareFragment('https://cosmetantei.app.evil.com/#r=abc'), null);
@@ -6112,7 +6153,7 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
   const shop = await import('../src/lib/services/shop-ingredients');
   const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
   const { addProductToDynamicCache, isShareable } = await import('../src/lib/data/cosmetics-db');
-  const { isPersistable } = await import('../src/lib/current-use');
+  const { isPersistable } = await import('../src/lib/usable-products');
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
 
   // 切り出し：全成分の見出しから、次の見出しまで。新旧の処方は【変更後】だけ。2つ以上・見出し無しは使わない
@@ -6555,23 +6596,36 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   assert.match(session, /SESSION_TTL_SECONDS = 24 \* 60 \* 60/);
   assert.match(session, /HttpOnly; Secure; SameSite=Strict/);
   assert.ok(privacy.includes('SameSite=Strict') && privacy.includes('有効期間：24時間'));
-  const { CURRENT_USE_STORAGE_KEY } = await import('../src/lib/current-use');
-  assert.ok(privacy.includes(CURRENT_USE_STORAGE_KEY));
+  // 端末に保存するもの：使えているコスメ・以前の保存先（移して消す）・画像で保存するおすすめの設定（docs/plans/two-lists.md）
+  const { USABLE_STORAGE_KEY, LEGACY_CURRENT_USE_KEY } = await import('../src/lib/usable-products');
+  const { EXPORT_REMINDER_STORAGE_KEY } = await import('../src/lib/client/export-reminder');
+  for (const key of [USABLE_STORAGE_KEY, LEGACY_CURRENT_USE_KEY, EXPORT_REMINDER_STORAGE_KEY]) assert.ok(privacy.includes(key), key);
+  // 肌荒れしたコスメは保存しない。画像・QR に肌荒れしたコスメが入ること、データを入れない保存の方法を書く
+  assert.ok(privacy.includes('「肌荒れしたコスメ」のリストは、ページを開いている間だけ保持され、端末にもサーバーにも保存されません。'));
+  assert.ok(privacy.includes('「肌荒れしたコスメ」と「使えているコスメ」の製品のID・ブランド名・商品名'));
+  assert.ok(privacy.includes('「読み込み用のデータを入れる（QRコード）」の選択を外して保存してください'));
+  assert.match(read('src/components/routine/RoutineExportDialog.tsx'), /読み込み用のデータを入れる（QRコード）/);
+  // 短期の保存の最短は、検索結果が無かったときの5分（src/app/api/products/search/route.ts）
+  assert.match(read('src/app/api/products/search/route.ts'), /EMPTY_RESULTS_TTL_SECONDS = 60 \* 5;/);
+  assert.ok(privacy.includes('短期間（5分〜7日。'));
+  assert.ok(!privacy.includes('普段使えている') && !terms.includes('普段使えている'), 'The old list names are gone');
   // 同意の確認画面：同意の保存先はポリシーに書いたもの。同意する前は Turnstile もセッションの Cookie も始めない
   const { CONSENT_STORAGE_KEY } = await import('../src/lib/consent');
   assert.ok(privacy.includes(CONSENT_STORAGE_KEY));
-  // 規約の日付と同意の版は1か所（LEGAL_VERSION）から。同意する前の動きは test 111
+  // 同意の版は LEGAL_VERSION、ページに出す最終改定日は LEGAL_REVISED（同意をお願いしない改定では日付だけ変える。
+  // 同意をお願いする改定では同じ日）。同意する前の動きは test 111
   const { CONSENT_VERSION } = await import('../src/lib/consent');
-  const { LEGAL_VERSION, formatLegalDate } = await import('../src/lib/site');
+  const { LEGAL_VERSION, LEGAL_REVISED, formatLegalDate } = await import('../src/lib/site');
   assert.strictEqual(CONSENT_VERSION, LEGAL_VERSION);
+  assert.ok(LEGAL_REVISED.slice(0, 10) >= LEGAL_VERSION.slice(0, 10), 'The shown revision date is never before the consent version');
   assert.strictEqual(formatLegalDate('2026-10-20'), '2026年10月20日');
   assert.strictEqual(formatLegalDate('2027-01-05'), '2027年1月5日');
   for (const page of [terms, privacy]) {
     assert.ok(page.includes('enactedOn={formatLegalDate(LEGAL_ENACTED)}'), 'The enactment date comes from LEGAL_ENACTED');
     assert.doesNotMatch(page, /(?:enactedOn|revisedOn)="/);
   }
-  // 両方とも改定した（2026-10-23 にプライバシーポリシーの第2条第6項）
-  for (const page of [terms, privacy]) assert.ok(page.includes('revisedOn={formatLegalDate(LEGAL_VERSION)}'));
+  // 両方とも改定した（2026-11-09 に2つのリスト。docs/plans/two-lists.md）
+  for (const page of [terms, privacy]) assert.ok(page.includes('revisedOn={formatLegalDate(LEGAL_REVISED)}'));
   // 価格を調べるお店（shops.ts）は、規約の外部サービス・リンク先のモールに載せる
   assert.ok(read('src/lib/services/shops.ts').includes("label: '@cosme SHOPPING'"));
   assert.strictEqual(terms.split('@cosme SHOPPING').length - 1, 2);
@@ -6588,8 +6642,8 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   // KV に保存する期間の上限（ブランド名の確認結果 90日・製品情報 30日）とポリシーの記載
   assert.match(read('src/lib/services/brand-check.ts'), /BRAND_VERDICT_TTL_SECONDS = 60 \* 60 \* 24 \* 90;/);
   assert.ok(privacy.includes('最長90日') && privacy.includes('最長30日'));
-  // 短期の保存（判定・検索結果・AI の応答文）は 15分〜7日（2026-10-23。chat-replies・web-research・バーコード・価格のページ）
-  assert.ok(privacy.includes('短期間（15分〜7日。ブランド名の確認結果は最長90日）'));
+  // 短期の保存（判定・検索結果・AI の応答文）は 5分〜7日（2026-11-09。最短は検索結果が無かったときの5分。上で確かめた）
+  assert.ok(privacy.includes('短期間（5分〜7日。ブランド名の確認結果は最長90日）'));
   assert.match(read('src/lib/services/chat-replies.ts'), /CAUSE_CACHE_TTL_SECONDS = 60 \* 60 \* 24 \* 7;/);
 
   // 外部送信規律：トップ画面から1回の操作で届く（コメントにしたものは数えない）・サイトマップにも載せる
@@ -6648,72 +6702,73 @@ function fakeBrowser(options: { failGet?: boolean; failSet?: boolean } = {}) {
   };
 }
 
-test('110. Products in use now: the browser store (lazy read, other tabs, failed saves, products kept only in memory)', async () => {
+test('110. Usable products: the browser store (lazy read, other tabs, failed saves, products kept only in memory, migration from the old key)', async () => {
   const {
-    CURRENT_USE_STORAGE_KEY: KEY,
-    MAX_CURRENT_USE,
-    getCurrentUseSnapshot,
-    resetCurrentUseForTests,
-    setCurrentUse,
-    subscribeCurrentUse,
-  } = await import('../src/lib/current-use');
+    USABLE_STORAGE_KEY: KEY,
+    LEGACY_CURRENT_USE_KEY,
+    MAX_USABLE,
+    getUsableSnapshot,
+    resetUsableForTests,
+    setUsable,
+    subscribeUsable,
+  } = await import('../src/lib/usable-products');
   const p = (id: string, extra: Partial<Product> = {}): Product => ({
     id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients: ['水'], ...extra,
   });
   const added = new Date(2026, 6, 14).getTime();
-  const entry = (product: Product) => ({ product, addedAt: added });
-  const ids = () => getCurrentUseSnapshot().map((e) => e.product.id);
+  const entry = (product: Product) => ({ product, addedAt: added, inUse: true });
+  const ids = () => getUsableSnapshot().map((e) => e.product.id);
   const browser = fakeBrowser();
   browser.install();
-  resetCurrentUseForTests();
+  resetUsableForTests();
   try {
     // 最初に読むときだけ保存先を読み、同じ配列を返し続ける（useSyncExternalStore が再描画を繰り返さない）
     browser.data.set(KEY, JSON.stringify([entry(p('E'))]));
-    const first = getCurrentUseSnapshot();
+    const first = getUsableSnapshot();
     assert.deepStrictEqual(ids(), ['E']);
     browser.data.set(KEY, JSON.stringify([entry(p('Z'))]));
-    assert.strictEqual(getCurrentUseSnapshot(), first, 'Read once, then the same array');
+    assert.strictEqual(getUsableSnapshot(), first, 'Read once, then the same array');
 
     let notified = 0;
-    const unsubscribe = subscribeCurrentUse(() => (notified += 1));
+    const unsubscribe = subscribeUsable(() => (notified += 1));
     assert.strictEqual(browser.handlers.size, 1, 'Listens to other tabs while subscribed');
 
     // 変える：入力した成分表示はメモリにだけ持ち、保存しない
     const label = p('L', { ingredientSource: 'user_label' });
-    setCurrentUse([entry(p('E')), entry(label)]);
+    setUsable([entry(p('E')), entry(label)]);
     assert.strictEqual(notified, 1);
     assert.deepStrictEqual(ids(), ['E', 'L']);
     assert.deepStrictEqual(JSON.parse(browser.data.get(KEY)!).map((e: { product: Product }) => e.product.id), ['E']);
 
     // ほかのキーの変更は無視する
-    const before = getCurrentUseSnapshot();
+    const before = getUsableSnapshot();
     browser.otherTab('another-key', 'x');
     assert.strictEqual(notified, 1);
-    assert.strictEqual(getCurrentUseSnapshot(), before);
+    assert.strictEqual(getUsableSnapshot(), before);
 
     // ほかのタブで変えた：保存された値を読み、このタブにしか無い製品は後ろに残す
     browser.otherTab(KEY, JSON.stringify([entry(p('S1')), entry(p('S2'))]));
     assert.strictEqual(notified, 2);
     assert.deepStrictEqual(ids(), ['S1', 'S2', 'L']);
     // 同じ ID なら、このタブの製品を残す
-    setCurrentUse([entry(p('S1', { ingredientSource: 'user_label' }))]);
+    setUsable([entry(p('S1', { ingredientSource: 'user_label' }))]);
     browser.otherTab(KEY, JSON.stringify([entry(p('S1')), entry(p('S3'))]));
     assert.deepStrictEqual(ids(), ['S3', 'S1']);
-    assert.strictEqual(getCurrentUseSnapshot()[1].product.ingredientSource, 'user_label');
+    assert.strictEqual(getUsableSnapshot()[1].product.ingredientSource, 'user_label');
     // サイトデータを消した（key が null）：保存されていた製品は消え、このタブにしか無い製品は残る
     browser.otherTab(null);
     assert.deepStrictEqual(ids(), ['S1']);
     // 上限：保存された製品が先。合わせて上限を超えたら、このタブにしか無い製品から落ちる
-    setCurrentUse([entry(label)]);
-    const full = Array.from({ length: MAX_CURRENT_USE }, (_, i) => entry(p(`M${i}`)));
+    setUsable([entry(label)]);
+    const full = Array.from({ length: MAX_USABLE }, (_, i) => entry(p(`M${i}`)));
     browser.otherTab(KEY, JSON.stringify(full));
-    assert.strictEqual(getCurrentUseSnapshot().length, MAX_CURRENT_USE);
+    assert.strictEqual(getUsableSnapshot().length, MAX_USABLE);
     assert.ok(!ids().includes('L'));
 
     // 保存に失敗したら、メモリの値で動き、ほかのタブの値で上書きしない
     browser.options.failSet = true;
     const notifiedBefore = notified;
-    setCurrentUse([entry(p('F1'))]);
+    setUsable([entry(p('F1'))]);
     assert.strictEqual(notified, notifiedBefore + 1);
     assert.deepStrictEqual(ids(), ['F1']);
     browser.otherTab(KEY, JSON.stringify([entry(p('O1'))]));
@@ -6721,20 +6776,41 @@ test('110. Products in use now: the browser store (lazy read, other tabs, failed
     assert.strictEqual(notified, notifiedBefore + 1);
     // 保存できるようになったら、またほかのタブに合わせる
     browser.options.failSet = false;
-    setCurrentUse([entry(p('F2'))]);
+    setUsable([entry(p('F2'))]);
     browser.otherTab(KEY, JSON.stringify([entry(p('O2'))]));
     assert.deepStrictEqual(ids(), ['O2']);
 
     unsubscribe();
     assert.strictEqual(browser.handlers.size, 0, 'Stops listening when nobody subscribes');
 
+    // 以前の「今使っているコスメ」（cosmetantei:current-use:v1）：新しい保存先が空なら、最初に読むときに移して消す。
+    // 追加した日はそのまま、今も使っている製品として
+    browser.data.clear();
+    browser.data.set(LEGACY_CURRENT_USE_KEY, JSON.stringify([{ product: p('OLD1'), addedAt: added }, { product: p('OLD2'), addedAt: added - 1 }]));
+    resetUsableForTests();
+    assert.deepStrictEqual(getUsableSnapshot().map((e) => [e.product.id, e.addedAt, e.inUse]), [['OLD1', added, true], ['OLD2', added - 1, true]]);
+    assert.strictEqual(browser.data.has(LEGACY_CURRENT_USE_KEY), false, 'The old key is deleted');
+    assert.deepStrictEqual(JSON.parse(browser.data.get(KEY)!).map((e: { product: Product; inUse: boolean }) => [e.product.id, e.inUse]), [['OLD1', true], ['OLD2', true]]);
+    // 新しい保存先に値があれば、以前の保存先は読まない（残っていても移さない）
+    browser.data.set(LEGACY_CURRENT_USE_KEY, JSON.stringify([{ product: p('OLD3'), addedAt: added }]));
+    resetUsableForTests();
+    assert.deepStrictEqual(ids(), ['OLD1', 'OLD2']);
+    // 移せない（保存に失敗する）環境では、以前の保存先を残して、このページの間だけ使う
+    browser.data.clear();
+    browser.data.set(LEGACY_CURRENT_USE_KEY, JSON.stringify([{ product: p('OLD4'), addedAt: added }]));
+    browser.options.failSet = true;
+    resetUsableForTests();
+    assert.deepStrictEqual(ids(), ['OLD4']);
+    assert.strictEqual(browser.data.has(LEGACY_CURRENT_USE_KEY), true, 'Kept when it could not be moved');
+    browser.options.failSet = false;
+
     // 保存先を読めない環境：空のリスト
     browser.options.failGet = true;
-    resetCurrentUseForTests();
+    resetUsableForTests();
     assert.deepStrictEqual(ids(), []);
   } finally {
     browser.uninstall();
-    resetCurrentUseForTests();
+    resetUsableForTests();
   }
 });
 
@@ -8536,19 +8612,19 @@ test('140. Saved products are refreshed from the same source before they expire;
 
 test('141. Yahoo! seller-text products stay on the server (30 days, with credit) but not in browsers or exports (audit items 4(a), 4(b) A′)', async () => {
   const { readFileSync } = await import('node:fs');
-  const { isPersistable, parseCurrentUse, serializeCurrentUse } = await import('../src/lib/current-use');
+  const { isPersistable, parseUsable, serializeUsable } = await import('../src/lib/usable-products');
   const { excludedCount, serializeRoutine } = await import('../src/lib/routine-share');
   const { isStoredSource } = await import('../src/lib/data/cosmetics-db');
   const { yahooListing } = await import('../src/lib/dev/gallery-fixtures');
   const kept = verifiedProduct({ id: 'obf_t141' });
   assert.ok(isStoredSource(yahooListing), 'Still kept on the server');
   assert.ok(!isPersistable(yahooListing));
-  const entries = parseCurrentUse(JSON.stringify([{ product: yahooListing, addedAt: Date.now() }, { product: kept, addedAt: Date.now() }]));
+  const entries = parseUsable(JSON.stringify([{ product: yahooListing, addedAt: Date.now() }, { product: kept, addedAt: Date.now() }]));
   assert.deepStrictEqual(entries.map((e) => e.product.id), ['obf_t141'], 'Entries saved before are dropped on read');
-  assert.ok(!serializeCurrentUse([{ product: yahooListing, addedAt: Date.now() }]).includes('yahoo_'));
-  const snapshot = { badProducts: [yahooListing], safeProducts: [kept], currentUse: [] };
-  const exported = JSON.parse(serializeRoutine(snapshot, Date.now())) as { bad: Product[]; safe: Product[] };
-  assert.deepStrictEqual([exported.bad.length, exported.safe.length], [0, 1]);
+  assert.ok(!serializeUsable([{ product: yahooListing, addedAt: Date.now(), inUse: true }]).includes('yahoo_'));
+  const snapshot = { badProducts: [yahooListing], usable: [{ product: kept, addedAt: Date.now(), inUse: true }] };
+  const exported = JSON.parse(serializeRoutine(snapshot, Date.now())) as { bad: Product[]; usable: unknown[] };
+  assert.deepStrictEqual([exported.bad.length, exported.usable.length], [0, 1]);
   assert.strictEqual(excludedCount(snapshot), 1);
 
   // 候補トレイ：Yahoo! の商品説明の製品を出すときは Yahoo! のクレジットと「販売ページの成分表示」
@@ -9433,4 +9509,78 @@ test('157. Alternatives never suggest a registered product (problem, usable or c
   } finally {
     for (const p of saved) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.findIndex((x) => x.id === p.id), 1);
   }
+});
+
+test('158. Two lists: 肌荒れしたコスメ and 使えているコスメ (what is sent, the export reminder, one list per product, wording)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { routineFromLists } = await import('../src/lib/usable-products');
+  const p = (id: string): Product => ({ id, name: `製品${id}`, brand: 'テスト', country: 'JP', category: 'serum', ingredients: ['水'] });
+
+  // サーバーに送る形：比較には使えているコスメのすべて、組み合わせチェックには今も使っている製品だけ
+  const sent = routineFromLists([p('B')], [
+    { product: p('U1'), addedAt: 1, inUse: true },
+    { product: p('U2'), addedAt: 1, inUse: false },
+    { product: p('U3'), addedAt: 1, inUse: true },
+  ]);
+  assert.deepStrictEqual(sent.badProducts.map((x) => x.id), ['B']);
+  assert.deepStrictEqual(sent.safeProducts.map((x) => x.id), ['U1', 'U2', 'U3'], 'The comparison uses every usable product');
+  assert.deepStrictEqual(sent.currentlyUsing.map((x) => x.id), ['U1', 'U3'], 'The combination check uses only products in use');
+
+  // 「リストを画像で保存しませんか？」：このページで1回、肌荒れしたコスメがあり、保存してから変わったときだけ
+  const { shouldOfferExport, EXPORT_REMINDER_STORAGE_KEY, isExportReminderOff, turnOffExportReminder, resetExportReminderForTests } =
+    await import('../src/lib/client/export-reminder');
+  const base = { shownThisSession: false, badCount: 1, changedSinceExport: true, off: false, otherDialogOpen: false };
+  assert.strictEqual(shouldOfferExport(base), true);
+  assert.strictEqual(shouldOfferExport({ ...base, shownThisSession: true }), false, 'Once per page session');
+  assert.strictEqual(shouldOfferExport({ ...base, badCount: 0 }), false, 'Nothing unsaved to keep');
+  assert.strictEqual(shouldOfferExport({ ...base, changedSinceExport: false }), false, 'Not again after an export of the same lists');
+  assert.strictEqual(shouldOfferExport({ ...base, off: true }), false, '「今後表示しない」');
+  assert.strictEqual(shouldOfferExport({ ...base, otherDialogOpen: true }), false, 'Never over another dialog');
+  // 「今後このお知らせを表示しない」は製品の情報を入れずに保存する
+  const browser = fakeBrowser();
+  browser.install();
+  resetExportReminderForTests();
+  try {
+    assert.strictEqual(isExportReminderOff(), false);
+    turnOffExportReminder();
+    assert.strictEqual(isExportReminderOff(), true);
+    assert.strictEqual(browser.data.get(EXPORT_REMINDER_STORAGE_KEY), 'off');
+  } finally {
+    browser.uninstall();
+    resetExportReminderForTests();
+  }
+
+  // 画面：登録は2つ（「今使っている」のボタンは無い）。1つの製品は1つのリストだけ。クリアはリストの名前つきで確かめる。
+  // 「リセットする」は肌荒れしたコスメだけを空にする。サンプルは保存しない
+  const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+  for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/search/LiveSearchCandidateTray.tsx', 'src/components/chat/IngredientAnalysisCard.tsx']) {
+    const source = readFileSync(file, 'utf8');
+    assert.ok(!source.includes('今使っている') && !source.includes('普段'), `${file} has only 肌荒れした and 使えている`);
+  }
+  assert.match(chat, /if \(getUsableSnapshot\(\)\.some\(\(e\) => e\.product\.id === product\.id\)\) \{\n\s*setListConflict\(\{ product, target: 'bad' \}\);/);
+  assert.match(chat, /const inBad = badRef\.current\.some\(\(p\) => p\.id === product\.id\);/);
+  assert.match(chat, /if \(inBad\) \{\n\s*setListConflict\(\{ product, target: 'usable' \}\);/);
+  // 引き出しの上のダイアログでは、Tab・Escape をダイアログに任せる（引き出しのキー操作で奪わない）
+  assert.match(chat, /if \(document\.querySelector\('dialog\[open\]'\)\) return;/);
+  // 画像の表面にも、書き出さない製品（入力した成分表示・お店の商品説明）を出さない
+  const exportDialog = readFileSync('src/components/routine/RoutineExportDialog.tsx', 'utf8');
+  assert.match(exportDialog, /usableProducts: snapshot\.usable\s*\.filter\(\(e\) => isPersistable\(e\.product\)\)/);
+  assert.match(exportDialog, /badCount: snapshot\.badProducts\.filter\(isPersistable\)\.length/);
+  // おすすめは、画像に入る肌荒れしたコスメがあるときだけ。同意の前は出さない
+  assert.match(chat, /badCount: badProducts\.filter\(isPersistable\)\.length/);
+  assert.match(chat, /consented !== true,\n\s*\};/);
+  // 移す先が上限なら、何も消さない（移すことも勧めない）。肌荒れしたコスメは最新の値（badRef）で数える
+  assert.ok(!/setBadState\(\(prev\)/.test(chat) && !chat.includes('setBadProducts'), 'The bad list changes only through updateBad');
+  assert.match(chat, /const moveToList = [\s\S]*?badRef\.current\.length >= MAX_ROUTINE_PRODUCTS[\s\S]*?return;[\s\S]*?latest\.length >= MAX_USABLE[\s\S]*?return;/);
+  // おすすめは、応答の後の最新の値で決める（押したときの描画の値ではない）
+  assert.match(chat, /const latest = reminderStateRef\.current;/);
+  assert.ok(chat.includes("'肌荒れしたコスメに移す'") && chat.includes("'使えているコスメから削除'"));
+  const sidebar = readFileSync('src/components/routine/RoutineSidebar.tsx', 'utf8');
+  assert.ok(sidebar.includes('肌荒れしたコスメのリストをクリア') && sidebar.includes('使えているコスメのリストをクリア'));
+  assert.ok(!/>\s*クリア\s*</.test(sidebar), 'No unnamed 「クリア」');
+  assert.match(chat, /choices=\{\[\{ label: 'クリアする', tone: 'danger', onSelect: \(\) => clearList\(clearTarget\) \}\]\}/);
+  assert.match(chat, /case 'reset':\n(?:.*\n){1,2}\s*updateBad\(\(\) => \[\]\);/);
+  assert.match(chat, /sessionOnly: true/);
+  // 比較の結果を出したときに、おすすめを出すか確かめる
+  assert.match(chat, /if \(reply\.differentialAnalysis\) offerExportAfterResult\(\);/);
 });

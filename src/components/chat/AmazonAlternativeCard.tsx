@@ -8,7 +8,7 @@ import { badge, buttonPrimaryCompact, buttonSecondaryCompact, busyLook, innerCar
 import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
-import { isPersistable } from '@/lib/current-use';
+import { isPersistable } from '@/lib/usable-products';
 import { displayListingName } from '@/lib/search/listing-name';
 import { useUnregisteredProducts } from './RegisteredProducts';
 

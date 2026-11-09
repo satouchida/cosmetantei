@@ -1,27 +1,32 @@
 import { CountryOrigin, Product } from './types';
-import { CurrentUseEntry, isPersistable } from './current-use';
+import { isPersistable, UsableEntry } from './usable-products';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 import { isPlainLabelText } from './utils/safe-text';
 import { SITE_URL } from './site';
 
 /**
  * マイルーティンの書き出し・読み込み（ブラウザ側。docs/plans/routine-image.md）
- * - 画像（PNG）のファイルの中のデータ（iTXt）: 3つのリストを成分つきで。自分のバックアップを元どおりに戻す
+ * - 画像（PNG）のファイルの中のデータ（iTXt）: 2つのリスト（肌荒れしたコスメ・使えているコスメ）を成分つきで。
+ *   使えているコスメは追加した日と今も使っているかも。自分のバックアップを元どおりに戻す
  * - QR コードのリンク（https://cosmetantei.app/#r=...）: ID・ブランド名・商品名だけ。SNS に投稿した画像からも読める。
  *   # より後ろはサーバーに送られない
+ * - 版 2（docs/plans/two-lists.md）。版 1（肌荒れ・普段使えている・今使っているの3つのリスト）も読む：
+ *   普段使えている・今使っているを使えているコスメにまとめる（今使っているの製品は追加した日つきで今も使っている、
+ *   普段使えているだけの製品は以前使っていた）
  * - 入力・撮影した成分表示の製品・お店の商品説明から成分を読んだ製品は、ファイルに書き出さない（ブラウザに保存しないのと同じ）
  * - 読み込むデータは信頼できない入力として、製品ごとに確かめる（isValidProduct・普通の文字だけの名前・重複・件数）
  */
 
 export interface RoutineSnapshot {
   badProducts: Product[];
-  safeProducts: Product[];
-  currentUse: CurrentUseEntry[];
+  usable: UsableEntry[];
 }
 
 /** PNG の中のデータのキーワード */
 export const ROUTINE_PNG_KEYWORD = 'cosmetantei-routine';
-const DATA_VERSION = 1;
+const DATA_VERSION = 2;
+/** 2つのリストにする前の版（読むだけ） */
+const LEGACY_VERSION = 1;
 /** ファイルの中のデータの上限（文字数）。成分つきの 60 製品でも十分に入る */
 const MAX_DATA_CHARS = 3_000_000;
 /**
@@ -48,7 +53,7 @@ function exportable(products: Product[]): Product[] {
 
 /** 書き出さない製品（入力した成分表示）の数 */
 export function excludedCount(snapshot: RoutineSnapshot): number {
-  const all = [...snapshot.badProducts, ...snapshot.safeProducts, ...snapshot.currentUse.map((e) => e.product)];
+  const all = [...snapshot.badProducts, ...snapshot.usable.map((e) => e.product)];
   return all.filter((p) => !isPersistable(p)).length;
 }
 
@@ -59,10 +64,9 @@ export function serializeRoutine(snapshot: RoutineSnapshot, now: number): string
     v: DATA_VERSION,
     exportedAt: now,
     bad: exportable(snapshot.badProducts),
-    safe: exportable(snapshot.safeProducts),
-    current: snapshot.currentUse
+    usable: snapshot.usable
       .filter((e) => isPersistable(e.product))
-      .map((e) => ({ product: exportable([e.product])[0], addedAt: e.addedAt })),
+      .map((e) => ({ product: exportable([e.product])[0], addedAt: e.addedAt, inUse: e.inUse })),
   });
 }
 
@@ -111,10 +115,49 @@ function cleanList(list: unknown, exclude: ReadonlySet<string> = new Set()): Pro
   return products;
 }
 
-/** 肌荒れ・安全の2つのリスト。同じ製品が両方にあれば肌荒れに残す（控えめな方） */
-function comparisonLists(bad: unknown, safe: unknown): Pick<RoutineSnapshot, 'badProducts' | 'safeProducts'> {
+/** 読み込む使えているコスメの1つ（形はまだ確かめていない製品と、追加した日・今も使っているか） */
+interface UsableItem {
+  product: unknown;
+  addedAt?: unknown;
+  inUse: boolean;
+}
+
+/**
+ * 肌荒れしたコスメと使えているコスメ。同じ製品が両方にあれば肌荒れに残す（控えめな方）。
+ * 使えているコスメで同じ製品が2回あれば、最初の項目を使う。追加した日は、今より後・形の違う値なら今にする
+ */
+function twoLists(bad: unknown, items: UsableItem[], now: number): RoutineSnapshot {
   const badProducts = cleanList(bad);
-  return { badProducts, safeProducts: cleanList(safe, new Set(badProducts.map((p) => p.id))) };
+  // 追加した日・今も使っているかは ID で引く（cleanList は新しいオブジェクトを返す）
+  const metaById = new Map<string, UsableItem>();
+  for (const item of items) {
+    const id = (item.product as { id?: unknown } | null | undefined)?.id;
+    if (typeof id === 'string' && !metaById.has(id)) metaById.set(id, item);
+  }
+  const usable = cleanList(
+    items.map((i) => i.product),
+    new Set(badProducts.map((p) => p.id))
+  ).map((product): UsableEntry => {
+    const meta = metaById.get(product.id);
+    const addedAt = meta?.addedAt;
+    return {
+      product,
+      addedAt: typeof addedAt === 'number' && Number.isFinite(addedAt) && addedAt > 0 && addedAt <= now ? addedAt : now,
+      inUse: meta?.inUse ?? true,
+    };
+  });
+  return { badProducts, usable };
+}
+
+const asRecord = (e: unknown): Record<string, unknown> => (e && typeof e === 'object' ? (e as Record<string, unknown>) : {});
+const asArray = (list: unknown): unknown[] => (Array.isArray(list) ? list : []);
+
+/** 版 1 の今使っている・普段使えているのリスト（今使っているを先に。普段使えているだけの製品は以前使っていた） */
+function legacyUsableItems(current: unknown[], safe: unknown[]): UsableItem[] {
+  return [
+    ...current.map((e) => ({ product: asRecord(e).product, addedAt: asRecord(e).addedAt, inUse: true })),
+    ...safe.map((product) => ({ product, inUse: false })),
+  ];
 }
 
 /** ファイルの中のデータを読む。形が違えば null */
@@ -127,21 +170,15 @@ export function parseRoutine(text: string, now: number): RoutineSnapshot | null 
     return null;
   }
   if (!data || typeof data !== 'object') return null;
-  const { app, v, bad, safe, current } = data as Record<string, unknown>;
-  if (app !== 'cosmetantei' || v !== DATA_VERSION) return null;
-  const entries = (Array.isArray(current) ? current : []).map((e) => (e && typeof e === 'object' ? (e as Record<string, unknown>) : {}));
-  // 追加した日は ID で引く（cleanList は新しいオブジェクトを返す）。最初の項目の日を使う
-  const addedAtById = new Map<string, unknown>();
-  for (const e of entries) {
-    const id = (e.product as { id?: unknown } | undefined)?.id;
-    if (typeof id === 'string' && !addedAtById.has(id)) addedAtById.set(id, e.addedAt);
-  }
-  const currentUse = cleanList(entries.map((e) => e.product)).map((product) => {
-    const addedAt = addedAtById.get(product.id);
-    // 追加した日は、今より後・形の違う値なら今にする
-    return { product, addedAt: typeof addedAt === 'number' && Number.isFinite(addedAt) && addedAt > 0 && addedAt <= now ? addedAt : now };
+  const { app, v, bad, usable, safe, current } = data as Record<string, unknown>;
+  if (app !== 'cosmetantei') return null;
+  if (v === LEGACY_VERSION) return twoLists(bad, legacyUsableItems(asArray(current), asArray(safe)), now);
+  if (v !== DATA_VERSION) return null;
+  const items = asArray(usable).map((e): UsableItem => {
+    const r = asRecord(e);
+    return { product: r.product, addedAt: r.addedAt, inUse: r.inUse !== false };
   });
-  return { ...comparisonLists(bad, safe), currentUse };
+  return twoLists(bad, items, now);
 }
 
 // ---------- QR コードのリンク ----------
@@ -193,15 +230,15 @@ async function inflate(bytes: Uint8Array<ArrayBuffer>, maxBytes: number): Promis
 }
 
 /**
- * QR コードに入れるリンク。3つのリストの ID・ブランド名・商品名だけ。
+ * QR コードに入れるリンク。2つのリストの ID・ブランド名・商品名だけ（今も使っているかは入れない。短くするため。
+ * 読み込んだ製品は今も使っている製品になる）。
  * 上限（MAX_SHARE_URL_BYTES）に入らなければ null（ファイルの中のデータだけで保存する）
  */
 export async function encodeShareLink(snapshot: RoutineSnapshot): Promise<string | null> {
   const payload = {
     v: DATA_VERSION,
     b: exportable(snapshot.badProducts).map(toRef),
-    s: exportable(snapshot.safeProducts).map(toRef),
-    c: exportable(snapshot.currentUse.map((e) => e.product)).map(toRef),
+    u: exportable(snapshot.usable.map((e) => e.product)).map(toRef),
   };
   const url = `${SITE_URL}/${SHARE_PREFIX}${toBase64Url(await deflate(JSON.stringify(payload)))}`;
   return url.length <= MAX_SHARE_URL_BYTES ? url : null;
@@ -245,16 +282,18 @@ export async function decodeShareFragment(fragment: string, now: number): Promis
   } catch {
     return null;
   }
-  if (!payload || typeof payload !== 'object' || (payload as { v?: unknown }).v !== DATA_VERSION) return null;
-  const { b, s, c } = payload as Record<string, unknown>;
-  return {
-    ...comparisonLists(refsToProducts(b), refsToProducts(s)),
-    currentUse: cleanList(refsToProducts(c)).map((product) => ({ product, addedAt: now })),
-  };
+  if (!payload || typeof payload !== 'object') return null;
+  const { v, b, u, s, c } = payload as Record<string, unknown>;
+  // リンクには追加した日が無いので、今にする。版 1 の普段使えているだけの製品は以前使っていた
+  if (v === LEGACY_VERSION) {
+    return twoLists(refsToProducts(b), legacyUsableItems(refsToProducts(c).map((product) => ({ product })), refsToProducts(s)), now);
+  }
+  if (v !== DATA_VERSION) return null;
+  return twoLists(refsToProducts(b), refsToProducts(u).map((product) => ({ product, inUse: true })), now);
 }
 
 export function isEmptySnapshot(snapshot: RoutineSnapshot): boolean {
-  return snapshot.badProducts.length + snapshot.safeProducts.length + snapshot.currentUse.length === 0;
+  return snapshot.badProducts.length + snapshot.usable.length === 0;
 }
 
 // ---------- PNG のファイルの中のデータ（iTXt） ----------

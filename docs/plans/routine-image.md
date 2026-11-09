@@ -23,16 +23,20 @@ page font and colours.
 - Title 「コスメ探偵 マイルーティン」 and the date.
 - 「気をつけたい成分（候補）」: the possible causes from the latest 差分分析 in this session, up to 5.
   Left out if no analysis has run.
-- 「肌に合っていたコスメ」: the 安全 list (brand and name, up to 6, then 「ほか N点」).
-- Counts for 肌荒れ and 今使っている. Products that caused a reaction are not named on the
-  public image.
+- 「使えているコスメ」: the usable list (brand and name, up to 6, then 「ほか N点」).
+- Counts for 肌荒れ and 使えている. Products that caused a reaction are not named on the
+  public image. (Since 2026-11-09, [two-lists.md](two-lists.md); before, the section was
+  「肌に合っていたコスメ」 and the counts were 肌荒れ and 今使っている.)
 - When import data is on: the QR code with the caption 「コスメ探偵で読み込む」 and cosmetantei.app.
 - Footer: 「成分を比べた候補です。医療的な診断ではありません。」
 
 **The import data** is controlled by one switch, 「読み込み用のデータを入れる」, on by default.
 Off means neither the QR code nor the file data is added, so the image is a picture only.
-- **File data:** a PNG `iTXt` chunk `cosmetantei-routine` holding the three lists with
-  ingredients and the dates each product was added. This restores one's own backup exactly.
+- **File data:** a PNG `iTXt` chunk `cosmetantei-routine` holding the lists with ingredients and,
+  for 使えているコスメ, the date each product was added and whether it is in use. This restores
+  one's own backup exactly. Version 2 (`{ bad, usable }`) since 2026-11-09; version 1
+  (`{ bad, safe, current }`) and version 1 links (`b`, `s`, `c`) are still read, with 普段使えている
+  and 今使っている merged (see [two-lists.md](two-lists.md)). Version 2 links carry `b` and `u`.
   Social networks strip it.
 - **QR code:** `https://cosmetantei.app/#r=<data>`, where `<data>` is the lists as
   `[id, brand, name]`, compressed with deflate-raw and written as base64url.
@@ -82,4 +86,5 @@ with the browser's saved list. A note says how many were left out.
 
 - An endpoint that resolves product ids to ingredients on import, so name-only products show
   their status at once.
-- Keeping the 肌荒れ and 安全 lists in the browser, like 今使っている.
+- ~~Keeping the 肌荒れ and 安全 lists in the browser~~: 使えているコスメ is kept in the browser
+  since 2026-11-09; 肌荒れ stays unsaved by decision ([two-lists.md](two-lists.md)).

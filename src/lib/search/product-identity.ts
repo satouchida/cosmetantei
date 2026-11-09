@@ -56,7 +56,7 @@ export function isSameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   return productIdentityKey(a.brand, a.name) === productIdentityKey(b.brand, b.name) && sameBrand(a.brand, b.brand);
 }
 
-/** 登録した製品（比較リストの肌荒れした・普段使えている・今使っているコスメ）のどれかと同じ製品か */
+/** 登録した製品（肌荒れした・使えているコスメ）のどれかと同じ製品か */
 export function isRegisteredProduct(product: ProductIdentity, registered: readonly ProductIdentity[]): boolean {
   return registered.some((r) => isSameProduct(product, r));
 }

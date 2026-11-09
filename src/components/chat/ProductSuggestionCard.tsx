@@ -3,7 +3,7 @@
 import React from 'react';
 import { ApiCredits } from '../ui/ApiCredits';
 import { PriceApiCredit, Product } from '@/lib/types';
-import { AlertTriangle, ShieldCheck, Layers, Search, ExternalLink } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Search, ExternalLink } from 'lucide-react';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { getDisplayBrand } from '@/lib/display-brand';
@@ -29,8 +29,7 @@ interface ProductSuggestionCardProps {
   products: Product[];
   onSelectToAnalyze: (product: Product) => void;
   onAddToBad: (product: Product) => void;
-  onAddToSafe: (product: Product) => void;
-  onAddToCurrent: (product: Product) => void;
+  onAddToUsable: (product: Product) => void;
   /** 原因成分を含まない代わりの商品（見出しと注意書きを変える） */
   isAlternatives?: boolean;
   /** 応答を待っている（押しても受け付けず、案内が出る） */
@@ -76,8 +75,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
   products,
   onSelectToAnalyze,
   onAddToBad,
-  onAddToSafe,
-  onAddToCurrent,
+  onAddToUsable,
   isAlternatives = false,
   busy = false,
   credits = [],
@@ -224,21 +222,12 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onAddToSafe(p)}
-                    aria-label={`普段使えている（${p.name}）`}
+                    onClick={() => onAddToUsable(p)}
+                    aria-label={`使えている（${p.name}）`}
                     className={`${routineActionCompact} ${routineAction.safe}`}
                   >
                     <ShieldCheck className="w-4 h-4" aria-hidden />
-                    <span>普段<wbr />使えている</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onAddToCurrent(p)}
-                    aria-label={`今使っている（${p.name}）`}
-                    className={`${routineActionCompact} ${routineAction.current}`}
-                  >
-                    <Layers className="w-4 h-4" aria-hidden />
-                    <span>今<wbr />使っている</span>
+                    <span>使えて<wbr />いる</span>
                   </button>
                 </div>
               </div>

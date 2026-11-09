@@ -33,7 +33,7 @@ const PROMPT_PRODUCT_NAME = '調べたい化粧品の名前（ブランド名＋
 const PROMPT_BAD_PRODUCT =
   '肌荒れしたコスメの名前を入力してください。候補が表示されたら「肌荒れした」を選ぶと、比較リストに追加されます。';
 const PROMPT_SAFE_PRODUCT =
-  '普段問題なく使えているコスメの名前を入力してください。候補が表示されたら「普段使えている」を選ぶと、比較リストに追加されます。';
+  '問題なく使えているコスメの名前を入力してください。候補が表示されたら「使えている」を選ぶと、リストに追加されます。';
 
 const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
   // 例として表示している商品は、商品名だけを送る（検索に余計な文言を含めない）
@@ -43,7 +43,7 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
   '💧 トリデンのセラムを調べる': { kind: 'send', text: 'トリデン セラム' },
 
   '🚨 このアイテムで肌荒れした（原因をさがす）': { kind: 'add_analyzed', list: 'bad' },
-  '✅ 普段問題なく使えている（リストに追加）': { kind: 'add_analyzed', list: 'safe' },
+  '✅ 使えている（リストに追加）': { kind: 'add_analyzed', list: 'safe' },
   '💴 この商品の価格を調べる': { kind: 'price_analyzed' },
   '🔎 Webで成分を調べ直す': { kind: 'research_analyzed' },
   '🔁 もう一度送る': { kind: 'retry' },
@@ -55,7 +55,7 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
 
   '🧴 肌荒れしたコスメを入力する': { kind: 'prompt_input', hint: PROMPT_BAD_PRODUCT },
   '🔍 肌荒れしたコスメを検索': { kind: 'prompt_input', hint: PROMPT_BAD_PRODUCT },
-  '✅ 普段使えているコスメを入力する': { kind: 'prompt_input', hint: PROMPT_SAFE_PRODUCT },
+  '✅ 使えているコスメを入力する': { kind: 'prompt_input', hint: PROMPT_SAFE_PRODUCT },
   '🔍 商品名で検索する': { kind: 'prompt_input', hint: PROMPT_PRODUCT_NAME },
   '🔍 具体的な商品名で再検索': { kind: 'prompt_input', hint: PROMPT_PRODUCT_NAME },
   '🔍 別のキーワードで調べる': { kind: 'prompt_input', hint: PROMPT_PRODUCT_NAME },
@@ -67,10 +67,20 @@ const ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
 /** ブラウザ側で処理するボタンの文言（サーバーには送られない） */
 export const CLIENT_HANDLED_LABELS: readonly string[] = Object.keys(ACTIONS);
 
+/**
+ * 以前の文言のボタン（2つのリストにする前に開いたページで、前のサーバーが返したボタン。docs/plans/two-lists.md）。
+ * アプリはもう出さないが、押されたら今の文言と同じに扱う。次の改定で消してよい
+ */
+const LEGACY_ACTIONS: Readonly<Record<string, QuickReplyAction>> = {
+  '✅ 普段問題なく使えている（リストに追加）': ACTIONS['✅ 使えている（リストに追加）'],
+  '✅ 普段使えているコスメを入力する': ACTIONS['✅ 使えているコスメを入力する'],
+};
+
 export function getQuickReplyAction(label: string): QuickReplyAction {
   if (label.includes('バーコード')) return { kind: 'scanner' };
   if (label.includes('成分表示を入力')) return { kind: 'label_input' };
-  return Object.hasOwn(ACTIONS, label) ? ACTIONS[label] : { kind: 'server' };
+  if (Object.hasOwn(ACTIONS, label)) return ACTIONS[label];
+  return Object.hasOwn(LEGACY_ACTIONS, label) ? LEGACY_ACTIONS[label] : { kind: 'server' };
 }
 
 /**
@@ -111,4 +121,4 @@ export function splitQuickReplyIcon(label: string): { icon: QuickReplyIconName |
 
 /** 候補カードから選んでもらう案内文 */
 export const PICK_FROM_CARDS_HINT =
-  '上の候補カードにある「肌荒れした」「普段使えている」ボタンから、該当するコスメを選んでください。選んだコスメは比較リストに追加されます。';
+  '上の候補カードにある「肌荒れした」「使えている」ボタンから、該当するコスメを選んでください。選んだコスメはリストに追加されます。';

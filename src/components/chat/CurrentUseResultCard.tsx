@@ -3,7 +3,7 @@
 import React from 'react';
 import { CurrentUseCheckResult } from '@/lib/types';
 import { CalendarClock, CheckCircle2, Layers } from 'lucide-react';
-import { STALE_AFTER_MONTHS } from '@/lib/current-use';
+import { STALE_AFTER_MONTHS } from '@/lib/usable-products';
 import { PairFindingList } from './PairFindingList';
 import { MedicalNotice } from './MedicalNotice';
 import { card, panel } from '../ui/design';
@@ -12,7 +12,7 @@ interface CurrentUseResultCardProps {
   result: CurrentUseCheckResult;
 }
 
-/** 今使っているコスメの組み合わせチェックの結果 */
+/** 今使っているコスメ（使えているコスメのうち今も使っている製品）の組み合わせチェックの結果 */
 export const CurrentUseResultCard: React.FC<CurrentUseResultCardProps> = ({ result }) => {
   const { productNames, findings, staleProductNames } = result;
 

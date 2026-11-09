@@ -3,7 +3,7 @@ import { normalizeIngredientName } from '../utils/ingredient-name';
 
 /**
  * 製品をまたぐ組み合わせの注意（docs/plans/japan-ingredient-data.md の Step 5）。
- * 肌荒れした製品を一緒に使っていた場合（trouble）と、今使っている製品（current）に、
+ * 肌荒れした製品を一緒に使っていた場合（trouble）と、今使っている製品（current。使えているコスメのうち今も使っているもの）に、
  * 成分の重なりで刺激やアレルギーが起こりやすくなる組み合わせを知らせる。
  * どのルールも出典の書き方をこえない（医薬品の注意は医薬品の注意として書く）
  */

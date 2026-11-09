@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ExternalLink, LegalPage } from '@/components/legal/LegalPage';
-import { AFFILIATE_DISCLOSURE, formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
+import { AFFILIATE_DISCLOSURE, formatLegalDate, LEGAL_ENACTED, LEGAL_REVISED } from '@/lib/site';
 import { ContactEmail } from '@/components/legal/ContactEmail';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/terms-of-service.md（git には入れない）
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export default function TermsPage() {
   return (
     <LegalPage title="コスメ探偵（CosmeTantei） 利用規約" enactedOn={formatLegalDate(LEGAL_ENACTED)}
-      revisedOn={formatLegalDate(LEGAL_VERSION)}
+      revisedOn={formatLegalDate(LEGAL_REVISED)}
     >
       <p>
         この利用規約（以下「本規約」といいます。）は、コスメ探偵（以下「当サービス」といいます。）の運営者（以下「当方」といいます。）が提供するウェブサービス「コスメ探偵（CosmeTantei）」（https://cosmetantei.app、以下「本サイト」といいます。）の利用条件を定めるものです。利用者の皆さま（以下「ユーザー」といいます。）は、本規約に同意した上で本サービスをご利用ください。
@@ -32,7 +32,7 @@ export default function TermsPage() {
       <ol>
         <li>「本サービス」：当方が運営する化粧品成分照合・情報提供サービス「コスメ探偵（CosmeTantei）」（API、関連機能、付随する一切のコンテンツを含みます。）をいいます。</li>
         <li>「成分データ」：商品パッケージの成分表示、公的機関・製造元・販売元等の公開情報、Open Beauty Facts等の外部オープンデータベース、および外部APIを通じて取得された化粧品・医薬部外品の成分情報をいいます。</li>
-        <li>「分析機能」：ユーザーが指定・登録した「肌荒れしたコスメ」と「普段使えているコスメ」等の全成分文字列をアルゴリズムにより機械的に照合し、重複・差異を計算して原因候補の成分を提示する機能をいいます。</li>
+        <li>「分析機能」：ユーザーが指定・登録した「肌荒れしたコスメ」と「使えているコスメ」等の全成分文字列をアルゴリズムにより機械的に照合し、重複・差異を計算して原因候補の成分を提示する機能をいいます。</li>
         <li>「外部サービス」：Cloudflare、Google（Gemini API）、楽天市場、Yahoo!ショッピング、Qoo10、@cosme SHOPPING、Amazon.co.jp、Exa Labs、Linkup、Open Beauty Facts、バリューコマース等の第三者が提供するサービス、API、データベース、アフィリエイトASPおよびネットワークインフラをいいます。</li>
       </ol>
 
@@ -90,7 +90,7 @@ export default function TermsPage() {
       <h2>第6条（知的財産権の帰属およびオープンデータライセンス）</h2>
       <ol>
         <li>本サービスを構成する文章、画像、プログラムコード、デザイン、商標、ロゴ、データベース、UI等の著作権、商標権その他の知的財産権は、当方または正当な権限を有する第三者に帰属します。</li>
-        <li>ユーザーが本サービスを通じて作成した「マイルーティン画像（PNG）」、ならびにそのQRコードおよび共有リンク（https://cosmetantei.app/#r=…）に含まれるデータは、個人の私的利用またはSNS等での非営利目的の共有の範囲で自由に利用・保存・共有することができます。ユーザーが入力・撮影した成分表示は、これらに含まれません。</li>
+        <li>ユーザーが本サービスの「リストを画像で保存・共有」で作成した画像（PNG）、ならびにそのQRコードおよび共有リンク（https://cosmetantei.app/#r=…）に含まれるデータは、個人の私的利用またはSNS等での非営利目的の共有の範囲で自由に利用・保存・共有することができます。ユーザーが入力・撮影した成分表示の製品と、販売店の商品説明から成分を読み取った製品は、これらに含まれません。</li>
         <li>ユーザーは、本サービスのコンテンツ、プログラムコード、検索結果、成分データベースを、当方の事前の書面による承諾なく複製、公衆送信、翻案、リバースエンジニアリング、スクレイピング、転売、二次利用してはなりません。</li>
       </ol>
 

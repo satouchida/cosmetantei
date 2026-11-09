@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import { ExternalLink, LegalPage, LegalTable } from '@/components/legal/LegalPage';
-import { formatLegalDate, LEGAL_ENACTED, LEGAL_VERSION } from '@/lib/site';
+import { formatLegalDate, LEGAL_ENACTED, LEGAL_REVISED } from '@/lib/site';
 import { ContactEmail } from '@/components/legal/ContactEmail';
 
 // 公開版（このファイルが正）。原稿は手元の docs/legal/privacy-policy.md（git には入れない。原稿との違いはその冒頭に記載）。
 // 書いてある内容（Cookie の属性・保存するもの・送り先）は実装と合わせる：src/lib/server/session.ts、
-// src/lib/current-use.ts、next.config.mjs（HSTS）、販売ページへのリンクの rel="noreferrer"、KV に保存するもの（cachePutJSON）、
+// src/lib/usable-products.ts・src/lib/client/export-reminder.ts、src/lib/routine-share.ts（画像・QR）、next.config.mjs（HSTS）、販売ページへのリンクの rel="noreferrer"、KV に保存するもの（cachePutJSON）、
 // 利用者ごとの1日の利用量（src/lib/server/spend-cap-core.ts の clientKey・cleanOldClients）、
 // Workers Logs（wrangler.toml の [observability]。要求のアドレスを残す invocation logs は切ってある）
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="コスメ探偵（CosmeTantei） プライバシーポリシー" enactedOn={formatLegalDate(LEGAL_ENACTED)} revisedOn={formatLegalDate(LEGAL_VERSION)}>
+    <LegalPage title="コスメ探偵（CosmeTantei） プライバシーポリシー" enactedOn={formatLegalDate(LEGAL_ENACTED)} revisedOn={formatLegalDate(LEGAL_REVISED)}>
       <p>
         コスメ探偵（以下「当サービス」といいます。）の運営者（以下「当方」といいます。）は、ウェブサービス「コスメ探偵（CosmeTantei）」（https://cosmetantei.app、以下「本サイト」といいます。）において取り扱う利用者の情報（以下「利用者情報」といいます。）の保護について、個人情報の保護に関する法律（以下「個人情報保護法」といいます。）、電気通信事業法、関連法令、およびガイドラインを遵守し、以下のとおりプライバシーポリシー（以下「本ポリシー」といいます。）を定めます。
       </p>
@@ -62,23 +62,35 @@ export default function PrivacyPage() {
         <li>
           <strong>端末ローカルに保存される情報（ブラウザ内完結）</strong>
           <ul>
-            <li>ユーザーの端末のローカルストレージ（<code>localStorage</code>）に保存される「今使っているコスメ」のリスト（キー名：<code>cosmetantei:current-use:v1</code>）</li>
+            <li>ユーザーの端末のローカルストレージ（<code>localStorage</code>）に保存される「使えているコスメ」のリスト（キー名：<code>cosmetantei:usable:v1</code>）。登録した製品の情報（製品名、ブランド名、成分等）、登録した日、および今も使っているかどうかを含みます。ユーザーが入力・撮影した成分表示の製品と、販売店の商品説明から成分を読み取った製品は保存しません。</li>
             <li>利用規約・本ポリシー（Cookieの使用を含みます。）に同意したこと、および同意した規約の版（キー名：<code>cosmetantei:consent:v1</code>）</li>
-            <li>これらのデータはユーザーのブラウザ内にのみ保存され、当方のサーバーに保管されることはありません。「肌荒れしたコスメ」「普段使えているコスメ」のリストは、ページを開いている間だけ保持され、端末にもサーバーにも保存されません。</li>
+            <li>リストを画像で保存するおすすめを今後表示しない設定（キー名：<code>cosmetantei:export-reminder:v1</code>）</li>
+            <li>これらのデータはユーザーのブラウザ内にのみ保存され、当方のサーバーに保管されることはありません。分析や組み合わせのチェックを行うときは、そのために必要な製品の情報だけを当方のサーバーへ送ります（応答に使う短期間の保存は第6号のとおりです）。リスト自体を当方のサーバーに保管することはありません。</li>
+            <li>「肌荒れしたコスメ」のリストは、ページを開いている間だけ保持され、端末にもサーバーにも保存されません。ページを閉じたあとも使いたい場合は、「リストを画像で保存・共有」で保存した画像（第5号）から読み込むことができます。</li>
+            <li>以前の版で保存された「今使っているコスメ」のリスト（キー名：<code>cosmetantei:current-use:v1</code>）は、本サービスを開いたときに「使えているコスメ」のリストへ移し、元のデータは削除します。</li>
           </ul>
         </li>
         <li>
           <strong>画像生成・共有機能における情報（ブラウザ内完結）</strong>
           <ul>
-            <li>マイルーティン共有画像（PNG）の生成およびQRコード生成処理は、ユーザーのブラウザ上（HTML5 Canvas）で完結して行われます。画像生成元のルーティンデータが当方のサーバーに送信・蓄積されることはありません。</li>
-            <li>QRコードおよび共有リンク（https://cosmetantei.app/#r=…）には、登録した製品のID・ブランド名・商品名が含まれます。リンクの「#」より後ろの部分は、リンクを開いてもブラウザから当方のサーバーへ送られません。リンクやQRコードを受け取った人は、この一覧を見ることができます。ユーザーが入力・撮影した成分表示は含まれません。読み込んだ製品は、ほかの方法で追加した製品と同じく、分析を始めたときに当方のサーバーへ送られます。</li>
+            <li>「リストを画像で保存・共有」で作る画像（PNG）とQRコードは、ユーザーのブラウザ上（HTML5 Canvas）で作成されます。画像やリストのデータが当方のサーバーに送信・蓄積されることはありません。</li>
+            <li>画像の表面には、気をつけたい成分の候補、「使えているコスメ」の製品名、および「肌荒れしたコスメ」の件数が表示されます。「肌荒れしたコスメ」の製品名は表示されません。</li>
+            <li>
+              「読み込み用のデータを入れる（QRコード）」を選んだ場合（初期状態で選ばれています）、次の情報が含まれます。
+              <ul>
+                <li>QRコードおよび共有リンク（https://cosmetantei.app/#r=…）：「肌荒れしたコスメ」と「使えているコスメ」の製品のID・ブランド名・商品名</li>
+                <li>画像ファイルの中のデータ：上記に加えて、製品の成分、「使えているコスメ」を登録した日と今も使っているかどうか、および画像を作成した日時</li>
+              </ul>
+            </li>
+            <li>リンクの「#」より後ろの部分は、リンクを開いてもブラウザから当方のサーバーへ送られません。読み込み用のデータを入れた画像ファイル、QRコードまたは共有リンクを受け取った人は、それを読み込むことで「肌荒れしたコスメ」を含む製品の一覧を見ることができます。製品の一覧を他人に渡したくない場合は、「読み込み用のデータを入れる（QRコード）」の選択を外して保存してください。</li>
+            <li>ユーザーが入力・撮影した成分表示の製品と、販売店の商品説明から成分を読み取った製品は含まれません。読み込んだ製品は、ほかの方法で追加した製品と同じく、分析を始めたときに当方のサーバーへ送られます。</li>
           </ul>
         </li>
         <li>
           <strong>公開されている製品情報の一時保存（キャッシュ）</strong>
           <ul>
             <li>検索・バーコード照合・Web調査で見つかった市販製品の公開情報（商品名、ブランド名、全成分表示、出典のページのアドレス等）、および成分の解説文は、応答を速くし外部APIの利用を減らすため、Cloudflare KV に一定期間（最長30日）保存し、ほかの利用者への表示にも使用します。</li>
-            <li>同じ理由で、入力に対する判定結果（入力の種類、検索結果の絞り込み、ブランド名の確認等）、検索結果、およびチャットの質問に対するAIの応答文を、Cloudflare KV に短期間（15分〜7日。ブランド名の確認結果は最長90日）保存し、同じ入力に対する応答に使用します。</li>
+            <li>同じ理由で、入力に対する判定結果（入力の種類、検索結果の絞り込み、ブランド名の確認等）、検索結果、およびチャットの質問に対するAIの応答文を、Cloudflare KV に短期間（5分〜7日。ブランド名の確認結果は最長90日）保存し、同じ入力に対する応答に使用します。</li>
             <li>これらの保存の際、検索語やチャット本文そのものは保存せず、保存の識別には入力内容から計算した復元できない値（SHA-256 ハッシュ値）を使用します。ユーザーが入力・撮影した成分表示やパッケージ画像は、これらの保存の対象になりません。</li>
           </ul>
         </li>
@@ -291,6 +303,12 @@ export default function PrivacyPage() {
           </ul>
         </li>
         <li>
+          <strong>運営者用のCookie（<code>__Host-owner</code>）</strong>
+          <ul>
+            <li>運営者が運営者用のページで認証したブラウザにだけ保存し、一般の利用者のブラウザには保存しません（有効期間30日）。運営者の利用枠を管理するためだけに使用し、外部の事業者へは送信されません。</li>
+          </ul>
+        </li>
+        <li>
           <strong>商品画像の表示</strong>
           <ul>
             <li>送信先：商品画像を配信する事業者のサーバー（楽天グループ株式会社、LINEヤフー株式会社、Open Food Facts）</li>
@@ -310,7 +328,7 @@ export default function PrivacyPage() {
           ユーザーは、ブラウザの設定によりCookieの受け入れを拒否することができますが、その場合、ボット対策チェックを通過できず、AI機能等の本サービスの一部が利用できなくなることがあります。
         </li>
         <li>
-          <strong>ローカルストレージ（localStorage）の利用</strong>：本サービスは、ユーザーが登録した「今使っているコスメ」のリストを端末内に保持するため、ブラウザのローカルストレージ機能を利用しています。このデータは、ブラウザのサイトデータの削除によりいつでもユーザー自身で消去することができます。
+          <strong>ローカルストレージ（localStorage）の利用</strong>：本サービスは、ユーザーが登録した「使えているコスメ」のリスト、利用規約等への同意、および画像で保存するおすすめの表示の設定を端末内に保持するため、ブラウザのローカルストレージ機能を利用しています（第2条第4号）。「使えているコスメ」のリストは、画面の「使えているコスメのリストをクリア」または各製品の削除ボタンで、いつでも消去することができます。すべてのデータは、ブラウザのサイトデータの削除によっても消去できます。
         </li>
       </ol>
 

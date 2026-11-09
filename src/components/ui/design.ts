@@ -2,7 +2,8 @@
  * Stitch「cosmetantei」デザインシステム（Clinical Mint & Botanical Care / Material 3）の部品のクラス。
  * 色の値は src/app/globals.css の @theme にある。カード・ボタン・注意書き・バッジはここの組み合わせだけを使う
  * - タップできるものは高さ 48px 以上、文字は 12px 以上
- * - 赤（rose）は刺激・肌荒れの警告だけに使う。緑（emerald）は安全、水色（sky）は「今使っている」
+ * - 赤（rose）は刺激・肌荒れの警告と、取り消せない操作の確定（buttonDanger）だけに使う。緑（emerald）は安全、
+ *   水色（sky）は使えているコスメのうち今も使っている製品（組み合わせチェック）
  */
 import type { IngredientRiskLevel } from '@/lib/types';
 
@@ -36,6 +37,9 @@ export const buttonPrimaryCompact = `${buttonBase} px-3 ${primaryLook}`;
 export const buttonSecondary = `${buttonBase} px-5 ${secondaryLook}`;
 /** 補助の操作（幅の狭いところ） */
 export const buttonSecondaryCompact = `${buttonBase} px-3 ${secondaryLook}`;
+
+/** 取り消せない操作（リストのクリア・削除）の確定：赤の塗りつぶし。確認のダイアログの中でだけ使う */
+export const buttonDanger = `${buttonBase} px-5 rounded-2xl bg-rose-700 text-white shadow-xs hover:bg-rose-800`;
 
 /** 目立たせない操作：薄い面 */
 export const buttonTonal = `${buttonBase} px-4 rounded-xl bg-surface-container-low text-ink hover:bg-surface-container disabled:text-gray-500`;
@@ -143,11 +147,10 @@ export function riskBadge(level: IngredientRiskLevel | undefined): string {
   return `${badgeBase} px-2 py-0.5 text-xs ${riskOf(level).badge}`;
 }
 
-/** 「肌荒れした・普段使えている・今使っている」に登録するボタン */
+/** 「肌荒れした・使えている」に登録するボタン */
 export const routineAction = {
   bad: 'bg-tint-warning hover:bg-rose-100 text-rose-800 border-rose-200',
   safe: 'bg-tint-safe hover:bg-emerald-100 text-emerald-800 border-emerald-200',
-  current: 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200',
 } as const;
 
 /**
@@ -157,19 +160,19 @@ export const routineAction = {
 export const cardActionsBox = 'pt-3 border-t border-sand-200 space-y-2 @container';
 
 /**
- * 登録ボタン 3 つを並べる枠。カードの幅（画面の幅ではない）で決める：16rem 以上なら横に 3 つ、
+ * 登録ボタン 2 つを並べる枠。カードの幅（画面の幅ではない）で決める：12rem 以上なら横に 2 つ、
  * それより狭いカード（320px の画面のチャットのカードなど）では縦に積む。cardActionsBox の中に置くこと
  * （@container の枠が無いと、いつも縦に積む）
  */
-export const routineActionGrid = 'grid grid-cols-1 @min-[16rem]:grid-cols-3 gap-2';
+export const routineActionGrid = 'grid grid-cols-1 @min-[12rem]:grid-cols-2 gap-2';
 
 /**
- * 登録ボタン（routineActionGrid の中）。横に 3 つのときはアイコンの下にラベル、縦に積むときはアイコンの横にラベル。
+ * 登録ボタン（routineActionGrid の中）。横に 2 つのときはアイコンの下にラベル、縦に積むときはアイコンの横にラベル。
  * ラベルは語の途中では切らず（break-keep）、ラベルに入れた <wbr /> の位置で折り返す（「肌荒れ<wbr />した」→「肌荒れ／した」）。
  * それでも入らない幅のときだけ、はみ出す位置で切る（overflow-wrap: anywhere）
  */
 export const routineActionCompact =
-  'flex flex-row @min-[16rem]:flex-col items-center justify-center gap-1.5 @min-[16rem]:gap-0.5 min-h-12 py-1.5 px-1 text-center leading-tight break-keep text-balance [overflow-wrap:anywhere] border rounded-xl text-xs font-semibold transition-colors';
+  'flex flex-row @min-[12rem]:flex-col items-center justify-center gap-1.5 @min-[12rem]:gap-0.5 min-h-12 py-1.5 px-1 text-center leading-tight break-keep text-balance [overflow-wrap:anywhere] border rounded-xl text-xs font-semibold transition-colors';
 
 /** 登録ボタンを横長で並べるとき */
 export const routineActionWide =

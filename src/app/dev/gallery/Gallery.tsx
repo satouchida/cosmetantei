@@ -14,6 +14,8 @@ import { AmazonAlternativeCard } from '@/components/chat/AmazonAlternativeCard';
 import { RoutineSidebar } from '@/components/routine/RoutineSidebar';
 import { RoutineExportDialog } from '@/components/routine/RoutineExportDialog';
 import { RoutineImportDialog } from '@/components/routine/RoutineImportDialog';
+import { ChoiceDialog } from '@/components/routine/ChoiceDialog';
+import { ExportReminderDialog } from '@/components/routine/ExportReminderDialog';
 import { LabelInputModal } from '@/components/label/LabelInputModal';
 import { BarcodeScannerModal } from '@/components/scanner/BarcodeScannerModal';
 import { ConsentDialog } from '@/components/legal/ConsentDialog';
@@ -22,7 +24,7 @@ import {
   rakutenListing,
   yahooListing,
   curel,
-  currentUseEntries,
+  usableEntries,
   ihada,
   longJapanese,
   longLatinName,
@@ -68,18 +70,19 @@ function Bubble({ children, card = true }: { children: React.ReactNode; card?: b
 const cardHandlers = {
   onSelectToAnalyze: noop,
   onAddToBad: noop,
-  onAddToSafe: noop,
-  onAddToCurrent: noop,
+  onAddToUsable: noop,
 };
 
 const sidebarHandlers = {
   onRemoveBad: noop,
-  onRemoveSafe: noop,
-  onRemoveCurrent: noop,
-  onConfirmCurrent: noop,
+  onRemoveUsable: noop,
+  onConfirmUsable: noop,
+  onSetInUse: noop,
+  onClearBad: noop,
+  onClearUsable: noop,
   onCheckCurrentUse: noop,
   onRunDifferential: noop,
-  onLoadPreset: noop,
+  onLoadSample: noop,
   onExportImage: noop,
   onImportImage: noop,
   onClose: noop,
@@ -88,8 +91,7 @@ const sidebarHandlers = {
 function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat' | 'full'; render: () => React.ReactNode }[] {
   const snapshot = {
     badProducts: routineProducts.bad,
-    safeProducts: routineProducts.safe,
-    currentUse: currentUseEntries(NOW),
+    usable: usableEntries(NOW),
   };
   const tray = (props: Partial<React.ComponentProps<typeof LiveSearchCandidateTray>>) => (
     <div className="max-w-[720px] mx-auto">
@@ -100,8 +102,7 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
         onClose={noop}
         onSelectProduct={noop}
         onAddToBad={noop}
-        onAddToSafe={noop}
-        onAddToCurrent={noop}
+        onAddToUsable={noop}
         {...props}
       />
     </div>
@@ -210,8 +211,7 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
           <IngredientAnalysisCard
             analysis={r.analysis}
             onAddToBadRoutine={noop}
-            onAddToSafeRoutine={noop}
-            onAddToCurrentRoutine={noop}
+            onAddToUsableRoutine={noop}
             onFindAlternatives={noop}
           />
         </Bubble>
@@ -224,10 +224,10 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       render: () => (
         <div className="space-y-4">
           <Bubble>
-            <IngredientAnalysisCard analysis={r.analysisLong} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
+            <IngredientAnalysisCard analysis={r.analysisLong} onAddToBadRoutine={noop} onAddToUsableRoutine={noop} />
           </Bubble>
           <Bubble>
-            <IngredientAnalysisCard analysis={r.analysisLatin} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
+            <IngredientAnalysisCard analysis={r.analysisLatin} onAddToBadRoutine={noop} onAddToUsableRoutine={noop} />
           </Bubble>
         </div>
       ),
@@ -241,8 +241,7 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
           <IngredientAnalysisCard
             analysis={r.analysisStandard}
             onAddToBadRoutine={noop}
-            onAddToSafeRoutine={noop}
-            onAddToCurrentRoutine={noop}
+            onAddToUsableRoutine={noop}
             onFindAlternatives={noop}
           />
         </Bubble>
@@ -254,7 +253,7 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       layout: 'chat',
       render: () => (
         <Bubble>
-          <IngredientAnalysisCard analysis={r.analysisNoData} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
+          <IngredientAnalysisCard analysis={r.analysisNoData} onAddToBadRoutine={noop} onAddToUsableRoutine={noop} />
         </Bubble>
       ),
     },
@@ -264,7 +263,7 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       layout: 'chat',
       render: () => (
         <Bubble>
-          <IngredientAnalysisCard analysis={r.analysisAI} onAddToBadRoutine={noop} onAddToSafeRoutine={noop} onAddToCurrentRoutine={noop} />
+          <IngredientAnalysisCard analysis={r.analysisAI} onAddToBadRoutine={noop} onAddToUsableRoutine={noop} />
         </Bubble>
       ),
     },
@@ -337,8 +336,8 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       render: () => (
         <div className="h-dvh w-full max-w-[420px] lg:w-80 border-r border-sand-200">
           <RoutineSidebar
-            routine={{ badProducts: [], safeProducts: [], currentlyUsing: [] }}
-            currentUse={[]}
+            badProducts={[]}
+            usable={[]}
             staleIds={new Set()}
             closeButtonRef={{ current: null }}
             {...sidebarHandlers}
@@ -353,8 +352,8 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       render: () => (
         <div className="h-dvh w-full max-w-[420px] lg:w-80 border-r border-sand-200">
           <RoutineSidebar
-            routine={{ badProducts: routineProducts.bad, safeProducts: routineProducts.safe, currentlyUsing: [] }}
-            currentUse={snapshot.currentUse}
+            badProducts={snapshot.badProducts}
+            usable={snapshot.usable}
             staleIds={new Set([salicylicToner.id])}
             closeButtonRef={{ current: null }}
             {...sidebarHandlers}
@@ -381,6 +380,42 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       render: () => (
         <RoutineImportDialog snapshot={snapshot} namesOnly={false} hasCurrentLists typedLabelsLost={2} onImport={noop} onClose={noop} />
       ),
+    },
+    {
+      id: 'dialog-list-conflict',
+      title: 'もう一方のリストにあるコスメ（移す・削除する）',
+      layout: 'full',
+      render: () => (
+        <ChoiceDialog
+          title="使えているコスメに登録されています"
+          message={`「${longJapanese.name}」は【使えているコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`}
+          choices={[
+            { label: '肌荒れしたコスメに移す', tone: 'primary', onSelect: noop },
+            { label: '使えているコスメから削除', tone: 'secondary', onSelect: noop },
+          ]}
+          onCancel={noop}
+        />
+      ),
+    },
+    {
+      id: 'dialog-clear',
+      title: 'リストのクリア（確認）',
+      layout: 'full',
+      render: () => (
+        <ChoiceDialog
+          warning
+          title="使えているコスメのリストをクリア"
+          message="使えているコスメ（4点）をリストから削除します。この端末に保存したリストも消え、元に戻せません。"
+          choices={[{ label: 'クリアする', tone: 'danger', onSelect: noop }]}
+          onCancel={noop}
+        />
+      ),
+    },
+    {
+      id: 'dialog-export-reminder',
+      title: 'リストを画像で保存しませんか？',
+      layout: 'full',
+      render: () => <ExportReminderDialog onExport={noop} onLater={noop} />,
     },
     {
       id: 'dialog-consent',

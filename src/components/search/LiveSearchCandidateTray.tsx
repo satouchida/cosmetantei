@@ -3,7 +3,7 @@
 import React from 'react';
 import { ApiCredits } from '../ui/ApiCredits';
 import { Product, SHOP_ID_PREFIX } from '@/lib/types';
-import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Layers, Tag, Package, ExternalLink } from 'lucide-react';
+import { Search, X, Sparkles, AlertTriangle, ShieldCheck, Tag, Package, ExternalLink } from 'lucide-react';
 import { getDisplayBrand } from '@/lib/display-brand';
 import { displayListingName } from '@/lib/search/listing-name';
 import { isSellerTextProduct } from '@/lib/product-source';
@@ -38,8 +38,7 @@ interface LiveSearchCandidateTrayProps {
   /** 応答を待っている（押しても受け付けず、案内が出る） */
   busy?: boolean;
   onAddToBad: (product: Product) => void;
-  onAddToSafe: (product: Product) => void;
-  onAddToCurrent: (product: Product) => void;
+  onAddToUsable: (product: Product) => void;
   /** 入力欄の aria-controls と同じ id */
   id?: string;
 }
@@ -139,8 +138,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
   onSelectProduct,
   busy = false,
   onAddToBad,
-  onAddToSafe,
-  onAddToCurrent,
+  onAddToUsable,
   id,
 }) => {
   if (!isOpen || (candidates.length === 0 && brands.length === 0)) return null;
@@ -295,21 +293,12 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                         </button>
                         <button
                           type="button"
-                          onClick={() => onAddToSafe(product)}
-                          aria-label={`普段使えている（${product.name}）`}
+                          onClick={() => onAddToUsable(product)}
+                          aria-label={`使えている（${product.name}）`}
                           className={`${routineActionCompact} ${routineAction.safe}`}
                         >
                           <ShieldCheck className="w-4 h-4" aria-hidden />
-                          <span>普段<wbr />使えている</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onAddToCurrent(product)}
-                          aria-label={`今使っている（${product.name}）`}
-                          className={`${routineActionCompact} ${routineAction.current}`}
-                        >
-                          <Layers className="w-4 h-4" aria-hidden />
-                          <span>今<wbr />使っている</span>
+                          <span>使えて<wbr />いる</span>
                         </button>
                       </div>
                     )}

@@ -103,7 +103,7 @@ export function alternativeRequestFromRoutine(routine: UserRoutineState | undefi
     avoid: diff.culprits,
     known,
     category: mostCommonCategory(routine.badProducts),
-    // 登録した製品（肌荒れした・普段使えている・今使っているコスメ）は勧めない
+    // 登録した製品（肌荒れした・使えているコスメ）は勧めない
     excludeIds: registered.map((p) => p.id),
     excludeProducts: registered,
   };

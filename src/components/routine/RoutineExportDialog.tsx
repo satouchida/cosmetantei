@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Download, Image as ImageIcon, Loader2, Share2, X } from 'lucide-react';
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimaryCompact, buttonSecondaryCompact, iconButton, panel } from '../ui/design';
+import { isPersistable } from '@/lib/usable-products';
 import { encodeShareLink, excludedCount, RoutineSnapshot, serializeRoutine } from '@/lib/routine-share';
 import { renderRoutineImage } from '@/lib/client/routine-image';
 
@@ -54,9 +55,11 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
         const shareUrl = includeData ? await encodeShareLink(snapshot) : null;
         const blob = await renderRoutineImage({
           culprits,
-          safeProducts: snapshot.safeProducts.map((p) => ({ brand: p.brand, name: p.name })),
-          badCount: snapshot.badProducts.length,
-          currentCount: snapshot.currentUse.length,
+          // 画像の表面も、書き出さない製品（入力した成分表示・お店の商品説明）を除く（下の案内のとおり）
+          usableProducts: snapshot.usable
+            .filter((e) => isPersistable(e.product))
+            .map((e) => ({ brand: e.product.brand, name: e.product.name })),
+          badCount: snapshot.badProducts.filter(isPersistable).length,
           shareUrl,
           fileData: includeData ? serializeRoutine(snapshot, now.getTime()) : null,
           date: now,
@@ -123,7 +126,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
         </div>
 
         <p className="text-sm text-ink-muted leading-relaxed">
-          画像に書かれるのは、気をつけたい成分の候補と、肌に合っていたコスメです。肌荒れしたコスメの名前は書かれません（読み込み用のデータを入れると、QRコードの中には入ります）。
+          画像に書かれるのは、気をつけたい成分の候補と、使えているコスメです。肌荒れしたコスメの名前は書かれません（読み込み用のデータを入れると、QRコードの中には入ります）。
         </p>
 
         <label className="flex items-start gap-3 min-h-12 p-3 rounded-xl bg-surface-container-low cursor-pointer">
@@ -138,7 +141,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
           <span className="text-sm">
             <span className="font-semibold text-ink">読み込み用のデータを入れる（QRコード）</span>
             <span id="routine-export-data-hint" className="block text-xs text-ink-muted mt-0.5 leading-relaxed">
-              3つのリスト（肌荒れしたコスメを含む）を、QRコードと画像ファイルの中に入れます。この画像から、次に開いたときにリストを読み込めます。共有した画像を見た人も読み込めます。
+              2つのリスト（肌荒れしたコスメを含む）を、QRコードと画像ファイルの中に入れます。この画像から、次に開いたときにリストを読み込めます。共有した画像を見た人も読み込めます。
             </span>
           </span>
         </label>
@@ -148,7 +151,7 @@ export function RoutineExportDialog({ snapshot, culprits, onClose, fallbackFocus
             // eslint-disable-next-line @next/next/no-img-element -- その場で作った画像（blob の URL）
             <img
               src={rendered.url}
-              alt={`マイルーティンの画像（肌に合っていたコスメ ${snapshot.safeProducts.length}点${
+              alt={`マイルーティンの画像（使えているコスメ ${snapshot.usable.filter((e) => isPersistable(e.product)).length}点${
                 culprits.length > 0 ? `、気をつけたい成分の候補 ${culprits.slice(0, 5).join('、')}` : ''
               }${includeData && !rendered.qrSkipped ? '、読み込み用のQRコードつき' : ''}）`}
               className="w-full h-full object-contain"

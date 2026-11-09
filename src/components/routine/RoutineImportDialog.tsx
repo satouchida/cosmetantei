@@ -31,8 +31,7 @@ export function RoutineImportDialog({
 }: RoutineImportDialogProps) {
   const rows: [string, number][] = [
     ['肌荒れしたコスメ', snapshot.badProducts.length],
-    ['肌に合っていたコスメ', snapshot.safeProducts.length],
-    ['今使っているコスメ', snapshot.currentUse.length],
+    ['使えているコスメ', snapshot.usable.length],
   ];
   return (
     <ModalDialog labelledBy="routine-import-title" onClose={onClose} sheet fallbackFocus={fallbackFocus}>

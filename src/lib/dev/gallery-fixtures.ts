@@ -6,7 +6,7 @@
 import type { KnownIngredient, PriceResult, Product } from '@/lib/types';
 import { SHOP_ID_PREFIX } from '@/lib/types';
 import { SHOP_TEXT_ID_PREFIX } from '@/lib/product-source';
-import type { CurrentUseEntry } from '@/lib/current-use';
+import type { UsableEntry } from '@/lib/usable-products';
 import { normalizeIngredientName } from '@/lib/utils/ingredient-name';
 
 const AMAZON = 'https://www.amazon.co.jp/s?k=example&tag=cosmetantei22-22';
@@ -224,12 +224,16 @@ export const routineProducts = {
 };
 
 const DAY = 24 * 60 * 60 * 1000;
-/** 今使っているコスメ（2つ目は3か月以上前に追加した） */
-export function currentUseEntries(now: number): CurrentUseEntry[] {
+/**
+ * 使えているコスメ（2つ目は3か月以上前に追加した、今も使っている製品。3つ目は以前使っていた製品）。
+ * 肌荒れしたコスメ（routineProducts.bad）とは重ならない（1つの製品は1つのリストだけ）
+ */
+export function usableEntries(now: number): UsableEntry[] {
   return [
-    { product: retinolSerum, addedAt: now - 10 * DAY },
-    { product: salicylicToner, addedAt: now - 120 * DAY },
-    { product: longJapanese, addedAt: now - 3 * DAY },
+    { product: retinolSerum, addedAt: now - 10 * DAY, inUse: true },
+    { product: salicylicToner, addedAt: now - 120 * DAY, inUse: true },
+    { product: curel, addedAt: now - 200 * DAY, inUse: false },
+    { product: ihada, addedAt: now - 3 * DAY, inUse: true },
   ];
 }
 

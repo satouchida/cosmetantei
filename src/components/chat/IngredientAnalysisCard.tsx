@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Product, ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
-import { ShieldCheck, Layers, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { useUnregisteredProducts } from './RegisteredProducts';
 import { ProductSourceLink } from './ProductSourceLink';
@@ -30,8 +30,7 @@ import {
 interface IngredientAnalysisCardProps {
   analysis: ProductAnalysisResult;
   onAddToBadRoutine?: () => void;
-  onAddToSafeRoutine?: () => void;
-  onAddToCurrentRoutine?: () => void;
+  onAddToUsableRoutine?: () => void;
   /** 「同じ種類で原因成分を含まない商品を探す」（お店の商品検索で探す。docs/plans/alternative-recommendations.md の step 3） */
   onFindAlternatives?: () => void;
   /** 代わりの商品の価格を調べる */
@@ -133,8 +132,7 @@ function requestAIAnalysis(a: ProductAnalysisResult): Promise<AIOutcome> {
 export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   analysis: initialAnalysis,
   onAddToBadRoutine,
-  onAddToSafeRoutine,
-  onAddToCurrentRoutine,
+  onAddToUsableRoutine,
   onFindAlternatives,
   onPriceLookup,
   busy = false,
@@ -728,27 +726,17 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       <MedicalNotice subject="この成分チェック" />
 
       {/* Routine Quick Actions */}
-      <div className="pt-3 border-t border-sand-200 grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className="pt-3 border-t border-sand-200 grid grid-cols-1 sm:grid-cols-2 gap-2">
         {onAddToBadRoutine && (
           <button type="button" onClick={onAddToBadRoutine} className={`${routineActionWide} ${routineAction.bad}`}>
             <AlertTriangle className="w-4 h-4" aria-hidden />
             <span>「肌荒れしたコスメ」に登録</span>
           </button>
         )}
-        {onAddToSafeRoutine && (
-          <button type="button" onClick={onAddToSafeRoutine} className={`${routineActionWide} ${routineAction.safe}`}>
+        {onAddToUsableRoutine && (
+          <button type="button" onClick={onAddToUsableRoutine} className={`${routineActionWide} ${routineAction.safe}`}>
             <ShieldCheck className="w-4 h-4" aria-hidden />
-            <span>「普段使えているコスメ」に登録</span>
-          </button>
-        )}
-        {onAddToCurrentRoutine && (
-          <button
-            type="button"
-            onClick={onAddToCurrentRoutine}
-            className={`${routineActionWide} ${routineAction.current}`}
-          >
-            <Layers className="w-4 h-4" aria-hidden />
-            <span>「今使っている」に登録</span>
+            <span>「使えているコスメ」に登録</span>
           </button>
         )}
       </div>

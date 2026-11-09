@@ -14,9 +14,11 @@ import { CurrentUseResultCard } from './CurrentUseResultCard';
 import { PriceResultCard } from './PriceResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
 import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
-import { DIFFERENTIAL_LABEL, RoutineSidebar } from '../routine/RoutineSidebar';
+import { BAD_SECTION_ID, DIFFERENTIAL_LABEL, RoutineSidebar, USABLE_SECTION_ID } from '../routine/RoutineSidebar';
 import { RoutineExportDialog } from '../routine/RoutineExportDialog';
 import { RoutineImportDialog } from '../routine/RoutineImportDialog';
+import { ChoiceDialog } from '../routine/ChoiceDialog';
+import { ExportReminderDialog } from '../routine/ExportReminderDialog';
 import {
   Camera,
   Send,
@@ -50,15 +52,24 @@ import { withHiddenEmoji, withoutEmoji } from '../ui/emoji';
 import { busyLook } from '../ui/design';
 import { getQuickReplyAction, PICK_FROM_CARDS_HINT, splitQuickReplyIcon, type QuickReplyIconName } from './quick-replies';
 import {
-  getCurrentUseServerSnapshot,
-  getCurrentUseSnapshot,
+  getUsableServerSnapshot,
+  getUsableSnapshot,
   isPersistable,
   isStale,
-  MAX_CURRENT_USE,
+  MAX_USABLE,
+  routineFromLists,
   STALE_AFTER_MONTHS,
-  subscribeCurrentUse,
-  updateCurrentUse,
-} from '@/lib/current-use';
+  subscribeUsable,
+  updateUsable,
+  UsableEntry,
+} from '@/lib/usable-products';
+import {
+  getExportReminderOffServerSnapshot,
+  isExportReminderOff,
+  shouldOfferExport,
+  subscribeExportReminderOff,
+  turnOffExportReminder,
+} from '@/lib/client/export-reminder';
 import {
   decodeShareFragment,
   isEmptySnapshot,
@@ -234,7 +245,7 @@ export const ChatContainer: React.FC = () => {
     {
       id: 'welcome-1',
       role: 'assistant',
-      content: `🔍 肌荒れの原因になりうる成分の候補を調べるサービスです。化粧品名を入力するか、バーコードを読み取ってください。\n\n肌荒れしたコスメと普段使えているコスメを比べて候補を絞り込み、その成分を含まない商品（販売ページへのリンク付き。PR）を探します。医療上の診断ではありません。肌に異常があるときは皮膚科専門医にご相談ください。`,
+      content: `🔍 肌荒れの原因になりうる成分の候補を調べるサービスです。化粧品名を入力するか、バーコードを読み取ってください。\n\n肌荒れしたコスメと使えているコスメを比べて候補を絞り込み、その成分を含まない商品（販売ページへのリンク付き。PR）を探します。医療上の診断ではありません。肌に異常があるときは皮膚科専門医にご相談ください。`,
       timestamp: currentTime(),
       quickReplies: [
         '📸 バーコードをスキャンする',
@@ -254,6 +265,17 @@ export const ChatContainer: React.FC = () => {
   const [routineExport, setRoutineExport] = useState<{ snapshot: RoutineSnapshot; culprits: string[] } | null>(null);
   // 読み込む前に確かめてもらうルーティン
   const [routineImport, setRoutineImport] = useState<{ snapshot: RoutineSnapshot; namesOnly: boolean } | null>(null);
+  // もう一方のリストにある製品を登録しようとした（移す・削除するかを聞く。1つの製品は1つのリストだけ）
+  const [listConflict, setListConflict] = useState<{ product: Product; target: 'bad' | 'usable' } | null>(null);
+  // クリアするリスト（確かめるダイアログを開いている）
+  const [clearTarget, setClearTarget] = useState<'bad' | 'usable' | null>(null);
+  // 「リストを画像で保存しませんか？」を開いている。このページで1回だけ出す（shownThisSession）
+  const [isExportReminderOpen, setIsExportReminderOpen] = useState(false);
+  const exportReminderShownRef = useRef(false);
+  // 最後に画像で保存したときのリスト（その後で変わっていなければ、おすすめを出さない）
+  const exportedListsRef = useRef<string | null>(null);
+  // おすすめを出すかを決める、最新の値（描画のたびに入れる。offerExportAfterResult が読む）
+  const reminderStateRef = useRef({ badCount: 0, listsKey: '', off: true, otherDialogOpen: false });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   // info: 確認（緑のチェック）/ error: 受け付けなかった・失敗（長めに出す）/ progress: 処理中（終わるまで出す）
@@ -371,13 +393,24 @@ export const ChatContainer: React.FC = () => {
       ? [...lineupCredits, 'yahoo']
       : lineupCredits;
 
-  // 比較リスト（このページを開いている間だけ）。今使っているコスメは currentUse に、追加した日つきで持つ
-  const [comparison, setRoutine] = useState<Omit<UserRoutineState, 'currentlyUsing'>>({
-    badProducts: [],
-    safeProducts: [],
-  });
-  // 今使っているコスメはこの端末のブラウザに保存する（src/lib/current-use.ts）
-  const currentUse = useSyncExternalStore(subscribeCurrentUse, getCurrentUseSnapshot, getCurrentUseServerSnapshot);
+  // 肌荒れしたコスメ（このページを開いている間だけ。保存しない。docs/plans/two-lists.md）。
+  // badRef は最新の値（再描画の前に続けて呼ばれても正しく数える。使えているコスメの getUsableSnapshot と同じ役目）。
+  // 変えるときは updateBad だけを使う
+  const [badProducts, setBadState] = useState<Product[]>([]);
+  const badRef = useRef<Product[]>([]);
+  const updateBad = (change: (prev: Product[]) => Product[]) => {
+    badRef.current = change(badRef.current);
+    setBadState(badRef.current);
+  };
+  // 使えているコスメはこの端末のブラウザに保存する（src/lib/usable-products.ts）。ほかのタブで、このタブの肌荒れした
+  // コスメにある製品が使えているコスメに追加されたときは、このタブでは肌荒れしたコスメだけに出す（1つの製品は1つのリスト）
+  const storedUsable = useSyncExternalStore(subscribeUsable, getUsableSnapshot, getUsableServerSnapshot);
+  // 「リストを画像で保存しませんか？」を今後表示しない（ほかのタブで選んだときも、購読して読み直す）
+  const exportReminderOff = useSyncExternalStore(subscribeExportReminderOff, isExportReminderOff, getExportReminderOffServerSnapshot);
+  const usable = useMemo(() => {
+    const badIds = new Set(badProducts.map((p) => p.id));
+    return storedUsable.some((e) => badIds.has(e.product.id)) ? storedUsable.filter((e) => !badIds.has(e.product.id)) : storedUsable;
+  }, [storedUsable, badProducts]);
   // 利用規約・Cookie の使用への同意（src/lib/consent.ts）。null はまだ分からない（サーバーで描いた直後）
   const consented = useSyncExternalStore(subscribeConsent, hasConsented, getConsentServerSnapshot);
   // 有料の呼び出しが上限で断られたときの案内（apiFetch が応答のヘッダーを見て出す）
@@ -394,18 +427,36 @@ export const ChatContainer: React.FC = () => {
     }
     wasConsented.current = consented;
   }, [consented]);
-  const routine: UserRoutineState = { ...comparison, currentlyUsing: currentUse.map((e) => e.product) };
+  // サーバーに送る形：比較には使えているコスメのすべて、組み合わせチェックには今も使っているものだけ
+  const routine: UserRoutineState = routineFromLists(badProducts, usable);
   // 代わりの商品のカードに出さない、登録した製品（RegisteredProducts.tsx）
-  const registeredProducts = useMemo(
-    () => [...comparison.badProducts, ...comparison.safeProducts, ...currentUse.map((e) => e.product)],
-    [comparison, currentUse]
-  );
+  const registeredProducts = useMemo(() => [...badProducts, ...usable.map((e) => e.product)], [badProducts, usable]);
   useEffect(() => {
     routineRef.current = routine;
   });
-  // 3か月以上前に追加した製品（今も使っているか確かめてもらう）
-  const staleEntries = currentUse.filter((e) => isStale(e.addedAt, currentTime()));
+  // 今も使っている製品のうち、3か月以上前に追加したもの（今も使っているか確かめてもらう）
+  const staleEntries = usable.filter((e) => e.inUse && isStale(e.addedAt, currentTime()));
   const staleIds = new Set(staleEntries.map((e) => e.product.id));
+  // 2つのリストの中身（画像で保存した後で変わったかを比べる）
+  const listsKey = `${badProducts.map((p) => p.id).join(',')}|${usable.map((e) => e.product.id).join(',')}`;
+  /**
+   * 比較の結果を出したあとに、リストを画像で保存することを1回すすめる（肌荒れしたコスメは保存しないため。
+   * docs/plans/two-lists.md の Step 4b）
+   */
+  // 応答を待った後に呼ばれるので（runChatAction・頼み直しは、押したときの描画の関数）、最新の値を ref から読む
+  const offerExportAfterResult = () => {
+    const latest = reminderStateRef.current;
+    const show = shouldOfferExport({
+      shownThisSession: exportReminderShownRef.current,
+      badCount: latest.badCount,
+      changedSinceExport: exportedListsRef.current !== latest.listsKey,
+      off: latest.off,
+      otherDialogOpen: latest.otherDialogOpen,
+    });
+    if (!show) return;
+    exportReminderShownRef.current = true;
+    setIsExportReminderOpen(true);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -436,6 +487,24 @@ export const ChatContainer: React.FC = () => {
 
   // スマホのルーティン引き出し：開いたら閉じるボタンにフォーカスし、Escape で閉じてメニューボタンに戻す
   const isDrawerModal = isSidebarOpen && isMobileViewport;
+  useEffect(() => {
+    reminderStateRef.current = {
+      // 画像に入る（保存できる）肌荒れしたコスメだけ。入力した成分表示だけなら、画像で保存しても残らない
+      badCount: badProducts.filter(isPersistable).length,
+      listsKey,
+      off: exportReminderOff,
+      otherDialogOpen:
+        !!routineExport ||
+        !!routineImport ||
+        !!listConflict ||
+        !!clearTarget ||
+        isScannerOpen ||
+        isLabelInputOpen ||
+        isExportReminderOpen ||
+        isDrawerModal ||
+        consented !== true,
+    };
+  });
   // 閉じたらメニューボタンにフォーカスを戻す。ヘッダーの inert が外れて（再描画されて）からでないと移せない
   const closeSidebar = () => {
     setIsSidebarOpen(false);
@@ -445,6 +514,8 @@ export const ChatContainer: React.FC = () => {
     if (!isDrawerModal) return;
     drawerCloseRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
+      // 引き出しの上に開いたダイアログ（リストのクリアなど）があれば、Tab・Escape はそのダイアログに任せる
+      if (document.querySelector('dialog[open]')) return;
       if (e.key === 'Escape') {
         closeSidebar();
         return;
@@ -530,6 +601,7 @@ export const ChatContainer: React.FC = () => {
         const reply: ChatMessage = { ...messageMeta('bot'), role: 'assistant', content: result.data.reply, ...toMessage(result.data) };
         setMessages((prev) => [...prev, reply]);
         setAnnouncement(announcementOf(reply.content));
+        if (reply.differentialAnalysis) offerExportAfterResult();
         return result.data;
       }
       const custom = options.failure?.(result);
@@ -685,81 +757,132 @@ export const ChatContainer: React.FC = () => {
     );
   };
 
-  /** 肌荒れリストに追加する。追加した場合は true、すでに登録済みなら false */
-  const handleAddToBad = (product: Product): boolean => {
-    if (routine.badProducts.some((p) => p.id === product.id)) {
-      showToast(`すでに肌荒れリストに登録されています`, 'error');
-      return false;
+  /**
+   * 登録の結果。added：追加した。exists：同じリストにある。conflict：もう一方のリストにある（移す・削除するかを聞く）。
+   * full：上限
+   */
+  type AddResult = 'added' | 'exists' | 'conflict' | 'full';
+
+  /** 肌荒れしたコスメに追加する。使えているコスメにあれば、移すか削除するかを聞く（1つの製品は1つのリストだけ） */
+  const handleAddToBad = (product: Product): AddResult => {
+    if (badRef.current.some((p) => p.id === product.id)) {
+      showToast('すでに肌荒れしたコスメに登録されています', 'error');
+      return 'exists';
     }
-    setRoutine((prev) => ({
-      ...prev,
-      badProducts: [...prev.badProducts, product],
-    }));
+    // 上限なら、移すことも勧めない（移せないのに、移すかを聞かない）
+    if (badRef.current.length >= MAX_ROUTINE_PRODUCTS) {
+      showToast(`肌荒れしたコスメは${MAX_ROUTINE_PRODUCTS}点まで登録できます`, 'error');
+      return 'full';
+    }
+    if (getUsableSnapshot().some((e) => e.product.id === product.id)) {
+      setListConflict({ product, target: 'bad' });
+      return 'conflict';
+    }
+    updateBad((prev) => [...prev, product]);
     showToast(`「${product.name}」を【肌荒れしたコスメ】に追加しました`);
-    return true;
+    return 'added';
   };
 
-  /** 安全リストに追加する。追加した場合は true、すでに登録済みなら false */
-  const handleAddToSafe = (product: Product): boolean => {
-    if (routine.safeProducts.some((p) => p.id === product.id)) {
-      showToast(`すでに「普段使えているコスメ」に登録されています`, 'error');
-      return false;
-    }
-    setRoutine((prev) => ({
-      ...prev,
-      safeProducts: [...prev.safeProducts, product],
-    }));
-    showToast(`「${product.name}」を【普段使えているコスメ】に追加しました`);
-    return true;
-  };
-
-  /** 今使っているコスメに追加する。追加した場合は true */
-  const handleAddToCurrent = (product: Product): boolean => {
+  /** 使えているコスメに追加する（今も使っている製品として）。肌荒れしたコスメにあれば、移すか削除するかを聞く */
+  const handleAddToUsable = (product: Product): AddResult => {
     // 再描画の前に続けて押されても正しく数えるよう、最新のリストで確かめる
-    const latest = getCurrentUseSnapshot();
-    if (latest.some((e) => e.product.id === product.id)) {
-      showToast('すでに今使っているコスメに登録されています', 'error');
-      return false;
+    const latest = getUsableSnapshot();
+    const inBad = badRef.current.some((p) => p.id === product.id);
+    // このタブの肌荒れしたコスメにある製品は、ほかのタブで使えているコスメに保存されていても、移すかを聞く
+    if (!inBad && latest.some((e) => e.product.id === product.id)) {
+      showToast('すでに使えているコスメに登録されています', 'error');
+      return 'exists';
     }
-    if (latest.length >= MAX_CURRENT_USE) {
-      showToast(`今使っているコスメは${MAX_CURRENT_USE}点まで登録できます`, 'error');
-      return false;
+    if (latest.length >= MAX_USABLE && !latest.some((e) => e.product.id === product.id)) {
+      showToast(`使えているコスメは${MAX_USABLE}点まで登録できます`, 'error');
+      return 'full';
+    }
+    if (inBad) {
+      setListConflict({ product, target: 'usable' });
+      return 'conflict';
     }
     const addedAt = currentTime();
-    updateCurrentUse((prev) => [...prev, { product, addedAt }]);
+    updateUsable((prev) => [...prev, { product, addedAt, inUse: true }]);
     showToast(
       isPersistable(product)
-        ? `「${product.name}」を【今使っているコスメ】に追加しました`
-        : `「${product.name}」を【今使っているコスメ】に追加しました（入力した成分表示・お店の商品説明から読んだ成分は保存しません）`
+        ? `「${product.name}」を【使えているコスメ】に追加しました`
+        : `「${product.name}」を【使えているコスメ】に追加しました（入力した成分表示・お店の商品説明から読んだ成分は保存しません）`
     );
-    return true;
+    return 'added';
   };
 
-  const handleRemoveCurrent = (id: string) => {
-    updateCurrentUse((prev) => prev.filter((e) => e.product.id !== id));
+  /** もう一方のリストにある製品を、登録しようとしたリストへ移す */
+  const moveToList = (product: Product, target: 'bad' | 'usable') => {
+    setListConflict(null);
+    // 移す先が上限なら、何も消さずに案内だけ出す（ダイアログを開いている間に、ほかで追加されたとき）
+    if (target === 'bad') {
+      if (badRef.current.length >= MAX_ROUTINE_PRODUCTS && !badRef.current.some((p) => p.id === product.id)) {
+        showToast(`肌荒れしたコスメは${MAX_ROUTINE_PRODUCTS}点まで登録できます`, 'error');
+        return;
+      }
+      updateUsable((prev) => prev.filter((e) => e.product.id !== product.id));
+      updateBad((prev) => (prev.some((p) => p.id === product.id) ? prev : [...prev, product]));
+      showToast(`「${product.name}」を【肌荒れしたコスメ】に移しました`);
+    } else {
+      const latest = getUsableSnapshot();
+      if (latest.length >= MAX_USABLE && !latest.some((e) => e.product.id === product.id)) {
+        showToast(`使えているコスメは${MAX_USABLE}点まで登録できます`, 'error');
+        return;
+      }
+      updateBad((prev) => prev.filter((p) => p.id !== product.id));
+      updateUsable((prev) =>
+        prev.some((e) => e.product.id === product.id) ? prev : [...prev, { product, addedAt: currentTime(), inUse: true }]
+      );
+      showToast(`「${product.name}」を【使えているコスメ】に移しました`);
+    }
+  };
+
+  /** もう一方のリストにある製品を、そのリストから削除する（どちらのリストにも入れない） */
+  const removeFromOtherList = (product: Product, target: 'bad' | 'usable') => {
+    setListConflict(null);
+    if (target === 'bad') {
+      updateUsable((prev) => prev.filter((e) => e.product.id !== product.id));
+      showToast(`「${product.name}」を使えているコスメから削除しました`);
+    } else {
+      updateBad((prev) => prev.filter((p) => p.id !== product.id));
+      showToast(`「${product.name}」を肌荒れしたコスメから削除しました`);
+    }
+  };
+
+  const handleRemoveUsable = (id: string) => {
+    updateUsable((prev) => prev.filter((e) => e.product.id !== id));
   };
 
   /** 「今も使っている」：追加した日を今日にする */
-  const handleConfirmCurrent = (id: string) => {
+  const handleConfirmUsable = (id: string) => {
     const now = currentTime();
-    updateCurrentUse((prev) => prev.map((e) => (e.product.id === id ? { ...e, addedAt: now } : e)));
+    updateUsable((prev) => prev.map((e) => (e.product.id === id ? { ...e, addedAt: now, inUse: true } : e)));
+  };
+
+  /** 今も使っているか。使い始めたとき（false → true）は、追加した日を今日にする（3か月の確認をそこから数える） */
+  const handleSetInUse = (id: string, inUse: boolean) => {
+    const now = currentTime();
+    updateUsable((prev) =>
+      prev.map((e) => (e.product.id === id && e.inUse !== inUse ? { ...e, inUse, ...(inUse && { addedAt: now }) } : e))
+    );
   };
 
   const handleRemoveBad = (id: string) => {
-    setRoutine((prev) => ({
-      ...prev,
-      badProducts: prev.badProducts.filter((p) => p.id !== id),
-    }));
+    updateBad((prev) => prev.filter((p) => p.id !== id));
   };
 
-  const handleRemoveSafe = (id: string) => {
-    setRoutine((prev) => ({
-      ...prev,
-      safeProducts: prev.safeProducts.filter((p) => p.id !== id),
-    }));
+  /** リストをクリアする（確かめるダイアログで「クリアする」を押したとき） */
+  const clearList = (target: 'bad' | 'usable') => {
+    setClearTarget(null);
+    if (target === 'bad') {
+      updateBad(() => []);
+      showToast('肌荒れしたコスメのリストをクリアしました');
+    } else {
+      updateUsable(() => []);
+      showToast('使えているコスメのリストをクリアしました');
+    }
   };
 
-  /** サーバーを呼ばずに、押したボタンとその案内をチャットに追加する */
   const appendLocalExchange = (label: string, reply: string, quickReplies?: string[]) => {
     setMessages((prev) => [
       ...prev,
@@ -814,22 +937,25 @@ export const ChatContainer: React.FC = () => {
           appendLocalExchange(label, PICK_FROM_CARDS_HINT);
           return;
         }
+        // もう一方のリストにあるときは、ダイアログで移すか削除するかを聞く（返答は出さない）。上限のときは案内だけ
         if (action.list === 'bad') {
-          const added = handleAddToBad(product);
+          const result = handleAddToBad(product);
+          if (result === 'conflict' || result === 'full') return;
           appendLocalExchange(
             label,
-            added
-              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。普段問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。普段問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
-            ['✅ 普段使えているコスメを入力する']
+            result === 'added'
+              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。問題なく使えているコスメも追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
+            ['✅ 使えているコスメを入力する']
           );
         } else {
-          const added = handleAddToSafe(product);
+          const result = handleAddToUsable(product);
+          if (result === 'conflict' || result === 'full') return;
           appendLocalExchange(
             label,
-            added
-              ? `「${product.name}」を【普段使えているコスメ】に追加しました。肌荒れしたコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、原因になりうる成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【普段使えているコスメ】に登録されています。肌荒れしたコスメを追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
+            result === 'added'
+              ? `「${product.name}」を【使えているコスメ】に追加しました。肌荒れしたコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、原因になりうる成分の候補を絞り込めます。`
+              : `「${product.name}」はすでに【使えているコスメ】に登録されています。肌荒れしたコスメを追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
             ['🧴 肌荒れしたコスメを入力する']
           );
         }
@@ -855,8 +981,9 @@ export const ChatContainer: React.FC = () => {
         appendLocalExchange(label, PICK_FROM_CARDS_HINT);
         return;
       case 'reset':
-        handleLoadPreset('clear');
-        appendLocalExchange(label, '比較リスト（肌荒れしたコスメ・普段使えているコスメ）を空にしました。', [
+        // 保存している使えているコスメは消さない（消すときはサイドバーの「使えているコスメのリストをクリア」）
+        updateBad(() => []);
+        appendLocalExchange(label, '肌荒れしたコスメのリストを空にしました（使えているコスメはそのままです）。', [
           '🧴 肌荒れしたコスメを入力する',
         ]);
         return;
@@ -886,13 +1013,14 @@ export const ChatContainer: React.FC = () => {
     void handleRunDifferential();
   };
 
-  /** 今使っているコスメの組み合わせを調べる（サーバーはルールだけで判定する） */
+  /** 使えているコスメのうち、今も使っているものの組み合わせを調べる（サーバーはルールだけで判定する） */
   const handleCheckCurrentUse = async () => {
-    if (currentUse.length < 2) return;
+    const inUse = usable.filter((e) => e.inUse);
+    if (inUse.length < 2) return;
     // 送った時点の、3か月以上前に追加した製品（結果のカードで確かめてもらう）
     const staleProductNames = staleEntries.map((e) => e.product.name);
     await runChatAction(
-      `🧴 今使っているコスメ（${currentUse.map((e) => e.product.name).join('、')}）の組み合わせを調べてください`,
+      `🧴 今使っているコスメ（${inUse.map((e) => e.product.name).join('、')}）の組み合わせを調べてください`,
       // 比較リストは使わないので送らない
       {
         action: 'check_current_use',
@@ -911,21 +1039,15 @@ export const ChatContainer: React.FC = () => {
           result.status === 400
             ? {
                 content:
-                  '「今使っているコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
+                  '「使えているコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
               }
             : {},
       }
     );
   };
 
-  const handleLoadPreset = (presetType: 'sample_irritation' | 'clear') => {
-    if (presetType === 'clear') {
-      // 今使っているコスメは別に管理するため、比較リストだけを空にする
-      setRoutine({ badProducts: [], safeProducts: [] });
-      showToast('比較リストをリセットしました');
-      return;
-    }
-
+  /** 開発用のサンプル。使えているコスメの分は保存しない（sessionOnly。利用者の保存したリストを書き換えない） */
+  const handleLoadSample = () => {
     // Load sample irritation scenario (Melano CC as bad, Curel Wash & Ihada Lotion as safe)
     const sampleMelano: Product = {
       id: 'sample_melano_cc',
@@ -962,19 +1084,26 @@ export const ChatContainer: React.FC = () => {
       descriptionJa: 'サンプルデータ：薬用化粧水',
     };
 
-    setRoutine({
-      badProducts: [sampleMelano],
-      safeProducts: [sampleCurel, sampleIhada],
+    updateBad(() => [sampleMelano]);
+    const now = currentTime();
+    updateUsable((prev) => {
+      const kept = prev.filter((e) => e.product.id !== sampleMelano.id);
+      const samples = [sampleCurel, sampleIhada]
+        .filter((p) => !kept.some((e) => e.product.id === p.id))
+        .map((product): UsableEntry => ({ product, addedAt: now, inUse: true, sessionOnly: true }));
+      return [...kept, ...samples].slice(0, MAX_USABLE);
     });
     showToast(`テストデータを読み込みました！「${DIFFERENTIAL_LABEL}」を押せます`);
   };
 
   /** 画像で保存・共有する。気をつけたい成分は、最近の差分分析の結果から */
   const handleExportImage = () => {
+    exportedListsRef.current = listsKey;
     const latest = [...messages].reverse().find((m) => m.differentialAnalysis)?.differentialAnalysis;
     setIsSidebarOpen(false);
     setRoutineExport({
-      snapshot: { badProducts: routine.badProducts, safeProducts: routine.safeProducts, currentUse },
+      // サンプル（sessionOnly）は書き出さない（読み込むと保存されてしまう）
+      snapshot: { badProducts, usable: usable.filter((e) => !e.sessionOnly) },
       culprits: latest?.culprits.map((c) => c.nameJa) ?? [],
     });
   };
@@ -1020,28 +1149,25 @@ export const ChatContainer: React.FC = () => {
     const { snapshot } = routineImport;
     let skipped = 0;
     if (mode === 'replace') {
-      setRoutine({ badProducts: snapshot.badProducts, safeProducts: snapshot.safeProducts });
-      updateCurrentUse(() => snapshot.currentUse.slice(0, MAX_CURRENT_USE));
+      updateBad(() => snapshot.badProducts);
+      updateUsable(() => snapshot.usable.slice(0, MAX_USABLE));
     } else {
+      // 1つの製品は1つのリストだけ：どちらかのリストにある製品は足さない（読み込むデータの中でも肌荒れが先）
+      // 最新のリストで数える（badRef・getUsableSnapshot）
+      const currentBad = badRef.current;
+      const currentUsable = getUsableSnapshot();
+      const takenIds = () => new Set([...currentBad.map((p) => p.id), ...currentUsable.map((e) => e.product.id)]);
+      const taken = takenIds();
+      const bad = appendStats(currentBad, snapshot.badProducts, taken);
+      const nextBad = appendProducts(currentBad, snapshot.badProducts, takenIds());
+      const freshUsable = snapshot.usable.filter((e) => !taken.has(e.product.id)).length;
+      const usableAdded = Math.max(0, Math.min(freshUsable, MAX_USABLE - currentUsable.length));
       // 足さなかった数（重複・上限）を、読み込んだ後の案内に出す
-      const taken = new Set([...routine.badProducts, ...routine.safeProducts].map((p) => p.id));
-      const bad = appendStats(routine.badProducts, snapshot.badProducts, taken);
-      const safe = appendStats(routine.safeProducts, snapshot.safeProducts, taken);
-      const currentIds = new Set(currentUse.map((e) => e.product.id));
-      const currentFresh = snapshot.currentUse.filter((e) => !currentIds.has(e.product.id)).length;
-      const currentAdded = Math.max(0, Math.min(currentFresh, MAX_CURRENT_USE - currentUse.length));
-      skipped = bad.skipped + safe.skipped + (snapshot.currentUse.length - currentAdded);
-      // 最新のリストに足す。肌荒れ・安全のリストは、どちらかにある製品を足さない（同じ製品が両方に入らないように）
-      setRoutine((prev) => {
-        const taken = new Set([...prev.badProducts, ...prev.safeProducts].map((p) => p.id));
-        return {
-          badProducts: appendProducts(prev.badProducts, snapshot.badProducts, taken),
-          safeProducts: appendProducts(prev.safeProducts, snapshot.safeProducts, taken),
-        };
-      });
-      updateCurrentUse((prev) => {
-        const ids = new Set(prev.map((e) => e.product.id));
-        return [...prev, ...snapshot.currentUse.filter((e) => !ids.has(e.product.id))].slice(0, MAX_CURRENT_USE);
+      skipped = bad.skipped + (snapshot.usable.length - usableAdded);
+      updateBad(() => nextBad);
+      updateUsable((prev) => {
+        const ids = new Set([...prev.map((e) => e.product.id), ...nextBad.map((p) => p.id)]);
+        return [...prev, ...snapshot.usable.filter((e) => !ids.has(e.product.id))].slice(0, MAX_USABLE);
       });
     }
     setRoutineImport(null);
@@ -1069,7 +1195,7 @@ export const ChatContainer: React.FC = () => {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const routineCount = routine.badProducts.length + routine.safeProducts.length + currentUse.length;
+  const routineCount = badProducts.length + usable.length;
   const isTrayVisible = isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== '';
   const closeTray = () => {
     setIsTrayOpen(false);
@@ -1209,7 +1335,7 @@ export const ChatContainer: React.FC = () => {
                   <ClipboardList className="w-[18px] h-[18px]" aria-hidden />
                 </div>
                 <p className="text-xs text-ink-muted truncate">
-                  肌荒れ {routine.badProducts.length}点 / 普段 {routine.safeProducts.length}点 / 使用中 {currentUse.length}点
+                  肌荒れ {badProducts.length}点 / 使えている {usable.length}点
                 </p>
               </div>
               <button
@@ -1223,7 +1349,7 @@ export const ChatContainer: React.FC = () => {
                 <ChevronRight className="w-4 h-4" aria-hidden />
               </button>
             </div>
-            {routine.badProducts.length > 0 && (
+            {badProducts.length > 0 && (
               <div className="px-2 pb-2">
                 <button
                   type="button"
@@ -1239,14 +1365,14 @@ export const ChatContainer: React.FC = () => {
             </div>
           </div>
 
-          {/* 3か月以上前に追加した「今使っているコスメ」の確認（今も使っている・削除で消える） */}
+          {/* 3か月以上前に追加した、今も使っている「使えているコスメ」の確認（今も使っている・もう使っていない・削除で消える） */}
           {/* ステータスの入れ物は常に置く（中身ごと作ると読み上げられないことがある） */}
           <div role="status">
           {staleEntries.length > 0 && (
             <div className="mx-3 sm:mx-6 mt-3 px-3 py-2 bg-orange-50 rounded-xl border border-orange-200 text-xs text-orange-900 flex items-center gap-2">
               <CalendarClock className="w-4 h-4 shrink-0 text-orange-600" aria-hidden />
               <p className="flex-1 min-w-0 break-words">
-                「今使っているコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加したものがあります（
+                「使えているコスメ」に、{STALE_AFTER_MONTHS}か月以上前に追加した、今も使っているものがあります（
                 {staleEntries.slice(0, 3).map((e) => e.product.name).join('、')}
                 {staleEntries.length > 3 && ` ほか${staleEntries.length - 3}点`}
                 ）。今も使っているか確かめてください。
@@ -1255,15 +1381,15 @@ export const ChatContainer: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setIsSidebarOpen(true);
-                  // 今使っているコスメはリストの下のほうにあるので、開いたら（閉じるボタンにフォーカスが移ったあとで）
+                  // 使えているコスメはリストの下のほうにあるので、開いたら（閉じるボタンにフォーカスが移ったあとで）
                   // 見出しへフォーカスと表示を送る
                   requestAnimationFrame(() => {
-                    const section = document.getElementById('current-use-section');
+                    const section = document.getElementById(USABLE_SECTION_ID);
                     section?.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true });
                     section?.scrollIntoView({ block: 'start', inline: 'nearest' });
                   });
                 }}
-                aria-label="今使っているコスメを確認する"
+                aria-label="使えているコスメを確認する"
                 className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg text-sm font-semibold"
               >
                 確認する
@@ -1318,8 +1444,7 @@ export const ChatContainer: React.FC = () => {
                       products={msg.productSuggestions}
                       onSelectToAnalyze={handleSelectProductToAnalyze}
                       onAddToBad={handleAddToBad}
-                      onAddToSafe={handleAddToSafe}
-                      onAddToCurrent={handleAddToCurrent}
+                      onAddToUsable={handleAddToUsable}
                       isAlternatives={msg.suggestionKind === 'alternatives'}
                       credits={msg.alternativeCredits}
                       busy={isLoading}
@@ -1331,8 +1456,7 @@ export const ChatContainer: React.FC = () => {
                     <IngredientAnalysisCard
                       analysis={msg.singleAnalysis}
                       onAddToBadRoutine={() => handleAddToBad(msg.singleAnalysis!.product)}
-                      onAddToSafeRoutine={() => handleAddToSafe(msg.singleAnalysis!.product)}
-                      onAddToCurrentRoutine={() => handleAddToCurrent(msg.singleAnalysis!.product)}
+                      onAddToUsableRoutine={() => handleAddToUsable(msg.singleAnalysis!.product)}
                       onFindAlternatives={() => void handleFindAlternatives(msg.singleAnalysis!.product)}
                       onPriceLookup={handleAlternativePriceLookup}
                       busy={isLoading}
@@ -1515,11 +1639,8 @@ export const ChatContainer: React.FC = () => {
                 onAddToBad={(product) => {
                   handleAddToBad(product);
                 }}
-                onAddToSafe={(product) => {
-                  handleAddToSafe(product);
-                }}
-                onAddToCurrent={(product) => {
-                  handleAddToCurrent(product);
+                onAddToUsable={(product) => {
+                  handleAddToUsable(product);
                 }}
               />
               </div>
@@ -1543,15 +1664,17 @@ export const ChatContainer: React.FC = () => {
           }`}
         >
           <RoutineSidebar
-            routine={routine}
+            badProducts={badProducts}
+            usable={usable}
             onClose={closeSidebar}
             closeButtonRef={drawerCloseRef}
-            currentUse={currentUse}
             staleIds={staleIds}
             onRemoveBad={handleRemoveBad}
-            onRemoveSafe={handleRemoveSafe}
-            onRemoveCurrent={handleRemoveCurrent}
-            onConfirmCurrent={handleConfirmCurrent}
+            onRemoveUsable={handleRemoveUsable}
+            onConfirmUsable={handleConfirmUsable}
+            onSetInUse={handleSetInUse}
+            onClearBad={() => setClearTarget('bad')}
+            onClearUsable={() => setClearTarget('usable')}
             busy={isLoading}
             onCheckCurrentUse={() => {
               // 応答待ちなら引き出しを閉じずに案内する（閉じてから断ると、何が起きたか分からない）
@@ -1564,7 +1687,7 @@ export const ChatContainer: React.FC = () => {
               closeSidebar();
               handleRunDifferential();
             }}
-            onLoadPreset={handleLoadPreset}
+            onLoadSample={handleLoadSample}
             onExportImage={handleExportImage}
             onImportImage={(file) => void handleImportImage(file)}
           />
@@ -1617,10 +1740,68 @@ export const ChatContainer: React.FC = () => {
           snapshot={routineImport.snapshot}
           namesOnly={routineImport.namesOnly}
           hasCurrentLists={routineCount > 0}
-          typedLabelsLost={[...routine.badProducts, ...routine.safeProducts, ...routine.currentlyUsing].filter((p) => !isPersistable(p)).length}
+          typedLabelsLost={[...badProducts, ...usable.map((e) => e.product)].filter((p) => !isPersistable(p)).length}
           onImport={applyImport}
           onClose={() => setRoutineImport(null)}
           fallbackFocus={() => menuButtonRef.current}
+        />
+      )}
+      {/* もう一方のリストにある製品を登録しようとした：移すか、そのリストから削除するか（1つの製品は1つのリストだけ） */}
+      {listConflict && (
+        <ChoiceDialog
+          title={listConflict.target === 'bad' ? '使えているコスメに登録されています' : '肌荒れしたコスメに登録されています'}
+          message={
+            listConflict.target === 'bad'
+              ? `「${listConflict.product.name}」は【使えているコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`
+              : `「${listConflict.product.name}」は【肌荒れしたコスメ】に登録されています。1つのコスメは、どちらか1つのリストにだけ登録できます。`
+          }
+          choices={[
+            {
+              label: listConflict.target === 'bad' ? '肌荒れしたコスメに移す' : '使えているコスメに移す',
+              tone: 'primary',
+              onSelect: () => moveToList(listConflict.product, listConflict.target),
+            },
+            {
+              label: listConflict.target === 'bad' ? '使えているコスメから削除' : '肌荒れしたコスメから削除',
+              tone: 'secondary',
+              onSelect: () => removeFromOtherList(listConflict.product, listConflict.target),
+            },
+          ]}
+          onCancel={() => setListConflict(null)}
+          fallbackFocus={() => inputRef.current}
+        />
+      )}
+      {/* リストのクリア（元に戻せないので確かめる） */}
+      {clearTarget && (
+        <ChoiceDialog
+          warning
+          title={clearTarget === 'bad' ? '肌荒れしたコスメのリストをクリア' : '使えているコスメのリストをクリア'}
+          message={
+            clearTarget === 'bad'
+              ? `肌荒れしたコスメ（${badProducts.length}点）をリストから削除します。元に戻せません。`
+              : `使えているコスメ（${usable.length}点）をリストから削除します。この端末に保存したリストも消え、元に戻せません。`
+          }
+          choices={[{ label: 'クリアする', tone: 'danger', onSelect: () => clearList(clearTarget) }]}
+          onCancel={() => setClearTarget(null)}
+          // クリアするとボタンが消えるので、そのリストの見出しへ（引き出しの中。メニューボタンは引き出しの間は押せない）
+          fallbackFocus={() =>
+            document.getElementById(clearTarget === 'bad' ? BAD_SECTION_ID : USABLE_SECTION_ID)?.querySelector<HTMLElement>('h3') ?? null
+          }
+        />
+      )}
+      {/* 比較の結果のあとに1回：リストを画像で保存しませんか？ */}
+      {isExportReminderOpen && (
+        <ExportReminderDialog
+          onExport={(dontShowAgain) => {
+            if (dontShowAgain) turnOffExportReminder();
+            setIsExportReminderOpen(false);
+            handleExportImage();
+          }}
+          onLater={(dontShowAgain) => {
+            if (dontShowAgain) turnOffExportReminder();
+            setIsExportReminderOpen(false);
+          }}
+          fallbackFocus={() => inputRef.current}
         />
       )}
       {/* 画像の QR コードを読むときに html5-qrcode が使う（画面には出さない） */}
