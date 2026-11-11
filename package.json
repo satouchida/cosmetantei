@@ -5,7 +5,7 @@
   "engines": {
     "node": ">=22.9"
   },
-  "packageManager": "pnpm@12.10.1",
+  "packageManager": "pnpm@12.18.0",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "next build",
@@ -19,30 +19,28 @@
     "deploy": "opennextjs-cloudflare deploy"
   },
   "dependencies": {
-    "clsx": "^2.1.1",
     "html5-qrcode": "^2.3.8",
-    "lucide-react": "^1.55.0",
-    "next": "16.3.8",
+    "lucide-react": "^1.70.0",
+    "next": "16.4.5",
     "qrcode-generator": "2.0.4",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "server-only": "^0.0.1",
-    "tailwind-merge": "^3.7.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.20.10",
-    "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^26.6.5",
+    "@opennextjs/cloudflare": "^1.20.16",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "eslint": "^10.12.0",
-    "eslint-config-next": "^16.4.0",
-    "playwright": "1.64.1",
-    "postcss": "^8.5.29",
-    "tailwindcss": "^4.3.3",
+    "eslint": "^10.14.0",
+    "eslint-config-next": "^16.4.5",
+    "playwright": "1.65.0",
+    "postcss": "^8.5.32",
+    "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "wrangler": "^4.149.0"
+    "wrangler": "^4.158.0"
   }
 }
