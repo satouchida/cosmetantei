@@ -294,7 +294,23 @@ Still open:
   September in-memory search; nothing in the app has called it since 2026-10-08 (all search goes
   through `searchCosmeticsLive`), and it lacks the brand spellings, name aliases and ヴ fold, so
   its tests check rules users never hit. Fix: delete it and move its tests' checks to the real
-  search. Neither fix is made yet.
+  search.
+- **D4 fixed 2026-11-11 (packages J and K):**
+  - `buildQoo10AffiliateUrl` now wraps `buildQoo10SearchUrl`; `QOO10_MYLINK_SEARCH` is composed
+    from the same two pieces. 594 brand and name combinations compared before and after:
+    identical links.
+  - `searchCosmetics` is deleted. Tests 2, 7 and 8 run the same assertions through
+    `searchCosmeticsLive`. Tests 15 and 16 had been checking zero products (their generic
+    queries return nothing from the real search; test 15 already did before this change). They
+    now add real products the queries match and fake ones the search must not return
+    (a placeholder brand, a query word as the brand, a fabricated template name), and assert
+    that at least one result was checked. Measured: 4 products checked in each.
+  - **New finding from that work (open):** a cached product whose brand is the single word 炭
+    would be returned by the search and shown with 炭 as its brand. `GENERIC_VOCABULARY` in
+    `src/lib/services/brand-check.ts` lists 炭酸泡 and 炭酸洗顔 but not 炭 alone, so the
+    no-AI check passes it. Such a product has to get into the cache first; whether the
+    AI brand check at intake would stop it was not tested. Fix to consider: add 炭 (and review
+    other one-character material words) to the vocabulary, with a test case in test 16.
 - Test assertions that read source text now read the split files joined together
   (`CHAT_ROUTE_FILES`, `CHAT_CONTAINER_FILES`); no assertion was removed or loosened.
 - One stale comment remains: `src/lib/utils/ingredient-name.ts:3` still says the rule

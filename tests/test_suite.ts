@@ -1,6 +1,5 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { searchCosmetics } from '../src/lib/services/search-barcode-service';
 import {
   analyzeProduct,
   performDifferentialAnalysis,
@@ -90,11 +89,13 @@ test('1. Product cache holds no fabricated baseline products', () => {
   }
 });
 
-test('2. Sync search returns cached real products only and never synthesizes', () => {
-  assert.deepStrictEqual(searchCosmetics('存在しないブランド 化粧水', 3), [], 'Uncached query must return no products');
+test('2. Search returns cached real products only and never synthesizes', async () => {
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+
+  assert.deepStrictEqual(await searchCosmeticsLive('存在しないブランド 化粧水', 3), [], 'Uncached query must return no products');
 
   const lip = addProductToDynamicCache(verifiedProduct({ name: 'ちふれ 口紅', brand: 'ちふれ', category: 'lip' }));
-  const r1 = searchCosmetics('ちふれ　リップ', 3);
+  const r1 = await searchCosmeticsLive('ちふれ　リップ', 3);
   assert.ok(r1.some((p) => p.id === lip.id), 'Cached real product must be found');
   assert.ok(r1[0].amazonSearchUrl?.includes('tag=cosmetantei22-22'));
 });
@@ -214,14 +215,18 @@ test('6. Missing ingredients online marketplace exploration & disclaimer test', 
   assert.ok(estimated.dataSourceDisclaimer.includes('誤差'));
 });
 
-test('7. Multi-word search with full-width space ("ちふれ　リップ") finds cached products', () => {
+test('7. Multi-word search with full-width space ("ちふれ　リップ") finds cached products', async () => {
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+
   addProductToDynamicCache(verifiedProduct({ name: 'ちふれ リップスティック', brand: 'ちふれ', category: 'lip' }));
-  const results = searchCosmetics('ちふれ　リップ', 6);
+  const results = await searchCosmeticsLive('ちふれ　リップ', 6);
   assert.ok(results.length >= 1, 'Must return at least 1 cached candidate for ちふれ　リップ');
   assert.ok(results[0].name.includes('リップ') || results[0].brand.includes('ちふれ'));
 });
 
-test('8. Dynamic cache registration of live API & Google search products', () => {
+test('8. Dynamic cache registration of live API & Google search products', async () => {
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+
   const liveFetchedProduct: Product = {
     id: 'obf_1234567890123',
     name: 'リアルタイム取得リップバーム',
@@ -237,7 +242,7 @@ test('8. Dynamic cache registration of live API & Google search products', () =>
   assert.strictEqual(cached.id, 'obf_1234567890123');
   assert.ok(cached.amazonSearchUrl?.includes('tag=cosmetantei22-22'));
 
-  const searchHits = searchCosmetics('リアルタイム取得リップバーム', 3);
+  const searchHits = await searchCosmeticsLive('リアルタイム取得リップバーム', 3);
   assert.ok(searchHits.some((p) => p.id === 'obf_1234567890123'));
 });
 
@@ -498,45 +503,70 @@ test('14. Strict formatting validation (Zero markdown bold/italic asterisks in i
 
 test('15. Strict authentic cosmetics guarantee (Zero fictional products or disguised search queries)', async () => {
   const { searchCosmeticsLive, isActualCosmeticProduct } = await import('../src/lib/services/live-cosmetics-service');
-  const { searchCosmetics } = await import('../src/lib/services/search-barcode-service');
+  const { rankProducts } = await import('../src/lib/search/product-match');
+  const { removeFromDynamicCache } = await import('../src/lib/data/cosmetics-db');
 
   const testQueries = ['泡洗顔 炭 スクラブ', '炭 洗顔 敏感 肌', '泡洗顔 角栓', '泡洗顔 炭酸泡'];
 
-  for (const q of testQueries) {
-    const liveResults = await searchCosmeticsLive(q, 4);
-    const syncResults = searchCosmetics(q, 4);
-
-    for (const p of [...liveResults, ...syncResults]) {
-      assert.strictEqual(
-        isActualCosmeticProduct(p),
-        true,
-        `Product "${p.brand} - ${p.name}" must be an actual authentic cosmetic`
-      );
-
-      // 架空ブランド名の完全排除検証
-      assert.ok(
-        !/^(注目コスメ|注目スキンケア|薬用スキンケア|低刺激ラボ|酵素洗顔|ディープクリア|バーコード照合|ブランド未記載|未記載)$/.test(
-          p.brand
-        ),
-        `Brand "${p.brand}" must not be a fake placeholder brand`
-      );
-
-      // 架空テンプレート名・連番名の完全排除検証
-      assert.ok(
-        !/(炭＆植物スクラブ|薬用 炭クレイ スクラブ|ディープクリア 炭スクラブ|低刺激 炭スクラブ|酵素＆炭スクラブ|アイテム\d+)/.test(
-          p.name
-        ),
-        `Product name "${p.name}" must not be a fake synthesized template name`
-      );
-
-      // 検索クエリ文字列がそのまま製品名に偽装されていないことの検証
-      assert.ok(
-        !/(少ない|多い|すみしょう|かずのすけ|角栓|黒ずみ|いちご鼻|テカリ|皮脂|敏感\s*肌|炭酸\s*泡|炭酸\s*洗顔)$/.test(
-          p.name
-        ),
-        `Product name "${p.name}" must not end with search query suffix`
-      );
+  // 検索語に合う製品（下の確認を空回りさせない）と、検索が返してはいけない製品（語は合う）
+  const real = [
+    verifiedProduct({ id: 't15_scrub', brand: 'ハナミズキテスト', name: '炭 泡洗顔 スクラブフォーム', category: 'cleanser' }),
+    verifiedProduct({ id: 't15_sensitive', brand: 'ハナミズキテスト', name: '敏感肌用 炭 洗顔フォーム', category: 'cleanser' }),
+    verifiedProduct({ id: 't15_foam', brand: 'ハナミズキテスト', name: '炭酸泡 角栓ケア 泡洗顔 フォーム', category: 'cleanser' }),
+  ];
+  const fakes = [
+    verifiedProduct({ id: 't15_placeholder_brand', brand: 'ブランド未記載', name: '炭 泡洗顔 スクラブジェル', category: 'cleanser' }),
+    verifiedProduct({ id: 't15_query_word_brand', brand: '敏感肌', name: '炭 洗顔フォーム', category: 'cleanser' }),
+    verifiedProduct({ id: 't15_template_name', brand: 'ハナミズキテスト', name: '低刺激 炭スクラブ 泡洗顔', category: 'cleanser' }),
+  ];
+  for (const p of [...real, ...fakes]) addProductToDynamicCache(p);
+  let checked = 0;
+  try {
+    for (const p of fakes) {
+      assert.ok(COSMETICS_DATABASE.some((c) => c.id === p.id), `${p.id} must be in the cache`);
+      assert.ok(testQueries.some((q) => rankProducts([p], q).length > 0), `${p.id} must match a query, so only the filter keeps it out`);
     }
+
+    for (const q of testQueries) {
+      const liveResults = await searchCosmeticsLive(q, 4);
+      for (const f of fakes) assert.ok(!liveResults.some((p) => p.id === f.id), `${f.id} must not be returned for "${q}"`);
+
+      for (const p of liveResults) {
+        checked += 1;
+        assert.strictEqual(
+          isActualCosmeticProduct(p),
+          true,
+          `Product "${p.brand} - ${p.name}" must be an actual authentic cosmetic`
+        );
+
+        // 架空ブランド名の完全排除検証
+        assert.ok(
+          !/^(注目コスメ|注目スキンケア|薬用スキンケア|低刺激ラボ|酵素洗顔|ディープクリア|バーコード照合|ブランド未記載|未記載)$/.test(
+            p.brand
+          ),
+          `Brand "${p.brand}" must not be a fake placeholder brand`
+        );
+
+        // 架空テンプレート名・連番名の完全排除検証
+        assert.ok(
+          !/(炭＆植物スクラブ|薬用 炭クレイ スクラブ|ディープクリア 炭スクラブ|低刺激 炭スクラブ|酵素＆炭スクラブ|アイテム\d+)/.test(
+            p.name
+          ),
+          `Product name "${p.name}" must not be a fake synthesized template name`
+        );
+
+        // 検索クエリ文字列がそのまま製品名に偽装されていないことの検証
+        assert.ok(
+          !/(少ない|多い|すみしょう|かずのすけ|角栓|黒ずみ|いちご鼻|テカリ|皮脂|敏感\s*肌|炭酸\s*泡|炭酸\s*洗顔)$/.test(
+            p.name
+          ),
+          `Product name "${p.name}" must not end with search query suffix`
+        );
+      }
+    }
+    assert.ok(checked > 0, 'The checks above must run on at least one search result');
+  } finally {
+    for (const p of [...real, ...fakes]) removeFromDynamicCache(p.id);
   }
 });
 
@@ -544,7 +574,8 @@ test('16. Zero user query reflection in brand field (Rejects generic terms in br
   const { searchCosmeticsLive, getDisplayBrand } = await import(
     '../src/lib/services/live-cosmetics-service'
   );
-  const { searchCosmetics } = await import('../src/lib/services/search-barcode-service');
+  const { rankProducts } = await import('../src/lib/search/product-match');
+  const { removeFromDynamicCache } = await import('../src/lib/data/cosmetics-db');
 
   const genericQueries = [
     '泡洗顔 炭 スクラブ',
@@ -556,36 +587,60 @@ test('16. Zero user query reflection in brand field (Rejects generic terms in br
     'メンズ 洗顔',
   ];
 
-  for (const q of genericQueries) {
-    const liveResults = await searchCosmeticsLive(q, 3);
-    const syncResults = searchCosmetics(q, 3);
-
-    for (const p of [...liveResults, ...syncResults]) {
-      // ブランド名がユーザー入力の検索クエリ単語（スクラブ、炭、泡洗顔、敏感肌等）でないことの厳格検証
-      assert.ok(
-        p.brand !== '炭' &&
-          p.brand !== 'スクラブ' &&
-          p.brand !== '泡洗顔' &&
-          p.brand !== '炭 洗顔' &&
-          p.brand !== '泡洗顔 炭 スクラブ' &&
-          p.brand !== '乾燥肌' &&
-          p.brand !== '敏感肌' &&
-          p.brand !== '毛穴' &&
-          p.brand !== 'プチプラ' &&
-          p.brand !== 'メンズ',
-        `Brand "${p.brand}" for query "${q}" must not be a user search query word`
-      );
-
-      // ブランド名が表示されるべきエリアで安全な実在ブランド名が返ることの検証
-      const displayBrand = getDisplayBrand(p.brand, p.name);
-      assert.ok(
-        displayBrand &&
-          displayBrand !== '炭' &&
-          displayBrand !== 'スクラブ' &&
-          displayBrand !== '泡洗顔',
-        `Display brand "${displayBrand}" must be an authentic brand`
-      );
+  // 検索語に合う製品（下の確認を空回りさせない）と、検索が返してはいけない製品（語は合う）
+  const real = [
+    verifiedProduct({ id: 't16_scrub', brand: 'ハナミズキテスト', name: '炭 泡洗顔 スクラブフォーム', category: 'cleanser' }),
+    verifiedProduct({ id: 't16_toner', brand: 'ハナミズキテスト', name: '敏感肌 化粧水 しっとり', category: 'toner' }),
+    verifiedProduct({ id: 't16_pore', brand: 'ハナミズキテスト', name: '毛穴 クレンジングオイル', category: 'cleanser' }),
+  ];
+  const fakes = [
+    verifiedProduct({ id: 't16_placeholder_brand', brand: 'ブランド未記載', name: '毛穴 クレンジングジェル', category: 'cleanser' }),
+    verifiedProduct({ id: 't16_query_word_brand', brand: '敏感肌', name: '化粧水 さっぱり', category: 'toner' }),
+    verifiedProduct({ id: 't16_template_name', brand: 'ハナミズキテスト', name: '炭＆植物スクラブ 泡洗顔', category: 'cleanser' }),
+  ];
+  for (const p of [...real, ...fakes]) addProductToDynamicCache(p);
+  let checked = 0;
+  try {
+    for (const p of fakes) {
+      assert.ok(COSMETICS_DATABASE.some((c) => c.id === p.id), `${p.id} must be in the cache`);
+      assert.ok(genericQueries.some((q) => rankProducts([p], q).length > 0), `${p.id} must match a query, so only the filter keeps it out`);
     }
+
+    for (const q of genericQueries) {
+      const liveResults = await searchCosmeticsLive(q, 3);
+      for (const f of fakes) assert.ok(!liveResults.some((p) => p.id === f.id), `${f.id} must not be returned for "${q}"`);
+
+      for (const p of liveResults) {
+        checked += 1;
+        // ブランド名がユーザー入力の検索クエリ単語（スクラブ、炭、泡洗顔、敏感肌等）でないことの厳格検証
+        assert.ok(
+          p.brand !== '炭' &&
+            p.brand !== 'スクラブ' &&
+            p.brand !== '泡洗顔' &&
+            p.brand !== '炭 洗顔' &&
+            p.brand !== '泡洗顔 炭 スクラブ' &&
+            p.brand !== '乾燥肌' &&
+            p.brand !== '敏感肌' &&
+            p.brand !== '毛穴' &&
+            p.brand !== 'プチプラ' &&
+            p.brand !== 'メンズ',
+          `Brand "${p.brand}" for query "${q}" must not be a user search query word`
+        );
+
+        // ブランド名が表示されるべきエリアで安全な実在ブランド名が返ることの検証
+        const displayBrand = getDisplayBrand(p.brand, p.name);
+        assert.ok(
+          displayBrand &&
+            displayBrand !== '炭' &&
+            displayBrand !== 'スクラブ' &&
+            displayBrand !== '泡洗顔',
+          `Display brand "${displayBrand}" must be an authentic brand`
+        );
+      }
+    }
+    assert.ok(checked > 0, 'The checks above must run on at least one search result');
+  } finally {
+    for (const p of [...real, ...fakes]) removeFromDynamicCache(p.id);
   }
 
   // 一般名詞だけのブランドは表示用ブランドとして使われない

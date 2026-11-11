@@ -17,7 +17,6 @@ function obfImageUrl(raw: unknown): string | undefined {
 }
 import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS, UNTRUSTED_ONLY_TTL_SECONDS } from './web-research';
 import { mayRememberFailure } from '../server/usage';
-import { CATEGORY_SYNONYMS } from '../search/product-match';
 import { ETHANOL_IN_LABEL } from './label-reader';
 import { contactEmail, SITE_URL } from '../site';
 import {
@@ -45,97 +44,6 @@ export {
   isGenericCosmeticTerm,
   getDisplayBrand,
 };
-
-/**
- * コスメの高速キャッシュ検索（即時応答用）
- * - 特定ブランド固定DBに依存せず、動的キャッシュ内を走査
- * - 該当が無い場合も架空の候補は生成しない
- */
-export function searchCosmetics(query: string, limit = 6): Product[] {
-  if (!query || query.trim().length === 0) {
-    return COSMETICS_DATABASE.slice(0, limit);
-  }
-
-  const cleanInput = query.replace(/\u3000/g, ' ').trim();
-  const numericOnly = cleanInput.replace(/[^0-9]/g, '');
-
-  // バーコード番号の場合
-  if (numericOnly.length >= 8 && numericOnly.length <= 14) {
-    const barcodeMatch = COSMETICS_DATABASE.filter((p) =>
-      matchesOwnBarcode(p, numericOnly, numericOnly.replace(/^0+/, ''))
-    );
-    if (barcodeMatch.length > 0) {
-      return barcodeMatch.slice(0, limit);
-    }
-  }
-
-  const tokens = cleanInput
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => normalizeSearchString(t));
-
-  const fullNormalizedQuery = normalizeSearchString(cleanInput);
-
-  const scored = COSMETICS_DATABASE.map((item) => {
-    let score = 0;
-    const nameNorm = normalizeSearchString(item.name);
-    const brandNorm = normalizeSearchString(item.brand);
-    const descNorm = normalizeSearchString(item.descriptionJa || '');
-
-    const catSyns = CATEGORY_SYNONYMS[item.category] || [];
-    const catNorm = catSyns.map((s) => normalizeSearchString(s)).join(' ');
-
-    const combinedSearchTarget = `${brandNorm} ${nameNorm} ${catNorm} ${descNorm}`;
-
-    if (nameNorm === fullNormalizedQuery || brandNorm === fullNormalizedQuery) {
-      score += 250;
-    } else if (nameNorm.includes(fullNormalizedQuery) || brandNorm.includes(fullNormalizedQuery)) {
-      score += 150;
-    } else if (combinedSearchTarget.includes(fullNormalizedQuery)) {
-      score += 80;
-    }
-
-    let matchedTokenCount = 0;
-
-    for (const token of tokens) {
-      let tokenMatched = false;
-
-      if (brandNorm.includes(token)) {
-        score += 80;
-        tokenMatched = true;
-      }
-      if (nameNorm.includes(token)) {
-        score += 80;
-        tokenMatched = true;
-      }
-      if (catNorm.includes(token)) {
-        score += 50;
-        tokenMatched = true;
-      }
-      if (descNorm.includes(token)) {
-        score += 20;
-        tokenMatched = true;
-      }
-
-      if (tokenMatched) {
-        matchedTokenCount++;
-      }
-    }
-
-    if (tokens.length > 1 && matchedTokenCount === tokens.length) {
-      score += 200;
-    }
-
-    return { item, score };
-  });
-
-  return scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map((s) => s.item)
-    .filter(isActualCosmeticProduct)
-    .slice(0, limit);
-}
 
 /**
  * バーコード（JANコード・EAN・UPC）から製品情報を検索する
