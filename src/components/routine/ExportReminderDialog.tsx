@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ImageDown, X } from 'lucide-react';
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimary, buttonTonal, iconButton } from '../ui/design';

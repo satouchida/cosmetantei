@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonDanger, buttonPrimary, buttonSecondary, buttonTonal, iconButton } from '../ui/design';

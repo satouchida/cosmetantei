@@ -123,10 +123,6 @@ export function addProductToDynamicCache(product: Product): Product {
   return enrichedProduct;
 }
 
-export function addMultipleProductsToDynamicCache(products: Product[]): Product[] {
-  return products.map(addProductToDynamicCache);
-}
-
 /** メモリのキャッシュから製品を外す（保存の期限が切れた製品・調べ直して置き換える製品） */
 export function removeFromDynamicCache(id: string): void {
   const idx = RUNTIME_CACHE.findIndex((p) => p.id === id);

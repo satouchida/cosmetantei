@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { ClipboardList, X } from 'lucide-react';
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimaryCompact, buttonSecondaryCompact, buttonTonal, iconButton, panel } from '../ui/design';

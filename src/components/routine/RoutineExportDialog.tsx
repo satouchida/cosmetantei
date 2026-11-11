@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Download, Image as ImageIcon, Loader2, Share2, X } from 'lucide-react';
 import { ModalDialog } from '../ui/ModalDialog';
 import { buttonPrimaryCompact, buttonSecondaryCompact, iconButton, panel } from '../ui/design';

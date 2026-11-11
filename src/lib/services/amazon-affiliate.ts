@@ -17,13 +17,3 @@ export function buildAmazonAffiliateUrl(
   const encodedQuery = encodeURIComponent(query);
   return `https://www.amazon.co.jp/s?k=${encodedQuery}&tag=${encodeURIComponent(tag)}`;
 }
-
-/**
- * JANコードから Amazon.co.jp アフィリエイト検索URLを生成
- */
-export function buildAmazonBarcodeUrl(
-  barcode: string,
-  tag: string = AMAZON_AFFILIATE_TAG
-): string {
-  return `https://www.amazon.co.jp/s?k=${encodeURIComponent(barcode)}&tag=${encodeURIComponent(tag)}`;
-}
