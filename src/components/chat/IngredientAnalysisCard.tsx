@@ -1,18 +1,19 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Product, ProductAnalysisResult, AnalyzedIngredient, KnownIngredient } from '@/lib/types';
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, X, Globe, Loader2, Search } from 'lucide-react';
+import React, { useRef } from 'react';
+import { Product, ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
+import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, Globe, Loader2, Search } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { useUnregisteredProducts } from './RegisteredProducts';
 import { ProductSourceLink } from './ProductSourceLink';
 import { MedicalNotice } from './MedicalNotice';
-import { isShopListingProduct, isUserLabelProduct } from '@/lib/product-source';
+import { IngredientDetailPanel } from './IngredientDetailPanel';
+import { useAIAnalysis } from './useAIAnalysis';
+import { useIngredientExplanation } from './useIngredientExplanation';
+import { isUserLabelProduct } from '@/lib/product-source';
 import { mildCautionNames } from '@/lib/caution-reason';
 import { isIrritantLevel, legendEntries, outsideStandard, pillMark, riskLabelFor } from './ingredient-marks';
-import { apiFetch } from '@/lib/client/api-fetch';
 import { productCategory } from '@/lib/analyzer/product-category';
-import { NETWORK_MESSAGE, TIMEOUT_MESSAGE } from '@/lib/client/chat-request';
 import {
   badge as badgeClass,
   busyLook,
@@ -39,95 +40,8 @@ interface IngredientAnalysisCardProps {
   busy?: boolean;
 }
 
-/**
- * 成分DBとルールで評価できない成分があり、まだ AI に評価を頼んでいない分析か。
- * 入力・撮影した成分表示は AI にまとめて送らないので頼まない（1成分ずつ「AIでさらに詳しく調べる」で調べられる）
- */
-function needsAIEvaluation(a: ProductAnalysisResult): boolean {
-  return a.riskCounts.unknown > 0 && !a.aiEvaluation && !a.isEstimatedFromMarketplaces && !isUserLabelProduct(a.product) && !isShopListingProduct(a.product);
-}
-
-/** 成分DB（出典と照合済み）で評価した成分か。ルールの推論（dyn_）・AI（ai_）は含めない */
-function isDatabaseRated(ing: AnalyzedIngredient): boolean {
-  const id = ing.matchedKnown?.id;
-  return !!id && !id.startsWith('dyn_') && !id.startsWith('ai_');
-}
-
-/** 成分の解説のアドバイス。化粧品基準の外 → 表示指定成分で引き上げた → 成分DB・ルールの文（無ければ定型文）の順 */
-function adviceFor(ing: AnalyzedIngredient): string {
-  if (outsideStandard(ing)) {
-    return '日本の化粧品基準で、この製品には配合できない成分です。使う前に、成分表示と販売元の情報を確かめてください。';
-  }
-  if (ing.raisedForLabel) {
-    return '表示指定成分です。この成分で肌に合わなかったことがある方は、避ける目安にしてください。';
-  }
-  return (
-    ing.matchedKnown?.sensitiveSkinAdviceJa ||
-    '刺激性を評価できていないため、気になる場合は「AIでさらに詳しく調べる」で確認するか、腕の内側などの目立たない部分で試してから使用してください。'
-  );
-}
-
 /** 肌を整える・うるおいを保つ成分のうち、開かずに見える数 */
 const SOOTHING_SHOWN = 2;
-
-/** 1回目で評価できなかったとき、もう1回頼むまでの時間（見つけたばかりの製品が、ほかのサーバーに届くのを待つ） */
-const AI_RETRY_DELAY_MS = 4_000;
-/** AI の評価・解説の1回の要求の上限。超えたら中断して、もう一度頼めるようにする */
-const AI_REQUEST_TIMEOUT_MS = 30_000;
-
-const isTimeout = (err: unknown) => err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError');
-
-/**
- * 評価の結果。retry: 頼み直す意味がある失敗か（回数制限などの 4xx は頼み直しても同じ）。
- * error: サーバーが付けた理由の文（429 の「1分ほど待って」など。カードにそのまま出す）
- */
-type AIFetch = { result: ProductAnalysisResult | null; retry: boolean; error?: string; rejected?: boolean };
-/** rejected: サーバーが断った（回数・予算の上限など 4xx）。押して頼み直しても同じなので「もう一度調べる」を出さない */
-type AIOutcome = { result: ProductAnalysisResult | null; error?: string; rejected?: boolean };
-
-async function fetchAIAnalysis(a: ProductAnalysisResult): Promise<AIFetch> {
-  try {
-    const res = await apiFetch(
-      '/api/analyze',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product: a.product, aiEvaluate: true }),
-      },
-      { timeoutMs: AI_REQUEST_TIMEOUT_MS }
-    );
-    if (res.status >= 400 && res.status < 500) {
-      const data = await res.json().catch(() => null);
-      const error = typeof data?.error === 'string' && data.error ? data.error : undefined;
-      return { result: null, retry: false, error, rejected: true };
-    }
-    const result = res.ok ? ((await res.json())?.result as ProductAnalysisResult | undefined) : undefined;
-    return result?.aiEvaluation ? { result, retry: false } : { result: null, retry: true };
-  } catch (err) {
-    // 時間切れは、もう一度待たせない（カードの「もう一度調べる」で頼み直せる）
-    return isTimeout(err) ? { result: null, retry: false, error: TIMEOUT_MESSAGE } : { result: null, retry: true };
-  }
-}
-
-/**
- * 分析ごとに1回だけ AI の評価を頼む（StrictMode で effect が2回動いても、同じ分析なら同じ要求を使う）。
- * 評価できなかったら（5xx・通信の失敗・評価の無い応答）、少し待ってもう1回だけ頼む。それでもだめなら null
- */
-const aiRequests = new WeakMap<ProductAnalysisResult, Promise<AIOutcome>>();
-function requestAIAnalysis(a: ProductAnalysisResult): Promise<AIOutcome> {
-  let request = aiRequests.get(a);
-  if (!request) {
-    request = (async () => {
-      const first = await fetchAIAnalysis(a);
-      if (first.result || !first.retry) return { result: first.result, error: first.error, rejected: first.rejected };
-      await new Promise((resolve) => setTimeout(resolve, AI_RETRY_DELAY_MS));
-      const second = await fetchAIAnalysis(a);
-      return { result: second.result, error: second.error, rejected: second.rejected };
-    })();
-    aiRequests.set(a, request);
-  }
-  return request;
-}
 
 export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   analysis: initialAnalysis,
@@ -137,158 +51,18 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   onPriceLookup,
   busy = false,
 }) => {
-  const [pickedIngredient, setPickedIngredient] = useState<AnalyzedIngredient | null>(null);
-  // 「AIでさらに詳しく調べる」を頼んでいる成分と、失敗した成分とその理由（別の成分を開いても混ざらないよう名前で持つ）
-  const [explainingName, setExplainingName] = useState<string | null>(null);
-  const [explainError, setExplainError] = useState<{ name: string; text: string } | null>(null);
-  // 読み上げ：AI の解説を頼んだ・届いた（押したボタンの文字が変わるだけでは伝わらない）
-  const [explainStatus, setExplainStatus] = useState('');
-  // 「もう一度調べる」を押した回数（AI の評価を頼み直す）
-  const [aiAttempt, setAiAttempt] = useState(0);
   // 成分の解説の見出し（開いたとき・AI の解説が届いたときにフォーカスを移す）
   const detailTitleRef = useRef<HTMLDivElement | null>(null);
   const detailRef = useRef<HTMLDivElement | null>(null);
-  // 未評価の成分の AI の評価（表示のあとで頼み、届いたら分析を差し替える）。
-  // 結果は頼んだときの分析とひも付け、別の分析が渡されたら古い結果は使わない
-  const [ai, setAi] = useState<{
-    source: ProductAnalysisResult;
-    result: ProductAnalysisResult | null;
-    error?: string;
-    rejected?: boolean;
-  } | null>(null);
   // カード（「もう一度調べる」を押したとき、ボタンが消えるのでここへフォーカスを移す）
   const cardRef = useRef<HTMLDivElement | null>(null);
-  const settled = ai?.source === initialAnalysis ? ai : null;
-  const analysis = settled?.result ?? initialAnalysis;
+  // 未評価の成分の AI の評価（useAIAnalysis.ts）。届いたら analysis が差し替わる
+  const { analysis, aiStatus, aiError, aiRejected, aiEvaluation, retryAIAnalysis } = useAIAnalysis(initialAnalysis, cardRef);
   // 代わりの商品のうち、比較リストに登録していないもの（カードに出る数。RegisteredProducts.tsx）
   const shownAlternatives = useUnregisteredProducts(analysis.safeAlternatives ?? []);
-  const aiStatus: 'idle' | 'loading' | 'failed' =
-    !needsAIEvaluation(initialAnalysis) || settled?.result ? 'idle' : settled ? 'failed' : 'loading';
-
-  useEffect(() => {
-    if (!needsAIEvaluation(initialAnalysis)) return;
-    let cancelled = false;
-    requestAIAnalysis(initialAnalysis).then(({ result, error, rejected }) => {
-      if (!cancelled) setAi({ source: initialAnalysis, result, error, rejected });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [initialAnalysis, aiAttempt]);
-
-  /** AI の評価を頼み直す（失敗・時間切れのあと） */
-  const retryAIAnalysis = () => {
-    aiRequests.delete(initialAnalysis);
-    setAi(null);
-    setAiAttempt((n) => n + 1);
-    // 押したボタンは消えるので、カードへフォーカスを移す（読み上げは状態の枠で伝える）
-    cardRef.current?.focus();
-  };
-
-  // 開いている成分の解説は、AI の評価が届いたら新しい分析のものにする（「AIでさらに詳しく調べる」の結果はそのまま）
-  const selectedIngredient =
-    pickedIngredient && !pickedIngredient.aiExplained && !pickedIngredient.matchedKnown?.id.startsWith('ai_')
-      ? (analysis.ingredients.find((i) => i.rawName === pickedIngredient.rawName) ?? pickedIngredient)
-      : pickedIngredient;
-
-  /** 解説の見出しへフォーカスを移す（描画のあとで） */
-  const focusDetail = () => requestAnimationFrame(() => detailTitleRef.current?.focus());
-
-  /** 成分を開く（開いている成分をもう一度押すと閉じる）。解説は成分の一覧の後にあるので、見出しへフォーカスを移す */
-  const selectIngredient = (ing: AnalyzedIngredient) => {
-    if (pickedIngredient?.rawName === ing.rawName) {
-      setPickedIngredient(null);
-      return;
-    }
-    setPickedIngredient(ing);
-    focusDetail();
-  };
-
-  /** 解説を閉じて、その成分のボタンへ戻る */
-  const closeIngredient = () => {
-    const name = pickedIngredient?.rawName;
-    const card = detailTitleRef.current?.closest('[data-analysis-card]');
-    setPickedIngredient(null);
-    requestAnimationFrame(() => {
-      const pills = card?.querySelectorAll<HTMLElement>('[data-ingredient]') ?? [];
-      [...pills].find((p) => p.dataset.ingredient === name)?.focus();
-    });
-  };
-
-  const handleExplainWithAI = async (ingredientName: string) => {
-    if (!ingredientName || explainingName) return;
-    setExplainingName(ingredientName);
-    setExplainError(null);
-    setExplainStatus(`${ingredientName}をAIで調べています`);
-    try {
-      const res = await apiFetch(
-        '/api/ingredients/explain',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ingredientName }),
-        },
-        { timeoutMs: AI_REQUEST_TIMEOUT_MS }
-      );
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (!data?.ingredient) {
-          setExplainError({ name: ingredientName, text: 'AI解説を取得できませんでした。しばらくしてからお試しください。' });
-        } else {
-          const explained: KnownIngredient = data.ingredient;
-          setExplainStatus(`${ingredientName}の解説を表示しました`);
-          // 調べている間に別の成分を選んでいたら、その成分には書き込まない
-          setPickedIngredient((current) => {
-            if (!current || current.rawName !== ingredientName) return current;
-            if (isDatabaseRated(current)) {
-              // 成分DBの成分は評価と名前は DB のまま。AI が書くのは解説だけ
-              return {
-                ...current,
-                matchedKnown: {
-                  ...current.matchedKnown!,
-                  reasonJa: explained.reasonJa,
-                  sensitiveSkinAdviceJa: explained.sensitiveSkinAdviceJa,
-                  evidenceJa: explained.evidenceJa,
-                },
-                reasonJa: explained.reasonJa,
-                aiExplained: true,
-              };
-            }
-            // ルールの評価が AI より厳しければ、サーバーはルールの評価を返す。AI の評価が使われたときだけ「AIの評価」と書く
-            // 表示指定成分で「軽度の注意」に引き上げた成分は、解説の後も引き上げたまま（analyzeProduct と同じ）
-            const raisedForLabel = !!current.jpDesignated && explained.riskLevel === 'safe';
-            const riskLevel = raisedForLabel ? 'low_caution' : explained.riskLevel;
-            const aiRated = explained.riskLevel !== 'unknown' && riskLevel !== current.riskLevel;
-            return {
-              ...current,
-              matchedKnown: explained,
-              riskLevel,
-              raisedForLabel: raisedForLabel ? (true as const) : undefined,
-              category: explained.category,
-              reasonJa: explained.reasonJa,
-              aiEvaluated: aiRated,
-              aiExplained: true,
-            };
-          });
-        }
-      } else {
-        const data = await res.json().catch(() => null);
-        setExplainError({ name: ingredientName, text: data?.error || 'AI解説を取得できませんでした。しばらくしてからお試しください。' });
-      }
-    } catch (err) {
-      console.error('Failed to explain ingredient with AI:', err);
-      setExplainError({ name: ingredientName, text: isTimeout(err) ? TIMEOUT_MESSAGE : NETWORK_MESSAGE });
-    } finally {
-      // 失敗は role=alert で読み上げるので、こちらは消す（成功の文は残す）
-      setExplainStatus((s) => (s.endsWith('調べています') ? '' : s));
-      setExplainingName(null);
-      // 押したボタンは解説が届くと消える。そのボタン（解説の中）にフォーカスがあったときだけ、見出しへ移す
-      const hadFocus = !!detailRef.current?.contains(document.activeElement);
-      requestAnimationFrame(() => {
-        if (hadFocus && (!document.activeElement || document.activeElement === document.body)) detailTitleRef.current?.focus();
-      });
-    }
-  };
+  // 開いている成分と「AIでさらに詳しく調べる」（useIngredientExplanation.ts）
+  const { selectedIngredient, explainingName, explainError, explainStatus, selectIngredient, closeIngredient, handleExplainWithAI } =
+    useIngredientExplanation(analysis, detailTitleRef, detailRef);
   const {
     product,
     overallRiskLevel,
@@ -386,8 +160,8 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         {aiStatus === 'failed' && (
           <div className={`space-y-2 ${panel('neutral', 'small')}`}>
             {/* 回数の制限など、サーバーが理由を付けたときはそれを出す（「1つずつ調べて」と勧めても同じ制限に当たる） */}
-            <p>{settled?.error ?? '成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。'}</p>
-            {!settled?.rejected && (
+            <p>{aiError ?? '成分データに無い成分を、AIで調べられませんでした。成分をタップすると、1つずつAIで調べられます。'}</p>
+            {!aiRejected && (
               <button type="button" onClick={retryAIAnalysis} className={buttonSecondary}>
                 もう一度調べる
               </button>
@@ -397,7 +171,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       </div>
       {/* 完了の読み上げは、見えない別の枠で（上の枠に入れると、空でなくなって余白ができる） */}
       <div role="status" className="sr-only">
-        {settled?.result?.aiEvaluation && `AIで${settled.result.aiEvaluation.evaluatedCount}成分を評価し、結果に反映しました。`}
+        {aiEvaluation && `AIで${aiEvaluation.evaluatedCount}成分を評価し、結果に反映しました。`}
       </div>
       {/* 「AIでさらに詳しく調べる」の開始・完了の読み上げ（いつも置いておく） */}
       <div role="status" className="sr-only">
@@ -570,138 +344,15 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 
       {/* Ingredient Detail Modal / Popup */}
       {selectedIngredient && (
-        <div
-          ref={detailRef}
-          role="region"
-          aria-label="成分の解説"
-          className="p-4 bg-surface-container-low rounded-xl border border-sand-200 relative animate-fade-in text-sm space-y-2"
-        >
-          <button
-            type="button"
-            onClick={closeIngredient}
-            aria-label="成分の解説を閉じる"
-            className="absolute top-0 right-0 w-12 h-12 flex items-center justify-center rounded-full text-ink-muted hover:text-ink hover:bg-surface-container"
-          >
-            <X className="w-5 h-5" aria-hidden />
-          </button>
-          <div ref={detailTitleRef} tabIndex={-1} className="flex items-center gap-2 flex-wrap pr-10 focus:outline-hidden">
-            {/* AI が書いた成分名は推測を含むので出さず、成分表示の名前を出す */}
-            {selectedIngredient.aiEvaluated || selectedIngredient.matchedKnown?.id.startsWith('ai_') ? (
-              <span className="font-semibold text-ink text-base">{selectedIngredient.rawName}</span>
-            ) : (
-              <>
-                <span className="font-semibold text-ink text-base">
-                  {selectedIngredient.matchedKnown?.nameJa || selectedIngredient.rawName}
-                </span>
-                {/* 英語の名前は英語として読み上げる */}
-                <span
-                  className="text-xs text-ink-muted"
-                  lang={/^[\x20-\x7E]+$/.test(selectedIngredient.matchedKnown?.nameEn ?? '') ? 'en' : undefined}
-                >
-                  ({selectedIngredient.matchedKnown?.nameEn || selectedIngredient.rawName})
-                </span>
-              </>
-            )}
-            {selectedIngredient.isActive && <span className={badgeClass('neutral')}>医薬部外品の有効成分</span>}
-            <span className={riskBadge(selectedIngredient.riskLevel)}>{riskLabelFor(selectedIngredient)}</span>
-          </div>
-          <p className="leading-relaxed">
-            {selectedIngredient.matchedKnown?.reasonJa ||
-              selectedIngredient.reasonJa ||
-              'この成分の解説データはまだありません。'}
-          </p>
-          <p className="text-sage-800 font-medium leading-relaxed">
-            <span aria-hidden>💡 </span>アドバイス: {adviceFor(selectedIngredient)}
-          </p>
-          {selectedIngredient.wheatDerived && (
-            <p className={panel('caution', 'small')}>
-              <span aria-hidden>🌾 </span>小麦由来の成分です。小麦アレルギーがある方は注意し、使用中にかゆみやはれが出たら使用をやめて医師に相談してください。
-            </p>
-          )}
-          {selectedIngredient.jpStandard && (
-            <p
-              className={`text-xs leading-relaxed ${
-                selectedIngredient.jpStandard.notAllowedHere ? 'text-rose-800 font-semibold' : 'text-ink-muted'
-              }`}
-            >
-              <span aria-hidden>📋 </span>
-              {selectedIngredient.jpStandard.textJa}{' '}
-              <a
-                href={selectedIngredient.jpStandard.referenceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={textLink}
-              >
-                告示を見る<span className="sr-only">（新しいタブで開く）</span>
-              </a>
-            </p>
-          )}
-          {selectedIngredient.jpDesignated && (
-            <p className="text-xs leading-relaxed text-ink-muted">
-              <span aria-hidden>🏷️ </span>
-              {selectedIngredient.jpDesignated.textJa}
-              {selectedIngredient.jpDesignated.references.map((ref, i) => (
-                <React.Fragment key={ref.url}>
-                  {' '}
-                  <a href={ref.url} target="_blank" rel="noopener noreferrer" title={ref.title} className={textLink}>
-                    {i === 0 ? '成分の一覧' : '通知'}
-                    <span className="sr-only">（{ref.title}。新しいタブで開く）</span>
-                  </a>
-                </React.Fragment>
-              ))}
-            </p>
-          )}
-          {selectedIngredient.matchedKnown?.evidenceJa && (
-            <p className="text-xs leading-relaxed text-ink-muted">
-              <span aria-hidden>📚 </span>根拠（AIによる）: {selectedIngredient.matchedKnown.evidenceJa}
-            </p>
-          )}
-          {selectedIngredient.aiEvaluated ? (
-            <p className="text-xs text-ink-muted">この評価と解説はAIが作成したもので、誤りを含む可能性があります。</p>
-          ) : (
-            (selectedIngredient.aiExplained || selectedIngredient.matchedKnown?.id.startsWith('ai_')) && (
-              <p className="text-xs text-ink-muted">
-                この解説はAIが作成したもので、誤りを含む可能性があります。
-                {selectedIngredient.riskLevel === 'unknown'
-                  ? 'AIも刺激性を判断できませんでした。'
-                  : isDatabaseRated(selectedIngredient)
-                    ? '刺激性の評価はコスメ探偵の成分データによるものです。'
-                    : '刺激性の評価はコスメ探偵の判定ルールによるものです。'}
-              </p>
-            )
-          )}
-          {!selectedIngredient.aiExplained && !selectedIngredient.matchedKnown?.id.startsWith('ai_') && (
-            <div className="pt-2 border-t border-sand-200">
-              {/* 調べている間も disabled にはしない（押したボタンからフォーカスが失われるため）。押しても何もしない */}
-              <button
-                type="button"
-                aria-disabled={explainingName ? true : undefined}
-                onClick={() => handleExplainWithAI(selectedIngredient.rawName)}
-                className={`${buttonSecondary} aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`}
-              >
-                {explainingName === selectedIngredient.rawName ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />
-                    <span>AIで解析中...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" aria-hidden />
-                    <span>AIでさらに詳しく調べる</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-          {explainingName && explainingName !== selectedIngredient.rawName && (
-            <p className="text-xs text-ink-muted">ほかの成分をAIで調べています。終わってからお試しください。</p>
-          )}
-          {explainError?.name === selectedIngredient.rawName && (
-            <p role="alert" className="text-xs text-rose-800">
-              {explainError.text}
-            </p>
-          )}
-        </div>
+        <IngredientDetailPanel
+          selectedIngredient={selectedIngredient}
+          explainingName={explainingName}
+          explainError={explainError}
+          onClose={closeIngredient}
+          onExplainWithAI={handleExplainWithAI}
+          detailRef={detailRef}
+          detailTitleRef={detailTitleRef}
+        />
       )}
 
       {/* Amazon Safe Alternatives (if warning/caution) */}

@@ -89,15 +89,8 @@ const QUALIFIER_PATTERN = /植物性|植物由来|天然|濃|vegetable|natural|p
  */
 const ACID_SALT_SUFFIX = /^(na|2na|3na|k|2k|ca|mg|tea|アンモニウム|ナトリウム|カリウム|カルシウム|マグネシウム)?$/;
 
-/**
- * 既知の刺激成分辞書と照合する
- * 誤爆防止（フェノキシエタノールがエタノールにマッチする等のバグを防ぐ）
- */
-export function findMatchingKnownIngredient(rawName: string): KnownIngredient | undefined {
-  const norm = normalizeIngredientName(rawName);
-  if (!norm) return undefined;
-
-  // 1. 完全一致
+/** 成分名・英語名・別名のどれかと、正規化した名前が完全に一致する成分 */
+function exactMatch(norm: string): KnownIngredient | undefined {
   for (const item of KNOWN_INGREDIENTS) {
     if (
       normalizeIngredientName(item.nameJa) === norm ||
@@ -107,6 +100,70 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
       return item;
     }
   }
+  return undefined;
+}
+
+/** タール色素の項目の ID。個別の報告がある赤色219号・黄色204号は、その項目に */
+function dyeIngredientId(dye: { color: string; number: number }): string {
+  return dye.color === '赤' && dye.number === 219 ? 'brilliant_lake_red_r' : dye.color === '黄' && dye.number === 204 ? 'quinoline_yellow_ss' : 'tar_dye';
+}
+
+/** 別名が、正規化した名前の一部として一致するか（短い略語・酸のエステル・水酸化物などの誤一致を除く） */
+function aliasIsPartOf(item: KnownIngredient, normAlias: string, norm: string): boolean {
+  // 3文字未満の略語（pg, bg, bha, aha等）は完全一致のみ
+  if (normAlias.length < 3) return false;
+
+  if (norm === normAlias) {
+    return true;
+  }
+
+  // アクティブ成分の酸（サリチル酸・グリコール酸・アスコルビン酸）は、その酸と塩だけ
+  if (item.category === 'potent_active' && /(酸|acid)$/.test(normAlias)) {
+    return norm.startsWith(normAlias) && ACID_SALT_SUFFIX.test(norm.slice(normAlias.length));
+  }
+
+  // 精油・エキス系
+  if (item.category === 'essential_oil' && norm.includes(normAlias)) {
+    return true;
+  }
+
+  // 香料
+  if (item.id === 'fragrance' && (norm.includes('香料') || norm.includes('fragrance') || norm.includes('parfum'))) {
+    return true;
+  }
+
+  // 有効成分（グリチルリチン酸2K, アラントイン, ナイアシンアミド）
+  if (norm.includes(normAlias) && normAlias.length >= 4) {
+    // 水酸化亜鉛・過酸化亜鉛・水酸化チタンは紫外線散乱剤の酸化亜鉛・酸化チタンではない
+    //（「水酸化Al・酸化チタン」のように、別の所に本物の酸化チタンがあれば一致）
+    if ((item.id === 'zinc_oxide' || item.id === 'titanium_dioxide') && !hasOccurrenceNotAfter(norm, normAlias, /[水過]$/)) return false;
+    return true;
+  }
+  return false;
+}
+
+/** 正規化した名前が、この成分を名前の一部として含むか（部分一致の照合） */
+function containsKnownName(item: KnownIngredient, norm: string): boolean {
+  // 「無水エタノール」「変性アルコール」などはエタノールにマッチ（高級アルコール等は除く）
+  if (item.id === 'ethanol') return isEthanolName(norm);
+  if (EXACT_MATCH_ONLY.has(item.id)) {
+    const stripped = norm.replace(QUALIFIER_PATTERN, '');
+    return !!stripped && item.aliases.some((a) => normalizeIngredientName(a) === stripped);
+  }
+  return item.aliases.some((alias) => aliasIsPartOf(item, normalizeIngredientName(alias), norm));
+}
+
+/**
+ * 既知の刺激成分辞書と照合する
+ * 誤爆防止（フェノキシエタノールがエタノールにマッチする等のバグを防ぐ）
+ */
+export function findMatchingKnownIngredient(rawName: string): KnownIngredient | undefined {
+  const norm = normalizeIngredientName(rawName);
+  if (!norm) return undefined;
+
+  // 1. 完全一致
+  const exact = exactMatch(norm);
+  if (exact) return exact;
 
   // 1b. 簡略名と成分名の違い（POE/ポリオキシエチレン、Na/ナトリウム、2K/ジカリウム 等）を除けば完全一致
   const abbreviated = abbreviateIngredientName(norm);
@@ -117,7 +174,7 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
   // CI 番号は、日本化粧品工業会の対応表にある番号ならそのタール色素として
   const dye = tarDyeOf(norm) ?? tarDyeOfCi(norm);
   if (dye) {
-    const id = dye.color === '赤' && dye.number === 219 ? 'brilliant_lake_red_r' : dye.color === '黄' && dye.number === 204 ? 'quinoline_yellow_ss' : 'tar_dye';
+    const id = dyeIngredientId(dye);
     return KNOWN_INGREDIENTS.find((i) => i.id === id);
   }
   if (isSyntheticOrganicCiNumber(norm)) return KNOWN_INGREDIENTS.find((i) => i.id === 'synthetic_dye_ci');
@@ -137,55 +194,8 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
     return KNOWN_INGREDIENTS.find((i) => i.id === 'ceramides');
   }
 
-  // 3. 部分一致（短すぎる略語は除外）
-  for (const item of KNOWN_INGREDIENTS) {
-    // 「無水エタノール」「変性アルコール」などはエタノールにマッチ（高級アルコール等は除く）
-    if (item.id === 'ethanol') {
-      if (isEthanolName(norm)) return item;
-      continue;
-    }
-    if (EXACT_MATCH_ONLY.has(item.id)) {
-      const stripped = norm.replace(QUALIFIER_PATTERN, '');
-      if (stripped && item.aliases.some((a) => normalizeIngredientName(a) === stripped)) return item;
-      continue;
-    }
-
-    for (const alias of item.aliases) {
-      const normAlias = normalizeIngredientName(alias);
-      // 3文字未満の略語（pg, bg, bha, aha等）は完全一致のみ
-      if (normAlias.length < 3) continue;
-
-      if (norm === normAlias) {
-        return item;
-      }
-
-      // アクティブ成分の酸（サリチル酸・グリコール酸・アスコルビン酸）は、その酸と塩だけ
-      if (item.category === 'potent_active' && /(酸|acid)$/.test(normAlias)) {
-        if (norm.startsWith(normAlias) && ACID_SALT_SUFFIX.test(norm.slice(normAlias.length))) return item;
-        continue;
-      }
-
-      // 精油・エキス系
-      if (item.category === 'essential_oil' && norm.includes(normAlias)) {
-        return item;
-      }
-
-      // 香料
-      if (item.id === 'fragrance' && (norm.includes('香料') || norm.includes('fragrance') || norm.includes('parfum'))) {
-        return item;
-      }
-
-      // 有効成分（グリチルリチン酸2K, アラントイン, ナイアシンアミド）
-      if (norm.includes(normAlias) && normAlias.length >= 4) {
-        // 水酸化亜鉛・過酸化亜鉛・水酸化チタンは紫外線散乱剤の酸化亜鉛・酸化チタンではない
-        //（「水酸化Al・酸化チタン」のように、別の所に本物の酸化チタンがあれば一致）
-        if ((item.id === 'zinc_oxide' || item.id === 'titanium_dioxide') && !hasOccurrenceNotAfter(norm, normAlias, /[水過]$/)) continue;
-        return item;
-      }
-    }
-  }
-
-  return undefined;
+  // 3. 部分一致（短すぎる略語は除外）。辞書の順で最初に一致した成分
+  return KNOWN_INGREDIENTS.find((item) => containsKnownName(item, norm));
 }
 
 /**
@@ -355,16 +365,38 @@ export function unratedIngredientNames(analysis: ProductAnalysisResult): string[
   return analysis.ingredients.filter((i) => i.riskLevel === 'unknown').map((i) => i.rawName);
 }
 
-/**
- * 単一製品の全成分を解析し、リスク度・注意成分・肌を整える成分を抽出する
- * aiEvaluations（正規化した成分名 → AI の評価）があれば、成分DBとルールで「未評価」の成分にだけ使う
- */
-export function analyzeProduct(
-  product: Product,
-  aiEvaluations?: Map<string, KnownIngredient>,
-  /** 代わりの商品に出さない製品（比較リストに登録した製品） */
-  registered: readonly ProductIdentity[] = []
-): ProductAnalysisResult {
+/** 化粧品基準（別表）に載っていた成分と、その配合の禁止・上限の注意 */
+type StandardFinding = { rawName: string; entry: StandardEntry; note: ReturnType<typeof standardNote> };
+
+/** ラベルの成分を1つずつ評価した結果（analyzeProduct の途中の結果） */
+interface RatedIngredients {
+  analyzedIngredients: AnalyzedIngredient[];
+  riskCounts: ProductAnalysisResult['riskCounts'];
+  warningsJa: string[];
+  soothingHighlightsJa: string[];
+  standardFound: StandardFinding[];
+  wheatNames: string[];
+  aiEvaluatedCount: number;
+}
+
+/** 1つの成分の評価。成分DB・ルールで評価できない成分だけ AI の評価を使う（aiRated: AI が評価できた） */
+function ratingOf(raw: string, aiEvaluations?: Map<string, KnownIngredient>): { matched: KnownIngredient; aiRated: boolean } {
+  // 既知DBまたは動的推論・キャッシュから成分解説を取得（該当しない成分は「未評価」）
+  const known = findMatchingKnownIngredient(raw);
+  let matched = known || getOrGenerateIngredientExplanation(raw);
+  // 成分DBとルールで評価できない成分だけ、AI の評価を使う（AI も判断できなければ「未評価」のまま、解説だけ使う）
+  const ai = !known && matched.riskLevel === 'unknown' ? aiEvaluations?.get(normalizeIngredientName(raw)) : undefined;
+  if (ai) {
+    // 名前は成分表示のまま（AI の書いた名前は推測を含む）
+    matched = { ...ai, nameJa: raw, aliases: [raw] };
+  }
+  // AI も判断できなかった成分は「未評価」のまま（解説だけ使う）
+  const aiRated = !!ai && ai.riskLevel !== 'unknown';
+  return { matched, aiRated };
+}
+
+/** ラベルの成分を1つずつ評価し、件数・注意・肌を整える成分・化粧品基準の成分・小麦由来の成分を集める */
+function rateIngredients(product: Product, aiEvaluations?: Map<string, KnownIngredient>): RatedIngredients {
   const analyzedIngredients: AnalyzedIngredient[] = [];
   const riskCounts = {
     safe: 0,
@@ -379,32 +411,16 @@ export function analyzeProduct(
   const soothingHighlightsJa: string[] = [];
   // 化粧品基準（化粧品のみ。医薬部外品は品目ごとの承認による）
   const useType = productUseType(product);
-  const standardFound: { rawName: string; entry: StandardEntry; note: ReturnType<typeof standardNote> }[] = [];
+  const standardFound: StandardFinding[] = [];
   // 小麦由来の成分（加水分解コムギの事例。小麦アレルギーの人に知らせる）
   const wheatNames: string[] = [];
   let aiEvaluatedCount = 0;
-
-  const isEstimatedFromMarketplaces =
-    product.isEstimatedFromMarketplaces ||
-    product.ingredients.some(
-      (i) => i.includes('取得できませんでした') || i.includes('オンラインマーケットプレイス')
-    );
 
   for (const { raw, isActive } of labelIngredients(product)) {
     // 「成分情報は〜より補完」などのプレースホルダーは成分として解析しない
     if (isPlaceholderIngredient(raw)) continue;
 
-    // 既知DBまたは動的推論・キャッシュから成分解説を取得（該当しない成分は「未評価」）
-    const known = findMatchingKnownIngredient(raw);
-    let matched = known || getOrGenerateIngredientExplanation(raw);
-    // 成分DBとルールで評価できない成分だけ、AI の評価を使う（AI も判断できなければ「未評価」のまま、解説だけ使う）
-    const ai = !known && matched.riskLevel === 'unknown' ? aiEvaluations?.get(normalizeIngredientName(raw)) : undefined;
-    if (ai) {
-      // 名前は成分表示のまま（AI の書いた名前は推測を含む）
-      matched = { ...ai, nameJa: raw, aliases: [raw] };
-    }
-    // AI も判断できなかった成分は「未評価」のまま（解説だけ使う）
-    const aiRated = !!ai && ai.riskLevel !== 'unknown';
+    const { matched, aiRated } = ratingOf(raw, aiEvaluations);
     if (aiRated) aiEvaluatedCount++;
     const aiLabel = aiRated ? '（AIによる評価）' : '';
 
@@ -454,9 +470,11 @@ export function analyzeProduct(
       soothingHighlightsJa.push(`【${matched.nameJa}】${aiLabel}: ${withoutSafetyRating(matched.reasonJa)}`);
     }
   }
+  return { analyzedIngredients, riskCounts, warningsJa, soothingHighlightsJa, standardFound, wheatNames, aiEvaluatedCount };
+}
 
-  // 医薬部外品の「他 n成分」：名称が無く評価できない成分
-  const undisclosedCount = product.undisclosedIngredientCount ?? 0;
+/** 成分表示の読み方の注意（医薬部外品の記載順・非表示の成分・化粧品基準・小麦由来の成分）と、その出典 */
+function labelNotesFor(product: Product, undisclosedCount: number, standardFound: StandardFinding[], wheatNames: string[]) {
   const labelNotesJa: string[] = [];
   if (product.isQuasiDrug) {
     labelNotesJa.push('医薬部外品のため、「その他の成分」の記載順は配合量の多い順とは限りません（記載順は企業が決めます）。');
@@ -477,29 +495,41 @@ export function analyzeProduct(
     ...(standardFound.length > 0 ? [COSMETIC_STANDARD_REFERENCE] : []),
     ...(wheatNames.length > 0 ? WHEAT_LABEL_REFERENCES : []),
   ];
+  return { labelNotesJa, standardNotes, labelReferences };
+}
 
-  // 総合リスク判定（刺激成分の検出が優先。検出が無くても、評価できた成分が少なければ「安全」とは判定しない）
-  const evaluatedCount = analyzedIngredients.length;
+/** 総合リスク判定（刺激成分の検出が優先。検出が無くても、評価できた成分が少なければ「安全」とは判定しない） */
+function overallRiskOf(
+  riskCounts: ProductAnalysisResult['riskCounts'],
+  evaluatedCount: number,
+  undisclosedCount: number
+): ProductAnalysisResult['overallRiskLevel'] {
   const unratedCount = riskCounts.unknown + undisclosedCount;
-  let overallRiskLevel: ProductAnalysisResult['overallRiskLevel'] = 'safe';
   if (riskCounts.high_irritant > 0 || riskCounts.moderate_irritant >= 2) {
-    overallRiskLevel = 'warning';
+    return 'warning';
   } else if (riskCounts.moderate_irritant > 0 || riskCounts.active_caution > 0 || riskCounts.low_caution >= 3) {
-    overallRiskLevel = 'caution';
+    return 'caution';
   } else if (evaluatedCount === 0 || unratedCount / (evaluatedCount + undisclosedCount) >= 0.5) {
-    overallRiskLevel = 'insufficient_data';
+    return 'insufficient_data';
   }
+  return 'safe';
+}
 
-  let summaryJa = '';
+/** 総合判定ごとの要約の文 */
+function levelSummaryJa(
+  overallRiskLevel: ProductAnalysisResult['overallRiskLevel'],
+  analyzedIngredients: AnalyzedIngredient[],
+  isEstimatedFromMarketplaces: boolean
+): string {
+  const evaluatedCount = analyzedIngredients.length;
   if (overallRiskLevel === 'insufficient_data') {
-    summaryJa =
-      evaluatedCount === 0
-        ? '全成分データが取得できていないため、刺激リスクを判定できません。パッケージの全成分表示をご確認ください。'
-        : '評価できた成分が少ないため、刺激リスクを判定できません。安全と確認されたわけではありません。';
+    return evaluatedCount === 0
+      ? '全成分データが取得できていないため、刺激リスクを判定できません。パッケージの全成分表示をご確認ください。'
+      : '評価できた成分が少ないため、刺激リスクを判定できません。安全と確認されたわけではありません。';
   } else if (isEstimatedFromMarketplaces) {
-    summaryJa = 'Amazon / 楽天市場 / Olive Young / Sephora 等の公開情報から成分を探索・補完して解析しています。';
+    return 'Amazon / 楽天市場 / Olive Young / Sephora 等の公開情報から成分を探索・補完して解析しています。';
   } else if (overallRiskLevel === 'safe') {
-    summaryJa = '刺激になりやすい成分は見当たりませんでした。肌に合うかは人によって違うため、初めて使うときは少量から試してください。';
+    return '刺激になりやすい成分は見当たりませんでした。肌に合うかは人によって違うため、初めて使うときは少量から試してください。';
   } else if (overallRiskLevel === 'caution') {
     // 見つかった種類を書く（紫外線吸収剤だけの日焼け止めを「アルコール・防腐剤」とは言わない）
     const kinds = [
@@ -515,10 +545,20 @@ export function analyzeProduct(
           .filter((k): k is string => !!k)
       ),
     ].slice(0, 3);
-    summaryJa = `一部に${kinds.length > 0 ? `${kinds.join('・')}など、` : ''}肌がゆらいでいる時に刺激になることがある成分が含まれています。様子を見ながらの使用が推奨されます。`;
-  } else {
-    summaryJa = '香料、精油、または刺激になりやすい成分が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
+    return `一部に${kinds.length > 0 ? `${kinds.join('・')}など、` : ''}肌がゆらいでいる時に刺激になることがある成分が含まれています。様子を見ながらの使用が推奨されます。`;
   }
+  return '香料、精油、または刺激になりやすい成分が含まれているため、敏感肌・肌荒れ時は刺激や赤みの原因になりやすいです。';
+}
+
+/** 総合判定の要約。未評価・非表示の成分と、AI が評価した成分があれば、そのことを書き足す */
+function summaryFor(
+  overallRiskLevel: ProductAnalysisResult['overallRiskLevel'],
+  { analyzedIngredients, riskCounts, aiEvaluatedCount }: RatedIngredients,
+  undisclosedCount: number,
+  isEstimatedFromMarketplaces: boolean
+): string {
+  const unratedCount = riskCounts.unknown + undisclosedCount;
+  let summaryJa = levelSummaryJa(overallRiskLevel, analyzedIngredients, isEstimatedFromMarketplaces);
 
   // 未評価・非表示の成分がある場合は「安全」と言い切らない
   if (unratedCount > 0 && overallRiskLevel !== 'insufficient_data') {
@@ -536,6 +576,39 @@ export function analyzeProduct(
   if (aiEvaluatedCount > 0) {
     summaryJa += ` ${aiEvaluatedCount}成分は成分データに無いため、AIが評価しました（誤りを含む可能性があります）。`;
   }
+  return summaryJa;
+}
+
+/**
+ * 単一製品の全成分を解析し、リスク度・注意成分・肌を整える成分を抽出する
+ * aiEvaluations（正規化した成分名 → AI の評価）があれば、成分DBとルールで「未評価」の成分にだけ使う
+ */
+export function analyzeProduct(
+  product: Product,
+  aiEvaluations?: Map<string, KnownIngredient>,
+  /** 代わりの商品に出さない製品（比較リストに登録した製品） */
+  registered: readonly ProductIdentity[] = []
+): ProductAnalysisResult {
+  const isEstimatedFromMarketplaces =
+    product.isEstimatedFromMarketplaces ||
+    product.ingredients.some(
+      (i) => i.includes('取得できませんでした') || i.includes('オンラインマーケットプレイス')
+    );
+
+  const rated = rateIngredients(product, aiEvaluations);
+  const { analyzedIngredients, riskCounts, warningsJa, soothingHighlightsJa, aiEvaluatedCount } = rated;
+
+  // 医薬部外品の「他 n成分」：名称が無く評価できない成分
+  const undisclosedCount = product.undisclosedIngredientCount ?? 0;
+  const { labelNotesJa, standardNotes, labelReferences } = labelNotesFor(
+    product,
+    undisclosedCount,
+    rated.standardFound,
+    rated.wheatNames
+  );
+
+  const overallRiskLevel = overallRiskOf(riskCounts, analyzedIngredients.length, undisclosedCount);
+  const summaryJa = summaryFor(overallRiskLevel, rated, undisclosedCount, isEstimatedFromMarketplaces);
 
   // 高リスク時は同じ種類の代替品を提示する。種類が分からなければ出さない（日焼け止めにリップを勧めない）
   const suspectItems = alternativeAvoidItems(analyzedIngredients);

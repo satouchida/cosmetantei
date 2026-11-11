@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ChatMessage,
@@ -34,13 +34,6 @@ import {
   ClipboardList,
   ChevronRight,
   Sparkles,
-  Search,
-  Droplet,
-  Zap,
-  JapaneseYen,
-  RotateCcw,
-  Lightbulb,
-  type LucideIcon,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
 import { rankProducts } from '@/lib/search/product-match';
@@ -48,37 +41,12 @@ import { productLabel } from '@/lib/display-brand';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { ChatResponse, postChat } from '@/lib/client/chat-request';
 import { MessageCardBoundary } from './MessageCardBoundary';
-import { withHiddenEmoji, withoutEmoji } from '../ui/emoji';
+import { withHiddenEmoji } from '../ui/emoji';
 import { busyLook } from '../ui/design';
-import { getQuickReplyAction, PICK_FROM_CARDS_HINT, splitQuickReplyIcon, type QuickReplyIconName } from './quick-replies';
-import {
-  getUsableServerSnapshot,
-  getUsableSnapshot,
-  isPersistable,
-  isStale,
-  MAX_USABLE,
-  routineFromLists,
-  STALE_AFTER_MONTHS,
-  subscribeUsable,
-  updateUsable,
-  UsableEntry,
-} from '@/lib/usable-products';
-import {
-  getExportReminderOffServerSnapshot,
-  isExportReminderOff,
-  shouldOfferExport,
-  subscribeExportReminderOff,
-  turnOffExportReminder,
-} from '@/lib/client/export-reminder';
-import {
-  decodeShareFragment,
-  isEmptySnapshot,
-  parseRoutine,
-  readPngText,
-  ROUTINE_PNG_KEYWORD,
-  RoutineSnapshot,
-  shareFragment,
-} from '@/lib/routine-share';
+import { getQuickReplyAction, PICK_FROM_CARDS_HINT, splitQuickReplyIcon } from './quick-replies';
+import { isPersistable, MAX_USABLE, STALE_AFTER_MONTHS, updateUsable, UsableEntry } from '@/lib/usable-products';
+import { turnOffExportReminder } from '@/lib/client/export-reminder';
+import { shareFragment } from '@/lib/routine-share';
 import { LegalLinks } from '@/components/legal/LegalPage';
 import { SpendLimitNotice } from '@/components/chat/SpendLimitNotice';
 import {
@@ -90,155 +58,30 @@ import {
 import { AFFILIATE_DISCLOSURE } from '@/lib/site';
 import { ConsentDialog } from '@/components/legal/ConsentDialog';
 import { getConsentServerSnapshot, hasConsented, subscribeConsent } from '@/lib/consent';
-import { MAX_ROUTINE_PRODUCTS } from '@/lib/product-validation';
 import { RegisteredProductsContext } from './RegisteredProducts';
-
-let messageSequence = 0;
-
-/** 現在時刻（コンポーネント外の関数にして、描画中の不純な呼び出しとして扱われないようにする） */
-function currentTime(): number {
-  return Date.now();
-}
-
-/** メッセージの一意な ID とタイムスタンプ（同じミリ秒に複数作っても ID が重複しない） */
-function messageMeta(prefix: string): { id: string; timestamp: number } {
-  messageSequence += 1;
-  const timestamp = currentTime();
-  return { id: `${prefix}-${timestamp}-${messageSequence}`, timestamp };
-}
-
-/** 応答待ちの間に、ほかのサーバーへの操作が押されたときの案内 */
-/** クイック返信ボタンの先頭に出す、線のアイコン（ヘッダーのボタンと同じ部品をそろえる） */
-const QUICK_REPLY_ICON_COMPONENTS: Readonly<Record<QuickReplyIconName, LucideIcon>> = {
-  scan: ScanBarcode,
-  label: FileText,
-  search: Search,
-  product: Droplet,
-  flare: Zap,
-  bad: AlertTriangle,
-  safe: CheckCircle2,
-  price: JapaneseYen,
-  retry: RotateCcw,
-  idea: Lightbulb,
-};
-
-const WAIT_MESSAGE = '前の返答を待っています。届いてから、もう一度お試しください。';
-const DEFAULT_LOADING_TEXT = '成分データベースを解析中...';
-/** 検索候補のトレイの id（入力欄の aria-controls） */
-const SEARCH_TRAY_ID = 'search-tray';
-/** 画像から QR コードを読むときに html5-qrcode が使う要素（画面には出さない） */
-const ROUTINE_QR_READER_ID = 'routine-qr-reader';
-/** 読み込む画像の上限（巨大なファイルを読まない）。作る画像は 1080×1350 なので、スクリーンショットでも十分入る */
-const MAX_ROUTINE_IMAGE_BYTES = 8_000_000;
-/** 画素数の上限。小さなファイルで巨大な大きさを書いた画像を、QR コードを探すために描かない */
-const MAX_ROUTINE_IMAGE_PIXELS = 16_000_000;
-const IMPORT_FAILED = 'この画像からマイルーティンを読み込めませんでした。コスメ探偵で作った画像を選んでください。';
-
-/** 画像を読めなかった理由ごとの案内 */
-const IMPORT_FAILURES = {
-  too_large: 'ファイルが大きすぎます（8MBまで）。コスメ探偵で保存した画像を選んでください。',
-  not_image: '画像として開けませんでした。PNG・JPEG の画像を選んでください。',
-  unreadable: 'この画像の中に、マイルーティンのデータとQRコードが見つかりませんでした。コスメ探偵で作った画像を、切り抜かずに選んでください。',
-  failed: '画像を読み込めませんでした。もう一度お試しください。',
-} as const;
-type ImportFailure = keyof typeof IMPORT_FAILURES;
-
-type ImportRead = { snapshot: RoutineSnapshot; namesOnly: boolean } | { failure: ImportFailure };
-
-/** 画像から、マイルーティンを読む。ファイルの中のデータを先に、無ければ QR コードを読む。読めなければ理由 */
-async function readRoutineImage(file: File): Promise<ImportRead> {
-  if (file.size > MAX_ROUTINE_IMAGE_BYTES) return { failure: 'too_large' };
-  const now = currentTime();
-  const text = readPngText(new Uint8Array(await file.arrayBuffer()), ROUTINE_PNG_KEYWORD);
-  const fromFile = text ? parseRoutine(text, now) : null;
-  if (fromFile) return { snapshot: fromFile, namesOnly: false };
-  const size = await imageSize(file);
-  if (size === 'not_image') return { failure: 'not_image' };
-  if (size === 'too_large') return { failure: 'too_large' };
-  const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import('html5-qrcode');
-  const reader = new Html5Qrcode(ROUTINE_QR_READER_ID, { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
-  try {
-    const fragment = shareFragment(await reader.scanFile(file, false));
-    const fromQr = fragment ? await decodeShareFragment(fragment, now) : null;
-    return fromQr ? { snapshot: fromQr, namesOnly: true } : { failure: 'unreadable' };
-  } catch {
-    return { failure: 'unreadable' };
-  } finally {
-    reader.clear();
-  }
-}
-
-/** 画像の大きさ（縦×横）が上限内か。大きさは画像の頭から分かる（全体を描く前に確かめる） */
-async function imageSize(file: File): Promise<'ok' | 'too_large' | 'not_image'> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = new Image();
-    img.src = url;
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = () => reject(new Error('not an image'));
-    });
-    return img.naturalWidth * img.naturalHeight <= MAX_ROUTINE_IMAGE_PIXELS ? 'ok' : 'too_large';
-  } catch {
-    return 'not_image';
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/** 足す前の数と、足したあとの数から、足さなかった数（重複・上限） */
-function appendStats(list: Product[], incoming: Product[], taken: Set<string>): { added: number; skipped: number } {
-  // appendProducts と同じ順に数える（重複・上限）。足す製品は taken に入れる
-  const fresh = incoming.filter((p) => !taken.has(p.id) && taken.add(p.id));
-  const added = fresh.slice(0, Math.max(0, MAX_ROUTINE_PRODUCTS - list.length));
-  return { added: added.length, skipped: incoming.length - added.length };
-}
-
-/** 長く待つ操作の案内に足す文（Web を調べるときは1分ほどかかる） */
-const LONG_WAIT_NOTE = '（Webで調べるときは1分ほどかかることがあります）';
-/** この時間を過ぎても返事が無ければ、まだ調べていることを伝える */
-const STILL_WORKING_AFTER_MS = 15_000;
-/** 失敗の吹き出しに付ける、同じ頼みごとをもう一度送るボタン */
-const RETRY_LABEL = '🔁 もう一度送る';
-/** 一度押したら、同じ吹き出しでは調べ直さないボタン（有料の調べもの） */
-const ONCE_PER_MESSAGE_LABELS = new Set(['🔎 Webで成分を調べ直す', '💴 この商品の価格を調べる', RETRY_LABEL]);
-
-/** 頼み直して結果が変わりうる失敗か（通信・時間切れ・中止は null、408、サーバーの問題） */
-const retryable = (status: number | null): boolean => status === null || status === 408 || status >= 500;
-
-/** 今のリストに足す（同じ製品はどのリストにあっても足さない。1つのリストは上限まで） */
-function appendProducts(list: Product[], incoming: Product[], taken: Set<string>): Product[] {
-  const added = incoming.filter((p) => !taken.has(p.id));
-  for (const p of added) taken.add(p.id);
-  return [...list, ...added].slice(0, MAX_ROUTINE_PRODUCTS);
-}
-
-type ReplyField = 'productSuggestions' | 'singleAnalysis' | 'differentialAnalysis' | 'priceResult' | 'quickReplies';
-
-/** 返答のうち、この操作で使う項目だけを吹き出しに載せる（形はサーバーの型どおり） */
-function pickReply(data: ChatResponse, keys: ReplyField[]): Partial<ChatMessage> {
-  const out: Record<string, unknown> = {};
-  for (const key of keys) if (data[key] !== undefined && data[key] !== null) out[key] = data[key];
-  return out as Partial<ChatMessage>;
-}
-
-/** 返答の、代わりの商品の印とクレジット（形の違う値は使わない） */
-function alternativesOf(data: ChatResponse): Partial<ChatMessage> {
-  if (data.suggestionKind !== 'alternatives') return {};
-  const credits = Array.isArray(data.alternativeCredits)
-    ? data.alternativeCredits.filter((c): c is 'rakuten' | 'yahoo' => c === 'rakuten' || c === 'yahoo')
-    : [];
-  return { suggestionKind: 'alternatives', ...(credits.length > 0 && { alternativeCredits: credits }) };
-}
-
-/** 読み上げる返答の冒頭（カードまで全部は読まない） */
-function announcementOf(content: string): string {
-  const text = withoutEmoji(content).replace(/\s+/g, ' ').trim();
-  return `返答：${text.length > 120 ? `${text.slice(0, 120)}…` : text}`;
-}
-
-/** Tailwind の lg（64rem）未満。rem で書き、ブラウザの文字サイズ設定が違っても CSS のブレークポイントと一致させる */
-const MOBILE_QUERY = '(max-width: 63.999rem)';
+import { useRoutineLists } from './useRoutineLists';
+import { useRoutineTransfer } from './useRoutineTransfer';
+import {
+  alternativesOf,
+  announcementOf,
+  currentTime,
+  DEFAULT_LOADING_TEXT,
+  LONG_WAIT_NOTE,
+  messageMeta,
+  MOBILE_QUERY,
+  ONCE_PER_MESSAGE_LABELS,
+  pickReply,
+  QUICK_REPLY_ICON_COMPONENTS,
+  RETRY_LABEL,
+  retryable,
+  ROUTINE_QR_READER_ID,
+  SAMPLE_CUREL,
+  SAMPLE_IHADA,
+  SAMPLE_MELANO,
+  SEARCH_TRAY_ID,
+  STILL_WORKING_AFTER_MS,
+  WAIT_MESSAGE,
+} from './chat-helpers';
 
 export const ChatContainer: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -261,25 +104,20 @@ export const ChatContainer: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isLabelInputOpen, setIsLabelInputOpen] = useState(false);
-  // 画像で保存・共有するとき、開いた時点の内容（開いている間にリストが変わっても画像を作り直さない）
-  const [routineExport, setRoutineExport] = useState<{ snapshot: RoutineSnapshot; culprits: string[] } | null>(null);
-  // 読み込む前に確かめてもらうルーティン
-  const [routineImport, setRoutineImport] = useState<{ snapshot: RoutineSnapshot; namesOnly: boolean } | null>(null);
-  // もう一方のリストにある製品を登録しようとした（移す・削除するかを聞く。1つの製品は1つのリストだけ）
-  const [listConflict, setListConflict] = useState<{ product: Product; target: 'bad' | 'usable' } | null>(null);
-  // クリアするリスト（確かめるダイアログを開いている）
-  const [clearTarget, setClearTarget] = useState<'bad' | 'usable' | null>(null);
-  // 「リストを画像で保存しませんか？」を開いている。このページで1回だけ出す（shownThisSession）
-  const [isExportReminderOpen, setIsExportReminderOpen] = useState(false);
-  const exportReminderShownRef = useRef(false);
-  // 最後に画像で保存したときのリスト（その後で変わっていなければ、おすすめを出さない）
-  const exportedListsRef = useRef<string | null>(null);
-  // おすすめを出すかを決める、最新の値（描画のたびに入れる。offerExportAfterResult が読む）
-  const reminderStateRef = useRef({ badCount: 0, listsKey: '', off: true, otherDialogOpen: false });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   // info: 確認（緑のチェック）/ error: 受け付けなかった・失敗（長めに出す）/ progress: 処理中（終わるまで出す）
   const [toastKind, setToastKind] = useState<'info' | 'error' | 'progress'>('info');
+  // 同じ案内を続けて出したときに、前のタイマーで早く消えないようにする
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (msg: string, kind: 'info' | 'error' | 'progress' = 'info') => {
+    setToastMessage(msg);
+    setToastKind(kind);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    // 失敗の案内は読めるよう長めに。処理中の案内は、終わったときの案内で置き換える（念のため 30 秒で消す）
+    const duration = kind === 'error' ? 6000 : kind === 'progress' ? 30_000 : 3000;
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), duration);
+  };
   // 一度押した有料の調べもののボタン（吹き出しの id と文言）。同じ吹き出しで何度も調べない
   const [usedActions, setUsedActions] = useState<ReadonlySet<string>>(new Set());
   // 失敗した頼みごと（「もう一度送る」で同じ内容を送る）。失敗の吹き出しの id ごと
@@ -393,24 +231,31 @@ export const ChatContainer: React.FC = () => {
       ? [...lineupCredits, 'yahoo']
       : lineupCredits;
 
-  // 肌荒れしたコスメ（このページを開いている間だけ。保存しない。docs/plans/two-lists.md）。
-  // badRef は最新の値（再描画の前に続けて呼ばれても正しく数える。使えるコスメの getUsableSnapshot と同じ役目）。
-  // 変えるときは updateBad だけを使う
-  const [badProducts, setBadState] = useState<Product[]>([]);
-  const badRef = useRef<Product[]>([]);
-  const updateBad = (change: (prev: Product[]) => Product[]) => {
-    badRef.current = change(badRef.current);
-    setBadState(badRef.current);
-  };
-  // 使えるコスメはこの端末のブラウザに保存する（src/lib/usable-products.ts）。ほかのタブで、このタブの肌荒れした
-  // コスメにある製品が使えるコスメに追加されたときは、このタブでは肌荒れしたコスメだけに出す（1つの製品は1つのリスト）
-  const storedUsable = useSyncExternalStore(subscribeUsable, getUsableSnapshot, getUsableServerSnapshot);
-  // 「リストを画像で保存しませんか？」を今後表示しない（ほかのタブで選んだときも、購読して読み直す）
-  const exportReminderOff = useSyncExternalStore(subscribeExportReminderOff, isExportReminderOff, getExportReminderOffServerSnapshot);
-  const usable = useMemo(() => {
-    const badIds = new Set(badProducts.map((p) => p.id));
-    return storedUsable.some((e) => badIds.has(e.product.id)) ? storedUsable.filter((e) => !badIds.has(e.product.id)) : storedUsable;
-  }, [storedUsable, badProducts]);
+  // 2つのリスト（肌荒れしたコスメ・使えるコスメ）と、登録・移動・削除・クリアの処理（useRoutineLists.ts）
+  const {
+    badProducts,
+    badRef,
+    updateBad,
+    usable,
+    routine,
+    registeredProducts,
+    staleEntries,
+    staleIds,
+    listsKey,
+    listConflict,
+    setListConflict,
+    clearTarget,
+    setClearTarget,
+    handleAddToBad,
+    handleAddToUsable,
+    moveToList,
+    removeFromOtherList,
+    handleRemoveUsable,
+    handleConfirmUsable,
+    handleSetInUse,
+    handleRemoveBad,
+    clearList,
+  } = useRoutineLists({ showToast });
   // 利用規約・Cookie の使用への同意（src/lib/consent.ts）。null はまだ分からない（サーバーで描いた直後）
   const consented = useSyncExternalStore(subscribeConsent, hasConsented, getConsentServerSnapshot);
   // 有料の呼び出しが上限で断られたときの案内（apiFetch が応答のヘッダーを見て出す）
@@ -427,37 +272,9 @@ export const ChatContainer: React.FC = () => {
     }
     wasConsented.current = consented;
   }, [consented]);
-  // サーバーに送る形：比較には使えるコスメのすべて、組み合わせチェックには今も使っているものだけ
-  const routine: UserRoutineState = routineFromLists(badProducts, usable);
-  // 代わりの商品のカードに出さない、登録した製品（RegisteredProducts.tsx）
-  const registeredProducts = useMemo(() => [...badProducts, ...usable.map((e) => e.product)], [badProducts, usable]);
   useEffect(() => {
     routineRef.current = routine;
   });
-  // 今も使っている製品のうち、3か月以上前に追加したもの（今も使っているか確かめてもらう）
-  const staleEntries = usable.filter((e) => e.inUse && isStale(e.addedAt, currentTime()));
-  const staleIds = new Set(staleEntries.map((e) => e.product.id));
-  // 2つのリストの中身（画像で保存した後で変わったかを比べる）
-  const listsKey = `${badProducts.map((p) => p.id).join(',')}|${usable.map((e) => e.product.id).join(',')}`;
-  /**
-   * 比較の結果を出したあとに、リストを画像で保存することを1回すすめる（肌荒れしたコスメは保存しないため。
-   * docs/plans/two-lists.md の Step 4b）
-   */
-  // 応答を待った後に呼ばれるので（runChatAction・頼み直しは、押したときの描画の関数）、最新の値を ref から読む
-  const offerExportAfterResult = () => {
-    const latest = reminderStateRef.current;
-    const show = shouldOfferExport({
-      shownThisSession: exportReminderShownRef.current,
-      badCount: latest.badCount,
-      changedSinceExport: exportedListsRef.current !== latest.listsKey,
-      off: latest.off,
-      otherDialogOpen: latest.otherDialogOpen,
-    });
-    if (!show) return;
-    exportReminderShownRef.current = true;
-    setIsExportReminderOpen(true);
-  };
-
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -487,23 +304,35 @@ export const ChatContainer: React.FC = () => {
 
   // スマホのルーティン引き出し：開いたら閉じるボタンにフォーカスし、Escape で閉じてメニューボタンに戻す
   const isDrawerModal = isSidebarOpen && isMobileViewport;
-  useEffect(() => {
-    reminderStateRef.current = {
-      // 画像に入る（保存できる）肌荒れしたコスメだけ。入力した成分表示だけなら、画像で保存しても残らない
-      badCount: badProducts.filter(isPersistable).length,
-      listsKey,
-      off: exportReminderOff,
-      otherDialogOpen:
-        !!routineExport ||
-        !!routineImport ||
-        !!listConflict ||
-        !!clearTarget ||
-        isScannerOpen ||
-        isLabelInputOpen ||
-        isExportReminderOpen ||
-        isDrawerModal ||
-        consented !== true,
-    };
+  // 画像での保存・読み込みと、比較の結果のあとの「リストを画像で保存しませんか？」（useRoutineTransfer.ts）
+  const {
+    routineExport,
+    setRoutineExport,
+    routineImport,
+    setRoutineImport,
+    isExportReminderOpen,
+    setIsExportReminderOpen,
+    offerExportAfterResult,
+    handleExportImage,
+    handleImportImage,
+    importFromFragment,
+    applyImport,
+  } = useRoutineTransfer({
+    messages,
+    showToast,
+    setToastMessage,
+    setIsSidebarOpen,
+    badProducts,
+    badRef,
+    updateBad,
+    usable,
+    listsKey,
+    listConflict,
+    clearTarget,
+    isScannerOpen,
+    isLabelInputOpen,
+    isDrawerModal,
+    consented,
   });
   // 閉じたらメニューボタンにフォーカスを戻す。ヘッダーの inert が外れて（再描画されて）からでないと移せない
   const closeSidebar = () => {
@@ -549,18 +378,6 @@ export const ChatContainer: React.FC = () => {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [isDrawerModal]);
-
-
-  // 同じ案内を続けて出したときに、前のタイマーで早く消えないようにする
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (msg: string, kind: 'info' | 'error' | 'progress' = 'info') => {
-    setToastMessage(msg);
-    setToastKind(kind);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    // 失敗の案内は読めるよう長めに。処理中の案内は、終わったときの案内で置き換える（念のため 30 秒で消す）
-    const duration = kind === 'error' ? 6000 : kind === 'progress' ? 30_000 : 3000;
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), duration);
-  };
 
   /**
    * サーバーに頼む操作の共通の流れ：利用者の吹き出し → 返答の吹き出し（失敗ならサーバーの文か決まった文）。
@@ -757,132 +574,6 @@ export const ChatContainer: React.FC = () => {
     );
   };
 
-  /**
-   * 登録の結果。added：追加した。exists：同じリストにある。conflict：もう一方のリストにある（移す・削除するかを聞く）。
-   * full：上限
-   */
-  type AddResult = 'added' | 'exists' | 'conflict' | 'full';
-
-  /** 肌荒れしたコスメに追加する。使えるコスメにあれば、移すか削除するかを聞く（1つの製品は1つのリストだけ） */
-  const handleAddToBad = (product: Product): AddResult => {
-    if (badRef.current.some((p) => p.id === product.id)) {
-      showToast('すでに肌荒れしたコスメに登録されています', 'error');
-      return 'exists';
-    }
-    // 上限なら、移すことも勧めない（移せないのに、移すかを聞かない）
-    if (badRef.current.length >= MAX_ROUTINE_PRODUCTS) {
-      showToast(`肌荒れしたコスメは${MAX_ROUTINE_PRODUCTS}点まで登録できます`, 'error');
-      return 'full';
-    }
-    if (getUsableSnapshot().some((e) => e.product.id === product.id)) {
-      setListConflict({ product, target: 'bad' });
-      return 'conflict';
-    }
-    updateBad((prev) => [...prev, product]);
-    showToast(`「${product.name}」を【肌荒れしたコスメ】に追加しました`);
-    return 'added';
-  };
-
-  /** 使えるコスメに追加する（今も使っている製品として）。肌荒れしたコスメにあれば、移すか削除するかを聞く */
-  const handleAddToUsable = (product: Product): AddResult => {
-    // 再描画の前に続けて押されても正しく数えるよう、最新のリストで確かめる
-    const latest = getUsableSnapshot();
-    const inBad = badRef.current.some((p) => p.id === product.id);
-    // このタブの肌荒れしたコスメにある製品は、ほかのタブで使えるコスメに保存されていても、移すかを聞く
-    if (!inBad && latest.some((e) => e.product.id === product.id)) {
-      showToast('すでに使えるコスメに登録されています', 'error');
-      return 'exists';
-    }
-    if (latest.length >= MAX_USABLE && !latest.some((e) => e.product.id === product.id)) {
-      showToast(`使えるコスメは${MAX_USABLE}点まで登録できます`, 'error');
-      return 'full';
-    }
-    if (inBad) {
-      setListConflict({ product, target: 'usable' });
-      return 'conflict';
-    }
-    const addedAt = currentTime();
-    updateUsable((prev) => [...prev, { product, addedAt, inUse: true }]);
-    showToast(
-      isPersistable(product)
-        ? `「${product.name}」を【使えるコスメ】に追加しました`
-        : `「${product.name}」を【使えるコスメ】に追加しました（入力した成分表示・お店の商品説明から読んだ成分は保存しません）`
-    );
-    return 'added';
-  };
-
-  /** もう一方のリストにある製品を、登録しようとしたリストへ移す */
-  const moveToList = (product: Product, target: 'bad' | 'usable') => {
-    setListConflict(null);
-    // 移す先が上限なら、何も消さずに案内だけ出す（ダイアログを開いている間に、ほかで追加されたとき）
-    if (target === 'bad') {
-      if (badRef.current.length >= MAX_ROUTINE_PRODUCTS && !badRef.current.some((p) => p.id === product.id)) {
-        showToast(`肌荒れしたコスメは${MAX_ROUTINE_PRODUCTS}点まで登録できます`, 'error');
-        return;
-      }
-      updateUsable((prev) => prev.filter((e) => e.product.id !== product.id));
-      updateBad((prev) => (prev.some((p) => p.id === product.id) ? prev : [...prev, product]));
-      showToast(`「${product.name}」を【肌荒れしたコスメ】に移しました`);
-    } else {
-      const latest = getUsableSnapshot();
-      if (latest.length >= MAX_USABLE && !latest.some((e) => e.product.id === product.id)) {
-        showToast(`使えるコスメは${MAX_USABLE}点まで登録できます`, 'error');
-        return;
-      }
-      updateBad((prev) => prev.filter((p) => p.id !== product.id));
-      updateUsable((prev) =>
-        prev.some((e) => e.product.id === product.id) ? prev : [...prev, { product, addedAt: currentTime(), inUse: true }]
-      );
-      showToast(`「${product.name}」を【使えるコスメ】に移しました`);
-    }
-  };
-
-  /** もう一方のリストにある製品を、そのリストから削除する（どちらのリストにも入れない） */
-  const removeFromOtherList = (product: Product, target: 'bad' | 'usable') => {
-    setListConflict(null);
-    if (target === 'bad') {
-      updateUsable((prev) => prev.filter((e) => e.product.id !== product.id));
-      showToast(`「${product.name}」を使えるコスメから削除しました`);
-    } else {
-      updateBad((prev) => prev.filter((p) => p.id !== product.id));
-      showToast(`「${product.name}」を肌荒れしたコスメから削除しました`);
-    }
-  };
-
-  const handleRemoveUsable = (id: string) => {
-    updateUsable((prev) => prev.filter((e) => e.product.id !== id));
-  };
-
-  /** 「今も使っている」：追加した日を今日にする */
-  const handleConfirmUsable = (id: string) => {
-    const now = currentTime();
-    updateUsable((prev) => prev.map((e) => (e.product.id === id ? { ...e, addedAt: now, inUse: true } : e)));
-  };
-
-  /** 今も使っているか。使い始めたとき（false → true）は、追加した日を今日にする（3か月の確認をそこから数える） */
-  const handleSetInUse = (id: string, inUse: boolean) => {
-    const now = currentTime();
-    updateUsable((prev) =>
-      prev.map((e) => (e.product.id === id && e.inUse !== inUse ? { ...e, inUse, ...(inUse && { addedAt: now }) } : e))
-    );
-  };
-
-  const handleRemoveBad = (id: string) => {
-    updateBad((prev) => prev.filter((p) => p.id !== id));
-  };
-
-  /** リストをクリアする（確かめるダイアログで「クリアする」を押したとき） */
-  const clearList = (target: 'bad' | 'usable') => {
-    setClearTarget(null);
-    if (target === 'bad') {
-      updateBad(() => []);
-      showToast('肌荒れしたコスメのリストをクリアしました');
-    } else {
-      updateUsable(() => []);
-      showToast('使えるコスメのリストをクリアしました');
-    }
-  };
-
   const appendLocalExchange = (label: string, reply: string, quickReplies?: string[]) => {
     setMessages((prev) => [
       ...prev,
@@ -1048,152 +739,17 @@ export const ChatContainer: React.FC = () => {
 
   /** 開発用のサンプル。使えるコスメの分は保存しない（sessionOnly。利用者の保存したリストを書き換えない） */
   const handleLoadSample = () => {
-    // Load sample irritation scenario (Melano CC as bad, Curel Wash & Ihada Lotion as safe)
-    const sampleMelano: Product = {
-      id: 'sample_melano_cc',
-      name: '薬用しみ集中対策 プレミアム美容液',
-      brand: 'ロート製薬',
-      country: 'JP',
-      category: 'serum',
-      ingredients: ['アスコルビン酸', 'ピリドキシン塩酸塩', 'アラントイン', 'o-シメン-5-オール', '香料'],
-      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=メラノCC+プレミアム美容液&tag=cosmetantei22-22',
-      descriptionJa: 'サンプルデータ：ビタミンC高配合美容液',
-    };
-    const sampleCurel: Product = {
-      id: 'sample_curel_wash',
-      name: '潤浸保湿 泡洗顔料',
-      brand: 'キュレル',
-      country: 'JP',
-      category: 'cleanser',
-      fragranceFree: true,
-      alcoholFree: true,
-      ingredients: ['グリチルリチン酸2K', '精製水', 'グリセリン', 'ラウロイルアスパラギン酸Na液'],
-      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=キュレル+泡洗顔料&tag=cosmetantei22-22',
-      descriptionJa: 'サンプルデータ：セラミドケア洗顔料',
-    };
-    const sampleIhada: Product = {
-      id: 'sample_ihada_lotion',
-      name: '薬用ローション とてもしっとり',
-      brand: 'イハダ',
-      country: 'JP',
-      category: 'toner',
-      fragranceFree: true,
-      alcoholFree: true,
-      ingredients: ['アラントイン', 'グリチルリチン酸ジカリウム', '精製水', '高精製ワセリン'],
-      amazonSearchUrl: 'https://www.amazon.co.jp/s?k=イハダ+薬用ローション&tag=cosmetantei22-22',
-      descriptionJa: 'サンプルデータ：薬用化粧水',
-    };
-
-    updateBad(() => [sampleMelano]);
+    updateBad(() => [SAMPLE_MELANO]);
     const now = currentTime();
     updateUsable((prev) => {
-      const kept = prev.filter((e) => e.product.id !== sampleMelano.id);
-      const samples = [sampleCurel, sampleIhada]
+      const kept = prev.filter((e) => e.product.id !== SAMPLE_MELANO.id);
+      const samples = [SAMPLE_CUREL, SAMPLE_IHADA]
         .filter((p) => !kept.some((e) => e.product.id === p.id))
         .map((product): UsableEntry => ({ product, addedAt: now, inUse: true, sessionOnly: true }));
       return [...kept, ...samples].slice(0, MAX_USABLE);
     });
     showToast(`テストデータを読み込みました！「${DIFFERENTIAL_LABEL}」を押せます`);
   };
-
-  /** 画像で保存・共有する。気をつけたい成分は、最近の差分分析の結果から */
-  const handleExportImage = () => {
-    exportedListsRef.current = listsKey;
-    const latest = [...messages].reverse().find((m) => m.differentialAnalysis)?.differentialAnalysis;
-    setIsSidebarOpen(false);
-    setRoutineExport({
-      // サンプル（sessionOnly）は書き出さない（読み込むと保存されてしまう）
-      snapshot: { badProducts, usable: usable.filter((e) => !e.sessionOnly) },
-      culprits: latest?.culprits.map((c) => c.nameJa) ?? [],
-    });
-  };
-
-  const offerImport = (found: ImportRead | null) => {
-    if (!found || 'failure' in found) {
-      showToast(found ? IMPORT_FAILURES[found.failure] : IMPORT_FAILED, 'error');
-      return;
-    }
-    if (isEmptySnapshot(found.snapshot)) {
-      showToast('この画像のマイルーティンは空でした（読み込めるコスメがありません）。', 'error');
-      return;
-    }
-    setToastMessage(null);
-    setIsSidebarOpen(false);
-    setRoutineImport(found);
-  };
-
-  // 画像を読んでいる間に、別の画像を選んでも読まない（QR コードを読む要素は1つ）
-  const importingRef = useRef(false);
-  const handleImportImage = async (file: File) => {
-    if (importingRef.current) {
-      showToast('前の画像を読み込んでいます。終わってからお試しください。', 'error');
-      return;
-    }
-    importingRef.current = true;
-    showToast('画像を読み込んでいます…', 'progress');
-    try {
-      offerImport(await readRoutineImage(file).catch((): ImportRead => ({ failure: 'failed' })));
-    } finally {
-      importingRef.current = false;
-    }
-  };
-
-  /** 共有のリンク（#r=...）・QR コードから読み込む */
-  const importFromFragment = async (fragment: string) => {
-    const snapshot = await decodeShareFragment(fragment, currentTime());
-    offerImport(snapshot ? { snapshot, namesOnly: true } : null);
-  };
-
-  const applyImport = (mode: 'append' | 'replace') => {
-    if (!routineImport) return;
-    const { snapshot } = routineImport;
-    let skipped = 0;
-    if (mode === 'replace') {
-      updateBad(() => snapshot.badProducts);
-      updateUsable(() => snapshot.usable.slice(0, MAX_USABLE));
-    } else {
-      // 1つの製品は1つのリストだけ：どちらかのリストにある製品は足さない（読み込むデータの中でも肌荒れが先）
-      // 最新のリストで数える（badRef・getUsableSnapshot）
-      const currentBad = badRef.current;
-      const currentUsable = getUsableSnapshot();
-      const takenIds = () => new Set([...currentBad.map((p) => p.id), ...currentUsable.map((e) => e.product.id)]);
-      const taken = takenIds();
-      const bad = appendStats(currentBad, snapshot.badProducts, taken);
-      const nextBad = appendProducts(currentBad, snapshot.badProducts, takenIds());
-      const freshUsable = snapshot.usable.filter((e) => !taken.has(e.product.id)).length;
-      const usableAdded = Math.max(0, Math.min(freshUsable, MAX_USABLE - currentUsable.length));
-      // 足さなかった数（重複・上限）を、読み込んだ後の案内に出す
-      skipped = bad.skipped + (snapshot.usable.length - usableAdded);
-      updateBad(() => nextBad);
-      updateUsable((prev) => {
-        const ids = new Set([...prev.map((e) => e.product.id), ...nextBad.map((p) => p.id)]);
-        return [...prev, ...snapshot.usable.filter((e) => !ids.has(e.product.id))].slice(0, MAX_USABLE);
-      });
-    }
-    setRoutineImport(null);
-    showToast(
-      skipped > 0
-        ? `マイルーティンを読み込みました（${skipped}点は、すでに登録済みか上限のため追加しませんでした）`
-        : 'マイルーティンを読み込みました'
-    );
-  };
-
-  // 共有のリンク（https://cosmetantei.app/#r=...）で開いたら、読み込むか確かめる。リンクの部分はアドレスから消す。
-  // 開いているページでリンクを押したとき（# の後ろだけが変わり、読み込み直さない）も同じ
-  useEffect(() => {
-    const onHash = () => {
-      const fragment = shareFragment(window.location.hash);
-      if (!fragment) return;
-      window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
-      void decodeShareFragment(fragment, currentTime()).then((snapshot) => {
-        if (snapshot && !isEmptySnapshot(snapshot)) setRoutineImport({ snapshot, namesOnly: true });
-        else showToast(IMPORT_FAILED, 'error');
-      });
-    };
-    onHash();
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
 
   const routineCount = badProducts.length + usable.length;
   const isTrayVisible = isTrayOpen && (trayCandidates.length > 0 || liveBrands.length > 0) && input.trim() !== '';

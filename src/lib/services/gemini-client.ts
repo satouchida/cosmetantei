@@ -216,17 +216,8 @@ export function extractResponseText(data: unknown): string {
     .trim();
 }
 
-/**
- * Gemini を呼び出して応答テキストを返す。キー未設定・エラー・空応答時は null
- */
-export async function callGemini(req: GeminiRequest): Promise<GeminiResult | null> {
-  const gateway = getGatewayConfig();
-  if (!gateway) {
-    warnMissingGatewayConfigOnce();
-    return null;
-  }
-
-  const model = getGeminiModel();
+/** generateContent に送る本文（生成の設定・会話・安全フィルター・システム指示・URL context） */
+function buildRequestBody(req: GeminiRequest, model: string): Record<string, unknown> {
   const generationConfig: Record<string, unknown> = { ...req.generationConfig };
   // thinkingLevel は Gemini 3 系のみ対応（2.5 系は thinkingBudget を使い、thinkingLevel を拒否する）
   if (/^gemini-3/.test(model)) {
@@ -257,6 +248,99 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   if (req.urlContext) {
     body.tools = [{ urlContext: {} }];
   }
+  return body;
+}
+
+/** AI Gateway に送るヘッダー */
+function gatewayHeaders(gateway: GatewayConfig, req: GeminiRequest): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    // Gemini の APIキーは送らない（AI Gateway に保存されたキーが使われる）
+    'cf-aig-authorization': `Bearer ${gateway.token}`,
+    // 本番はプロンプト・応答本文をログに残さない（肌トラブルの相談内容を含むため）。
+    // 写真は開発用の AI_GATEWAY_LOG_PAYLOAD=true でもログに残さず、ゲートウェイのキャッシュも使わない
+    'cf-aig-collect-log-payload':
+      !req.images?.length && process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
+    // ゲートウェイのキャッシュは使わない。結果は KV に保存しており、ゲートウェイに残った失敗の応答
+    // （安全性で止められた・途中で切れた応答も HTTP 200）を、期限まで全員に返し続けないように
+    'cf-aig-skip-cache': 'true',
+    // ゲートウェイで再試行しない（再試行の分も課金されるが、上限には1回分しか確保していない）
+    'cf-aig-max-attempts': '1',
+  };
+}
+
+/**
+ * 届いた応答（JSON）を読んで返す結果を決める。止められた・そのほかの終わり方・思考で上限を使い切った・
+ * 空・途中で切れた応答を見分ける。使用量の記録の outcome は markOutcome で知らせる
+ * （呼び出し側は ok のときだけ書き換える。キャッシュから返った応答は cache_hit のまま）。
+ * outcome は結果を組み立てる前に知らせる（組み立ての途中で例外になっても、記録される outcome は同じ）
+ */
+function readGeminiResponse(
+  data: unknown,
+  req: GeminiRequest,
+  markOutcome: (outcome: UsageOutcome) => void
+): GeminiResult | null {
+  const text = extractResponseText(data);
+  const candidate = (data as { candidates?: { finishReason?: string; safetyRatings?: { category?: string; blocked?: boolean }[] }[] })
+    ?.candidates?.[0];
+  const finishReason = candidate?.finishReason;
+  const blockReason = (data as { promptFeedback?: { blockReason?: string } })?.promptFeedback?.blockReason;
+  // 安全フィルターなどで止められた（途中までの文章があっても使わない）。RECITATION は下で別に扱う
+  const blocked = blockReason ?? (finishReason && BLOCKED_FINISH_REASONS.has(finishReason) ? finishReason : undefined);
+  if (blocked) {
+    markOutcome('blocked');
+    // 理由と分類名だけを記録する（本文は記録しない）
+    const categories = (candidate?.safetyRatings ?? []).filter((r) => r.blocked).map((r) => r.category);
+    console.warn(`Gemini output blocked (${blocked}${categories.length ? ` ${categories.join(',')}` : ''}) for task ${req.task}`);
+    return {
+      text: '',
+      truncated: false,
+      blocked,
+      ...(blockReason && { promptBlocked: true }),
+      ...(req.urlContext && { retrievedUrls: extractRetrievedUrls(data) }),
+    };
+  }
+  // そのほかの終わり方（OTHER・MALFORMED_RESPONSE・ツールの呼び出しの失敗など）は、モデルの一時的な失敗。途中の文章は使わない
+  if (finishReason && !HANDLED_FINISH_REASONS.has(finishReason)) {
+    markOutcome('error');
+    console.warn(`Gemini stopped unexpectedly (${finishReason}) for task ${req.task}`);
+    return null;
+  }
+  // 思考で出力の上限を使い切り、文章が無い
+  if (!text && finishReason === 'MAX_TOKENS') {
+    markOutcome('truncated');
+    console.warn(`Gemini output truncated (MAX_TOKENS) for task ${req.task}`);
+    return { text: '', truncated: true, ...(req.urlContext && { retrievedUrls: extractRetrievedUrls(data) }) };
+  }
+  if (!text) {
+    if (finishReason !== 'RECITATION') return null;
+    // 入力は課金済み（キャッシュから返ったものを除く）。理由を使用量の記録に残す
+    markOutcome('recitation');
+    console.warn(`Gemini output blocked (RECITATION) for task ${req.task}`);
+    if (req.urlContext) return { text: '', truncated: false, retrievedUrls: extractRetrievedUrls(data), recitation: true };
+    return req.reportRecitation ? { text: '', truncated: false, recitation: true } : null;
+  }
+
+  const truncated = finishReason === 'MAX_TOKENS';
+  if (truncated) {
+    markOutcome('truncated');
+    console.warn(`Gemini output truncated (MAX_TOKENS) for task ${req.task}`);
+  }
+  return req.urlContext ? { text, truncated, retrievedUrls: extractRetrievedUrls(data) } : { text, truncated };
+}
+
+/**
+ * Gemini を呼び出して応答テキストを返す。キー未設定・エラー・空応答時は null
+ */
+export async function callGemini(req: GeminiRequest): Promise<GeminiResult | null> {
+  const gateway = getGatewayConfig();
+  if (!gateway) {
+    warnMissingGatewayConfigOnce();
+    return null;
+  }
+
+  const model = getGeminiModel();
+  const body = buildRequestBody(req, model);
 
   // 有料の呼び出しの上限（全体で数える）。見積もり金額を確保し、予算を超えるなら呼ばない
   const price = geminiPrice(model, Date.now());
@@ -269,7 +353,8 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
 
   const started = Date.now();
   let data: unknown;
-  let outcome: UsageOutcome = 'error';
+  // readGeminiResponse に渡す関数の中でも書き換えるので、'error' に絞り込ませない
+  let outcome = 'error' as UsageOutcome;
   // 実際の金額。undefined は分からない（通信エラー・タイムアウトは課金されたかもしれないので、見積もりを残す）
   let actualMicros: number | undefined;
   // 応答が届いたか（届く前の接続の失敗は課金されていない）
@@ -277,20 +362,7 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   try {
     const response = await fetch(geminiEndpoint(gateway, model), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Gemini の APIキーは送らない（AI Gateway に保存されたキーが使われる）
-        'cf-aig-authorization': `Bearer ${gateway.token}`,
-        // 本番はプロンプト・応答本文をログに残さない（肌トラブルの相談内容を含むため）。
-        // 写真は開発用の AI_GATEWAY_LOG_PAYLOAD=true でもログに残さず、ゲートウェイのキャッシュも使わない
-        'cf-aig-collect-log-payload':
-          !req.images?.length && process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? 'true' : 'false',
-        // ゲートウェイのキャッシュは使わない。結果は KV に保存しており、ゲートウェイに残った失敗の応答
-        // （安全性で止められた・途中で切れた応答も HTTP 200）を、期限まで全員に返し続けないように
-        'cf-aig-skip-cache': 'true',
-        // ゲートウェイで再試行しない（再試行の分も課金されるが、上限には1回分しか確保していない）
-        'cf-aig-max-attempts': '1',
-      },
+      headers: gatewayHeaders(gateway, req),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(req.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
@@ -309,53 +381,10 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
     // AI Gateway のキャッシュから返った応答の usageMetadata は、元の呼び出しの値（今回は課金されない）
     outcome = response.headers.get('cf-aig-cache-status')?.toUpperCase() === 'HIT' ? 'cache_hit' : 'ok';
     actualMicros = outcome === 'cache_hit' ? 0 : geminiCostMicros(data, price);
-    const text = extractResponseText(data);
-    const candidate = (data as { candidates?: { finishReason?: string; safetyRatings?: { category?: string; blocked?: boolean }[] }[] })
-      ?.candidates?.[0];
-    const finishReason = candidate?.finishReason;
-    const blockReason = (data as { promptFeedback?: { blockReason?: string } })?.promptFeedback?.blockReason;
-    // 安全フィルターなどで止められた（途中までの文章があっても使わない）。RECITATION は下で別に扱う
-    const blocked = blockReason ?? (finishReason && BLOCKED_FINISH_REASONS.has(finishReason) ? finishReason : undefined);
-    if (blocked) {
-      if (outcome === 'ok') outcome = 'blocked';
-      // 理由と分類名だけを記録する（本文は記録しない）
-      const categories = (candidate?.safetyRatings ?? []).filter((r) => r.blocked).map((r) => r.category);
-      console.warn(`Gemini output blocked (${blocked}${categories.length ? ` ${categories.join(',')}` : ''}) for task ${req.task}`);
-      return {
-        text: '',
-        truncated: false,
-        blocked,
-        ...(blockReason && { promptBlocked: true }),
-        ...(req.urlContext && { retrievedUrls: extractRetrievedUrls(data) }),
-      };
-    }
-    // そのほかの終わり方（OTHER・MALFORMED_RESPONSE・ツールの呼び出しの失敗など）は、モデルの一時的な失敗。途中の文章は使わない
-    if (finishReason && !HANDLED_FINISH_REASONS.has(finishReason)) {
-      if (outcome === 'ok') outcome = 'error';
-      console.warn(`Gemini stopped unexpectedly (${finishReason}) for task ${req.task}`);
-      return null;
-    }
-    // 思考で出力の上限を使い切り、文章が無い
-    if (!text && finishReason === 'MAX_TOKENS') {
-      if (outcome === 'ok') outcome = 'truncated';
-      console.warn(`Gemini output truncated (MAX_TOKENS) for task ${req.task}`);
-      return { text: '', truncated: true, ...(req.urlContext && { retrievedUrls: extractRetrievedUrls(data) }) };
-    }
-    if (!text) {
-      if (finishReason !== 'RECITATION') return null;
-      // 入力は課金済み（キャッシュから返ったものを除く）。理由を使用量の記録に残す
-      if (outcome === 'ok') outcome = 'recitation';
-      console.warn(`Gemini output blocked (RECITATION) for task ${req.task}`);
-      if (req.urlContext) return { text: '', truncated: false, retrievedUrls: extractRetrievedUrls(data), recitation: true };
-      return req.reportRecitation ? { text: '', truncated: false, recitation: true } : null;
-    }
-
-    const truncated = finishReason === 'MAX_TOKENS';
-    if (truncated) {
-      if (outcome === 'ok') outcome = 'truncated';
-      console.warn(`Gemini output truncated (MAX_TOKENS) for task ${req.task}`);
-    }
-    return req.urlContext ? { text, truncated, retrievedUrls: extractRetrievedUrls(data) } : { text, truncated };
+    // 止められた・切れた応答などの outcome は、キャッシュから返った応答（cache_hit）では書き換えない
+    return readGeminiResponse(data, req, (read) => {
+      if (outcome === 'ok') outcome = read;
+    });
   } catch (err) {
     // 応答が届く前の接続の失敗（fetch の TypeError）は課金されていない。タイムアウト・本文を読む途中の失敗は課金されたかもしれないので見積もりを残す
     if (err instanceof TypeError && !responded) actualMicros = 0;
@@ -445,16 +474,6 @@ async function describeGatewayError(response: Response): Promise<string> {
 
   const detail = process.env.AI_GATEWAY_LOG_PAYLOAD === 'true' ? ` ${body.slice(0, 500)}` : '';
   return `${kind}: ${response.status}${errorCode ? ` ${errorCode}` : ''}${detail}`;
-}
-
-/**
- * JSON モードで呼び出し、パース済みオブジェクトを返す。失敗時は null
- */
-export async function callGeminiJSON<T>(req: GeminiRequest & { responseSchema: Record<string, unknown> }): Promise<T | null> {
-  const result = await callGemini(req);
-  // 途中で切れた JSON は不完全なので使わない
-  if (!result || result.truncated) return null;
-  return parseJsonLoose<T>(result.text);
 }
 
 /**

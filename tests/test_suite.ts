@@ -55,6 +55,22 @@ function verifiedProduct(overrides: Partial<Product>): Product {
 /** 成分を確かめた製品の一覧（KV）のキー（v2: 製品ごとに一覧に入れた日時を持つ） */
 const VERIFIED_INDEX_KEY = 'verified-products:v2';
 
+/** チャットの API（route.ts と、分岐ごとの処理を置いたファイル）。ソースの文字列を調べるテストはこれを全部読む */
+const CHAT_ROUTE_FILES = [
+  'src/app/api/chat/route.ts',
+  'src/app/api/chat/shared.ts',
+  'src/app/api/chat/action-handlers.ts',
+  'src/app/api/chat/intent-handlers.ts',
+];
+
+/** チャットの画面（ChatContainer と、その状態を持つフック・関数のファイル）。ソースの文字列を調べるテストはこれを全部読む */
+const CHAT_CONTAINER_FILES = [
+  'src/components/chat/ChatContainer.tsx',
+  'src/components/chat/chat-helpers.ts',
+  'src/components/chat/useRoutineLists.ts',
+  'src/components/chat/useRoutineTransfer.ts',
+];
+
 /** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
 function indexEntries(products: Product[], savedAt = Date.now()): { product: Product; savedAt: number }[] {
   return products.map((product) => ({ product, savedAt }));
@@ -1181,7 +1197,7 @@ test('37. Chat gate: quick-reply labels match every button label in the app', as
   const path = await import('node:path');
   const { QUICK_REPLY_LABELS } = await import('../src/lib/services/chat-gate');
   const { CLIENT_HANDLED_LABELS, getQuickReplyAction } = await import('../src/components/chat/quick-replies');
-  const sources = ['src/app/api/chat/route.ts', 'src/components/chat/ChatContainer.tsx'].map((file) =>
+  const sources = [...CHAT_ROUTE_FILES, ...CHAT_CONTAINER_FILES].map((file) =>
     fs.readFileSync(path.join(process.cwd(), file), 'utf-8')
   );
   const found = new Set<string>();
@@ -5603,8 +5619,8 @@ test('95. Chat client: server error text is shown, unreadable replies and networ
 
   // 画面のコード：/api/chat の応答を直接 res.json() で読まない（共通の postChat を通す）
   const { readFileSync } = await import('node:fs');
-  const container = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
-  assert.ok(!container.includes("apiFetch('/api/chat'"), 'ChatContainer calls /api/chat only through postChat');
+  const container = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
+  assert.ok(!container.includes("apiFetch('/api/chat'"),'ChatContainer calls /api/chat only through postChat');
 });
 
 test('96. Accessibility helpers: decorative emoji are hidden from screen readers; compact buttons can wrap', async () => {
@@ -6923,7 +6939,7 @@ test('112. Quick reply chips: the leading emoji is shown as a line icon, and the
   const { CLIENT_HANDLED_LABELS, splitQuickReplyIcon } = await import('../src/components/chat/quick-replies');
   const { QUICK_REPLY_LABELS } = await import('../src/lib/services/chat-gate');
   // 画面とサーバーが出すボタンの文言（先頭が絵文字のもの）
-  const sources = ['src/app/api/chat/route.ts', 'src/components/chat/ChatContainer.tsx', 'src/lib/services/chat-replies.ts']
+  const sources = [...CHAT_ROUTE_FILES, ...CHAT_CONTAINER_FILES, 'src/lib/services/chat-replies.ts']
     .map((f) => readFileSync(f, 'utf8'))
     .join('\n');
   const fromSource = [...sources.matchAll(/'(\p{Extended_Pictographic}\u{FE0F}? [^'\n]+)'/gu)].map((m) => m[1]);
@@ -6985,6 +7001,7 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
     'chat/PairFindingList': 'inside DifferentialResultCard and CurrentUseResultCard',
     'chat/ProductSourceLink': 'inside the cards',
     'chat/RegisteredProducts': 'context and hook, no layout of its own',
+    'chat/IngredientDetailPanel': 'inside IngredientAnalysisCard (opens when an ingredient is tapped)',
     'legal/LegalPage': 'checked at /terms and /privacy',
     'legal/ContactEmail': 'inside LegalLinks and the contact sections of /terms and /privacy',
     'owner/OwnerForm': 'checked at /owner (the owner allowance page)',
@@ -7189,7 +7206,10 @@ test('121. Pre-publish audit: visible PR on Rakuten source links, Japanese stand
   const sourceLink = readFileSync('src/components/chat/ProductSourceLink.tsx', 'utf8');
   assert.match(sourceLink, /const sponsored = product\.ingredientSource === 'shop_listing' && !!source\.href/);
   assert.match(sourceLink, /\{sponsored && <span[^>]*>PR<\/span>\}/);
-  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  // カードと、カードから分けた hook・解説の枠（useIngredientExplanation.ts に「AIで解説」の書き込みがある）
+  const card = ['IngredientAnalysisCard.tsx', 'IngredientDetailPanel.tsx', 'useAIAnalysis.ts', 'useIngredientExplanation.ts']
+    .map((f) => readFileSync(`src/components/chat/${f}`, 'utf8'))
+    .join('\n');
   assert.match(card, /原因候補の成分を含まない商品を探す<\/span>\s*\{\/\*[^]*?\*\/\}\s*<span className=\{badgeClass\('neutral'\)\}>PR<\/span>/);
 
   // C4b: 化粧品基準で配合できない成分を含む製品は、代わりの商品にしない
@@ -7249,7 +7269,10 @@ test('122. Analysis card: ingredients outside the Japanese standard are marked, 
   assert.ok(!ing('水').raisedForLabel && !ing('水').jpStandard);
   assert.strictEqual(r.outsideJpStandard, true, 'The headline and the marked pill come from the same notAllowedHere');
 
-  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  // カードと、カードから分けた解説の枠・hook（adviceFor は IngredientDetailPanel.tsx。この順なら下の slice の範囲は adviceFor から始まる）
+  const card = ['IngredientAnalysisCard.tsx', 'IngredientDetailPanel.tsx', 'useAIAnalysis.ts', 'useIngredientExplanation.ts']
+    .map((f) => readFileSync(`src/components/chat/${f}`, 'utf8'))
+    .join('\n');
   // ボタン：基準の外は白地に赤の枠と「基準」の印（読み上げにも理由を付ける）。凡例にも出す
   assert.match(card, /if \(outsideStandard\(ing\) && !isIrritantLevel\(ing\)\) return 'bg-white text-rose-900 border-rose-400/);
   const { pillMark } = await import('../src/components/chat/ingredient-marks');
@@ -7568,7 +7591,7 @@ test('125. Third live review: the analysis reply states only what the AI rating 
 
   // 「下のカードをご覧ください」：この返答を使うところは、どれもカード（singleAnalysis）を一緒に返す
   const { readFileSync } = await import('node:fs');
-  const route = readFileSync('src/app/api/chat/route.ts', 'utf8');
+  const route = CHAT_ROUTE_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
   const calls = route.split('reply: summarizeProductAnalysis(').slice(1);
   assert.ok(calls.length >= 5, 'Every caller is checked');
   for (const after of calls) assert.match(after.slice(0, 200), /singleAnalysis: analysis/);
@@ -7643,6 +7666,9 @@ test('126. Fourth live review: raised 表示指定成分 get their own mark, so 
   // カードはこのモジュールの印・凡例を使う（「注＝軽度の注意・表示指定成分」の古い凡例は無い）
   const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
   assert.ok(card.includes("from './ingredient-marks'") && !card.includes('function pillMark') && !card.includes("'・表示指定成分'"));
+  // カードから分けた成分の解説の枠も、同じモジュールを使う
+  const detailPanel = readFileSync('src/components/chat/IngredientDetailPanel.tsx', 'utf8');
+  assert.ok(detailPanel.includes("from './ingredient-marks'") && !detailPanel.includes('function pillMark') && !detailPanel.includes("'・表示指定成分'"));
 });
 
 test('127. Fifth live review: raised 表示指定成分 are outlined, not filled like 注 (2026-10-24)', async () => {
@@ -7764,7 +7790,7 @@ test('128. Spend limits reach the screen: the route says which limit refused, th
     assert.match(readFileSync('src/app/api/label/read/route.ts', 'utf8'), /error: spendLimitMessage\(limit\)/);
     // チャット：上限で Web を調べられなかったときは「見つかりませんでした」と言わない（2か所）
     // （調べた呼び出しの種類だけを見る。3か所と、近い候補を出すときに理由を添える1か所）
-    const chatRoute = readFileSync('src/app/api/chat/route.ts', 'utf8');
+    const chatRoute = CHAT_ROUTE_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
     assert.strictEqual(chatRoute.match(/\? spendLimitMessage\(limit\)/g)?.length, 3);
     assert.strictEqual(chatRoute.match(/currentSpendLimit\(RESEARCH_BUCKETS\)/g)?.length, 4);
     assert.match(chatRoute, /limit \? `\$\{spendLimitMessage\(limit\)\}\\n\\n\$\{summarizeCloseMatches\(closeMatches\)\}`/);
@@ -8385,7 +8411,7 @@ test('138. Ingredient lists longer than LABEL_LIMITS are rejected, not cut (the 
   // 自分で入力した成分表示は、切らずに「多すぎる」と返す
   const { productFromLabel } = await import('../src/lib/services/label-reader');
   assert.deepStrictEqual(await productFromLabel({ text: [...names(LABEL_LIMITS.ingredients), '香料'].join('、') }), { error: 'too_many' });
-  const route = readFileSync('src/app/api/chat/route.ts', 'utf8');
+  const route = CHAT_ROUTE_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
   assert.ok(route.includes("built.error === 'too_many'"));
   // お店の商品説明も、多すぎる一覧は使わない（成分の無い「お店の成分表示」の製品を作らない）
   const { ingredientsFromCaption } = await import('../src/lib/services/shop-ingredients');
@@ -9552,8 +9578,15 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
 
   // 画面：登録は2つ（「今使っている」のボタンは無い）。1つの製品は1つのリストだけ。クリアはリストの名前つきで確かめる。
   // 「リセットする」は肌荒れしたコスメだけを空にする。サンプルは保存しない
-  const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
-  for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/search/LiveSearchCandidateTray.tsx', 'src/components/chat/IngredientAnalysisCard.tsx']) {
+  const chat = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
+  for (const file of [
+    'src/components/chat/ProductSuggestionCard.tsx',
+    'src/components/search/LiveSearchCandidateTray.tsx',
+    'src/components/chat/IngredientAnalysisCard.tsx',
+    'src/components/chat/IngredientDetailPanel.tsx',
+    'src/components/chat/useAIAnalysis.ts',
+    'src/components/chat/useIngredientExplanation.ts',
+  ]) {
     const source = readFileSync(file, 'utf8');
     assert.ok(!source.includes('今使っている') && !source.includes('普段'), `${file} has only 肌荒れした and 使えている`);
   }
@@ -9591,4 +9624,30 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
   }
   // 比較の結果を出したときに、おすすめを出すか確かめる
   assert.match(chat, /if \(reply\.differentialAnalysis\) offerExportAfterResult\(\);/);
+});
+
+test('159. Product link fields: amazonSearchUrl, imageUrl and shopLink.href must be https, shopLink.sponsored a boolean (review 2026-11-10 V2)', async () => {
+  const { isValidProduct } = await import('../src/lib/product-validation');
+  const { shopLink } = await import('../src/lib/services/shops');
+  // 項目が無い製品はこれまでどおり通る
+  assert.ok(isValidProduct(verifiedProduct({})));
+  // サーバーが作る値は通る（Amazon の検索リンクは、200字の日本語のブランド名・商品名でも）
+  assert.ok(isValidProduct(verifiedProduct({ amazonSearchUrl: buildAmazonAffiliateUrl('テストブランド', '保湿クリーム') })));
+  assert.ok(isValidProduct(verifiedProduct({ name: 'い'.repeat(200), brand: 'あ'.repeat(200), amazonSearchUrl: buildAmazonAffiliateUrl('あ'.repeat(200), 'い'.repeat(200)) })));
+  assert.ok(isValidProduct(verifiedProduct({ imageUrl: 'https://images.openbeautyfacts.org/images/products/123/front_ja.jpg' })));
+  assert.ok(isValidProduct(verifiedProduct({ shopLink: shopLink('rakuten', 'https://item.rakuten.co.jp/shop/item/') })));
+  assert.ok(isValidProduct(verifiedProduct({ shopLink: { href: 'https://item.rakuten.co.jp/shop/item/', sponsored: true } })));
+  // javascript: と http: は、どの項目でも断る
+  for (const bad of ['javascript:alert(1)', 'http://example.com/item']) {
+    assert.ok(!isValidProduct(verifiedProduct({ amazonSearchUrl: bad })), `amazonSearchUrl ${bad}`);
+    assert.ok(!isValidProduct(verifiedProduct({ imageUrl: bad })), `imageUrl ${bad}`);
+    assert.ok(!isValidProduct(verifiedProduct({ shopLink: { href: bad, sponsored: false } })), `shopLink.href ${bad}`);
+  }
+  // 形の違うリンク・長すぎる URL も断る
+  const asProduct = (fields: Record<string, unknown>) => ({ ...verifiedProduct({}), ...fields });
+  assert.ok(!isValidProduct(asProduct({ shopLink: 'https://item.rakuten.co.jp/shop/item/' })));
+  assert.ok(!isValidProduct(asProduct({ shopLink: null })));
+  assert.ok(!isValidProduct(asProduct({ shopLink: { href: 'https://item.rakuten.co.jp/shop/item/', sponsored: 'yes' } })));
+  assert.ok(!isValidProduct(asProduct({ imageUrl: 42 })));
+  assert.ok(!isValidProduct(verifiedProduct({ imageUrl: `https://example.com/${'a'.repeat(2048)}` })));
 });

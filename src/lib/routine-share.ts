@@ -2,6 +2,7 @@ import { CountryOrigin, Product } from './types';
 import { isPersistable, UsableEntry } from './usable-products';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 import { isPlainLabelText } from './utils/safe-text';
+import { fromBase64Url, toBase64Url } from './utils/base64url';
 import { SITE_URL } from './site';
 
 /**
@@ -186,21 +187,6 @@ export function parseRoutine(text: string, now: number): RoutineSnapshot | null 
 type Ref = [id: string, brand: string, name: string];
 
 const toRef = (p: Product): Ref => [p.id, p.brand, p.name];
-
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | null {
-  if (!/^[A-Za-z0-9_-]+$/.test(text)) return null;
-  try {
-    return Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
 
 async function deflate(text: string): Promise<Uint8Array> {
   const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('deflate-raw'));

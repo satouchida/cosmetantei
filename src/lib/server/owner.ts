@@ -1,4 +1,6 @@
 import 'server-only';
+import { fromBase64Url, toBase64Url } from '../utils/base64url';
+import { hmacKey, sameSecret } from './signing';
 
 /**
  * 運営者の利用枠（docs/plans/owner-allowance.md）。運営者のブラウザだけ、利用者ごとの1日の上限（IP・セッション）の
@@ -30,26 +32,6 @@ export function ownerKey(): string | null {
   // 同じ字の繰り返しなど、明らかに弱い鍵は使わない（Cookie の署名の鍵でもあるので。openssl rand -base64 32 などで作る）
   if (new Set(key).size < 12) return null;
   return key;
-}
-
-function hmacKey(secret: string): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
-}
-
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function fromBase64Url(text: string): Uint8Array<ArrayBuffer> | null {
-  if (!/^[A-Za-z0-9_-]+$/.test(text)) return null;
-  try {
-    const binary = atob(text.replace(/-/g, '+').replace(/_/g, '/'));
-    return Uint8Array.from(binary, (c) => c.charCodeAt(0));
-  } catch {
-    return null;
-  }
 }
 
 const signedPart = (expires: number) => `owner|v1|${expires}`;
@@ -89,21 +71,6 @@ export function isOwnerRequest(request: Request): Promise<boolean> {
   return isOwnerCookie(request.headers.get('cookie'), ownerKey(), Date.now());
 }
 
-async function sha256(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
-}
-
-/**
- * 入力された値が OWNER_KEY か。同じ長さ（32バイト）のダイジェストを、全バイトを見て比べる
- * （かかる時間から OWNER_KEY を1字ずつ推測させない）
- */
-async function matchesOwnerKey(input: string, key: string): Promise<boolean> {
-  const [a, b] = await Promise.all([sha256(input), sha256(key)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
-
 const NOT_AVAILABLE_REPLY = { error: '使えません。' };
 
 /** POST /api/owner の本体：OWNER_KEY と同じ値なら、運営者の Cookie を付ける */
@@ -111,7 +78,8 @@ export async function startOwner(input: unknown): Promise<Response> {
   const key = ownerKey();
   if (!key) return Response.json(NOT_AVAILABLE_REPLY, { status: 404 });
   try {
-    if (typeof input !== 'string' || !input.trim() || input.length > MAX_OWNER_KEY_LENGTH || !(await matchesOwnerKey(input.trim(), key))) {
+    // 入力された値が OWNER_KEY か。時間の変わらない比べ方（かかる時間から OWNER_KEY を1字ずつ推測させない）
+    if (typeof input !== 'string' || !input.trim() || input.length > MAX_OWNER_KEY_LENGTH || !(await sameSecret(input.trim(), key))) {
       console.warn('[owner] wrong key');
       return Response.json({ error: '値が違います。' }, { status: 403 });
     }

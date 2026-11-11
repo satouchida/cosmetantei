@@ -1,5 +1,6 @@
 import { SEED_PRODUCTS } from '@/lib/data/seed-products';
 import { readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
+import { sameSecret } from '@/lib/server/signing';
 import { withUsageRoute } from '@/lib/server/usage';
 import { refreshNextProduct, seedProduct } from '@/lib/services/seeding';
 
@@ -14,18 +15,6 @@ import { refreshNextProduct, seedProduct } from '@/lib/services/seeding';
 
 const NOT_FOUND = () => new Response('Not Found', { status: 404 });
 const MAX_BODY_BYTES = 256;
-
-async function sha256(text: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
-}
-
-/** 長さ・中身で時間の変わらない比べ方（ハッシュ値どうしを全部比べる） */
-async function sameSecret(given: string, expected: string): Promise<boolean> {
-  const [a, b] = await Promise.all([sha256(given), sha256(expected)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
-}
 
 export async function POST(request: Request): Promise<Response> {
   const secret = (process.env.SEED_SECRET || '').trim();
