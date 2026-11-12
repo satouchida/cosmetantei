@@ -68,6 +68,7 @@ const CHAT_CONTAINER_FILES = [
   'src/components/chat/chat-helpers.ts',
   'src/components/chat/useRoutineLists.ts',
   'src/components/chat/useRoutineTransfer.ts',
+  'src/components/chat/useTypeahead.ts',
 ];
 
 /** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
@@ -8743,7 +8744,7 @@ test('141. Yahoo! seller-text products stay on the server (30 days, with credit)
   assert.strictEqual(excludedCount(snapshot), 1);
 
   // 候補トレイ：Yahoo! の商品説明の製品を出すときは Yahoo! のクレジットと「販売ページの成分表示」
-  const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+  const chat = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
   assert.match(chat, /liveCandidates\.some\(\(p\) => p\.ingredientSource === 'shop_yahoo'\) && !lineupCredits\.includes\('yahoo'\)/);
   const tray = readFileSync('src/components/search/LiveSearchCandidateTray.tsx', 'utf8');
   assert.match(tray, /isSellerTextProduct\(product\) && \(\s*<div className="mt-1 text-xs text-ink-muted">販売ページの成分表示<\/div>/);
