@@ -9834,7 +9834,7 @@ test('161. Brand check: exact list match, one key per brand, 64 per Clef call, G
   const { judgeBrands, isListedBrand, isAcceptedBrand, isKnownGenericTerm } = await import('../src/lib/services/brand-check');
 
   // 一覧のブランドは、欄全体か、区切ったすべての部分が一覧の名前のときだけ（語の一部では照らさない）
-  for (const listed of ['キュレル', 'Curél', 'きゅれる', '花王 / キュレル', '花王 キュレル', 'キュレル（花王）', 'クレ・ド・ポー ボーテ']) {
+  for (const listed of ['キュレル', 'Curél', 'きゅれる', '花王 / キュレル', '花王 キュレル', 'キュレル（花王）', 'クレ・ド・ポー ボーテ', 'キュレル 化粧水']) {
     assert.strictEqual(isListedBrand(listed), true, `"${listed}" is a listed brand`);
   }
   for (const other of ['偽キュレル', 'キュレル風', 'エストニア', 'ハクビ', '激安コスメ ケイト館', 'ノンブランド キュレル類似', '']) {
@@ -9862,6 +9862,15 @@ test('161. Brand check: exact list match, one key per brand, 64 per Clef call, G
     assert.deepStrictEqual(decisions.map(isAcceptedBrand), [true, true, false, false], 'An undecided brand is not shown');
     assert.strictEqual(isKnownGenericTerm('テスト店名'), true, 'A rejected name is not shown as a brand');
     assert.strictEqual(isKnownGenericTerm('テスト迷いブランド'), false);
+
+    // 同じブランドの候補でも、決められなかったときの扱いは、その候補の自己申告で決める
+    assert.deepStrictEqual(
+      await judgeBrands([
+        { brand: 'テスト迷いブランド', productName: 'x' },
+        { brand: 'テスト迷いブランド', productName: 'y', selfReportedOfficial: true },
+      ]),
+      ['undecided', 'unverified']
+    );
 
     // 64 を超えるブランドは、捨てずに次のリクエストで聞く
     const before = clef.calls.length;

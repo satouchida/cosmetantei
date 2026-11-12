@@ -160,6 +160,9 @@ RAKUTEN_API_ORIGIN = "https://cosmetantei.app"
 # 検索結果の Clef フィルター: off | shadow | enforce。既定は off（2026-10-13 の評価で、今の検索結果に取り除く候補が無かったため）
 # docs/plans/clef-chat-gate-and-search-filter.md の Phase 2
 SEARCH_FILTER_MODE = "off"
+# ブランド名の判定で、Clef が決められなかった・使えなかったブランドだけを Gemini Decision 1 に聞く: gemini | off（既定）
+# 2026-11-13 の評価（scripts/eval-brand-decisions.mts）：Clef が決められなかったのは 336 語のうち 6、Gemini はそのうち 5 を正しく決めた
+BRAND_SECOND_OPINION = "gemini"
 # Web の製品を全員で共有するのは、信頼するサイト（src/lib/data/trusted-sites.ts）のものだけにする。
 # shadow: 今までどおり動き、出典のホスト名と判定だけを [trusted-sites] のログに出す / enforce: 共有を絞る / off
 TRUSTED_SITES_MODE = "shadow"

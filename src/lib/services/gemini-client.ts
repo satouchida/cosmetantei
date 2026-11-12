@@ -406,6 +406,109 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResult | nul
   }
 }
 
+// ---------- Decisions API ----------
+
+/** Decisions API のモデル（はい・いいえ等の判定を確率で返す。文章は生成しない） */
+export const GEMINI_DECISION_MODEL = 'gemini-decision-1';
+/** 判定は検索の途中で待つので、短く切る */
+const DECISIONS_TIMEOUT_MS = 5_000;
+
+export interface GeminiDecisionsRequest {
+  /** 使用量の記録に使う呼び出しの目的 */
+  task: string;
+  /** すべての質問に共通の入力（空にできない） */
+  input: string;
+  /** 質問の id（英数字・_・-、64文字まで）→ はい・いいえの質問文。モデルは id を見ないので、質問は文に書き切る */
+  yesNoQuestions: Record<string, string>;
+}
+
+/**
+ * Gemini の Decisions API に、はい・いいえの質問をまとめて1回で聞く。戻り値は id →「はい」の確率（0.01〜0.99）。
+ * 設定が無い・上限・エラー・安全フィルターで止められたときは null（呼び出し側は、判定できなかったものとして扱う）
+ * - 質問の本文はゲートウェイのログに残さない（検索で見つけたページの文字列が入るため。開発用の設定でも残さない）
+ */
+export async function callGeminiDecisions(req: GeminiDecisionsRequest): Promise<Map<string, number> | null> {
+  const ids = Object.keys(req.yesNoQuestions);
+  if (ids.length === 0) return new Map();
+  const gateway = getGatewayConfig();
+  if (!gateway) {
+    warnMissingGatewayConfigOnce();
+    return null;
+  }
+
+  const model = GEMINI_DECISION_MODEL;
+  const body = JSON.stringify({
+    model,
+    input: req.input,
+    questions: Object.fromEntries(ids.map((id) => [id, { type: 'noul', instructions: req.yesNoQuestions[id] }])),
+  });
+  const price = geminiPrice(model, Date.now());
+  // 見積もり：本文の文字数をトークン数とみなす（入力だけ課金）
+  const ticket = await reserveSpend('gemini', tokenCostMicros(body.length, price.input));
+  if (!ticket) {
+    console.warn('Gemini Decisions call skipped: spend cap reached');
+    await recordUsage({ kind: 'gemini', task: req.task, model, outcome: 'capped' });
+    return null;
+  }
+
+  const started = Date.now();
+  let outcome: UsageOutcome = 'error';
+  let promptTokens: number | undefined;
+  // 実際の金額。undefined は分からない（見積もりを残す）。考え方は callGemini と同じ
+  let actualMicros: number | undefined;
+  let responded = false;
+  try {
+    const response = await fetch(
+      `${AI_GATEWAY_BASE}/${encodeURIComponent(gateway.accountId)}/${encodeURIComponent(gateway.gatewayId)}/google-ai-studio/v1beta/decisions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'cf-aig-authorization': `Bearer ${gateway.token}`,
+          'cf-aig-collect-log-payload': 'false',
+          'cf-aig-skip-cache': 'true',
+          // ゲートウェイに再試行させない（確保した見積もりは1回分）
+          'cf-aig-max-attempts': '1',
+        },
+        body,
+        signal: AbortSignal.timeout(DECISIONS_TIMEOUT_MS),
+      }
+    );
+    responded = true;
+    if (!response.ok) {
+      if (response.status < 500) actualMicros = 0;
+      // 上限で断られた失敗は、失敗として覚えない（判定は手元の規則に戻るので、画面には伝えない）
+      if (isUpstreamLimit(response.status)) markRefused();
+      console.error(await describeGatewayError(response));
+      return null;
+    }
+    const data = (await response.json()) as {
+      answers?: Record<string, { type?: unknown; noul?: unknown } | undefined>;
+      usage?: { total_input_tokens?: unknown };
+    };
+    const tokens = data.usage?.total_input_tokens;
+    if (typeof tokens === 'number' && Number.isFinite(tokens)) {
+      promptTokens = tokens;
+      actualMicros = tokenCostMicros(tokens, price.input);
+    }
+    if (!data.answers || typeof data.answers !== 'object') return null;
+    outcome = 'ok';
+    const answers = new Map<string, number>();
+    for (const id of ids) {
+      const value = data.answers[id]?.noul;
+      if (typeof value === 'number' && value >= 0 && value <= 1) answers.set(id, value);
+    }
+    return answers;
+  } catch (err) {
+    if (err instanceof TypeError && !responded) actualMicros = 0;
+    console.error('Gemini Decisions request failed:', err instanceof Error ? err.message : err);
+    return null;
+  } finally {
+    await recordUsage({ kind: 'gemini', task: req.task, model, outcome, promptTokens, ms: Date.now() - started });
+    if (actualMicros !== undefined) await settleSpend(ticket, actualMicros);
+  }
+}
+
 /** 見積もりの前提（実際の金額は呼び出しの後に usageMetadata で直す） */
 const IMAGE_TOKENS = 2_000;
 /**

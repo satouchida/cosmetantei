@@ -19,6 +19,9 @@ const GEMINI_PRICES: Record<string, { from: string; price: TokenPrice }[]> = {
     { from: '2000-01-01', price: { input: 0.75, cachedInput: 0.075, output: 3.75 } },
     { from: '2027-01-01', price: { input: 1.5, cachedInput: 0.15, output: 7.5 } },
   ],
+  // Decisions API のモデル（aistudio.google.com/docs/pricing の Gemini Decision、2026-11-13 に確認）。
+  // 入力だけ課金（出力は 0 トークン）。コンテキストキャッシュは無いので、cachedInput は入力と同じ
+  'gemini-decision-1': [{ from: '2000-01-01', price: { input: 0.1, cachedInput: 0.1, output: 0 } }],
 };
 
 /** 表に無いモデル。高めに見積もって予算を超えないようにする（モデルを変えたら表に足す） */
