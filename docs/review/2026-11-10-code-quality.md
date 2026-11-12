@@ -305,12 +305,29 @@ Still open:
     now add real products the queries match and fake ones the search must not return
     (a placeholder brand, a query word as the brand, a fabricated template name), and assert
     that at least one result was checked. Measured: 4 products checked in each.
-  - **New finding from that work (open):** a cached product whose brand is the single word 炭
-    would be returned by the search and shown with 炭 as its brand. `GENERIC_VOCABULARY` in
-    `src/lib/services/brand-check.ts` lists 炭酸泡 and 炭酸洗顔 but not 炭 alone, so the
-    no-AI check passes it. Such a product has to get into the cache first; whether the
-    AI brand check at intake would stop it was not tested. Fix to consider: add 炭 (and review
-    other one-character material words) to the vocabulary, with a test case in test 16.
+  - **Finding from that work, fixed 2026-11-12 (package L):** a cached product whose brand was
+    the single word 炭 was returned by the search and shown with 炭 as its brand
+    (`GENERIC_VOCABULARY` in `src/lib/services/brand-check.ts` had 炭酸泡 and 炭酸洗顔 but not 炭).
+    `brand-check.ts` now has a whole-word list (炭, 泥, 塩, 泡, 炭酸, クレイ, スクラブ, 酵素): a brand is
+    generic when every word of it is vocabulary or exactly one of these. Whole words only, so a
+    name that merely contains the character (米肌, 牛乳石鹸, 草花木果) is unaffected. Checked on 443
+    real brand strings from `brands-jp.ts` and `seed-products.ts`: no verdict changed. Tests 16
+    and 30 cover it and fail without the fix. Not tested: whether the AI brand check at intake
+    would have stopped such a product anyway.
+    Owner's decision (2026-11-12): 米, 酒, 茶, 蜜, 油, 水, 美白, オイル, ジェル, メンズ, プチプラ, 無添加,
+    オーガニック, 石鹸 (also 石けん, せっけん) and シャンプー are generic on their own and were added to the
+    whole-word list; TSUBAKI (ツバキ, つばき) is a real brand and was added to `brands-jp.ts`. 446 real
+    brand strings compared again: no verdict changed.
+    Owner's second decision (2026-11-12): 灰, 土, 粉, 石, 砂, 麹, 糠 (also ぬか), 絹, 花, 葉, 竹, 海, ゲル,
+    ピーリング, ゴマージュ, はちみつ (also ハチミツ), ホホバ, ヒアルロン酸 and コラーゲン are generic on their own,
+    and a name made only of generic words is generic too ("combination of generic terms are
+    generic"). Each separator-split word is now generic when it splits entirely into whole-list
+    words, so 炭泥, はちみつ石鹸, 竹炭石鹸, 米ぬか and ホホバオイル are generic, while 花王, 雪肌精, 草花木果,
+    茶のしずく and 石澤研究所 are not (some part is not a listed word). 446 real brand strings compared
+    again: no verdict changed. Review fix: vocabulary inside a word now splits the word instead of
+    being deleted, so the two sides no longer join (石ミルク鹸 had read as 石鹸); 石ケン and セッケン
+    were added. ボディソープ is a product category (owner, 2026-11-12) and was added too; every
+    candidate word is now generic.
 - Test assertions that read source text now read the split files joined together
   (`CHAT_ROUTE_FILES`, `CHAT_CONTAINER_FILES`); no assertion was removed or loosened.
 - One stale comment remains: `src/lib/utils/ingredient-name.ts:3` still says the rule

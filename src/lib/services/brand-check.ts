@@ -44,17 +44,56 @@ const MAX_BRAND_LENGTH = 40;
 
 const memoryVerdicts = new BoundedCache<BrandVerdict>(5000);
 
+/** ブランド名の区切り（空白・記号）。正規化キーでは取り除き、語の区切りにも使う */
+const BRAND_SEPARATORS = /[\s\-_・/\\,.、。()（）「」【】]+/g;
+
 /** ブランド名の正規化キー（全角半角・大文字小文字・空白記号の揺れを吸収） */
 export function normalizeBrandKey(brand: string): string {
   return brand
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/[\s\-_・/\\,.、。()（）「」【】]+/g, '');
+    .replace(BRAND_SEPARATORS, '');
 }
 
 // アプリ内で使っている肌悩み・成分・カテゴリ・検索修飾語（detectQueryIntent / isNonCosmeticSearchQuery と同じ語彙）
 const GENERIC_VOCABULARY =
   /乾燥肌|脂性肌|混合肌|敏感肌|乾燥|カサつき|かさつき|つっぱり|粉ふき|皮むけ|ニキビ|吹き出物|コメド|アクネ|赤み|赤ら顔|ヒリヒリ|ピリピリ|しみる|敏感|酒さ|かゆみ|肌荒れ|毛穴|黒ずみ|角栓|いちご鼻|テカリ|皮脂|日焼け止め|日やけ止め|日焼け|紫外線|uv|レチノール|ビタミンa|セラミド|ビタミンc|アスコルビン|cica|シカ|ツボクサ|リップクリーム|リップバーム|リップ|口紅|ルージュ|ティント|バーム|化粧水|ローション|トナー|洗顔料|洗顔フォーム|泡洗顔|洗顔|クレンジング|ウォッシュ|クリーム|乳液|ミルク|美容液|セラム|エッセンス|パック|シートマスク|マスク|ファンデーション|コスメ|スキンケア|炭酸泡|炭酸洗顔|保湿|低刺激/g;
+
+// 素材・剤形の一般名詞（「炭」「泥」など）。上の語彙に入れると名前の途中の文字まで取り除くので、
+// 一文字の語は実在ブランドの名前の一部も消し、残りが語彙だけならそのブランドを一般名詞にしてしまう。
+// そのため、区切りで分けた1語が（上の語彙を除いて）この語だけでできているときだけ一般名詞とみなす
+// （オーナーの判断 2026-11-12：これらの語はそれだけではブランド名ではなく、組み合わせても一般名詞のまま。
+// TSUBAKI（ツバキ）は実在のブランドなので brands-jp.ts に入れる）
+const GENERIC_WHOLE_WORDS: ReadonlySet<string> = new Set([
+  '炭', '泥', '塩', '泡', '炭酸', 'クレイ', 'スクラブ', '酵素',
+  '米', '酒', '茶', '蜜', '油', '水', '美白', 'オイル', 'ジェル', 'メンズ', 'プチプラ', '無添加', 'オーガニック',
+  '石鹸', '石けん', '石ケン', 'せっけん', 'セッケン', 'シャンプー', 'ボディソープ',
+  '灰', '土', '粉', '石', '砂', '麹', '糠', 'ぬか', '絹', '花', '葉', '竹', '海', 'ゲル', 'ピーリング', 'ゴマージュ',
+  'はちみつ', 'ハチミツ', 'ホホバ', 'ヒアルロン酸', 'コラーゲン',
+]);
+const LONGEST_WHOLE_WORD = Math.max(...[...GENERIC_WHOLE_WORDS].map((w) => w.length));
+
+/** 上の語だけを続けて書いたものか（「炭」「炭泥」「はちみつ石鹸」）。語の途中で切らずに、すべてを語に分けられるとき */
+function isWholeWordsOnly(text: string): boolean {
+  // canEnd[i]：先頭から i 文字までを語に分けられる
+  const canEnd = [true, ...Array<boolean>(text.length).fill(false)];
+  for (let end = 1; end <= text.length; end++) {
+    for (let len = 1; len <= Math.min(LONGEST_WHOLE_WORD, end); len++) {
+      if (canEnd[end - len] && GENERIC_WHOLE_WORDS.has(text.slice(end - len, end))) {
+        canEnd[end] = true;
+        break;
+      }
+    }
+  }
+  return text.length > 0 && canEnd[text.length];
+}
+
+/** 区切りで分けたどの語も、一般名詞の語彙と上の素材・剤形の語だけでできているか（「炭」「炭 洗顔」「炭泥パック」） */
+function isMadeOfGenericWords(brand: string): boolean {
+  const words = brand.normalize('NFKC').toLowerCase().split(BRAND_SEPARATORS).filter(Boolean);
+  // 語彙は取り除かずに区切りとして扱う（取り除くと両側がつながり、「石ミルク鹸」が「石鹸」になる）
+  return words.length > 0 && words.every((word) => word.split(GENERIC_VOCABULARY).filter(Boolean).every(isWholeWordsOnly));
+}
 
 /**
  * 1. 無料の語彙チェック（Gemini・Clef を呼ばずに判定できるもの）
@@ -65,6 +104,7 @@ export function precheckBrand(brand: string): BrandVerdict | null {
   if (key.length > MAX_BRAND_LENGTH) return 'not_brand';
   // 一般名詞を取り除くと何も残らない = 一般名詞だけで構成されている
   if (key.replace(GENERIC_VOCABULARY, '').length === 0) return 'generic_term';
+  if (isMadeOfGenericWords(brand)) return 'generic_term';
   return null;
 }
 

@@ -97,6 +97,8 @@ export const BRANDS_JP: BrandEntry[] = [
   // 「&」は照合で無視されるので、英字の「&honey」は「honey」という一般語になる。読みと「and honey」だけで照合する
   { name: 'アンドハニー', aliases: ['and honey'] },
   { name: 'ユースキン', aliases: ['Yuskin'] },
+  // ファイントゥデイ（「椿」「つばき」は素材の名前でもあるので、ブランドとして載せるのはこの書き方だけ）
+  { name: 'TSUBAKI', kana: 'つばき', aliases: ['ツバキ'] },
   // 手頃なメイク・スキンケア
   { name: 'ちふれ', aliases: ['CHIFURE'] },
   { name: 'セザンヌ', aliases: ['CEZANNE'] },

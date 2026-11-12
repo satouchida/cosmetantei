@@ -596,6 +596,8 @@ test('16. Zero user query reflection in brand field (Rejects generic terms in br
   const fakes = [
     verifiedProduct({ id: 't16_placeholder_brand', brand: 'ブランド未記載', name: '毛穴 クレンジングジェル', category: 'cleanser' }),
     verifiedProduct({ id: 't16_query_word_brand', brand: '敏感肌', name: '化粧水 さっぱり', category: 'toner' }),
+    // 一文字の素材名だけのブランド（2026-11-10 のレビューで、語彙チェックを通っていた）
+    verifiedProduct({ id: 't16_material_word_brand', brand: '炭', name: '炭 洗顔フォーム', category: 'cleanser' }),
     verifiedProduct({ id: 't16_template_name', brand: 'ハナミズキテスト', name: '炭＆植物スクラブ 泡洗顔', category: 'cleanser' }),
   ];
   for (const p of [...real, ...fakes]) addProductToDynamicCache(p);
@@ -970,6 +972,38 @@ test('30. Brand precheck rejects brands made only of generic cosmetic words, for
   }
   for (const brand of ['ちふれ', 'キュレル', 'La Roche-Posay', 'シカプラスト']) {
     assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
+  }
+  // 素材・剤形の語は、1語がその語そのもののときだけ一般名詞（名前の一部に入っている実在ブランドは次の判定へ）
+  for (const generic of ['炭', '泥', '塩', '泡', '炭酸', 'クレイ', 'スクラブ', '酵素', '炭 洗顔', '炭　スクラブ', '泡洗顔 炭 スクラブ', '炭・洗顔', '炭/泥', '炭-洗顔', 'ＵＶ　炭']) {
+    assert.strictEqual(precheckBrand(generic), 'generic_term', `"${generic}" must be generic`);
+    assert.strictEqual(isKnownGenericTerm(generic), true);
+  }
+  for (const brand of ['草花木果', '牛乳石鹸', '米肌', 'ケアセラ 泡の高保湿', 'クレイエンス', '炭酸泉', '茶のしずく', 'ちふれ 炭', '炭 ケアセラ', 'ケアセラ 泡']) {
+    assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
+  }
+  // オーナーの判断（2026-11-12）：次の語はそれだけではブランド名ではない。TSUBAKI（ツバキ・つばき）は実在のブランド
+  for (const generic of ['米', '酒', '茶', '蜜', '油', '水', '美白', 'オイル', 'ジェル', 'メンズ', 'プチプラ', '無添加', 'オーガニック', '石鹸', '石けん', 'せっけん', 'シャンプー', 'メンズ 洗顔', 'プチプラ リップ']) {
+    assert.strictEqual(precheckBrand(generic), 'generic_term', `"${generic}" must be generic`);
+  }
+  for (const brand of ['TSUBAKI', 'ツバキ', 'つばき', '米肌', '牛乳石鹸', '肌ラボ 白潤 薬用美白化粧水', 'ちふれ 化粧水']) {
+    assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
+  }
+  // オーナーの判断（2026-11-12、2回目）：次の語もそれだけではブランド名ではなく、一般的な語をつなげただけの名前も一般的な語
+  for (const generic of [
+    '灰', '土', '粉', '石', '砂', '麹', '糠', 'ぬか', '絹', '花', '葉', '竹', '海', 'ゲル', 'ピーリング', 'ゴマージュ',
+    'はちみつ', 'ハチミツ', 'ホホバ', 'ヒアルロン酸', 'コラーゲン',
+    '炭泥', 'はちみつ石鹸', '竹炭石鹸', '米ぬか', '海泥', 'ホホバオイル', 'ヒアルロン酸コラーゲン', '炭 泥', '米ぬか オイル',
+    '石ケン', 'セッケン', 'ﾊﾁﾐﾂ', 'ﾊﾁﾐﾂ石鹸', '炭･泥', '炭泥パック', 'はちみつ洗顔石鹸', 'ボディソープ', '炭 ボディソープ',
+  ]) {
+    assert.strictEqual(precheckBrand(generic), 'generic_term', `"${generic}" must be generic`);
+  }
+  // それらの文字を含んでいても、一般的な語だけでできていない名前はブランドの候補のまま
+  for (const brand of ['花王', '雪肌精', '草花木果', '茶のしずく', '石澤研究所', 'SHIRO', 'ハトムギ化粧水', '石ミルク鹸']) {
+    assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
+  }
+  const { resolveBrand, SEED_INDEX } = await import('../src/lib/services/brand-suggest');
+  for (const spelling of ['TSUBAKI', 'ツバキ', 'つばき']) {
+    assert.strictEqual(resolveBrand(spelling, SEED_INDEX)?.brand.entry.name, 'TSUBAKI', `${spelling} is the brand TSUBAKI`);
   }
 });
 
