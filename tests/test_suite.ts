@@ -69,6 +69,7 @@ const CHAT_CONTAINER_FILES = [
   'src/components/chat/useRoutineLists.ts',
   'src/components/chat/useRoutineTransfer.ts',
   'src/components/chat/useTypeahead.ts',
+  'src/components/chat/usePageChrome.ts',
 ];
 
 /** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
