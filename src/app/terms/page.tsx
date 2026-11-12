@@ -141,7 +141,7 @@ export default function TermsPage() {
           本サービスは、以下の外部サービスおよびオープンデータベースと連携・利用しています。ユーザーは、本サービスを利用するにあたり、各外部サービスの利用規約およびライセンスに従うものとします。
           <ul>
             <li><strong>Google Gemini API</strong>：Google LLC</li>
-            <li><strong>Cloudflare（Workers、Turnstile、Workers AI、AI Gateway）</strong>：Cloudflare, Inc.</li>
+            <li><strong>Cloudflare（Workers、Turnstile、Workers AI、AI Gateway等）</strong>：Cloudflare, Inc.</li>
             <li><strong>Open Beauty Facts</strong>：Open Food Facts（ODbL 1.0 および CC BY-SA 3.0 ライセンスに基づくオープンデータ）</li>
             <li><strong>Exa API</strong>：Exa Labs Inc.</li>
             <li><strong>Linkup API</strong>：Linkup SAS</li>

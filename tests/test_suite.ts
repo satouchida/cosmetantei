@@ -9772,8 +9772,9 @@ test('160. Content Security Policy: a complete policy, Report-Only for now (docs
   assert.ok(policy.get('script-src')!.includes("'unsafe-inline'"));
   assert.deepStrictEqual(policy.get('img-src')!.filter((s) => !s.startsWith('https:')), ["'self'", 'data:', 'blob:']);
   assert.deepStrictEqual(policy.get('worker-src'), ["'self'", 'blob:']);
-  // スクリプトを読み込んでよいほかのサイトは Turnstile だけ。本番では eval を許さない
-  assert.deepStrictEqual(policy.get('script-src')!.filter((s) => s.startsWith('https:')), ['https://challenges.cloudflare.com']);
+  // スクリプトを読み込んでよいほかのサイトは Turnstile と Cloudflare Web Analytics だけ（後者はプライバシーポリシーに書く）。本番では eval を許さない
+  assert.deepStrictEqual(policy.get('script-src')!.filter((s) => s.startsWith('https:')), ['https://challenges.cloudflare.com', 'https://static.cloudflareinsights.com']);
+  assert.ok(read('src/app/privacy/page.tsx').includes('Cloudflare Web Analytics') && read('src/app/privacy/page.tsx').includes('static.cloudflareinsights.com'));
   assert.ok(!policy.get('script-src')!.includes("'unsafe-eval'"));
   assert.deepStrictEqual(policy.get('connect-src'), ["'self'"]);
   assert.deepStrictEqual(policy.get('frame-src'), ['https://challenges.cloudflare.com']);

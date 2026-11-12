@@ -5,7 +5,14 @@ Drafted 2026-11-11. Status: Step 1 in progress (2026-11-12): the full policy is 
 (dev server): first load, the brand tray, the export image (blob, QR code), the scanner dialog,
 `/privacy`, `/terms`, `/owner` and the 404 page showed no violation. Not checked locally: shop
 photos (no shop results in development), Turnstile, and the camera (blocked in the test browser).
-Those need the walk-through on the deployed site; watch especially for a Turnstile `connect-src`
+Deployed walk-through (2026-11-12, version 0b1a7942, Chrome and the built-in browser): a chat
+answer, the search tray with photos from thumbnail.image.rakuten.co.jp and item-shopping.c.yimg.jp,
+and `/privacy`, `/terms`, `/owner` and the 404 page loaded with no violation of our policy;
+Turnstile's script and check-box frame loaded with no violation. One violation: Cloudflare Web
+Analytics, which Cloudflare inserts itself (`https://static.cloudflareinsights.com/beacon.min.js`,
+sending to the same-origin `/cdn-cgi/rum`). Owner's decision (2026-11-12): allow it. `https://static.cloudflareinsights.com` is in `script-src`,
+and the privacy policy now describes Web Analytics (第2条・第3条・第5条・第7条). Still to check:
+the camera, on a real device. Before the walk-through: watch especially for a Turnstile `connect-src`
 violation (if one appears, add `https://challenges.cloudflare.com` to `connect-src`). Follows finding V4 in
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md).
 
@@ -34,6 +41,7 @@ Checked in the code on 2026-11-11.
 |---|---|---|
 | Next.js scripts and styles | Same origin, plus inline scripts and styles Next writes | `script-src`, `style-src` |
 | Cloudflare Turnstile | `https://challenges.cloudflare.com/turnstile/v0/api.js` (script) and its challenge iframe | `script-src`, `frame-src` |
+| Cloudflare Web Analytics (added 2026-11-12) | `https://static.cloudflareinsights.com/beacon.min.js`, inserted by Cloudflare; sends to the same-origin `/cdn-cgi/rum` | `script-src` |
 | Product photos | `*.rakuten.co.jp`, `*.yimg.jp`, `*.openbeautyfacts.org` (the three hosts the server already allow-lists in `shop-apis.ts` and `search-barcode-service.ts`) | `img-src` |
 | The saved routine image and the label photo preview | `blob:` (`URL.createObjectURL`), `data:` (`canvas.toDataURL`) | `img-src` |
 | API calls | Same origin only (`/api/...`). The browser calls no other host. | `connect-src` |
@@ -69,7 +77,7 @@ In `next.config.mjs`, replace the CSP value with (one line; shown wrapped):
 
 ```
 default-src 'self';
-script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com;
+script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com;
 style-src 'self' 'unsafe-inline';
 img-src 'self' data: blob: https://*.rakuten.co.jp https://*.yimg.jp https://*.openbeautyfacts.org;
 font-src 'self';

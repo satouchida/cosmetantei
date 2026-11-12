@@ -39,6 +39,7 @@ export default function PrivacyPage() {
             <li>アクセス元の自律システム番号（ASN、ホスティング事業者情報）</li>
             <li>リクエストヘッダー（User-Agent、Referer、Sec-Fetch-Site、Origin、Accept-Language等）</li>
             <li>アクセス日時、HTTPステータスコード、レスポンスタイム</li>
+            <li>ページの表示に関する計測情報（Cloudflare Web Analytics）：閲覧したページのアドレス、遷移元のアドレス、ブラウザの種類、ページの読み込みにかかった時間等。ページを開いた時点から送信されます。Cloudflare は、この情報で利用者を複数のサイトにわたって追跡しないとしています（第7条2.）。</li>
             <li>これらは、ボット対策、回数制限、利用量の上限の管理および障害の調査に使用します。当方が保存するのは、利用者ごとのその日（UTC）の利用金額（IPアドレス、IPv4の/24の範囲、ホスティング事業者、セッションごと）のみで、前日までの分は、日が変わった後の利用の際に順に消去します。回数制限のための記録は1分以内に消えます。障害の調査のための記録（Cloudflare Workers Logs、最長3日）には、要求のアドレスやIPアドレスは残さず、件数・状態コード等のみを残します。</li>
           </ul>
         </li>
@@ -114,7 +115,7 @@ export default function PrivacyPage() {
         <li>外部API（Google Gemini、Cloudflare Workers AI、Web検索API、商品検索API等）の呼び出しコストおよび利用頻度の集計・管理のため</li>
         <li>ユーザーからの不具合報告、お問い合わせへの対応のため</li>
         <li>アフィリエイトリンクおよび商品販売ページの適切な表示・遷移のため</li>
-        <li>本サービスの品質改善、システム障害の解析、および統計的な利用状況分析のため</li>
+        <li>本サービスの品質改善、システム障害の解析、および統計的な利用状況分析のため（Cloudflare Web Analytics による、ページの閲覧数・表示速度の集計を含みます）</li>
       </ol>
 
       <h2>第4条（安全管理措置）</h2>
@@ -142,8 +143,8 @@ export default function PrivacyPage() {
           <tr>
             <td><strong>Cloudflare</strong>（Cloudflare, Inc.）</td>
             <td>米国</td>
-            <td>IPアドレス、アクセスログ、リクエストヘッダー、Turnstile検証データ、チャットの入力文・検索語（Workers AI による判定のため）</td>
-            <td>エッジサーバー配信、ボット防御（Turnstile）、入力内容の種類の判定・検索結果の絞り込み（Workers AI）、キャッシュ（KV）、予算制御（Durable Object）</td>
+            <td>IPアドレス、アクセスログ、リクエストヘッダー、Turnstile検証データ、チャットの入力文・検索語（Workers AI による判定のため）、ページの表示に関する計測情報（Web Analytics）</td>
+            <td>エッジサーバー配信、ボット防御（Turnstile）、入力内容の種類の判定・検索結果の絞り込み（Workers AI）、キャッシュ（KV）、予算制御（Durable Object）、ページの閲覧数・表示速度の集計（Web Analytics）</td>
           </tr>
           <tr>
             <td><strong>Google Gemini API</strong>（Google LLC）</td>
@@ -227,14 +228,14 @@ export default function PrivacyPage() {
       <h3>1. 通信形態の区分および適用除外の明示</h3>
       <p>本サイトにおいて発生するデータ通信は、以下の3種類に区分されます。</p>
       <ol>
-        <li><strong>外部送信規律の対象となる情報送信</strong>：本サイトに掲載したアフィリエイトリンク等を通じて、利用者の端末から直接、提携事業者のサーバーへ情報が送信される通信です（下記「2.」に記載）。</li>
+        <li><strong>外部送信規律の対象となる情報送信</strong>：本サイトに掲載したアフィリエイトリンク等を通じて、利用者の端末から直接、提携事業者のサーバーへ情報が送信される通信、およびアクセス解析（Cloudflare Web Analytics）のための通信です（下記「2.」に記載）。</li>
         <li><strong>適用除外に該当する情報送信</strong>：サービスの提供のために必要な情報（セキュリティ・ボット対策、セッション管理、ページに表示する商品画像の取得等）の送信です。法令上の公表義務の対象外ですが、透明性向上の観点から、その内容を下記「3.」において公表しています。</li>
         <li><strong>サーバー間通信</strong>：利用者の端末から直接送信されるのではなく、当方のサーバー（Cloudflare Workers）から外部API事業者（Google Gemini、Exa、Linkup、Open Beauty Facts、楽天、LINEヤフー等）へ送信される通信です。外部送信規律の対象外ですが、本ポリシー第5条および第6条において開示しています。</li>
       </ol>
 
-      <h3>2. 外部送信規律に基づく公表事項（アフィリエイトプログラム）</h3>
+      <h3>2. 外部送信規律に基づく公表事項（アフィリエイトプログラム・アクセス解析）</h3>
       <p>
-        本サイトでは、利用者が販売ページへのリンクを開いた際に、以下の情報が送信先へ送信されます。なお、本サイトの販売ページへのリンクは、遷移元のページのアドレス（Referer）をブラウザが送信しない設定（<code>{'rel="noreferrer"'}</code>）にしています。
+        本サイトでは、利用者が販売ページへのリンクを開いた際に、以下の情報が送信先へ送信されます（アクセス解析は、ページを開いた際に送信されます）。なお、本サイトの販売ページへのリンクは、遷移元のページのアドレス（Referer）をブラウザが送信しない設定（<code>{'rel="noreferrer"'}</code>）にしています。
       </p>
       <LegalTable>
         <thead>
@@ -279,6 +280,17 @@ export default function PrivacyPage() {
               <ExternalLink href="https://www.valuecommerce.co.jp/privacy_policy/">バリューコマース プライバシーポリシー</ExternalLink>
             </td>
             <td><ExternalLink href="https://www.valuecommerce.co.jp/privacy_policy/privacy_action/">バリューコマース 行動履歴情報保護方針</ExternalLink>に記載の方法（ブラウザの設定でCookieを無効にする等）で無効化できます。</td>
+          </tr>
+          <tr>
+            <td><strong>Cloudflare, Inc.</strong>（Cloudflare Web Analytics）</td>
+            <td>接続元IPアドレス、ブラウザの種類（User-Agent）、閲覧したページのアドレス、遷移元のアドレス、ページの読み込みにかかった時間等の計測情報</td>
+            <td>ページの閲覧数・表示速度を集計し、本サービスの改善に役立てるため</td>
+            <td>
+              当方への集計結果（ページの閲覧数・表示速度）の提供のために利用されます。Cloudflare は、利用者を複数のサイトにわたって追跡しないとしています。
+              <br />
+              <ExternalLink href="https://www.cloudflare.com/privacypolicy/">Cloudflare プライバシーポリシー</ExternalLink>
+            </td>
+            <td>ブラウザの拡張機能等で <code>static.cloudflareinsights.com</code> からのスクリプトの読み込みを止めると、送信されなくなります（本サービスはそのまま利用できます）。</td>
           </tr>
         </tbody>
       </LegalTable>

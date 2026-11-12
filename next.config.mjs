@@ -13,15 +13,18 @@ const isDev = process.env.NODE_ENV === 'development';
 const IMAGE_HOSTS = ['https://*.rakuten.co.jp', 'https://*.yimg.jp', 'https://*.openbeautyfacts.org'];
 /** Cloudflare Turnstile（スクリプトと確認用の iframe） */
 const TURNSTILE = 'https://challenges.cloudflare.com';
+/** Cloudflare Web Analytics のスクリプト（Cloudflare がページに入れる。計測の送り先はこのサイトの /cdn-cgi/rum。プライバシーポリシー第7条2.） */
+const CLOUDFLARE_WEB_ANALYTICS = 'https://static.cloudflareinsights.com';
 
 const CSP_DIRECTIVES = {
   'default-src': ["'self'"],
   // 開発中だけ 'unsafe-eval'（React の開発ツールが使う。本番では要らない）
-  'script-src': ["'self'", "'unsafe-inline'", ...(isDev ? ["'unsafe-eval'"] : []), TURNSTILE],
+  'script-src': ["'self'", "'unsafe-inline'", ...(isDev ? ["'unsafe-eval'"] : []), TURNSTILE, CLOUDFLARE_WEB_ANALYTICS],
   'style-src': ["'self'", "'unsafe-inline'"],
   'img-src': ["'self'", 'data:', 'blob:', ...IMAGE_HOSTS],
   'font-src': ["'self'"],
-  // ブラウザが呼ぶのはこのサイトの /api/... だけ
+  // ブラウザが呼ぶのはこのサイトの /api/... と Cloudflare Web Analytics の /cdn-cgi/rum だけ。
+  // 将来 Cloudflare の仕様変更や手動埋め込み等で https://cloudflareinsights.com/cdn-cgi/rum へ直接送られる場合は 'https://cloudflareinsights.com' を追加する
   'connect-src': ["'self'"],
   'frame-src': [TURNSTILE],
   'media-src': ["'self'", 'blob:', 'mediastream:'],
