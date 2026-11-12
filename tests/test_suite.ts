@@ -70,6 +70,9 @@ const CHAT_CONTAINER_FILES = [
   'src/components/chat/useRoutineTransfer.ts',
   'src/components/chat/useTypeahead.ts',
   'src/components/chat/usePageChrome.ts',
+  'src/components/chat/useChatRequests.ts',
+  'src/components/chat/quick-reply-dispatch.ts',
+  'src/components/chat/quick-reply-icons.ts',
 ];
 
 /** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
@@ -949,7 +952,10 @@ async function withCloudflareEnv<T>(env: Record<string, unknown>, fn: () => Prom
   }
 }
 
-/** Clef の choice 回答を返すテスト用 Workers AI バインディング */
+/**
+ * Clef の回答を返すテスト用 Workers AI バインディング。
+ * ブランドの質問（はい・いいえ）には「ブランド名である」の確率を返す：choice が brand なら p、それ以外なら 1 - p
+ */
 function fakeClef(answerFor: (brand: string) => { choice: string; p: number }) {
   const calls: { model: string; input: any }[] = [];
   const AI = {
@@ -958,7 +964,10 @@ function fakeClef(answerFor: (brand: string) => { choice: string; p: number }) {
       const answers: Record<string, unknown> = {};
       for (const [id, q] of Object.entries<any>(input.questions)) {
         const { choice, p } = answerFor(q.instructions.brand);
-        answers[id] = { type: 'choice', choice, probabilities: { [choice]: p }, confidence: p };
+        answers[id] =
+          q.type === 'noul'
+            ? { type: 'noul', noul: choice === 'brand' ? p : 1 - p, confidence: p }
+            : { type: 'choice', choice, probabilities: { [choice]: p }, confidence: p };
       }
       return { model: 'clef', answers, usage: { input_tokens: 100, output_tokens: 3 } };
     },
@@ -1000,7 +1009,14 @@ test('30. Brand precheck rejects brands made only of generic cosmetic words, for
     assert.strictEqual(precheckBrand(generic), 'generic_term', `"${generic}" must be generic`);
   }
   // それらの文字を含んでいても、一般的な語だけでできていない名前はブランドの候補のまま
-  for (const brand of ['花王', '雪肌精', '草花木果', '茶のしずく', '石澤研究所', 'SHIRO', 'ハトムギ化粧水', '石ミルク鹸']) {
+  for (const brand of ['花王', '雪肌精', '草花木果', '茶のしずく', '石澤研究所', 'SHIRO', '石ミルク鹸']) {
+    assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
+  }
+  // 2026-11-13 の評価で、モデルがブランドと間違えた・迷った素材の語
+  for (const generic of ['ハトムギ', 'はとむぎ', 'アロエ', '馬油', 'ハトムギ化粧水', 'アロエ ジェル']) {
+    assert.strictEqual(precheckBrand(generic), 'generic_term', `"${generic}" must be generic`);
+  }
+  for (const brand of ['アロエガーデン', 'ハトムギ美人']) {
     assert.strictEqual(precheckBrand(brand), null, `"${brand}" must go on to the next check`);
   }
   const { resolveBrand, SEED_INDEX } = await import('../src/lib/services/brand-suggest');
@@ -1029,10 +1045,12 @@ test('31. Brand check: one batched Clef call, cached per brand, self-report reje
         { brand: '敏感肌', productName: '敏感肌 化粧水', selfReportedOfficial: true },
       ]
     );
-    assert.deepStrictEqual(first, ['brand', 'brand', 'generic_term', 'unverified', 'not_brand', 'generic_term']);
+    assert.deepStrictEqual(first, ['brand', 'brand', 'not_brand', 'unverified', 'not_brand', 'generic_term']);
     assert.strictEqual(calls.length, 1, 'All undecided brands must be judged in a single Clef call');
     assert.strictEqual(calls[0].model, '@cf/cloudflare/clef');
     assert.strictEqual(calls[0].input.model, 'clef');
+    assert.ok(Object.values<any>(calls[0].input.questions).every((q) => q.type === 'noul'), 'One yes/no question per brand');
+    assert.strictEqual(typeof calls[0].input.state, 'string', 'Other brands are not shown to a question (no candidate list in state)');
     assert.deepStrictEqual(
       Object.values<any>(calls[0].input.questions).map((q) => q.instructions.brand).sort(),
       ['ブランドテストA', 'ブランドテストB', 'ブランドテストC'],
@@ -1045,7 +1063,7 @@ test('31. Brand check: one batched Clef call, cached per brand, self-report reje
         { brand: 'ﾌﾞﾗﾝﾄﾞテストB', productName: 'B クリーム', selfReportedOfficial: true },
       ]
     );
-    assert.deepStrictEqual(second, ['brand', 'generic_term']);
+    assert.deepStrictEqual(second, ['brand', 'not_brand']);
     assert.strictEqual(calls.length, 1, 'Cached brands (including width variants) must not call Clef again');
 
     await judgeBrands([{ brand: 'ブランドテストC', productName: 'C 美容液', selfReportedOfficial: true }]);
@@ -1061,7 +1079,7 @@ test('32. Brand check without Clef falls back to the self-report and caches noth
       { brand: 'ブランドテストF', productName: 'F 化粧水' },
     ]
   );
-  assert.deepStrictEqual(result, ['unverified', 'not_brand']);
+  assert.deepStrictEqual(result, ['unverified', 'undecided']);
 
   const { AI, calls } = fakeClef(() => ({ choice: 'brand', p: 0.9 }));
   await withCloudflareEnv({ AI }, async () => {
@@ -7505,7 +7523,7 @@ test('123. Live review fixes: shop cards looked up by barcode then name, one car
     assert.strictEqual(shown('花王 / 知らないブランド'), '花王 / 知らないブランド', 'An unlisted part: as written');
 
     // 5. ブラウザ：お店の製品はすべて lookup_product（分析も候補も受け取る）。緑の欄は2つまで出し、残りは開いて読む
-    const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+    const chat = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
     assert.ok(!chat.includes('handleBarcodeScanned(product.barcode'));
     assert.ok(chat.includes("pickReply(data, ['singleAnalysis', 'productSuggestions', 'quickReplies'])"));
     const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
@@ -7622,7 +7640,7 @@ test('124. Second live review: no ingredient-less candidates from a shop card, h
     assert.strictEqual(productLabel({ brand: 'キュレル', name: '潤浸保湿 乳液' }), 'キュレル 潤浸保湿 乳液');
 
     // ブラウザ：送る文はブランドを1回だけ。成分が無ければ全成分リストを出さない
-    const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
+    const chat = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
     assert.ok(chat.includes('`「${productLabel(product)}」の成分を詳しく知りたい`'));
     assert.ok(!chat.includes('`「${product.brand} ${product.name}」'));
     const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
@@ -9703,7 +9721,29 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
   assert.ok(sidebar.includes('肌荒れしたコスメのリストをクリア') && sidebar.includes('使えるコスメのリストをクリア'));
   assert.ok(!/>\s*クリア\s*</.test(sidebar), 'No unnamed 「クリア」');
   assert.match(chat, /choices=\{\[\{ label: 'クリアする', tone: 'danger', onSelect: \(\) => clearList\(clearTarget\) \}\]\}/);
-  assert.match(chat, /case 'reset':\n(?:.*\n){1,2}\s*updateBad\(\(\) => \[\]\);/);
+  // 「リセットする」は肌荒れしたコスメだけを空にする（使えるコスメは消さない）
+  const { dispatchQuickReply } = await import('../src/components/chat/quick-reply-dispatch');
+  const calls: string[] = [];
+  const record = (name: string) => () => void calls.push(name);
+  dispatchQuickReply('🔄 リセットする', { id: 'm1', role: 'assistant', content: '', timestamp: 0 }, {
+    openScanner: record('openScanner'),
+    openLabelInput: record('openLabelInput'),
+    isBusy: () => false,
+    showToast: record('showToast'),
+    isUsed: () => false,
+    markUsed: record('markUsed'),
+    takeRetry: () => undefined,
+    sendMessage: record('sendMessage'),
+    addToBad: () => (calls.push('addToBad'), 'added'),
+    addToUsable: () => (calls.push('addToUsable'), 'added'),
+    priceLookup: record('priceLookup'),
+    researchProduct: record('researchProduct'),
+    clearBad: record('clearBad'),
+    appendLocalExchange: (_label, reply) => void calls.push(`reply:${reply}`),
+    focusInput: record('focusInput'),
+  });
+  assert.deepStrictEqual(calls, ['clearBad', 'reply:肌荒れしたコスメのリストを空にしました（使えるコスメはそのままです）。']);
+  assert.match(chat, /clearBad: \(\) => updateBad\(\(\) => \[\]\)/);
   assert.match(chat, /sessionOnly: true/);
   // ボタンの文字の <wbr /> は <span> の中に（inline-flex の gap で、区切った文字の間に空白が出ないように）
   const { readdirSync } = await import('node:fs');
@@ -9788,4 +9828,98 @@ test('160. Content Security Policy: one complete, enforced policy (docs/plans/co
     policy.get('img-src')!.filter((s) => s.startsWith('https:')).sort(),
     [...new Set(accepted)].sort(),
   );
+});
+
+test('161. Brand check: exact list match, one key per brand, 64 per Clef call, Gemini second opinion only for the undecided', async () => {
+  const { judgeBrands, isListedBrand, isAcceptedBrand, isKnownGenericTerm } = await import('../src/lib/services/brand-check');
+
+  // 一覧のブランドは、欄全体か、区切ったすべての部分が一覧の名前のときだけ（語の一部では照らさない）
+  for (const listed of ['キュレル', 'Curél', 'きゅれる', '花王 / キュレル', '花王 キュレル', 'キュレル（花王）', 'クレ・ド・ポー ボーテ']) {
+    assert.strictEqual(isListedBrand(listed), true, `"${listed}" is a listed brand`);
+  }
+  for (const other of ['偽キュレル', 'キュレル風', 'エストニア', 'ハクビ', '激安コスメ ケイト館', 'ノンブランド キュレル類似', '']) {
+    assert.strictEqual(isListedBrand(other), false, `"${other}" is not a listed brand`);
+  }
+
+  // 書き方の揺れ（アクセント・かな・ヴ）は同じブランドとして1回だけ聞き、同じ判定を覚える
+  const asked: string[] = [];
+  const clef = fakeClef((brand) => {
+    asked.push(brand);
+    if (brand.startsWith('ヴェルテスト')) return { choice: 'brand', p: 0.9 };
+    if (brand === 'テスト迷いブランド') return { choice: 'brand', p: 0.5 };
+    if (brand === 'テスト店名') return { choice: 'not_brand', p: 0.95 };
+    return { choice: 'brand', p: 0.92 };
+  });
+  await withCloudflareEnv({ AI: clef.AI }, async () => {
+    const decisions = await judgeBrands([
+      { brand: 'ヴェルテストé', productName: 'x' },
+      { brand: 'ベルテストe', productName: 'x' },
+      { brand: 'テスト店名', productName: 'x' },
+      { brand: 'テスト迷いブランド', productName: 'x' },
+    ]);
+    assert.deepStrictEqual(decisions, ['brand', 'brand', 'not_brand', 'undecided']);
+    assert.deepStrictEqual(asked, ['ヴェルテストé', 'テスト店名', 'テスト迷いブランド']);
+    assert.deepStrictEqual(decisions.map(isAcceptedBrand), [true, true, false, false], 'An undecided brand is not shown');
+    assert.strictEqual(isKnownGenericTerm('テスト店名'), true, 'A rejected name is not shown as a brand');
+    assert.strictEqual(isKnownGenericTerm('テスト迷いブランド'), false);
+
+    // 64 を超えるブランドは、捨てずに次のリクエストで聞く
+    const before = clef.calls.length;
+    const many = Array.from({ length: 70 }, (_, i) => ({ brand: `テスト多数ブランド${i}番`, productName: 'x' }));
+    const manyDecisions = await judgeBrands(many);
+    assert.strictEqual(clef.calls.length - before, 2);
+    assert.deepStrictEqual(clef.calls.slice(before).map((c) => Object.keys(c.input.questions).length), [64, 6]);
+    assert.ok(manyDecisions.every((d) => d === 'brand'));
+  });
+
+  // Gemini Decision 1：Clef が決められなかったブランドだけを聞く。既定（BRAND_SECOND_OPINION 未設定）では聞かない
+  const requests: { url: string; headers: Record<string, string>; body: any }[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body));
+    requests.push({ url: String(url), headers: init?.headers as Record<string, string>, body });
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(body.questions)) {
+      answers[id] = { type: 'noul', noul: q.instructions.includes('テスト二番目ブランド') ? 0.97 : 0.5, confidence: 0.97 };
+    }
+    return new Response(JSON.stringify({ answers, usage: { total_input_tokens: 120, total_output_tokens: 0 } }), { status: 200 });
+  }) as typeof fetch;
+  setGatewayEnv();
+  const unsure = fakeClef((brand) => (brand === 'テスト確実ブランド' ? { choice: 'brand', p: 0.9 } : { choice: 'brand', p: 0.5 }));
+  try {
+    await withCloudflareEnv({ AI: unsure.AI }, async () => {
+      assert.deepStrictEqual(await judgeBrands([{ brand: 'テスト二番目ブランド', productName: 'x' }]), ['undecided']);
+      assert.strictEqual(requests.length, 0, 'No Gemini call unless BRAND_SECOND_OPINION=gemini');
+
+      process.env.BRAND_SECOND_OPINION = 'gemini';
+      const decisions = await judgeBrands([
+        { brand: 'テスト確実ブランド', productName: 'x' },
+        { brand: 'テスト二番目ブランド', productName: 'x' },
+        { brand: 'テストどちらも迷う', productName: 'x' },
+      ]);
+      assert.deepStrictEqual(decisions, ['brand', 'brand', 'undecided']);
+      assert.strictEqual(requests.length, 1);
+      const request = requests[0];
+      assert.ok(request.url.endsWith('/test-account/test-gateway/google-ai-studio/v1beta/decisions'));
+      assert.strictEqual(request.body.model, 'gemini-decision-1');
+      assert.strictEqual(request.headers['cf-aig-collect-log-payload'], 'false', 'Brand strings are never logged by the gateway');
+      const questions = Object.values<any>(request.body.questions);
+      assert.strictEqual(questions.length, 2, 'Only the brands Clef left undecided');
+      assert.ok(questions.every((q) => q.type === 'noul' && !q.instructions.includes('テスト確実ブランド')));
+
+      // 決まった判定は覚える（次は Clef にも Gemini にも聞かない）。決まらなかったものは覚えない
+      const clefCalls = unsure.calls.length;
+      assert.deepStrictEqual(await judgeBrands([{ brand: 'テスト二番目ブランド', productName: 'x' }]), ['brand']);
+      assert.strictEqual(unsure.calls.length, clefCalls);
+      assert.strictEqual(requests.length, 1);
+    });
+
+    // Clef が使えないときも、Gemini だけで判定できる
+    assert.deepStrictEqual(await judgeBrands([{ brand: 'テスト二番目ブランドその2', productName: 'x' }]), ['brand']);
+    assert.strictEqual(requests.length, 2);
+  } finally {
+    delete process.env.BRAND_SECOND_OPINION;
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
 });

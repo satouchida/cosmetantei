@@ -1,20 +1,6 @@
 import { ChatMessage, Product } from '@/lib/types';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Droplet,
-  FileText,
-  JapaneseYen,
-  Lightbulb,
-  RotateCcw,
-  ScanBarcode,
-  Search,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
 import { ChatResponse } from '@/lib/client/chat-request';
 import { withoutEmoji } from '../ui/emoji';
-import type { QuickReplyIconName } from './quick-replies';
 import {
   decodeShareFragment,
   parseRoutine,
@@ -42,20 +28,6 @@ export function messageMeta(prefix: string): { id: string; timestamp: number } {
 }
 
 /** 応答待ちの間に、ほかのサーバーへの操作が押されたときの案内 */
-/** クイック返信ボタンの先頭に出す、線のアイコン（ヘッダーのボタンと同じ部品をそろえる） */
-export const QUICK_REPLY_ICON_COMPONENTS: Readonly<Record<QuickReplyIconName, LucideIcon>> = {
-  scan: ScanBarcode,
-  label: FileText,
-  search: Search,
-  product: Droplet,
-  flare: Zap,
-  bad: AlertTriangle,
-  safe: CheckCircle2,
-  price: JapaneseYen,
-  retry: RotateCcw,
-  idea: Lightbulb,
-};
-
 export const WAIT_MESSAGE = '前の返答を待っています。届いてから、もう一度お試しください。';
 export const DEFAULT_LOADING_TEXT = '成分データベースを解析中...';
 /** 検索候補のトレイの id（入力欄の aria-controls） */

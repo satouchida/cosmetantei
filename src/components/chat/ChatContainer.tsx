@@ -2,18 +2,14 @@
 
 import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  ChatMessage,
-  Product,
-  UserRoutineState,
-  } from '@/lib/types';
+import { ChatMessage } from '@/lib/types';
 import { ProductSuggestionCard } from './ProductSuggestionCard';
 import { IngredientAnalysisCard } from './IngredientAnalysisCard';
 import { DifferentialResultCard } from './DifferentialResultCard';
 import { CurrentUseResultCard } from './CurrentUseResultCard';
 import { PriceResultCard } from './PriceResultCard';
 import { BarcodeScannerModal } from '../scanner/BarcodeScannerModal';
-import { LabelInputModal, LabelInput } from '../label/LabelInputModal';
+import { LabelInputModal } from '../label/LabelInputModal';
 import { BAD_SECTION_ID, DIFFERENTIAL_LABEL, RoutineSidebar, USABLE_SECTION_ID } from '../routine/RoutineSidebar';
 import { RoutineExportDialog } from '../routine/RoutineExportDialog';
 import { RoutineImportDialog } from '../routine/RoutineImportDialog';
@@ -36,12 +32,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { LiveSearchCandidateTray } from '../search/LiveSearchCandidateTray';
-import { productLabel } from '@/lib/display-brand';
-import { ChatResponse, postChat } from '@/lib/client/chat-request';
 import { MessageCardBoundary } from './MessageCardBoundary';
 import { withHiddenEmoji } from '../ui/emoji';
 import { busyLook } from '../ui/design';
-import { getQuickReplyAction, PICK_FROM_CARDS_HINT, splitQuickReplyIcon } from './quick-replies';
+import { splitQuickReplyIcon } from './quick-replies';
 import { isPersistable, MAX_USABLE, STALE_AFTER_MONTHS, updateUsable, UsableEntry } from '@/lib/usable-products';
 import { turnOffExportReminder } from '@/lib/client/export-reminder';
 import { shareFragment } from '@/lib/routine-share';
@@ -61,24 +55,15 @@ import { useRoutineLists } from './useRoutineLists';
 import { useRoutineTransfer } from './useRoutineTransfer';
 import { useTypeahead } from './useTypeahead';
 import { usePageChrome } from './usePageChrome';
+import { useChatRequests } from './useChatRequests';
+import { QUICK_REPLY_ICON_COMPONENTS } from './quick-reply-icons';
 import {
-  alternativesOf,
-  announcementOf,
   currentTime,
-  DEFAULT_LOADING_TEXT,
-  LONG_WAIT_NOTE,
-  messageMeta,
-  ONCE_PER_MESSAGE_LABELS,
-  pickReply,
-  QUICK_REPLY_ICON_COMPONENTS,
-  RETRY_LABEL,
-  retryable,
   ROUTINE_QR_READER_ID,
   SAMPLE_CUREL,
   SAMPLE_IHADA,
   SAMPLE_MELANO,
   SEARCH_TRAY_ID,
-  STILL_WORKING_AFTER_MS,
   WAIT_MESSAGE,
 } from './chat-helpers';
 
@@ -100,29 +85,11 @@ export const ChatContainer: React.FC = () => {
   ]);
 
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isLabelInputOpen, setIsLabelInputOpen] = useState(false);
-  // 一度押した有料の調べもののボタン（吹き出しの id と文言）。同じ吹き出しで何度も調べない
-  const [usedActions, setUsedActions] = useState<ReadonlySet<string>>(new Set());
-  // 失敗した頼みごと（「もう一度送る」で同じ内容を送る）。失敗の吹き出しの id ごと
-  const retryRef = useRef(new Map<string, () => Promise<unknown>>());
-  // 応答を待っている要求（「中止」で止める）
-  const abortRef = useRef<AbortController | null>(null);
-
-  // サーバーに頼む操作は1つずつ。再描画を待たずに判定するため ref（2回押しで有料の調べものを2回しない・返信の順序を保つ）
-  const busyRef = useRef(false);
-  // 送れなかったので入力欄に戻した文（候補を探し直さない）
-  const restoredInputRef = useRef<string | null>(null);
-  // いまの比較リスト（「もう一度送る」で、失敗したときではなく今のリストを送る）
-  const routineRef = useRef<UserRoutineState | null>(null);
-  const [loadingText, setLoadingText] = useState(DEFAULT_LOADING_TEXT);
-  // 読み上げ用：返答が届いた・失敗した（ライブリージョンは常に置き、中身だけ替える）
-  const [announcement, setAnnouncement] = useState('');
-  const [alertText, setAlertText] = useState('');
   // 入力途中の候補（候補トレイ。useTypeahead.ts）
-  const { liveBrands, trayCandidates, trayCredits, isTrayVisible, setIsTrayOpen, clearCandidates } =
-    useTypeahead({ input, restoredInputRef });
+  const { liveBrands, trayCandidates, trayCredits, isTrayVisible, setIsTrayOpen, clearCandidates, skipSearchFor } =
+    useTypeahead({ input });
   // 利用規約・Cookie の使用への同意（src/lib/consent.ts）。null はまだ分からない（サーバーで描いた直後）
   const consented = useSyncExternalStore(subscribeConsent, hasConsented, getConsentServerSnapshot);
   // トースト・スマホの引き出し・同意した直後のフォーカス（usePageChrome.ts）
@@ -168,22 +135,11 @@ export const ChatContainer: React.FC = () => {
   } = useRoutineLists({ showToast });
   // 有料の呼び出しが上限で断られたときの案内（apiFetch が応答のヘッダーを見て出す）
   const spendLimit = useSyncExternalStore(subscribeSpendLimit, getSpendLimitSnapshot, getSpendLimitServerSnapshot);
-  useEffect(() => {
-    routineRef.current = routine;
-  });
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   // スマホの引き出しの中のボタンから開いたダイアログを閉じたときの、フォーカスの戻り先（ヘッダーのボタン）
   const scanButtonRef = useRef<HTMLButtonElement | null>(null);
   const labelButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const scrollToBottom = () => {
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    messagesEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading]);
 
   // 画像での保存・読み込みと、比較の結果のあとの「リストを画像で保存しませんか？」（useRoutineTransfer.ts）
   const {
@@ -216,363 +172,52 @@ export const ChatContainer: React.FC = () => {
     consented,
   });
 
-  /**
-   * サーバーに頼む操作の共通の流れ：利用者の吹き出し → 返答の吹き出し（失敗ならサーバーの文か決まった文）。
-   * 応答待ちの間は受け付けず、案内を出して null を返す
-   */
-  const runChatAction = async (
-    userContent: string,
-    body: Record<string, unknown>,
-    toMessage: (data: ChatResponse) => Partial<ChatMessage>,
-    options: {
-      loadingText?: string;
-      /** 失敗の吹き出しを変える（状態コードごとの案内・入力し直しのボタン） */
-      failure?: (result: { status: number | null; message: string }) => Partial<ChatMessage>;
-    } = {}
-  ): Promise<ChatResponse | null> => {
-    if (busyRef.current) {
-      showToast(WAIT_MESSAGE, 'error');
-      return null;
-    }
-    busyRef.current = true;
-    const loading = options.loadingText ?? DEFAULT_LOADING_TEXT;
-    setLoadingText(loading);
-    setIsLoading(true);
-    setAnnouncement(loading);
-    setAlertText('');
-    setMessages((prev) => [...prev, { ...messageMeta('user'), role: 'user', content: userContent }]);
-    const controller = new AbortController();
-    abortRef.current = controller;
-    // 長くかかるときは、まだ調べていることを伝える（止めたいときは「中止」）
-    const stillWorking = setTimeout(() => {
-      const text = 'まだ調べています。もう少しお待ちください（止めるときは「中止」）';
-      setLoadingText(text);
-      setAnnouncement(text);
-    }, STILL_WORKING_AFTER_MS);
-    try {
-      const result = await postChat(body, controller.signal);
-      if (result.ok) {
-        const reply: ChatMessage = { ...messageMeta('bot'), role: 'assistant', content: result.data.reply, ...toMessage(result.data) };
-        setMessages((prev) => [...prev, reply]);
-        setAnnouncement(announcementOf(reply.content));
-        if (reply.differentialAnalysis) offerExportAfterResult();
-        return result.data;
-      }
-      const custom = options.failure?.(result);
-      const failure: ChatMessage = {
-        ...messageMeta('err'),
-        role: 'assistant',
-        content: result.message,
-        isError: true,
-        ...custom,
-        // 頼み直して結果が変わりうる失敗（通信・時間切れ・中止・サーバーの問題）だけ、同じ頼みごとをもう一度送れるようにする。
-        // 入力の誤り（400 等）・回数の制限（429。すぐ頼み直しても同じ）には出さない
-        quickReplies: [...(retryable(result.status) ? [RETRY_LABEL] : []), ...(custom?.quickReplies ?? [])],
-      };
-      if (retryable(result.status)) {
-        // 比較リストを送る頼みごとは、失敗したときではなく、押したときのリストで送る
-        retryRef.current.set(failure.id, () =>
-          runChatAction(userContent, 'routine' in body && routineRef.current ? { ...body, routine: routineRef.current } : body, toMessage, options)
-        );
-      }
-      setMessages((prev) => [...prev, failure]);
-      setAnnouncement('');
-      setAlertText(failure.content);
-      return null;
-    } finally {
-      clearTimeout(stillWorking);
-      abortRef.current = null;
-      busyRef.current = false;
-      setIsLoading(false);
-    }
+  // サーバーに頼む操作とクイック返信ボタン（useChatRequests.ts）
+  const {
+    isLoading,
+    loadingText,
+    announcement,
+    alertText,
+    usedActions,
+    isBusy,
+    abortRequest,
+    handleSendMessage,
+    handleBarcodeScanned,
+    handleLabelSubmit,
+    handleSelectProductToAnalyze,
+    handleFindAlternatives,
+    handleAlternativePriceLookup,
+    handleQuickReply,
+    handleRunDifferential,
+    requestDifferential,
+    handleCheckCurrentUse,
+  } = useChatRequests({
+    setMessages,
+    input,
+    setInput,
+    inputRef,
+    showToast,
+    setIsTrayOpen,
+    skipSearchFor,
+    setIsScannerOpen,
+    setIsLabelInputOpen,
+    routine,
+    usable,
+    staleEntries,
+    handleAddToBad,
+    handleAddToUsable,
+    updateBad,
+    offerExportAfterResult,
+  });
+
+  const scrollToBottom = () => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    messagesEndRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth' });
   };
 
-  const handleSendMessage = async (textToSend?: string) => {
-    const messageText = (textToSend || input).trim();
-    if (!messageText) return;
-    if (busyRef.current) {
-      showToast(WAIT_MESSAGE, 'error');
-      return;
-    }
-    setInput('');
-    setIsTrayOpen(false);
-    const data = await runChatAction(
-      messageText,
-      { message: messageText, routine },
-      (data) => ({
-        ...pickReply(data, ['productSuggestions', 'singleAnalysis', 'differentialAnalysis', 'priceResult', 'quickReplies']),
-        ...alternativesOf(data),
-      }),
-      { loadingText: `調べています${LONG_WAIT_NOTE}...` }
-    );
-    // 入力して送れなかったときは、その文を入力欄に戻す（その間に何か入力していれば、そのまま）。
-    // ボタンの文は戻さない（入力していない文を入力欄に入れない）
-    if (!data && !textToSend) {
-      setInput((current) => {
-        if (current) return current;
-        restoredInputRef.current = messageText;
-        return messageText;
-      });
-    }
-    // 入力して送ったときは入力欄に戻す（送信ボタンが無効になってフォーカスが失われないように）
-    if (!textToSend) inputRef.current?.focus();
-  };
-
-  const handleBarcodeScanned = async (barcode: string) => {
-    setIsScannerOpen(false);
-    await runChatAction(
-      `📷 バーコード（${barcode}）をスキャンしました`,
-      { action: 'barcode_lookup', barcode, routine },
-      (data) => pickReply(data, ['singleAnalysis', 'quickReplies']),
-      { loadingText: `バーコードの商品を調べています${LONG_WAIT_NOTE}...` }
-    );
-  };
-
-  /**
-   * お店の商品検索の製品の成分を調べる。サーバーは JAN コードがあればまずバーコードで調べ（見つかれば分析）、
-   * 無ければ・見つからなければ商品名で調べて、見つかった製品を候補として出す
-   */
-  const lookupShopProduct = async (product: Product) => {
-    await runChatAction(
-      `「${product.name}」の成分を詳しく知りたい`,
-      { action: 'lookup_product', selectedProduct: product },
-      (data) => pickReply(data, ['singleAnalysis', 'productSuggestions', 'quickReplies']),
-      { loadingText: 'Webで成分を調べています（1分ほどかかることがあります）...' }
-    );
-  };
-
-  /** 成分が分からなかった商品を、ブランド名と商品名で Web で調べ直す。全成分が見つかった製品を候補として出す */
-  const handleResearchProduct = async (label: string, product: Product) => {
-    await runChatAction(
-      label,
-      { action: 'research_product', selectedProduct: product },
-      (data) => pickReply(data, ['productSuggestions', 'quickReplies']),
-      { loadingText: 'Webで成分を調べています（1分ほどかかることがあります）...' }
-    );
-  };
-
-  /**
-   * 分析した商品と同じ種類で、原因候補の成分を含まない商品を探す（分析カードのボタン）。
-   * お店の商品検索で探し、成分を確かめた商品だけを出す（サーバーは種類の名前と決まった語だけでお店を検索する）
-   */
-  const handleFindAlternatives = async (product: Product) => {
-    await runChatAction(
-      `「${product.name}」と同じ種類で、原因候補の成分を含まない商品を探したい`,
-      { action: 'find_alternatives', selectedProduct: product },
-      (data) => ({ ...pickReply(data, ['productSuggestions', 'quickReplies']), ...alternativesOf(data) }),
-      { loadingText: `代わりの商品を探しています${LONG_WAIT_NOTE}...` }
-    );
-  };
-
-  /** 分析した商品の販売価格を調べる（サーバーはブランド名と商品名だけで検索する） */
-  const handlePriceLookup = async (label: string, product: Product) => {
-    await runChatAction(
-      label,
-      { action: 'price_lookup', selectedProduct: product },
-      (data) => pickReply(data, ['priceResult', 'quickReplies']),
-      { loadingText: '販売価格を調べています...' }
-    );
-  };
-
-  /** 代わりの商品のカードの「価格を比べる」 */
-  const handleAlternativePriceLookup = (product: Product) =>
-    void handlePriceLookup(`💴 「${product.name}」の価格を調べる`, product);
-
-  /** 入力された成分表示を分析する（サーバーはパーサーと成分DBだけで分析し、保存しない） */
-  const handleLabelSubmit = async (label: LabelInput): Promise<boolean | string> => {
-    // 前の応答を待っている間は受け付けない（返信の順序が入れ替わらないように）。理由は入力の画面に出す
-    if (busyRef.current) return WAIT_MESSAGE;
-    setIsLabelInputOpen(false);
-    const data = await runChatAction(
-      `📝 成分表示を入力しました${label.name ? `（${label.name}）` : ''}`,
-      { action: 'analyze_label', label, routine },
-      (reply) => pickReply(reply, ['singleAnalysis', 'quickReplies']),
-      {
-        // 入力した成分表示は入力欄に残っているので、開き直してやり直せる
-        failure: (result) => ({
-          content: `${result.message}\n\n入力した成分表示は残っているので、開き直してもう一度お試しください。`,
-          quickReplies: ['📝 成分表示を入力する'],
-        }),
-      }
-    );
-    return !!data?.singleAnalysis;
-  };
-
-  const handleSelectProductToAnalyze = async (product: Product) => {
-    // お店の商品検索の製品は成分が分からない。サーバーがバーコード、商品名の順に調べる
-    if (product.id.startsWith('shop_')) {
-      await lookupShopProduct(product);
-      return;
-    }
-    await runChatAction(
-      `「${productLabel(product)}」の成分を詳しく知りたい`,
-      { action: 'analyze_single', selectedProduct: product, routine },
-      (data) => pickReply(data, ['singleAnalysis', 'quickReplies'])
-    );
-  };
-
-  const appendLocalExchange = (label: string, reply: string, quickReplies?: string[]) => {
-    setMessages((prev) => [
-      ...prev,
-      { ...messageMeta('user-quick'), role: 'user', content: label },
-      { ...messageMeta('bot-local'), role: 'assistant', content: reply, quickReplies },
-    ]);
-  };
-
-  /** クイック返信ボタンの処理（画面操作はブラウザ側で行い、調査依頼だけをサーバーに送る） */
-  const handleQuickReply = (label: string, sourceMessage: ChatMessage) => {
-    const action = getQuickReplyAction(label);
-    if (action.kind === 'scanner') {
-      setIsScannerOpen(true);
-      return;
-    }
-    if (action.kind === 'label_input') {
-      setIsLabelInputOpen(true);
-      return;
-    }
-    // 応答待ちの間は、メッセージの順序が入れ替わらないよう他のボタンを受け付けない（押されたことは伝える）
-    if (busyRef.current) {
-      showToast(WAIT_MESSAGE, 'error');
-      return;
-    }
-    // 有料の調べもの・もう一度送るボタンは、同じ吹き出しでは1回だけ（前の吹き出しのボタンで何度も調べない）。
-    // 使った印は、実際に頼んだときだけ付ける
-    const usedKey = `${sourceMessage.id}|${label}`;
-    if (ONCE_PER_MESSAGE_LABELS.has(label) && usedActions.has(usedKey)) {
-      showToast('このボタンはもう使いました。結果は下の吹き出しにあります。', 'error');
-      return;
-    }
-    const markUsed = () => setUsedActions((prev) => new Set(prev).add(usedKey));
-    switch (action.kind) {
-      case 'retry': {
-        const retry = retryRef.current.get(sourceMessage.id);
-        if (!retry) {
-          appendLocalExchange(label, 'もう一度送れる内容が見つかりませんでした。入力し直してください。');
-          return;
-        }
-        // 同じ失敗の吹き出しからは1回だけ（また失敗したら、新しい吹き出しにボタンが付く）
-        retryRef.current.delete(sourceMessage.id);
-        markUsed();
-        void retry();
-        return;
-      }
-      case 'send':
-        handleSendMessage(action.text);
-        return;
-      case 'add_analyzed': {
-        const product = sourceMessage.singleAnalysis?.product;
-        if (!product) {
-          appendLocalExchange(label, PICK_FROM_CARDS_HINT);
-          return;
-        }
-        // もう一方のリストにあるときは、ダイアログで移すか削除するかを聞く（返答は出さない）。上限のときは案内だけ
-        if (action.list === 'bad') {
-          const result = handleAddToBad(product);
-          if (result === 'conflict' || result === 'full') return;
-          appendLocalExchange(
-            label,
-            result === 'added'
-              ? `「${product.name}」を【肌荒れしたコスメ】に追加しました。問題なく使えるコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、肌荒れの原因になった可能性のある成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【肌荒れしたコスメ】に登録されています。問題なく使えるコスメも追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
-            ['✅ 使えるコスメを入力する']
-          );
-        } else {
-          const result = handleAddToUsable(product);
-          if (result === 'conflict' || result === 'full') return;
-          appendLocalExchange(
-            label,
-            result === 'added'
-              ? `「${product.name}」を【使えるコスメ】に追加しました。肌荒れしたコスメも追加して「${DIFFERENTIAL_LABEL}」を押すと、原因になりうる成分の候補を絞り込めます。`
-              : `「${product.name}」はすでに【使えるコスメ】に登録されています。肌荒れしたコスメを追加して「${DIFFERENTIAL_LABEL}」を押してください。`,
-            ['🧴 肌荒れしたコスメを入力する']
-          );
-        }
-        return;
-      }
-      case 'price_analyzed': {
-        const product = sourceMessage.singleAnalysis?.product;
-        if (product) {
-          markUsed();
-          handlePriceLookup(label, product);
-        } else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
-        return;
-      }
-      case 'research_analyzed': {
-        const product = sourceMessage.singleAnalysis?.product;
-        if (product) {
-          markUsed();
-          handleResearchProduct(label, product);
-        } else appendLocalExchange(label, PICK_FROM_CARDS_HINT);
-        return;
-      }
-      case 'pick_from_cards':
-        appendLocalExchange(label, PICK_FROM_CARDS_HINT);
-        return;
-      case 'reset':
-        // 保存している使えるコスメは消さない（消すときはサイドバーの「使えるコスメのリストをクリア」）
-        updateBad(() => []);
-        appendLocalExchange(label, '肌荒れしたコスメのリストを空にしました（使えるコスメはそのままです）。', [
-          '🧴 肌荒れしたコスメを入力する',
-        ]);
-        return;
-      case 'prompt_input':
-        appendLocalExchange(label, action.hint);
-        inputRef.current?.focus();
-        return;
-      case 'server':
-        handleSendMessage(label);
-        return;
-    }
-  };
-
-  const handleRunDifferential = async () => {
-    if (routine.badProducts.length === 0) return;
-    await runChatAction(
-      `⚡️ 肌荒れコスメ（${routine.badProducts.map((p) => p.name).join('、')}）の、原因になりうる成分の候補を絞り込んでください`,
-      { action: 'differential', routine },
-      (data) => pickReply(data, ['differentialAnalysis', 'quickReplies']),
-      { loadingText: '原因候補の成分を絞り込んでいます...' }
-    );
-  };
-
-  /** 画面のボタンから差分分析を始める（応答待ちなら案内だけ出す） */
-  const requestDifferential = () => {
-    if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
-    void handleRunDifferential();
-  };
-
-  /** 使えるコスメのうち、今も使っているものの組み合わせを調べる（サーバーはルールだけで判定する） */
-  const handleCheckCurrentUse = async () => {
-    const inUse = usable.filter((e) => e.inUse);
-    if (inUse.length < 2) return;
-    // 送った時点の、3か月以上前に追加した製品（結果のカードで確かめてもらう）
-    const staleProductNames = staleEntries.map((e) => e.product.name);
-    await runChatAction(
-      `🧴 今使っているコスメ（${inUse.map((e) => e.product.name).join('、')}）の組み合わせを調べてください`,
-      // 比較リストは使わないので送らない
-      {
-        action: 'check_current_use',
-        routine: { badProducts: [], safeProducts: [], currentlyUsing: routine.currentlyUsing },
-      },
-      (data) => {
-        const check = data.currentUseCheck as ChatMessage['currentUseCheck'];
-        return {
-          ...pickReply(data, ['quickReplies']),
-          currentUseCheck: check && { ...check, ...(staleProductNames.length > 0 && { staleProductNames }) },
-        };
-      },
-      {
-        loadingText: '組み合わせを確かめています...',
-        failure: (result) =>
-          result.status === 400
-            ? {
-                content:
-                  '「使えるコスメ」の内容を確認できませんでした。最近追加したコスメをいったん削除して、追加し直してください。',
-              }
-            : {},
-      }
-    );
-  };
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
 
   /** 開発用のサンプル。使えるコスメの分は保存しない（sessionOnly。利用者の保存したリストを書き換えない） */
   const handleLoadSample = () => {
@@ -917,7 +562,7 @@ export const ChatContainer: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    abortRef.current?.abort();
+                    abortRequest();
                     // 押したボタンは止まると消えるので、入力欄へ移す
                     inputRef.current?.focus();
                   }}
@@ -1014,7 +659,7 @@ export const ChatContainer: React.FC = () => {
                 onClose={closeTray}
                 onSelectProduct={(product) => {
                   // 応答待ちなら、入力と候補を残したまま案内する（選んだ製品を黙って捨てない）
-                  if (busyRef.current) {
+                  if (isBusy()) {
                     showToast(WAIT_MESSAGE, 'error');
                     return;
                   }
@@ -1067,12 +712,12 @@ export const ChatContainer: React.FC = () => {
             busy={isLoading}
             onCheckCurrentUse={() => {
               // 応答待ちなら引き出しを閉じずに案内する（閉じてから断ると、何が起きたか分からない）
-              if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
+              if (isBusy()) return showToast(WAIT_MESSAGE, 'error');
               closeSidebar();
               handleCheckCurrentUse();
             }}
             onRunDifferential={() => {
-              if (busyRef.current) return showToast(WAIT_MESSAGE, 'error');
+              if (isBusy()) return showToast(WAIT_MESSAGE, 'error');
               closeSidebar();
               handleRunDifferential();
             }}
@@ -1097,7 +742,7 @@ export const ChatContainer: React.FC = () => {
             void importFromFragment(fragment);
             return true;
           }
-          if (busyRef.current) return WAIT_MESSAGE;
+          if (isBusy()) return WAIT_MESSAGE;
           // 化粧品の JAN/EAN/UPC（8〜14桁の数字）だけ。ほかの QR コード（URL など）は送らない
           const digits = barcode.normalize('NFKC').replace(/[\s-]/g, '');
           if (!/^\d{8,14}$/.test(digits)) {

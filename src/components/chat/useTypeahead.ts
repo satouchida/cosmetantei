@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Product } from '@/lib/types';
 import { apiFetch } from '@/lib/client/api-fetch';
 import { rankProducts } from '@/lib/search/product-match';
@@ -7,16 +7,11 @@ import { rankProducts } from '@/lib/search/product-match';
 const MAX_LINEUP_CANDIDATES = 12;
 
 /**
- * 入力途中の候補（候補トレイ）：入力のたびに保存済みの製品とブランドを探し、ブランドが分かればお店の製品一覧を取る。
- * restoredInputRef は、送れなかったので入力欄に戻した文（候補を探し直さない。ChatContainer が書く）
+ * 入力途中の候補（候補トレイ）：入力のたびに保存済みの製品とブランドを探し、ブランドが分かればお店の製品一覧を取る
  */
-export function useTypeahead({
-  input,
-  restoredInputRef,
-}: {
-  input: string;
-  restoredInputRef: MutableRefObject<string | null>;
-}) {
+export function useTypeahead({ input }: { input: string }) {
+  // 送れなかったので入力欄に戻した文（候補を探し直さない。skipSearchFor で入れる）
+  const restoredInputRef = useRef<string | null>(null);
   const [liveCandidates, setLiveCandidates] = useState<Product[]>([]);
   const [liveBrands, setLiveBrands] = useState<{ name: string; kana?: string }[]>([]);
   // 検索語の先頭のブランドと残りの語（サーバーが判定）
@@ -94,8 +89,7 @@ export function useTypeahead({
       clearTimeout(timer);
       controller.abort();
     };
-    // restoredInputRef は同じ ref のまま（入れても再実行は増えない）
-  }, [input, restoredInputRef]);
+  }, [input]);
 
   // 候補：保存済みの製品（サーバーの結果）の後に、お店の製品一覧を残りの語で絞り込んだもの
   const lineup = liveBrand ? lineups[liveBrand.name] : undefined;
@@ -120,5 +114,10 @@ export function useTypeahead({
     setLiveCandidates([]);
   };
 
-  return { liveBrands, trayCandidates, trayCredits, isTrayVisible, setIsTrayOpen, clearCandidates };
+  /** 送れなかった文を入力欄に戻すとき：その文では候補を探し直さない（失敗の吹き出しの上に候補を出さない） */
+  const skipSearchFor = (text: string) => {
+    restoredInputRef.current = text;
+  };
+
+  return { liveBrands, trayCandidates, trayCredits, isTrayVisible, setIsTrayOpen, clearCandidates, skipSearchFor };
 }

@@ -1,6 +1,6 @@
 # Splitting ChatContainer, part 2
 
-Drafted 2026-11-11. Status: plan, not started. Part 1 (2026-11-11, package F of
+Drafted 2026-11-11. Status: Steps 1–3 done (2026-11-13); Step 4 in progress. Part 1 (2026-11-11, package F of
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md)) moved the product
 lists and import/export into `useRoutineLists`, `useRoutineTransfer` and `chat-helpers.ts`.
 
@@ -74,6 +74,18 @@ What forces care here:
   second request. Return it, or better, return one `isBusy()` function and use it everywhere.
 - The hook needs `routine`, the list handlers and `offerExportAfterResult` from the two existing
   hooks. Pass them in as one object; do not reach across hooks through refs.
+
+**Done 2026-11-13, with these differences from the plan:**
+
+- `messages` stays in `ChatContainer` and is passed in: `useRoutineTransfer` reads it and
+  `useChatRequests` needs that hook's `offerExportAfterResult`, so neither hook can own it without
+  reaching into the other.
+- `restoredInputRef` moved into `useTypeahead`, which returns `skipSearchFor(text)`; the request hook
+  calls it instead of sharing a ref.
+- The hook returns `isBusy()` and `abortRequest()` instead of the refs.
+- So the dispatcher can be tested in Node, `QUICK_REPLY_ICON_COMPONENTS` moved to
+  `quick-reply-icons.ts` (chat-helpers no longer imports lucide-react) and `DIFFERENTIAL_LABEL` to
+  `routine/routine-labels.ts` (re-exported from `RoutineSidebar`). Test 158 now calls the dispatcher.
 
 ### Step 4. Components for the JSX
 

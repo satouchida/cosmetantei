@@ -19,8 +19,9 @@ import {
 import { busyLook, buttonTonal } from '../ui/design';
 import type { Product } from '@/lib/types';
 
-/** 差分分析を始めるボタンの文言（サイドバーとスマホの登録状況バー、案内の文で同じにする） */
-export const DIFFERENTIAL_LABEL = '肌荒れの原因候補を調べる';
+// 差分分析を始めるボタンの文言（React を読まずに使えるよう routine-labels.ts に置く）
+import { DIFFERENTIAL_LABEL } from './routine-labels';
+export { DIFFERENTIAL_LABEL };
 
 /** 使えるコスメの見出しの ID（3か月の確認の「確認する」から、ここへ移る） */
 export const USABLE_SECTION_ID = 'usable-section';
