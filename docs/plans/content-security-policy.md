@@ -1,19 +1,13 @@
 # Content Security Policy
 
-Drafted 2026-11-11. Status: Step 1 in progress (2026-11-12): the full policy is in
-`next.config.mjs` as `Content-Security-Policy-Report-Only`, test 160 pins it. Local walk-through
-(dev server): first load, the brand tray, the export image (blob, QR code), the scanner dialog,
-`/privacy`, `/terms`, `/owner` and the 404 page showed no violation. Not checked locally: shop
-photos (no shop results in development), Turnstile, and the camera (blocked in the test browser).
-Deployed walk-through (2026-11-12, version 0b1a7942, Chrome and the built-in browser): a chat
-answer, the search tray with photos from thumbnail.image.rakuten.co.jp and item-shopping.c.yimg.jp,
-and `/privacy`, `/terms`, `/owner` and the 404 page loaded with no violation of our policy;
-Turnstile's script and check-box frame loaded with no violation. One violation: Cloudflare Web
-Analytics, which Cloudflare inserts itself (`https://static.cloudflareinsights.com/beacon.min.js`,
-sending to the same-origin `/cdn-cgi/rum`). Owner's decision (2026-11-12): allow it. `https://static.cloudflareinsights.com` is in `script-src`,
-and the privacy policy now describes Web Analytics (第2条・第3条・第5条・第7条). Still to check:
-the camera, on a real device. Before the walk-through: watch especially for a Turnstile `connect-src`
-violation (if one appears, add `https://challenges.cloudflare.com` to `connect-src`). Follows finding V4 in
+Drafted 2026-11-11. Status: Step 1 done (2026-11-12). The full policy was sent as
+`Content-Security-Policy-Report-Only`, walked through on the deployed site (chat, the search tray
+with Rakuten and Yahoo! photos, Turnstile, the export image, the camera scanner on a real device,
+`/privacy`, `/terms`, `/owner`, the 404 page), and then switched to `Content-Security-Policy`
+with `upgrade-insecure-requests`; the old four-directive policy and the Report-Only header were
+removed. The one violation found, Cloudflare Web Analytics, is allowed in `script-src` and described in
+the privacy policy (owner's decision). Test 160 pins the policy. Next: Step 2 (build-time hashes).
+Follows finding V4 in
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md).
 
 ## Where we are

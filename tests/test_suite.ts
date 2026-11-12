@@ -9741,7 +9741,7 @@ test('159. Product link fields: amazonSearchUrl, imageUrl and shopLink.href must
   assert.ok(!isValidProduct(verifiedProduct({ imageUrl: `https://example.com/${'a'.repeat(2048)}` })));
 });
 
-test('160. Content Security Policy: a complete policy, Report-Only for now (docs/plans/content-security-policy.md Step 1)', async () => {
+test('160. Content Security Policy: one complete, enforced policy (docs/plans/content-security-policy.md Step 1)', async () => {
   const { default: nextConfig } = await import('../next.config.mjs');
   const { readFileSync } = await import('node:fs');
   const read = (file: string) => readFileSync(file, 'utf-8');
@@ -9753,9 +9753,9 @@ test('160. Content Security Policy: a complete policy, Report-Only for now (docs
     assert.ok(found, `${key} is sent`);
     return found.value;
   };
-  // いま効いている方針は変えない（Step 1 の最初の公開は Report-Only だけ）
-  assert.strictEqual(header('Content-Security-Policy'), "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'");
-  const entries = header('Content-Security-Policy-Report-Only').split(';').map((d) => {
+  // 2026-11-12 に Report-Only から移した。Report-Only の方針は残さない
+  assert.ok(!all.headers.some((h) => h.key === 'Content-Security-Policy-Report-Only'));
+  const entries = header('Content-Security-Policy').split(';').map((d) => {
     const [name, ...sources] = d.trim().split(/\s+/);
     return [name, sources] as const;
   });
@@ -9763,11 +9763,11 @@ test('160. Content Security Policy: a complete policy, Report-Only for now (docs
   assert.strictEqual(new Set(entries.map(([name]) => name)).size, entries.length, 'no directive is repeated');
   const policy = new Map(entries);
   for (const name of ['default-src', 'script-src', 'style-src', 'img-src', 'font-src', 'connect-src', 'frame-src', 'media-src',
-    'worker-src', 'manifest-src', 'object-src', 'base-uri', 'form-action', 'frame-ancestors']) {
+    'worker-src', 'manifest-src', 'object-src', 'base-uri', 'form-action', 'frame-ancestors', 'upgrade-insecure-requests']) {
     assert.ok(policy.has(name), `${name} is in the policy`);
   }
-  // Report-Only では効かず警告が出るので、Content-Security-Policy に移すときに足す
-  assert.ok(!policy.has('upgrade-insecure-requests'));
+  assert.deepStrictEqual(policy.get('frame-ancestors'), ["'none'"]);
+  assert.deepStrictEqual(policy.get('object-src'), ["'none'"]);
   // Next.js がページに書き込むインラインのスクリプト（Step 2 まで要る）。保存した画像・写真のプレビューは blob: と data:
   assert.ok(policy.get('script-src')!.includes("'unsafe-inline'"));
   assert.deepStrictEqual(policy.get('img-src')!.filter((s) => !s.startsWith('https:')), ["'self'", 'data:', 'blob:']);

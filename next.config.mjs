@@ -1,9 +1,8 @@
 /**
  * すべてのページ・API に付けるセキュリティのヘッダー。
- * - CSP（docs/plans/content-security-policy.md の Step 1）。いま効いているのは CONTENT_SECURITY_POLICY_ENFORCED で、
- *   ほかのサイトへの埋め込み（クリックジャッキング）・プラグイン・フォームの送り先・base の書き換えを止める。
- *   CONTENT_SECURITY_POLICY は読み込んでよい先をすべて決めた方針で、まだ Report-Only（止めずに、違反をブラウザのコンソールに出すだけ）。
- *   すべての画面で違反が出ないのを確かめてから Content-Security-Policy に移し、上の方針は外す。
+ * - CSP（docs/plans/content-security-policy.md の Step 1）。読み込んでよい先・送ってよい先をすべて決め、それ以外を止める。
+ *   2026-11-12 に Report-Only で公開し、すべての画面（カメラを含む）で違反が出ないのを確かめてから止める方針に移した。
+ *   読み込む先を増やすときは、ここと test 160 とプライバシーポリシー（外部送信）を一緒に変える。
  *   script-src の 'unsafe-inline' は、Next.js がページに書き込むインラインのスクリプトのため（ページを静的なままにする。計画の Step 2 で外せるか試す）
  * - カメラはバーコードの読み取りでこのサイトだけが使う。マイク・位置情報は使わない
  */
@@ -35,17 +34,14 @@ const CSP_DIRECTIVES = {
   'form-action': ["'self'"],
   'frame-ancestors': ["'none'"],
 };
-const CONTENT_SECURITY_POLICY = Object.entries(CSP_DIRECTIVES)
-  .map(([name, sources]) => `${name} ${sources.join(' ')}`)
-  .join('; ');
-// upgrade-insecure-requests は Report-Only では効かず、ブラウザが警告を出す。Content-Security-Policy に移すときに
-// CONTENT_SECURITY_POLICY の後ろに付ける（開発サーバーは http なので、開発中は付けない）
-// const UPGRADE_INSECURE_REQUESTS = isDev ? '' : '; upgrade-insecure-requests';
-const CONTENT_SECURITY_POLICY_ENFORCED = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'";
+const CONTENT_SECURITY_POLICY = [
+  ...Object.entries(CSP_DIRECTIVES).map(([name, sources]) => `${name} ${sources.join(' ')}`),
+  // 開発サーバーは http なので、開発中は付けない
+  ...(isDev ? [] : ['upgrade-insecure-requests']),
+].join('; ');
 
 const SECURITY_HEADERS = [
-  { key: 'Content-Security-Policy', value: CONTENT_SECURITY_POLICY_ENFORCED },
-  { key: 'Content-Security-Policy-Report-Only', value: CONTENT_SECURITY_POLICY },
+  { key: 'Content-Security-Policy', value: CONTENT_SECURITY_POLICY },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
