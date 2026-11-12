@@ -6,7 +6,8 @@ with Rakuten and Yahoo! photos, Turnstile, the export image, the camera scanner 
 `/privacy`, `/terms`, `/owner`, the 404 page), and then switched to `Content-Security-Policy`
 with `upgrade-insecure-requests`; the old four-directive policy and the Report-Only header were
 removed. The one violation found, Cloudflare Web Analytics, is allowed in `script-src` and described in
-the privacy policy (owner's decision). Test 160 pins the policy. Next: Step 2 (build-time hashes).
+the privacy policy (owner's decision). Test 160 pins the policy. Step 2 (build-time hashes) was
+tried on 2026-11-12 and does not work as is (result below); the owner chose to stop at Step 1.
 Follows finding V4 in
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md).
 
@@ -133,6 +134,18 @@ Questions the spike answers:
 
 If all three are yes: ship it, again Report-Only first. If not: stay on Step 1 and record what
 failed here.
+
+**Result (2026-11-12, on a throwaway branch, since deleted): does not work as is.** With
+`experimental: { sri: { algorithm: 'sha256' } }` the build (Turbopack, OpenNext) succeeds and the
+script files get `integrity` attributes, but each page also has 7 inline scripts
+(`self.__next_f.push(...)`, the React Server Components payload) that SRI does not cover. Next adds
+no hashes for them to the policy. Run locally (`wrangler dev`) with `script-src 'self'` plus the two
+Cloudflare hosts, the browser blocked all of them, React never started, and no button worked.
+Answers to the three questions: 1. no; 2. the build and the `integrity` attributes work under
+Turbopack and OpenNext; 3. not reached. Possible ways on, not tried: add the inline scripts'
+hashes to the header per page after the build (they change with every build and differ per page),
+or Step 3 (nonces). The owner decided to stay on Step 1: it already gives most of the gain
+(`connect-src`, `img-src` and the `script-src` host list).
 
 `style-src` keeps `'unsafe-inline'` either way. html5-qrcode and React set inline styles from
 script, and removing it gains little compared with scripts.
