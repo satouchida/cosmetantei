@@ -1,6 +1,12 @@
 # Content Security Policy
 
-Drafted 2026-11-11. Status: plan, not started. Follows finding V4 in
+Drafted 2026-11-11. Status: Step 1 in progress (2026-11-12): the full policy is in
+`next.config.mjs` as `Content-Security-Policy-Report-Only`, test 160 pins it. Local walk-through
+(dev server): first load, the brand tray, the export image (blob, QR code), the scanner dialog,
+`/privacy`, `/terms`, `/owner` and the 404 page showed no violation. Not checked locally: shop
+photos (no shop results in development), Turnstile, and the camera (blocked in the test browser).
+Those need the walk-through on the deployed site; watch especially for a Turnstile `connect-src`
+violation (if one appears, add `https://challenges.cloudflare.com` to `connect-src`). Follows finding V4 in
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md).
 
 ## Where we are
@@ -73,7 +79,7 @@ media-src 'self' blob: mediastream:;
 worker-src 'self' blob:;
 manifest-src 'self';
 object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none';
-upgrade-insecure-requests
+upgrade-insecure-requests   (added only when the policy is enforced: Report-Only ignores it and warns)
 ```
 
 - In development only, add `'unsafe-eval'` to `script-src` (React needs it for dev tooling; the
