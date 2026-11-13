@@ -1,6 +1,6 @@
 # Splitting ChatContainer, part 2
 
-Drafted 2026-11-11. Status: Steps 1–3 done (2026-11-13); Step 4 in progress. Part 1 (2026-11-11, package F of
+Drafted 2026-11-11. Status: Steps 1–4 done (2026-11-13); Step 5 in progress. Part 1 (2026-11-11, package F of
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md)) moved the product
 lists and import/export into `useRoutineLists`, `useRoutineTransfer` and `chat-helpers.ts`.
 
@@ -106,6 +106,16 @@ message with its cards).
 
 The drawer wrapper and `RoutineSidebar` (1208–1252) stay in `ChatContainer`: they are already one
 component plus a wrapper `div`.
+
+**Done 2026-11-13, with these differences from the plan:**
+
+- `MessageBubble` was split out of `MessageList` from the start (seven components, not six).
+- All seven are in test 114's `notScreens` list (they are parts of the chat screen, checked at
+  `/`), not in `/dev/gallery`.
+- `handleScanSuccess` and `handleSelectTrayProduct` were inline in the JSX; they are now named
+  handlers in `ChatContainer`, passed down as props.
+- `ChatContainer.tsx` is about 365 lines, above the 150–200 hoped for: hook wiring, the sample
+  loader, those two handlers and the drawer wrapper remain.
 
 ### Step 5. Tests that read source text
 

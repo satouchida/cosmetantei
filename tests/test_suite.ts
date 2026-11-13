@@ -73,6 +73,13 @@ const CHAT_CONTAINER_FILES = [
   'src/components/chat/useChatRequests.ts',
   'src/components/chat/quick-reply-dispatch.ts',
   'src/components/chat/quick-reply-icons.ts',
+  'src/components/chat/ChatLiveRegions.tsx',
+  'src/components/chat/ChatHeader.tsx',
+  'src/components/chat/RoutineSummaryBar.tsx',
+  'src/components/chat/MessageList.tsx',
+  'src/components/chat/MessageBubble.tsx',
+  'src/components/chat/ChatInputBar.tsx',
+  'src/components/chat/ChatDialogs.tsx',
 ];
 
 /** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
@@ -6690,7 +6697,7 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   assert.strictEqual(AFFILIATE_DISCLOSURE.match(/適格販売/g)?.length, 1, '「適格販売」 is Amazon\'s term only');
   assert.ok(terms.includes('{AFFILIATE_DISCLOSURE}'));
   // サイトの画面にも出す（会話の最後・規約のページの下）。スマホで引き出しを開かなくても見える位置
-  assert.match(read('src/components/chat/ChatContainer.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
+  assert.match(read('src/components/chat/MessageList.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
   // /privacy では、ページの下が唯一の表示
   assert.match(read('src/components/legal/LegalPage.tsx'), /\{AFFILIATE_DISCLOSURE\}/);
   // 表示に書いた ASP と、実際のリンクの設定が合っている（ほかの ASP に変えたら、表示とポリシーも直す）
@@ -6772,8 +6779,10 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   assert.match(read('src/lib/services/chat-replies.ts'), /CAUSE_CACHE_TTL_SECONDS = 60 \* 60 \* 24 \* 7;/);
 
   // 外部送信規律：トップ画面から1回の操作で届く（コメントにしたものは数えない）・サイトマップにも載せる
-  const chat = read('src/components/chat/ChatContainer.tsx').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.match(chat, /<LegalLinks\b/);
+  const uncommented = (file: string) => read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // リンクは入力欄のバー（ChatInputBar）にあり、トップ画面（ChatContainer）がそれを出す
+  assert.match(uncommented('src/components/chat/ChatInputBar.tsx'), /<LegalLinks\b/);
+  assert.match(uncommented('src/components/chat/ChatContainer.tsx'), /<ChatInputBar\b/);
   const sitemap = (await import('../src/app/sitemap')).default().map((e) => e.url);
   assert.ok(sitemap.some((u) => u.endsWith('/terms')) && sitemap.some((u) => u.endsWith('/privacy')));
   const links = read('src/components/legal/LegalPage.tsx');
@@ -7105,6 +7114,13 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
   // 画面ではないもの・ほかの画面の中にだけ出るもの（その画面で確かめる）
   const notScreens: Record<string, string> = {
     'chat/ChatContainer': 'the whole app (checked at /)',
+    'chat/ChatLiveRegions': 'part of the chat screen (checked at /)',
+    'chat/ChatHeader': 'part of the chat screen (checked at /)',
+    'chat/RoutineSummaryBar': 'part of the chat screen (checked at /)',
+    'chat/MessageList': 'part of the chat screen (checked at /)',
+    'chat/MessageBubble': 'part of the chat screen (checked at /)',
+    'chat/ChatInputBar': 'part of the chat screen (checked at /)',
+    'chat/ChatDialogs': 'part of the chat screen (checked at /)',
     'chat/MessageCardBoundary': 'error boundary, no layout of its own',
     'chat/MedicalNotice': 'inside the result cards',
     'chat/PairFindingList': 'inside DifferentialResultCard and CurrentUseResultCard',
@@ -7250,7 +7266,7 @@ test('117. Display wording: neutral 有効成分 line, no 「主成分」, no sa
 test('118. Layout: scroll areas are positioned, so sr-only text cannot stretch the page (live check 2026-10-22)', async () => {
   const { readFileSync } = await import('node:fs');
   // sr-only は position: absolute。位置を決める親が無いとページの外まで伸び、カードへのフォーカスでページ全体がスクロールする
-  for (const file of ['src/components/chat/ChatContainer.tsx', 'src/components/routine/RoutineSidebar.tsx', 'src/components/search/LiveSearchCandidateTray.tsx']) {
+  for (const file of ['src/components/chat/MessageList.tsx', 'src/components/routine/RoutineSidebar.tsx', 'src/components/search/LiveSearchCandidateTray.tsx']) {
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(/className=\{?[`"]([^`"]*\boverflow-y-auto\b[^`"]*)[`"]/g)) {
       assert.match(m[1], /\brelative\b/, `${file}: ${m[1]}`);
@@ -7895,7 +7911,7 @@ test('128. Spend limits reach the screen: the route says which limit refused, th
     // ブラウザ：apiFetch がヘッダーを読む。画面は入力欄の上に出す。写真の読み取りの上限は専用の文
     const { readFileSync } = await import('node:fs');
     assert.match(readFileSync('src/lib/client/api-fetch.ts', 'utf8'), /noticeSpendLimit\(await fetch/);
-    assert.match(readFileSync('src/components/chat/ChatContainer.tsx', 'utf8'), /<SpendLimitNotice reason=\{spendLimit\.reason\}/);
+    assert.match(readFileSync('src/components/chat/ChatInputBar.tsx', 'utf8'), /<SpendLimitNotice reason=\{spendLimit\.reason\}/);
     assert.match(readFileSync('src/app/api/label/read/route.ts', 'utf8'), /error: spendLimitMessage\(limit\)/);
     // チャット：上限で Web を調べられなかったときは「見つかりませんでした」と言わない（2か所）
     // （調べた呼び出しの種類だけを見る。3か所と、近い候補を出すときに理由を添える1か所）
@@ -8900,8 +8916,10 @@ test('145. Foundations are their own kind, other makeup has none, and the altern
   assert.match(card, /className=\{`\$\{canPrice \? '' : 'col-span-2'\} \$\{buttonSecondaryCompact\}`\}/);
   assert.doesNotMatch(card, /textLink/);
   const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
-  assert.match(chat, /<DifferentialResultCard result=\{msg\.differentialAnalysis\} onPriceLookup=\{handleAlternativePriceLookup\}/);
-  assert.match(chat, /onPriceLookup=\{handleAlternativePriceLookup\}\n\s+busy=\{isLoading\}/);
+  assert.match(readFileSync('src/components/chat/MessageBubble.tsx', 'utf8'), /<DifferentialResultCard result=\{msg\.differentialAnalysis\} onPriceLookup=\{onPriceLookup\}/);
+  assert.match(chat, /onPriceLookup: handleAlternativePriceLookup,/);
+  // 分析カード（IngredientAnalysisCard）にも価格を比べるボタン
+  assert.match(readFileSync('src/components/chat/MessageBubble.tsx', 'utf8'), /onPriceLookup=\{onPriceLookup\}\n\s+busy=\{busy\}/);
 });
 
 test('146. A chat product lookup answers only with products named like the query, and blocked page reads log their host (2026-11-03 logs)', async () => {
