@@ -1,6 +1,6 @@
 # Splitting ChatContainer, part 2
 
-Drafted 2026-11-11. Status: Steps 1–4 done (2026-11-13); Step 5 in progress. Part 1 (2026-11-11, package F of
+Drafted 2026-11-11. Status: done (Steps 1–5, 2026-11-13). Part 1 (2026-11-11, package F of
 [docs/review/2026-11-10-code-quality.md](../review/2026-11-10-code-quality.md)) moved the product
 lists and import/export into `useRoutineLists`, `useRoutineTransfer` and `chat-helpers.ts`.
 
@@ -124,6 +124,15 @@ Several tests read `ChatContainer.tsx` as text through `CHAT_CONTAINER_FILES`
 assertion is loosened. After Step 4, replace the brittle multi-line regexes that only pin code
 shape (not behavior) with assertions on the extracted functions where possible, for example
 calling the quick-reply dispatcher with fake handlers.
+
+**Done 2026-11-13:**
+
+- Test 162 calls `dispatchQuickReply` with fake handlers for every kind of button.
+- Four source-text checks (three in test 158, one in test 145) no longer depend on where a line
+  break falls.
+- Left as source-text checks: the conflict and list-limit rules in `useRoutineLists` and the
+  export-reminder state in `useRoutineTransfer` (test 158). The hooks cannot run in the Node
+  tests; testing that behavior needs the rules pulled out into plain functions first.
 
 ## What this buys
 

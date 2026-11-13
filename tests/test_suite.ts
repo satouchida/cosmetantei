@@ -8919,7 +8919,8 @@ test('145. Foundations are their own kind, other makeup has none, and the altern
   assert.match(readFileSync('src/components/chat/MessageBubble.tsx', 'utf8'), /<DifferentialResultCard result=\{msg\.differentialAnalysis\} onPriceLookup=\{onPriceLookup\}/);
   assert.match(chat, /onPriceLookup: handleAlternativePriceLookup,/);
   // 分析カード（IngredientAnalysisCard）にも価格を比べるボタン
-  assert.match(readFileSync('src/components/chat/MessageBubble.tsx', 'utf8'), /onPriceLookup=\{onPriceLookup\}\n\s+busy=\{busy\}/);
+  const analysisCardTag = /<IngredientAnalysisCard\b[^]*?\/>/.exec(readFileSync('src/components/chat/MessageBubble.tsx', 'utf8'))?.[0] ?? '';
+  assert.match(analysisCardTag, /onPriceLookup=\{onPriceLookup\}/);
 });
 
 test('146. A chat product lookup answers only with products named like the query, and blocked page reads log their host (2026-11-03 logs)', async () => {
@@ -9717,9 +9718,9 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
     const source = readFileSync(file, 'utf8');
     assert.ok(!source.includes('今使っている') && !source.includes('普段'), `${file} has only 肌荒れした and 使えている`);
   }
-  assert.match(chat, /if \(getUsableSnapshot\(\)\.some\(\(e\) => e\.product\.id === product\.id\)\) \{\n\s*setListConflict\(\{ product, target: 'bad' \}\);/);
+  assert.match(chat, /if \(getUsableSnapshot\(\)\.some\(\(e\) => e\.product\.id === product\.id\)\) \{\s*setListConflict\(\{ product, target: 'bad' \}\);/);
   assert.match(chat, /const inBad = badRef\.current\.some\(\(p\) => p\.id === product\.id\);/);
-  assert.match(chat, /if \(inBad\) \{\n\s*setListConflict\(\{ product, target: 'usable' \}\);/);
+  assert.match(chat, /if \(inBad\) \{\s*setListConflict\(\{ product, target: 'usable' \}\);/);
   // 引き出しの上のダイアログでは、Tab・Escape をダイアログに任せる（引き出しのキー操作で奪わない）
   assert.match(chat, /if \(document\.querySelector\('dialog\[open\]'\)\) return;/);
   // 画像の表面にも、書き出さない製品（入力した成分表示・お店の商品説明）を出さない
@@ -9728,7 +9729,7 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
   assert.match(exportDialog, /badCount: snapshot\.badProducts\.filter\(isPersistable\)\.length/);
   // おすすめは、画像に入る肌荒れしたコスメがあるときだけ。同意の前は出さない
   assert.match(chat, /badCount: badProducts\.filter\(isPersistable\)\.length/);
-  assert.match(chat, /consented !== true,\n\s*\};/);
+  assert.match(chat, /consented !== true,\s*\};/);
   // 移す先が上限なら、何も消さない（移すことも勧めない）。肌荒れしたコスメは最新の値（badRef）で数える
   assert.ok(!/setBadState\(\(prev\)/.test(chat) && !chat.includes('setBadProducts'), 'The bad list changes only through updateBad');
   assert.match(chat, /const moveToList = [\s\S]*?badRef\.current\.length >= MAX_ROUTINE_PRODUCTS[\s\S]*?return;[\s\S]*?latest\.length >= MAX_USABLE[\s\S]*?return;/);
@@ -9949,4 +9950,114 @@ test('161. Brand check: exact list match, one key per brand, 64 per Clef call, G
     globalThis.fetch = originalFetch;
     clearGatewayEnv();
   }
+});
+
+test('162. Quick replies: what each kind of button does (the dispatcher, called with fake handlers)', async () => {
+  const { dispatchQuickReply } = await import('../src/components/chat/quick-reply-dispatch');
+  type Handlers = Parameters<typeof dispatchQuickReply>[2];
+  type Message = Parameters<typeof dispatchQuickReply>[1];
+  const { PICK_FROM_CARDS_HINT } = await import('../src/components/chat/quick-replies');
+  const { WAIT_MESSAGE, RETRY_LABEL, ONCE_PER_MESSAGE_LABELS } = await import('../src/components/chat/chat-helpers');
+  const product = verifiedProduct({ id: 't162', name: 'T162 化粧水' });
+  const plain = { id: 'm1', role: 'assistant', content: '', timestamp: 0 } as Message;
+  const analyzed = { ...plain, id: 'm2', singleAnalysis: { product } } as unknown as Message;
+
+  /** ボタンを押し、呼ばれた処理を順に返す */
+  const press = (label: string, message: Message, overrides: Partial<Handlers> = {}): string[] => {
+    const calls: string[] = [];
+    const record = (name: string) => () => void calls.push(name);
+    dispatchQuickReply(label, message, {
+      openScanner: record('openScanner'),
+      openLabelInput: record('openLabelInput'),
+      isBusy: () => false,
+      showToast: (text, kind) => void calls.push(`toast:${kind}:${text}`),
+      isUsed: () => false,
+      markUsed: (key) => void calls.push(`used:${key}`),
+      takeRetry: () => undefined,
+      sendMessage: (text) => void calls.push(`send:${text}`),
+      addToBad: (p) => (calls.push(`addToBad:${p.id}`), 'added'),
+      addToUsable: (p) => (calls.push(`addToUsable:${p.id}`), 'added'),
+      priceLookup: (label, p) => void calls.push(`price:${label}:${p.id}`),
+      researchProduct: (label, p) => void calls.push(`research:${label}:${p.id}`),
+      clearBad: record('clearBad'),
+      appendLocalExchange: (label, reply, quickReplies) =>
+        void calls.push(`reply:${label}:${reply}${quickReplies ? `:${quickReplies.join(',')}` : ''}`),
+      focusInput: record('focusInput'),
+      ...overrides,
+    });
+    return calls;
+  };
+  const busy: Partial<Handlers> = { isBusy: () => true };
+  const used: Partial<Handlers> = { isUsed: () => true };
+
+  // スキャナーと成分表示の入力は、応答を待っている間も開く
+  assert.deepStrictEqual(press('📸 バーコードをスキャンする', plain, busy), ['openScanner']);
+  assert.deepStrictEqual(press('📝 成分表示を入力する', plain, busy), ['openLabelInput']);
+  // ほかのボタンは、応答を待っている間は案内だけ（何も送らない・何も登録しない）
+  for (const label of ['メラノCC', '⚡️ メラノCCで赤みが出た', '🚨 このアイテムで肌荒れした（原因をさがす）', '🔄 リセットする', RETRY_LABEL]) {
+    assert.deepStrictEqual(press(label, analyzed, busy), [`toast:error:${WAIT_MESSAGE}`], label);
+  }
+
+  // 有料の調べもの・もう一度送るボタンは、同じ吹き出しでは1回だけ
+  assert.strictEqual(ONCE_PER_MESSAGE_LABELS.size, 3);
+  for (const label of ONCE_PER_MESSAGE_LABELS) {
+    const calls = press(label, analyzed, { ...used, takeRetry: () => async () => undefined });
+    assert.strictEqual(calls.length, 1, label);
+    assert.match(calls[0], /^toast:error:このボタンはもう使いました/);
+  }
+  // ほかのボタンは、使った印があっても動く（印は吹き出しの id と文言の組）
+  assert.deepStrictEqual(press('🔄 リセットする', plain, used), [
+    'clearBad',
+    'reply:🔄 リセットする:肌荒れしたコスメのリストを空にしました（使えるコスメはそのままです）。:🧴 肌荒れしたコスメを入力する',
+  ]);
+
+  // もう一度送る：取ってある頼みごとを送り、使った印を付ける。無ければ案内だけで、印は付けない
+  let retried = 0;
+  assert.deepStrictEqual(
+    press(RETRY_LABEL, plain, { takeRetry: (id) => (id === 'm1' ? async () => void retried++ : undefined) }),
+    [`used:m1|${RETRY_LABEL}`]
+  );
+  assert.strictEqual(retried, 1);
+  assert.deepStrictEqual(press(RETRY_LABEL, plain), [`reply:${RETRY_LABEL}:もう一度送れる内容が見つかりませんでした。入力し直してください。`]);
+
+  // 例のボタンは商品名だけを送る。表にない文言はそのままサーバーへ
+  assert.deepStrictEqual(press('⚡️ メラノCCで赤みが出た', plain), ['send:メラノCC']);
+  assert.deepStrictEqual(press('🔍 代わりのコスメを探す', plain), ['send:🔍 代わりのコスメを探す']);
+
+  // 分析した製品をリストへ：追加・登録済みは返答を出す。もう一方のリストにある（conflict）・上限（full）は返答を出さない
+  const bad = '🚨 このアイテムで肌荒れした（原因をさがす）';
+  const usable = '✅ 使えている（リストに追加）';
+  for (const [label, handler, listName, next] of [
+    [bad, 'addToBad', '肌荒れしたコスメ', '✅ 使えるコスメを入力する'],
+    [usable, 'addToUsable', '使えるコスメ', '🧴 肌荒れしたコスメを入力する'],
+  ] as const) {
+    const added = press(label, analyzed);
+    assert.strictEqual(added.length, 2);
+    assert.strictEqual(added[0], `${handler}:t162`);
+    assert.ok(added[1].startsWith(`reply:${label}:「T162 化粧水」を【${listName}】に追加しました。`) && added[1].endsWith(`:${next}`), added[1]);
+    const exists = press(label, analyzed, { [handler]: () => 'exists' });
+    assert.ok(exists[0].startsWith(`reply:${label}:「T162 化粧水」はすでに【${listName}】に登録されています。`), exists[0]);
+    for (const result of ['conflict', 'full'] as const) {
+      assert.deepStrictEqual(press(label, analyzed, { [handler]: () => result }), [], `${label} ${result}`);
+    }
+    // 分析した製品が無い吹き出しでは、候補のカードから選ぶよう案内する（登録しない）
+    assert.deepStrictEqual(press(label, plain), [`reply:${label}:${PICK_FROM_CARDS_HINT}`]);
+  }
+  // 以前の文言のボタンも、今の文言と同じに扱う
+  assert.strictEqual(press('✅ 普段問題なく使えている（リストに追加）', analyzed)[0], 'addToUsable:t162');
+
+  // 価格・Web の調べ直し：使った印を付けてから頼む。分析した製品が無ければ案内だけで、印は付けない
+  const price = '💴 この商品の価格を調べる';
+  const research = '🔎 Webで成分を調べ直す';
+  assert.deepStrictEqual(press(price, analyzed), [`used:m2|${price}`, `price:${price}:t162`]);
+  assert.deepStrictEqual(press(research, analyzed), [`used:m2|${research}`, `research:${research}:t162`]);
+  for (const label of [price, research, '🚨 この中のアイテムで肌荒れした', '✅ この中のアイテムは問題なく使えた']) {
+    assert.deepStrictEqual(press(label, plain), [`reply:${label}:${PICK_FROM_CARDS_HINT}`], label);
+  }
+
+  // 入力を促すボタン：案内を出して入力欄へ（サーバーには送らない）
+  const prompt = press('🧴 肌荒れしたコスメを入力する', plain);
+  assert.strictEqual(prompt.length, 2);
+  assert.match(prompt[0], /^reply:🧴 肌荒れしたコスメを入力する:肌荒れしたコスメの名前を入力してください。/);
+  assert.strictEqual(prompt[1], 'focusInput');
 });
