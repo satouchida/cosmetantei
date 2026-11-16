@@ -71,7 +71,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
 
       {/* Culprit Ingredients Ranking */}
       <section>
-        <h3 className="text-[15px] font-semibold mb-2 flex items-center gap-1.5">
+        <h3 className="text-[0.9375rem] font-semibold mb-2 flex items-center gap-1.5">
           <ShieldAlert className="w-4 h-4 text-rose-700" aria-hidden />
           <span>原因候補の成分</span>
         </h3>
@@ -98,7 +98,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
                       >
                         {i + 1}
                       </span>
-                      <span className="font-semibold text-[15px]">{c.nameJa}</span>
+                      <span className="font-semibold text-[0.9375rem]">{c.nameJa}</span>
                       {c.nameEn && c.nameEn !== c.nameJa && (
                         <span className="text-xs text-ink-muted" lang={/^[\x20-\x7E]+$/.test(c.nameEn) ? 'en' : undefined}>
                           ({c.nameEn})

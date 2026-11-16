@@ -23,10 +23,13 @@ export const activesLine = 'text-xs text-ink bg-surface-container-low px-2 py-1 
 // 折り返しうるラベル（2 列のボタン・カードの中のボタン）には <wbr /> を入れる
 const buttonBase =
   'min-h-12 inline-flex items-center justify-center gap-2 text-sm font-semibold break-keep text-balance transition-colors disabled:cursor-not-allowed';
+// 押している間（active:）はホバーより一段濃くする（タッチの端末にはホバーが無いので、押したことが分かるように）。
+// 文字は 4.5:1 以上：白 / sage-800 は 10.3:1、primary / emerald-100 は 5.8:1。
+// disabled: と aria-disabled:（busyLook）は Tailwind で active: より後に出力されるので、押しても色は変わらない
 const primaryLook =
-  'rounded-2xl bg-primary text-on-primary shadow-xs hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none';
+  'rounded-2xl bg-primary text-on-primary shadow-xs hover:bg-primary-active active:bg-sage-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none';
 const secondaryLook =
-  'rounded-2xl bg-white text-primary border-[1.5px] border-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500';
+  'rounded-2xl bg-white text-primary border-[1.5px] border-primary hover:bg-tint-safe active:bg-emerald-100 disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500';
 
 /** 主な操作：塗りつぶしの primary */
 export const buttonPrimary = `${buttonBase} px-5 ${primaryLook}`;
@@ -39,10 +42,10 @@ export const buttonSecondary = `${buttonBase} px-5 ${secondaryLook}`;
 export const buttonSecondaryCompact = `${buttonBase} px-3 ${secondaryLook}`;
 
 /** 取り消せない操作（リストのクリア・削除）の確定：赤の塗りつぶし。確認のダイアログの中でだけ使う */
-export const buttonDanger = `${buttonBase} px-5 rounded-2xl bg-rose-700 text-white shadow-xs hover:bg-rose-800`;
+export const buttonDanger = `${buttonBase} px-5 rounded-2xl bg-rose-700 text-white shadow-xs hover:bg-rose-800 active:bg-rose-900`;
 
 /** 目立たせない操作：薄い面 */
-export const buttonTonal = `${buttonBase} px-4 rounded-xl bg-surface-container-low text-ink hover:bg-surface-container disabled:text-gray-500`;
+export const buttonTonal = `${buttonBase} px-4 rounded-xl bg-surface-container-low text-ink hover:bg-surface-container active:bg-surface-container-high disabled:text-gray-500`;
 
 /**
  * 応答を待っている間の、押せる（押すと案内が出る）ボタンの見た目。aria-disabled と一緒に使う。
@@ -53,7 +56,7 @@ export const busyLook =
 
 /** アイコンだけのボタン（48px の円） */
 export const iconButton =
-  'w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-full text-ink hover:bg-surface-container transition-colors';
+  'w-12 h-12 shrink-0 inline-flex items-center justify-center rounded-full text-ink hover:bg-surface-container active:bg-surface-container-high transition-colors';
 
 /** 文中のリンク */
 export const textLink = 'underline underline-offset-2 text-sage-700 hover:text-sage-900';
@@ -97,43 +100,44 @@ export function badge(tone: Tone, size: 'regular' | 'large' = 'regular'): string
 
 /**
  * 成分の刺激の段階（色だけでなく文字でも示す）。mark: 成分のボタンに出す1文字（一覧の上に凡例を出す）
+ * pill の押している間（active:）は 200 の面、未評価と安全は surface-container（文字はどれも 6.4:1 以上）
  */
 export const RISK_SCALE: Record<IngredientRiskLevel, { label: string; mark: string; badge: string; pill: string }> = {
   high_irritant: {
     label: '高刺激・アレルゲン',
     mark: '高',
     badge: 'bg-tint-warning text-rose-800 border-rose-300',
-    pill: 'bg-tint-warning text-rose-900 border-rose-300 hover:bg-rose-100',
+    pill: 'bg-tint-warning text-rose-900 border-rose-300 hover:bg-rose-100 active:bg-rose-200',
   },
   moderate_irritant: {
     label: '乾燥・刺激リスク',
     mark: '刺',
     badge: 'bg-orange-50 text-orange-900 border-orange-300',
-    pill: 'bg-orange-50 text-orange-900 border-orange-300 hover:bg-orange-100',
+    pill: 'bg-orange-50 text-orange-900 border-orange-300 hover:bg-orange-100 active:bg-orange-200',
   },
   active_caution: {
     label: '高濃度アクティブ',
     mark: '活',
     badge: 'bg-violet-50 text-violet-800 border-violet-300',
-    pill: 'bg-violet-50 text-violet-900 border-violet-300 hover:bg-violet-100',
+    pill: 'bg-violet-50 text-violet-900 border-violet-300 hover:bg-violet-100 active:bg-violet-200',
   },
   low_caution: {
     label: '軽度の注意',
     mark: '注',
     badge: 'bg-amber-50 text-amber-900 border-amber-300',
-    pill: 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100',
+    pill: 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 active:bg-amber-200',
   },
   unknown: {
     label: '未評価',
     mark: '？',
     badge: 'bg-white text-ink-muted border-sand-300 border-dashed',
-    pill: 'bg-white text-ink-muted border-sand-300 border-dashed hover:bg-surface-container-low',
+    pill: 'bg-white text-ink-muted border-sand-300 border-dashed hover:bg-surface-container-low active:bg-surface-container',
   },
   safe: {
     label: '刺激の報告が少ない',
     mark: '',
     badge: 'bg-tint-safe text-emerald-800 border-emerald-300',
-    pill: 'bg-white text-ink border-sand-200 hover:bg-surface-container-low',
+    pill: 'bg-white text-ink border-sand-200 hover:bg-surface-container-low active:bg-surface-container',
   },
 };
 
@@ -147,10 +151,10 @@ export function riskBadge(level: IngredientRiskLevel | undefined): string {
   return `${badgeBase} px-2 py-0.5 text-xs ${riskOf(level).badge}`;
 }
 
-/** 「肌荒れした・使えている」に登録するボタン */
+/** 「肌荒れした・使えている」に登録するボタン。押している間の文字は rose-800 / rose-200 が 5.6:1、emerald-800 / emerald-200 が 6.0:1 */
 export const routineAction = {
-  bad: 'bg-tint-warning hover:bg-rose-100 text-rose-800 border-rose-200',
-  safe: 'bg-tint-safe hover:bg-emerald-100 text-emerald-800 border-emerald-200',
+  bad: 'bg-tint-warning hover:bg-rose-100 active:bg-rose-200 text-rose-800 border-rose-200',
+  safe: 'bg-tint-safe hover:bg-emerald-100 active:bg-emerald-200 text-emerald-800 border-emerald-200',
 } as const;
 
 /**

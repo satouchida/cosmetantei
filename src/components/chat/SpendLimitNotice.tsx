@@ -14,7 +14,7 @@ export const SpendLimitNotice: React.FC<{ reason: SpendLimitReason; onDismiss: (
       type="button"
       onClick={onDismiss}
       aria-label="案内を閉じる"
-      className="min-h-11 min-w-11 flex items-center justify-center rounded-full text-ink-muted hover:bg-surface-container hover:text-ink shrink-0"
+      className="min-h-11 min-w-11 flex items-center justify-center rounded-full text-ink-muted hover:bg-surface-container active:bg-surface-container-high hover:text-ink shrink-0"
     >
       <X className="w-4 h-4" aria-hidden />
     </button>

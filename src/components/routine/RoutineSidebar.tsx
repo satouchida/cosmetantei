@@ -102,7 +102,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           type="button"
           onClick={onClose}
           aria-label="マイルーティンを閉じる"
-          className="lg:hidden w-12 h-12 shrink-0 flex items-center justify-center rounded-full text-ink hover:bg-surface-container transition-colors"
+          className="lg:hidden w-12 h-12 shrink-0 flex items-center justify-center rounded-full text-ink hover:bg-surface-container active:bg-surface-container-high transition-colors"
         >
           <X className="w-6 h-6" aria-hidden />
         </button>
@@ -192,14 +192,14 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                           <button
                             type="button"
                             onClick={() => onConfirmUsable(p.id)}
-                            className="min-h-12 px-2 bg-orange-50 hover:bg-orange-100 text-orange-900 border border-orange-200 rounded-xl text-sm font-semibold transition-colors"
+                            className="min-h-12 px-2 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 text-orange-900 border border-orange-200 rounded-xl text-sm font-semibold transition-colors"
                           >
                             今も使っている
                           </button>
                           <button
                             type="button"
                             onClick={() => onSetInUse(p.id, false)}
-                            className="min-h-12 px-2 bg-white hover:bg-surface-container-low text-ink border border-sand-300 rounded-xl text-sm font-semibold transition-colors"
+                            className="min-h-12 px-2 bg-white hover:bg-surface-container-low active:bg-surface-container text-ink border border-sand-300 rounded-xl text-sm font-semibold transition-colors"
                           >
                             もう使っていない
                           </button>
@@ -222,7 +222,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
                 disabled={inUseCount < 2}
                 aria-disabled={busy || undefined}
                 aria-describedby="usable-hint"
-                className={`w-full min-h-12 px-5 border-[1.5px] border-primary text-primary hover:bg-tint-safe disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed rounded-2xl text-[15px] font-semibold flex items-center justify-center gap-2 transition-colors ${busyLook}`}
+                className={`w-full min-h-12 px-5 border-[1.5px] border-primary text-primary hover:bg-tint-safe active:bg-emerald-100 disabled:border-transparent disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed rounded-2xl text-[0.9375rem] font-semibold flex items-center justify-center gap-2 transition-colors ${busyLook}`}
               >
                 <Layers className="w-5 h-5" aria-hidden />
                 <span>組み合わせをチェック</span>
@@ -271,7 +271,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
             <button
               type="button"
               onClick={onLoadSample}
-              className="w-full min-h-12 px-3 bg-surface-container-low hover:bg-surface-container text-ink-muted rounded-xl text-sm font-medium transition-colors text-center"
+              className="w-full min-h-12 px-3 bg-surface-container-low hover:bg-surface-container active:bg-surface-container-high text-ink-muted rounded-xl text-sm font-medium transition-colors text-center"
             >
               🧪 テスト用比較データを自動セット（開発用）
             </button>
@@ -287,7 +287,7 @@ export const RoutineSidebar: React.FC<RoutineSidebarProps> = ({
           disabled={badProducts.length === 0}
           aria-disabled={busy || undefined}
           aria-describedby="differential-hint"
-          className={`w-full min-h-12 px-5 bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[15px] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors ${busyLook}`}
+          className={`w-full min-h-12 px-5 bg-primary hover:bg-primary-active active:bg-sage-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:cursor-not-allowed text-on-primary rounded-2xl text-[0.9375rem] font-semibold shadow-sm flex items-center justify-center gap-2 transition-colors ${busyLook}`}
         >
           <Sparkles className="w-5 h-5" aria-hidden />
           <span>{DIFFERENTIAL_LABEL}</span>
@@ -320,7 +320,7 @@ function InUseSwitch({ name, inUse, onChange }: { name: string; inUse: boolean; 
       aria-checked={inUse}
       aria-label={`今も使っている（${name}）`}
       onClick={() => onChange(!inUse)}
-      className="-ml-1 min-h-12 pr-2 pl-1 inline-flex items-center gap-2 rounded-lg text-xs text-ink hover:bg-surface-container-low transition-colors"
+      className="-ml-1 min-h-12 pr-2 pl-1 inline-flex items-center gap-2 rounded-lg text-xs text-ink hover:bg-surface-container-low active:bg-surface-container transition-colors"
     >
       <span
         aria-hidden
@@ -345,7 +345,7 @@ function ClearButton({ onClick, children }: { onClick: () => void; children: Rea
     <button
       type="button"
       onClick={onClick}
-      className="w-full min-h-12 px-3 rounded-xl text-sm font-semibold text-ink-muted hover:text-rose-700 hover:bg-tint-warning inline-flex items-center justify-center gap-1.5 transition-colors"
+      className="w-full min-h-12 px-3 rounded-xl text-sm font-semibold text-ink-muted hover:text-rose-700 hover:bg-tint-warning active:bg-rose-100 inline-flex items-center justify-center gap-1.5 transition-colors"
     >
       <Trash2 className="w-4 h-4 shrink-0" aria-hidden />
       <span>{children}</span>
@@ -367,7 +367,7 @@ function SectionHeading({
   return (
     <div className="flex items-center justify-between gap-2">
       {/* tabIndex -1：画面のボタンからこの見出しへフォーカスを送れるように（Tab の順番には入らない） */}
-      <h3 tabIndex={-1} className="flex items-center gap-1.5 text-[15px] font-semibold text-ink outline-none">
+      <h3 tabIndex={-1} className="flex items-center gap-1.5 text-[0.9375rem] font-semibold text-ink outline-none">
         {icon}
         <span>{title}</span>
       </h3>
@@ -440,7 +440,7 @@ function ProductRow({
           type="button"
           onClick={onRemove}
           aria-label={removeLabel}
-          className="w-12 h-12 shrink-0 flex items-center justify-center rounded-full text-gray-500 hover:text-rose-700 hover:bg-tint-warning transition-colors"
+          className="w-12 h-12 shrink-0 flex items-center justify-center rounded-full text-gray-500 hover:text-rose-700 hover:bg-tint-warning active:bg-rose-100 transition-colors"
         >
           <Trash2 className="w-5 h-5" aria-hidden />
         </button>

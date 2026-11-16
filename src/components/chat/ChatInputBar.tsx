@@ -78,8 +78,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
             type="button"
             onClick={onOpenScanner}
             aria-label="バーコードをカメラでスキャン"
-            title="バーコードをカメラでスキャン"
-            className="w-12 h-12 flex items-center justify-center text-sage-700 bg-surface-container-low hover:bg-surface-container-high rounded-full transition-colors shrink-0"
+            className="w-12 h-12 flex items-center justify-center text-sage-700 bg-surface-container-low hover:bg-surface-container-high active:bg-sage-100 rounded-full transition-colors shrink-0"
           >
             <Camera className="w-6 h-6" aria-hidden />
           </button>
@@ -88,6 +87,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
             ref={inputRef}
             id="chat-input"
             type="text"
+            enterKeyHint="send"
             value={input}
             // 候補の有無は上のステータスが読み上げる（テキストボックスに aria-expanded は付けられない）
             aria-controls={SEARCH_TRAY_ID}
@@ -118,7 +118,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
             type="submit"
             disabled={!input.trim() || busy}
             aria-label="送信"
-            className="w-12 h-12 flex items-center justify-center bg-primary hover:bg-primary-active disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed text-on-primary rounded-full transition-colors shrink-0"
+            className="w-12 h-12 flex items-center justify-center bg-primary hover:bg-primary-active active:bg-sage-800 disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed text-on-primary rounded-full transition-colors shrink-0"
           >
             <Send className="w-5 h-5" aria-hidden />
           </button>

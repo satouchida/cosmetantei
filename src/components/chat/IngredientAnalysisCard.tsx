@@ -2,7 +2,7 @@
 
 import React, { useRef } from 'react';
 import { Product, ProductAnalysisResult, AnalyzedIngredient } from '@/lib/types';
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, Globe, Loader2, Search } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, AlertCircle, Info, Sparkles, HelpCircle, Globe, Loader2, Search, ChevronDown } from 'lucide-react';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { useUnregisteredProducts } from './RegisteredProducts';
 import { ProductSourceLink } from './ProductSourceLink';
@@ -103,12 +103,12 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
   const getPillStyle = (ing: AnalyzedIngredient) => {
     // 化粧品基準で配合できない成分は、見出しの理由なので白地に赤の枠（「高」の赤い塗り・未評価の点線と分ける）
     // 刺激の段階（高・刺・活）の成分は、その段階の色のまま（印に「基準」を足す）
-    if (outsideStandard(ing) && !isIrritantLevel(ing)) return 'bg-white text-rose-900 border-rose-400 hover:bg-rose-50 font-semibold';
+    if (outsideStandard(ing) && !isIrritantLevel(ing)) return 'bg-white text-rose-900 border-rose-400 hover:bg-rose-50 active:bg-rose-100 font-semibold';
     // 表示指定成分で引き上げただけの成分（「表」）は白地に黄の枠（黄の塗りの「注」と分ける。緑とも並べない）
-    if (ing.raisedForLabel) return 'bg-white text-amber-900 border-amber-400 hover:bg-amber-50';
+    if (ing.raisedForLabel) return 'bg-white text-amber-900 border-amber-400 hover:bg-amber-50 active:bg-amber-100';
     // 肌を整える・うるおいを保つ成分は安全の緑で目立たせる
     if (ing.riskLevel === 'safe' && (ing.category === 'soothing' || ing.category === 'barrier_support')) {
-      return 'bg-tint-safe text-emerald-900 border-emerald-300 hover:bg-emerald-100 font-semibold';
+      return 'bg-tint-safe text-emerald-900 border-emerald-300 hover:bg-emerald-100 active:bg-emerald-200 font-semibold';
     }
     return riskOf(ing.riskLevel).pill;
   };
@@ -226,7 +226,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       {/* Warnings & Highlights */}
       {warningsJa.length > 0 && (
         <section className="space-y-2">
-          <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-rose-800">
+          <h3 className="flex items-center gap-1.5 text-[0.9375rem] font-semibold text-rose-800">
             <AlertCircle className="w-4 h-4" aria-hidden />
             <span>敏感肌への注意・刺激成分</span>
           </h3>
@@ -242,7 +242,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
 
       {soothingHighlightsJa.length > 0 && (
         <section className="space-y-2">
-          <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-emerald-800">
+          <h3 className="flex items-center gap-1.5 text-[0.9375rem] font-semibold text-emerald-800">
             <Sparkles className="w-4 h-4" aria-hidden />
             <span>肌を整える・うるおいを保つ成分</span>
           </h3>
@@ -272,10 +272,15 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       )}
 
       {aiIngredients.length > 0 && (
-        <details className={panel('neutral')}>
-          <summary className="min-h-12 -my-3 flex items-center gap-1.5 cursor-pointer font-semibold">
+        <details className={`group ${panel('neutral')}`}>
+          {/* flex の summary は Chrome・Firefox で三角が消えるので、開閉の印を自前で出す（Safari の印は二重になるので消す） */}
+          <summary className="min-h-12 -my-3 flex items-center gap-1.5 cursor-pointer font-semibold [&::-webkit-details-marker]:hidden">
             <Sparkles className="w-4 h-4 shrink-0" aria-hidden />
             <span>AIが評価した成分（{aiIngredients.length}成分）</span>
+            <ChevronDown
+              className="w-4 h-4 shrink-0 ml-auto transition-transform motion-reduce:transition-none group-open:rotate-180"
+              aria-hidden
+            />
           </summary>
           <p className="mt-2 text-xs text-ink-muted">
             成分データに無い成分を、AIが皮膚科学の知見や公的な安全性評価をもとに評価しました。AIが作成したもので、誤りを含む可能性があります。気になる成分は、医師・薬剤師にご相談ください。
@@ -299,7 +304,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
         <section>
           <div className="flex items-baseline justify-between gap-2 mb-2">
             {/* 件数の途中で折り返さない（「(8成」「分)」にしない） */}
-            <h3 className="text-[15px] font-semibold">
+            <h3 className="text-[0.9375rem] font-semibold">
               全成分リスト <span className="whitespace-nowrap">({ingredients.length}成分)</span>
             </h3>
             <span className="text-xs text-ink-muted">タップで成分解説を表示</span>
@@ -319,7 +324,7 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
                 data-ingredient={ing.rawName}
                 aria-pressed={selectedIngredient?.rawName === ing.rawName}
                 // 選んでいる成分は、色だけでなく枠でも分かるように
-                className={`min-h-12 min-w-12 text-[13px] px-3 rounded-lg border transition-colors aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:ring-offset-1 ${getPillStyle(ing)}`}
+                className={`min-h-12 min-w-12 text-[0.8125rem] px-3 rounded-lg border transition-colors aria-pressed:ring-2 aria-pressed:ring-primary aria-pressed:ring-offset-1 ${getPillStyle(ing)}`}
               >
                 {ing.isActive && <span className="mr-1 text-xs font-semibold text-sage-700">有効成分</span>}
                 {pillMark(ing) && (

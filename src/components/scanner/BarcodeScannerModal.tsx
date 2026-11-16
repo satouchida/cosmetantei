@@ -354,7 +354,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               // 解析中も disabled にはしない（押したボタンからフォーカスが失われるため）。押しても何もしない
               onClick={() => !isProcessingFile && fileInputRef.current?.click()}
               aria-disabled={isProcessingFile || undefined}
-              className={`w-full ${buttonSecondary} aria-disabled:cursor-wait`}
+              className={`w-full ${buttonSecondary} aria-disabled:cursor-wait aria-disabled:active:bg-white`}
             >
               <Upload className="w-5 h-5" aria-hidden />
               <span>📷 バーコード写真・画像をアップロードして読取</span>
@@ -373,6 +373,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 onChange={(e) => setManualCode(e.target.value)}
                 aria-label="バーコード番号"
                 inputMode="numeric"
+                enterKeyHint="search"
                 autoComplete="off"
                 className="w-full h-12 pl-9 pr-3 text-sm border-[1.5px] border-outline rounded-xl focus:outline-hidden focus:border-primary focus:ring-1 focus:ring-primary"
               />
@@ -398,7 +399,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     key={s.code}
                     type="button"
                     onClick={() => handleSuccess(s.code)}
-                    className="text-left min-h-12 p-2 rounded-xl border border-sand-200 hover:border-emerald-500 hover:bg-tint-safe transition-colors text-xs bg-white"
+                    className="text-left min-h-12 p-2 rounded-xl border border-sand-200 hover:border-emerald-500 hover:bg-tint-safe active:bg-emerald-100 transition-colors text-xs bg-white"
                   >
                     <div className="font-semibold text-ink truncate">
                       {s.name}

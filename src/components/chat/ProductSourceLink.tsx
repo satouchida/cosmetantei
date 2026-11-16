@@ -68,12 +68,11 @@ export const ProductSourceLink: React.FC<{ product: Product; className?: string 
 export const WebSearchBadge: React.FC<{ product: Product }> = ({ product }) => {
   if (!productSourceInfo(product)?.fromWebSearch) return null;
   return (
-    <span
-      className={badge('neutral')}
-      title="Web検索で見つけたページの全成分表示から読み取りました"
-    >
+    <span className={badge('neutral')}>
       <Globe className="w-3 h-3" aria-hidden="true" />
       <span>Web検索</span>
+      {/* title はマウスでしか読めないので、説明は読み上げ用の文で渡す */}
+      <span className="sr-only">Web検索で見つけたページの全成分表示から読み取りました</span>
     </span>
   );
 };

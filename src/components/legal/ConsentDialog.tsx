@@ -48,7 +48,7 @@ export const ConsentDialog: React.FC = () => {
         <button
           type="button"
           onClick={giveConsent}
-          className="w-full min-h-12 rounded-full bg-primary hover:bg-primary-active text-on-primary font-semibold transition-colors"
+          className="w-full min-h-12 rounded-full bg-primary hover:bg-primary-active active:bg-sage-800 text-on-primary font-semibold transition-colors"
         >
           同意して利用を始める
         </button>

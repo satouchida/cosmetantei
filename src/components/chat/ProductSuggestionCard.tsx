@@ -111,7 +111,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   {isAlternatives && p.imageUrl && <ShopPhoto src={p.imageUrl} />}
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-sage-700">{getDisplayBrand(p.brand, p.name)}</div>
-                    <h2 className="text-[15px] font-semibold line-clamp-2 mt-0.5 leading-snug break-keep [overflow-wrap:anywhere]">
+                    <h2 className="text-[0.9375rem] font-semibold line-clamp-2 mt-0.5 leading-snug break-keep [overflow-wrap:anywhere]">
                       {/* 代わりの商品はお店の商品名のことがあるので、【公式】などの飾りを外して出す */}
                       {isAlternatives ? displayListingName(p.name, p.brand) : p.name}
                     </h2>

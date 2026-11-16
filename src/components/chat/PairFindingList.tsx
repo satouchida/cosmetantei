@@ -15,7 +15,7 @@ export const PairFindingList: React.FC<PairFindingListProps> = ({ findings, head
   const headingId = useId();
   return (
     <section aria-labelledby={headingId} className={`${panel('caution')} space-y-3`}>
-      <h3 id={headingId} className="text-[15px] font-semibold text-amber-950">
+      <h3 id={headingId} className="text-[0.9375rem] font-semibold text-amber-950">
         {heading}
       </h3>
       {findings.map((f) => (

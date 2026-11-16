@@ -45,7 +45,7 @@ export const OwnerForm: React.FC = () => {
       <input
         id="owner-key"
         type="password"
-        autoComplete="off"
+        autoComplete="current-password"
         value={key}
         onChange={(e) => setKey(e.target.value)}
         className="w-full min-h-11 rounded-lg border border-sand-200 bg-white px-3 text-base"

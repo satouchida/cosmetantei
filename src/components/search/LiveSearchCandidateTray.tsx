@@ -96,7 +96,7 @@ const ShopProductSummary: React.FC<{ product: Product }> = ({ product }) => {
     )}
     <div className="min-w-0">
       <div className="text-xs font-semibold text-sage-700 truncate">{product.brand}</div>
-      <h3 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
+      <h3 className="text-[0.9375rem] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
         {displayListingName(product.name, product.brand)}
       </h3>
       {product.shopPrice && (
@@ -183,7 +183,6 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
           onClick={onClose}
           data-tray-close
           className={iconButton}
-          title="閉じる"
           aria-label="候補を閉じる"
         >
           <X className="w-5 h-5" aria-hidden />
@@ -202,7 +201,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
               onClick={() => onSelectBrand(brand.name)}
               // 見えている読み仮名も名前に入れる（音声で操作する人が見えている文字で呼べるように）
               aria-label={`${brand.name}${brand.kana ? ` ${brand.kana}` : ''}の製品から探す`}
-              className="flex items-center gap-1.5 min-h-12 px-4 bg-white hover:bg-tint-safe text-ink border border-sand-300 hover:border-emerald-500 rounded-full text-[13px] font-semibold transition-colors"
+              className="flex items-center gap-1.5 min-h-12 px-4 bg-white hover:bg-tint-safe active:bg-emerald-100 text-ink border border-sand-300 hover:border-emerald-500 rounded-full text-[0.8125rem] font-semibold transition-colors"
               title={`${brand.name}の製品から探す`}
             >
               <Tag className="w-4 h-4 text-primary" aria-hidden />
@@ -232,7 +231,7 @@ export const LiveSearchCandidateTray: React.FC<LiveSearchCandidateTrayProps> = (
                       <div className="text-xs font-semibold text-sage-700 truncate">
                         {getDisplayBrand(product.brand, product.name)}
                       </div>
-                      <h3 className="text-[15px] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
+                      <h3 className="text-[0.9375rem] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
                         {product.name}
                       </h3>
 

@@ -41,7 +41,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
             <ShoppingBag className="w-4 h-4" aria-hidden />
           </div>
           <div className="min-w-0">
-            <h3 className="text-[15px] font-semibold flex flex-wrap items-center gap-1.5">
+            <h3 className="text-[0.9375rem] font-semibold flex flex-wrap items-center gap-1.5">
               <span>原因候補の成分を含まない代わりの商品</span>
               <span className={badge('neutral')}>PR</span>
             </h3>
@@ -76,7 +76,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                   </div>
                 </div>
 
-                <h4 className="text-[15px] font-semibold line-clamp-2 leading-snug break-keep [overflow-wrap:anywhere]">
+                <h4 className="text-[0.9375rem] font-semibold line-clamp-2 leading-snug break-keep [overflow-wrap:anywhere]">
                   {/* お店の商品名のことがあるので、【公式】などの飾りを外して出す（リンクと読み上げは元の名前） */}
                   {displayListingName(p.name, p.brand)}
                 </h4>

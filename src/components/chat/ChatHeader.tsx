@@ -51,7 +51,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           type="button"
           onClick={onOpenScanner}
           aria-label="バーコード読取"
-          className="min-h-12 min-w-12 flex items-center justify-center gap-2 sm:px-4 rounded-full text-ink hover:bg-surface-container sm:border sm:border-sage-600 sm:text-sage-700 sm:hover:bg-sage-50 text-sm font-semibold transition-colors"
+          className="min-h-12 min-w-12 flex items-center justify-center gap-2 sm:px-4 rounded-full text-ink hover:bg-surface-container active:bg-surface-container-high sm:border sm:border-sage-600 sm:text-sage-700 sm:hover:bg-sage-50 sm:active:bg-sage-100 text-sm font-semibold transition-colors"
         >
           <ScanBarcode className="w-6 h-6 sm:w-5 sm:h-5" aria-hidden />
           <span className="hidden sm:inline">バーコード読取</span>
@@ -63,7 +63,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           onClick={onOpenLabelInput}
           aria-label="成分表示を入力"
           title="パッケージの成分表示を入力・撮影"
-          className="min-h-12 min-w-12 flex items-center justify-center gap-2 sm:px-4 rounded-full text-ink hover:bg-surface-container sm:border sm:border-sand-300 text-sm font-semibold transition-colors"
+          className="min-h-12 min-w-12 flex items-center justify-center gap-2 sm:px-4 rounded-full text-ink hover:bg-surface-container active:bg-surface-container-high sm:border sm:border-sand-300 text-sm font-semibold transition-colors"
         >
           <FileText className="w-6 h-6 sm:w-5 sm:h-5" aria-hidden />
           <span className="hidden sm:inline">成分表示を入力</span>
@@ -79,7 +79,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           aria-label={`マイルーティン（${routineCount}点${
             staleCount > 0 ? `、${STALE_AFTER_MONTHS}か月以上前に追加したコスメが${staleCount}点` : ''
           }）`}
-          className="lg:hidden min-h-12 min-w-12 flex items-center justify-center text-ink rounded-full hover:bg-surface-container relative"
+          className="lg:hidden min-h-12 min-w-12 flex items-center justify-center text-ink rounded-full hover:bg-surface-container active:bg-surface-container-high relative"
         >
           <Menu className="w-6 h-6" aria-hidden />
           {routineCount > 0 && (

@@ -55,7 +55,7 @@ export const IngredientDetailPanel: React.FC<IngredientDetailPanelProps> = ({
       type="button"
       onClick={onClose}
       aria-label="成分の解説を閉じる"
-      className="absolute top-0 right-0 w-12 h-12 flex items-center justify-center rounded-full text-ink-muted hover:text-ink hover:bg-surface-container"
+      className="absolute top-0 right-0 w-12 h-12 flex items-center justify-center rounded-full text-ink-muted hover:text-ink hover:bg-surface-container active:bg-surface-container-high"
     >
       <X className="w-5 h-5" aria-hidden />
     </button>
@@ -152,7 +152,7 @@ export const IngredientDetailPanel: React.FC<IngredientDetailPanelProps> = ({
           type="button"
           aria-disabled={explainingName ? true : undefined}
           onClick={() => onExplainWithAI(selectedIngredient.rawName)}
-          className={`${buttonSecondary} aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`}
+          className={`${buttonSecondary} aria-disabled:opacity-60 aria-disabled:active:bg-white aria-disabled:cursor-not-allowed`}
         >
           {explainingName === selectedIngredient.rawName ? (
             <>

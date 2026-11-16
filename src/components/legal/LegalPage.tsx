@@ -32,7 +32,7 @@ export const LegalPage: React.FC<{ title: string; enactedOn: string; revisedOn?:
       </p>
       <div
         className={[
-          'mt-6 space-y-4 text-[15px] leading-relaxed',
+          'mt-6 space-y-4 text-[0.9375rem] leading-relaxed',
           '[&_h2]:mt-10 [&_h2]:text-lg [&_h2]:font-bold [&_h2]:text-ink',
           '[&_h3]:mt-6 [&_h3]:font-bold [&_h3]:text-ink',
           '[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:space-y-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1',

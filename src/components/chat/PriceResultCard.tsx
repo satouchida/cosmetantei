@@ -39,7 +39,7 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
           <Tag className="w-4 h-4" aria-hidden />
         </div>
         <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold">
+          <h2 className="text-[0.9375rem] font-semibold">
             販売価格（{checkedAt}時点）
             {sponsored && (
               <span className={`ml-1.5 align-middle ${badge('neutral')}`}>PR</span>

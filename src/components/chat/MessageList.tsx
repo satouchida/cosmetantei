@@ -51,7 +51,7 @@ export const MessageList: React.FC<MessageListProps> = ({
           <button
             type="button"
             onClick={onAbort}
-            className="min-h-12 px-4 rounded-full text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-container"
+            className="min-h-12 px-4 rounded-full text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-container active:bg-surface-container-high"
           >
             中止
           </button>

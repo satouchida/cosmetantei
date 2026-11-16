@@ -47,7 +47,7 @@ export const RoutineSummaryBar: React.FC<RoutineSummaryBarProps> = ({
           onClick={onOpenSidebar}
           aria-controls="routine-drawer"
           aria-expanded={isSidebarOpen}
-          className="min-h-12 pl-3 pr-2 rounded-lg text-sage-700 hover:bg-surface-container text-sm font-semibold flex items-center gap-0.5 shrink-0"
+          className="min-h-12 pl-3 pr-2 rounded-lg text-sage-700 hover:bg-surface-container active:bg-surface-container-high text-sm font-semibold flex items-center gap-0.5 shrink-0"
         >
           マイルーティン
           <ChevronRight className="w-4 h-4" aria-hidden />
@@ -59,7 +59,7 @@ export const RoutineSummaryBar: React.FC<RoutineSummaryBarProps> = ({
             type="button"
             onClick={onRunDifferential}
             aria-disabled={busy || undefined}
-            className={`w-full min-h-12 px-4 bg-primary hover:bg-primary-active text-on-primary rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${busyLook}`}
+            className={`w-full min-h-12 px-4 bg-primary hover:bg-primary-active active:bg-sage-800 text-on-primary rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${busyLook}`}
           >
             <Sparkles className="w-5 h-5" aria-hidden />
             <span>{DIFFERENTIAL_LABEL}</span>
@@ -94,7 +94,7 @@ export const RoutineSummaryBar: React.FC<RoutineSummaryBarProps> = ({
             });
           }}
           aria-label="使えるコスメを確認する"
-          className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 border border-orange-300 rounded-lg text-sm font-semibold"
+          className="lg:hidden shrink-0 min-h-12 px-3 bg-white hover:bg-orange-100 active:bg-orange-200 border border-orange-300 rounded-lg text-sm font-semibold"
         >
           確認する
         </button>

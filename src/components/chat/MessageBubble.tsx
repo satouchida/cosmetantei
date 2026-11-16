@@ -127,7 +127,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                   // 応答待ち・調べ済みでもフォーカスを失わないよう disabled にはせず、押したら案内を出す。
                   // 文字は薄くしない（押せるボタンなので、文字のコントラストを保つ）
                   aria-disabled={busy || used || undefined}
-                  className="max-w-full min-h-12 inline-flex items-center gap-1.5 text-[13px] text-left bg-white hover:bg-tint-safe hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:text-ink-muted aria-disabled:bg-surface-container-low aria-disabled:border-dashed aria-disabled:cursor-not-allowed aria-disabled:hover:bg-surface-container-low aria-disabled:hover:border-sand-300"
+                  className="max-w-full min-h-12 inline-flex items-center gap-1.5 text-[0.8125rem] text-left bg-white hover:bg-tint-safe active:bg-emerald-100 hover:border-emerald-500 text-ink border border-sand-300 px-4 py-2 rounded-full font-semibold transition-colors aria-disabled:text-ink-muted aria-disabled:bg-surface-container-low aria-disabled:border-dashed aria-disabled:cursor-not-allowed aria-disabled:hover:bg-surface-container-low aria-disabled:active:bg-surface-container-low aria-disabled:hover:border-sand-300"
                 >
                   {QrIcon && <QrIcon className="w-4 h-4 shrink-0 text-sage-700" aria-hidden />}
                   <span>

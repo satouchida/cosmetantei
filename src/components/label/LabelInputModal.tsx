@@ -197,7 +197,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
             type="button"
             aria-disabled={isReading || undefined}
             onClick={() => !isReading && cameraInputRef.current?.click()}
-            className={`${buttonPrimaryCompact} aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`}
+            className={`${buttonPrimaryCompact} aria-disabled:opacity-60 aria-disabled:active:bg-primary aria-disabled:cursor-not-allowed`}
           >
             <Camera className="w-5 h-5" aria-hidden />
             <span>写真を<wbr />撮る</span>
@@ -206,7 +206,7 @@ export const LabelInputModal: React.FC<LabelInputModalProps> = ({ isOpen, onClos
             type="button"
             aria-disabled={isReading || undefined}
             onClick={() => !isReading && fileInputRef.current?.click()}
-            className={`${buttonSecondaryCompact} aria-disabled:opacity-60 aria-disabled:cursor-not-allowed`}
+            className={`${buttonSecondaryCompact} aria-disabled:opacity-60 aria-disabled:active:bg-white aria-disabled:cursor-not-allowed`}
           >
             <ImagePlus className="w-5 h-5" aria-hidden />
             <span>画像を<wbr />選ぶ</span>
