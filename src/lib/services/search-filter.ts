@@ -2,7 +2,9 @@ import 'server-only';
 import { isShopListingProduct } from '../product-source';
 import { forAiQuestion } from '../utils/safe-text';
 import { Product } from '../types';
-import { cacheGetJSON, cachePutJSON, hashedCacheKey, runAfterResponse, runWorkersAI } from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
+import { runAfterResponse } from '../server/cloudflare';
+import { runWorkersAI } from '../server/workers-ai';
 import { ClefModel, clefModelId, clefModelSetting } from './clef-models';
 
 /** Clef に送る商品名・ブランド名の長さ */

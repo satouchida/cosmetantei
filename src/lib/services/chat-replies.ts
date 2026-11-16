@@ -17,7 +17,7 @@ import {
 } from '../types';
 import { callGemini, getGeminiModel, isGeminiConfigured } from './gemini-client';
 import { isJailbreakAttempt, stripMarkdownEmphasis } from './gemini';
-import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
 
 /**
  * チャットの返答文

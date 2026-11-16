@@ -77,7 +77,7 @@ full ingredient lists, points out the likely causes, and suggests products witho
   | `USAGE` | Analytics Engine, dataset `cosmetantei_usage` | Usage records (counts, tokens, time; no text) |
 
 Without these bindings (`next dev`, tests) the code falls back to in-memory versions
-(`src/lib/server/cloudflare.ts`).
+(`src/lib/server/cache.ts`, `src/lib/server/rate-limit.ts`).
 
 ## Configuration
 

@@ -11,7 +11,7 @@ import {
   VERIFIED_MAX_AGE_MS,
   verifiedIndexEntries,
 } from '../data/cosmetics-db';
-import { cacheGetJSON, cacheGetJSONStrict, cachePutJSON, cachePutJSONStrict, hasSharedCache } from '../server/cloudflare';
+import { cacheGetJSON, cacheGetJSONStrict, cachePutJSON, cachePutJSONStrict, hasSharedCache } from '../server/cache';
 import { utcDay } from '../server/spend-cap-core';
 import { currentRequestSpendMicros } from '../server/usage';
 import { hasVerifiedIngredientList } from './product-filter';

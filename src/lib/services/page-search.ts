@@ -1,6 +1,6 @@
 import 'server-only';
 import { Product } from '../types';
-import { runWebSearch, WebSearchItem, WebSearchProvider } from '../server/cloudflare';
+import { runWebSearch, WebSearchItem, WebSearchProvider } from '../server/web-search';
 import { isPlainLabelText } from '../utils/safe-text';
 import { CONTACT_PATTERN, isInstructionLike, PERSONAL_PATTERN } from './research-guards';
 

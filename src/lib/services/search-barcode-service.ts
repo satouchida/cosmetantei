@@ -2,7 +2,7 @@ import { COSMETICS_DATABASE, addProductToDynamicCache, isShareable, rememberVeri
 import { Product } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, LABEL_LIMITS, hasStaleLabel, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
-import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON } from '../server/cache';
 
 /** Open Beauty Facts の写真の URL：https で、OBF の画像サーバーのものだけ。それ以外は使わない */
 function obfImageUrl(raw: unknown): string | undefined {

@@ -2,7 +2,7 @@ import 'server-only';
 import { Product } from '../types';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { callGemini, parseJsonLoose } from './gemini-client';
-import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON } from '../server/cache';
 import { isPlainLabelText } from '../utils/safe-text';
 import { isJailbreakAttempt } from './gemini';
 import { mayRememberFailure } from '../server/usage';

@@ -2,7 +2,8 @@ import 'server-only';
 
 import { forAiQuestion } from '../utils/safe-text';
 import { BoundedCache } from '../utils/bounded-cache';
-import { cacheGetJSON, cachePutJSON, hashedCacheKey, runWorkersAI } from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
+import { runWorkersAI } from '../server/workers-ai';
 import { searchKey } from '../search/product-match';
 import { clefModelId, clefModelSetting } from './clef-models';
 import { SEED_INDEX } from './brand-suggest';

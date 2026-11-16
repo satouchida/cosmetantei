@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { explainIngredientWithAI, NOT_AN_INGREDIENT_NAME } from '@/lib/services/dynamic-ingredient-service';
 import { findMatchingKnownIngredient } from '@/lib/analyzer/ingredient-match';
-import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 
 const MAX_INGREDIENT_NAME_LENGTH = 100;

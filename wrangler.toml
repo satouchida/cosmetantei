@@ -44,7 +44,7 @@ head_sampling_rate = 1
 enabled = true
 invocation_logs = false
 
-# レート制限（src/lib/server/cloudflare.ts で使用）
+# レート制限（src/lib/server/rate-limit.ts で使用）
 # namespace_id はアカウント内で一意な任意の数値。事前のリソース作成は不要です
 [[ratelimits]]
 name = "AI_RATE_LIMITER"

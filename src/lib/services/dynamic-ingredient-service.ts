@@ -6,7 +6,7 @@ import { KnownIngredient, IngredientCategory, IngredientRiskLevel, INGREDIENT_RI
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import { stripMarkdownEmphasis } from './gemini';
 import { callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
-import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
 import { BoundedCache } from '../utils/bounded-cache';
 import { mayRememberFailure } from '../server/usage';
 import { isPlainReplyText } from '../utils/safe-text';

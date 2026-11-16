@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Product, UserRoutineState } from '@/lib/types';
 import { GateDecision } from '@/lib/services/chat-gate';
 import { researchPrices, summarizePriceResult } from '@/lib/services/price-service';
-import { isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 
 /** ボタン操作の種類（ブラウザが送る action） */
 export type ChatAction =

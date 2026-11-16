@@ -1,5 +1,6 @@
 import 'server-only';
-import { getClientIp, getRequestAsn, ipv4Network24 } from './cloudflare';
+import { getClientIp, ipv4Network24 } from './rate-limit';
+import { getRequestAsn } from './cloudflare';
 import { HOSTING_ASNS } from './hosting-networks';
 import { isOwnerRequest } from './owner';
 import { checkSession, isNewSession } from './session';

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { parseLabelImage, readLabelImage, MAX_LABEL_IMAGE_BYTES } from '@/lib/services/label-reader';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 import { currentSpendLimit } from '@/lib/server/usage';

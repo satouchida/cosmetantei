@@ -1,7 +1,7 @@
 import { Product } from '../types';
 import { isShopListingProduct, isUserLabelProduct, yahooStore } from '../product-source';
 import { buildAmazonAffiliateUrl } from '../services/amazon-affiliate';
-import { cacheGetJSON, cacheGetJSONStrict, cachePutJSON } from '../server/cloudflare';
+import { cacheGetJSON, cacheGetJSONStrict, cachePutJSON } from '../server/cache';
 import { hasStaleLabel } from '../analyzer/label-parser';
 import { mayShareWebProduct } from './trusted-sites';
 

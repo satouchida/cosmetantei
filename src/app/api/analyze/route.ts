@@ -4,7 +4,7 @@ import { performDifferentialAnalysis } from '@/lib/analyzer/differential-analysi
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { isValidProduct, isValidProductList } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client-products';
-import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 import { analyzeProductWithAI } from '@/lib/services/ai-analysis';
 import { isUserLabelProduct } from '@/lib/product-source';

@@ -13,7 +13,7 @@ import {
 import { alternativeButtonLabel, classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
 import { alternativeRequest, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
 import { toPriceSearchQuery } from '@/lib/services/price-service';
-import { getClientIp } from '@/lib/server/cloudflare';
+import { getClientIp } from '@/lib/server/rate-limit';
 import { currentSpendLimit } from '@/lib/server/usage';
 import { spendLimitMessage } from '@/lib/spend-limit';
 import { ChatContext, IntentContext, priceReply, RESEARCH_BUCKETS } from './shared';

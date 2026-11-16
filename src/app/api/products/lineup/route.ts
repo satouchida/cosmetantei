@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
-import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { apiRoute } from '@/lib/server/api-route';
 import { currentClients } from '@/lib/server/usage';
 import { buildBrandIndex, findBrand } from '@/lib/services/brand-suggest';

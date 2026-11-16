@@ -2,15 +2,9 @@ import 'server-only';
 import { Product } from '../types';
 import { productIdentityKey } from '../search/product-identity';
 import { addProductToDynamicCache, isVerifiedSource, rememberVerifiedProducts } from '../data/cosmetics-db';
-import {
-  cacheGetJSON,
-  cachePutJSON,
-  hashedCacheKey,
-  runAfterResponse,
-  runWebSearch,
-  WebSearchItem,
-  WebSearchProvider,
-} from '../server/cloudflare';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
+import { runAfterResponse } from '../server/cloudflare';
+import { runWebSearch, WebSearchItem, WebSearchProvider } from '../server/web-search';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { labelProductFields } from '../analyzer/label-parser';
 import { isGeminiConfigured } from './gemini-client';

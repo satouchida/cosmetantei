@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Product, UserRoutineState } from '@/lib/types';
-import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientRoutine } from '@/lib/server/client-products';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';

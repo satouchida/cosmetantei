@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lookupByBarcode, BARCODE_PATTERN } from '@/lib/services/search-barcode-service';
-import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { apiRoute } from '@/lib/server/api-route';
 
 async function handleGet(request: NextRequest) {

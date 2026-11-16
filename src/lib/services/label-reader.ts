@@ -1,7 +1,7 @@
 import 'server-only';
 import { Product } from '../types';
 import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
-import { hashedCacheKey } from '../server/cloudflare';
+import { hashedCacheKey } from '../server/cache';
 import { GeminiImage, callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 
 /**

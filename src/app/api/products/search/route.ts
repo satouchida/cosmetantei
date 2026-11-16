@@ -2,14 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isActualCosmeticProduct, searchCosmeticsLive } from '@/lib/services/search-barcode-service';
 import { brandProducts, BrandSuggestion, buildBrandIndex, resolveBrand, suggestBrands } from '@/lib/services/brand-suggest';
 import { onePerBarcode, searchKey } from '@/lib/search/product-match';
-import {
-  cacheGetJSON,
-  cachePutJSON,
-  getClientIp,
-  hashedCacheKey,
-  isRateLimited,
-  RATE_LIMIT_MESSAGE_JA,
-} from '@/lib/server/cloudflare';
+import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '@/lib/server/cache';
+import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { Product } from '@/lib/types';
 import { apiRoute } from '@/lib/server/api-route';
 import { classifyWithHeuristics } from '@/lib/services/chat-gate';

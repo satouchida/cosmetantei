@@ -5,7 +5,7 @@ import { performDifferentialAnalysis } from '../src/lib/analyzer/differential-an
 import { findSafeAlternatives, hasVerifiedIngredients } from '../src/lib/analyzer/alternative-gate';
 import { findMatchingKnownIngredient } from '../src/lib/analyzer/ingredient-match';
 import { COSMETICS_DATABASE, addProductToDynamicCache } from '../src/lib/data/cosmetics-db';
-import { clearMemoryCacheForTests } from '../src/lib/server/cloudflare';
+import { clearMemoryCacheForTests } from '../src/lib/server/cache';
 import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
 import { Product, INGREDIENT_RISK_LEVELS } from '../src/lib/types';
 
@@ -766,7 +766,7 @@ test('21. Gemini client: gateway config detection, multi-part responses, loose J
 
 test('22. Bounded caches and in-memory rate limiting', async () => {
   const { BoundedCache } = await import('../src/lib/utils/bounded-cache');
-  const { isRateLimited } = await import('../src/lib/server/cloudflare');
+  const { isRateLimited } = await import('../src/lib/server/rate-limit');
 
   const cache = new BoundedCache<number>(2);
   cache.set('a', 1);
@@ -878,7 +878,7 @@ test('26. AI estimates never overwrite verified products in the cache', () => {
 
 test('27. Request validation, barcode format and client IP keys', async () => {
   const { isValidProduct, isValidRoutine } = await import('../src/lib/server/validation');
-  const { getClientIp } = await import('../src/lib/server/cloudflare');
+  const { getClientIp } = await import('../src/lib/server/rate-limit');
   const { lookupByBarcode } = await import('../src/lib/services/search-barcode-service');
 
   assert.strictEqual(isValidProduct(verifiedProduct({})), true);
@@ -1214,7 +1214,7 @@ test('33. Web research: Exa results are read with URL context; only confirmed so
 });
 
 test('34. Clef calls go through the AI Gateway when AI_GATEWAY_ID is set', async () => {
-  const { runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const { runWorkersAI } = await import('../src/lib/server/workers-ai');
   const seen: unknown[] = [];
   const AI = { async run(_model: string, _input: unknown, options?: unknown) { seen.push(options); return { ok: true }; } };
 
@@ -1612,7 +1612,7 @@ test('43. Chat gate enforce: split refusals, jailbreak override, Japanese jailbr
 });
 
 test('44. Chat gate: user messages only go through the gateway when payload logging is allowed', async () => {
-  const { runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const { runWorkersAI } = await import('../src/lib/server/workers-ai');
   const seen: unknown[] = [];
   const AI = { async run(_m: string, _i: unknown, options?: unknown) { seen.push(options); return {}; } };
   process.env.AI_GATEWAY_ID = 'cosmetantei-prod';
@@ -2245,7 +2245,7 @@ test('60. Saved Open Beauty Facts products split by the old rules are fetched ag
 
   // KV の確認済み一覧を更新するとき、古い分け方の製品は捨てる（読み込み時も同じ判定で除く）
   const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
-  const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cache');
   const kept = verifiedProduct({ id: 'obf_kept_label', labelFormat: LABEL_FORMAT });
   await cachePutJSON(VERIFIED_INDEX_KEY, indexEntries([kept, verifiedProduct({ id: 'obf_stale_label' })]), 60);
   await rememberVerifiedProducts([verifiedProduct({ id: 'obf_new_label', labelFormat: LABEL_FORMAT })]);
@@ -3057,7 +3057,7 @@ test('70. Search filter: off by default; enforce drops only sure irrelevants and
       async get(key: string) { return store.get(key) ?? null; },
       async put(key: string, value: string) { store.set(key, value); },
     };
-    const { hashedCacheKey } = await import('../src/lib/server/cloudflare');
+    const { hashedCacheKey } = await import('../src/lib/server/cache');
     const badKey = await hashedCacheKey(
       'sfilter:v1:clef-flash',
       JSON.stringify(['キャッシュ確認', products.map((p) => [p.brand, p.name])])
@@ -3760,7 +3760,8 @@ test('77. 表示指定成分 (告示第332号): the list, label names and aliase
 test('78. Cost tracking: usage records per route with token counts and no text; paid calls stop at the spend cap', async () => {
   const { callGemini, estimateGeminiCostMicros } = await import('../src/lib/services/gemini-client');
   const { geminiPrice } = await import('../src/lib/server/prices');
-  const { runWebSearch, runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const { runWebSearch } = await import('../src/lib/server/web-search');
+  const { runWorkersAI } = await import('../src/lib/server/workers-ai');
   const { DEFAULT_PER_MINUTE, resetSpendCap, spendLimits } = await import('../src/lib/server/spend-cap');
   const { withUsageRoute } = await import('../src/lib/server/usage');
 
@@ -5163,7 +5164,7 @@ test('89. Abuse limits without login: same-origin API, body size, $0.50 per clie
   else process.env.SPEND_PER_REQUEST_USD = savedPerRequest;
 
   // 価格の検索は1分に10回まで（楽天・Yahoo! の無料の API だけ。オーナーの判断 2026-11-03）
-  const { isRateLimited } = await import('../src/lib/server/cloudflare');
+  const { isRateLimited } = await import('../src/lib/server/rate-limit');
   const results: boolean[] = [];
   for (let i = 0; i < 11; i++) results.push(await isRateLimited('price', '203.0.113.89'));
   assert.deepStrictEqual(results, [...Array(10).fill(false), true]);
@@ -5302,7 +5303,7 @@ test('90. Gemini safety settings, blocked answers, strict output checks and hard
   assert.strictEqual(runOptions[0], undefined, 'Not routed through the logging gateway');
 
   // Workers AI が応答しないときは 5 秒で諦める
-  const { runWorkersAI } = await import('../src/lib/server/cloudflare');
+  const { runWorkersAI } = await import('../src/lib/server/workers-ai');
   const hanging = { run: () => new Promise(() => {}) };
   const started = Date.now();
   assert.strictEqual(await withCloudflareEnv({ AI: hanging }, () => runWorkersAI('@cf/cloudflare/clef', {}, { task: 'test' })), null);
@@ -5313,7 +5314,7 @@ test('91. Spread-out abuse: /24 and cloud-network caps, caps that tighten as the
   const { budgetClients, apiRoute } = await import('../src/lib/server/api-route');
   const { reserveSpend, resetSpendCap } = await import('../src/lib/server/spend-cap');
   const { withUsageRoute, currentClients } = await import('../src/lib/server/usage');
-  const { ipv4Network24, isRateLimited } = await import('../src/lib/server/cloudflare');
+  const { ipv4Network24, isRateLimited } = await import('../src/lib/server/rate-limit');
   const { SpendCounter, MemorySpendStore } = await import('../src/lib/server/spend-cap-core');
   const { createSessionValue, readSessionId, SESSION_COOKIE } = await import('../src/lib/server/session');
   const { POST: startSessionRoute } = await import('../src/app/api/session/route');
@@ -6274,7 +6275,7 @@ test('104. Trusted sites: hosts match by domain over https; in enforce, other si
     assert.deepStrictEqual(both.map((p) => [p.sourceUrl, p.sharedSource]), [[official, undefined]]);
 
     // 確認済み製品の一覧（KV）からも、次の書き込みで外れる
-    const { cachePutJSON } = await import('../src/lib/server/cloudflare');
+    const { cachePutJSON } = await import('../src/lib/server/cache');
     const kv = new Map<string, string>();
     const APP_CACHE = {
       async get(key: string) { return kv.has(key) ? JSON.parse(kv.get(key)!) : null; },
@@ -6457,7 +6458,7 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
 
     // 検索：お店で見つかれば Web 検索を待たずに返す（共有の結果は返答の後に信頼するサイトで作る）。
     // 同じ検索語のキャッシュに別の製品しか無ければ、お店も調べる
-    const { cachePutJSON, hashedCacheKey } = await import('../src/lib/server/cloudflare');
+    const { cachePutJSON, hashedCacheKey } = await import('../src/lib/server/cache');
     const { toProductSearchQuery } = await import('../src/lib/services/page-search');
     const q = toProductSearchQuery('キュレル 皮脂トラブルケア 化粧水')!;
     await cachePutJSON(await hashedCacheKey('webfacts:v2', q.normalize('NFKC').toLowerCase()), [
@@ -8050,7 +8051,7 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
   const { runSeedSchedule } = await import('../src/worker/seed-schedule');
   const { POST } = await import('../src/app/api/internal/seed/route');
   const { addProductToDynamicCache, COSMETICS_DATABASE, rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
-  const { cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { cachePutJSON } = await import('../src/lib/server/cache');
   const { utcDay } = await import('../src/lib/server/spend-cap-core');
   const { toProductSearchQuery } = await import('../src/lib/services/page-search');
   const { searchKey } = await import('../src/lib/search/product-match');
@@ -8200,7 +8201,7 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     assert.deepStrictEqual(await seedProduct('ミノン アミノモイスト ノーヒット2 ミルク', now + 24 * 3600_000), { result: 'not_found', paid: false });
     assert.deepStrictEqual(await seedProduct('', now), { result: 'invalid', paid: false }, 'Not a product name');
     // 費用がかからなかった（Gemini の設定が無い）ときは、先に取った1回分を返す
-    const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+    const { cacheGetJSON } = await import('../src/lib/server/cache');
     const nextDay = now + 2 * 24 * 3600_000;
     await cachePutJSON(`seed:paid:${utcDay(nextDay)}`, 0, 3600);
     assert.strictEqual((await seedProduct('ミノン アミノモイスト ノーヒット3 ミルク', nextDay)).result, 'not_found');
@@ -8301,7 +8302,7 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
 
 test('131. Upstream limits: a 429 from AI Gateway or Google counts as a limit, not "not found", and is not remembered as a failure (live test 2026-10-27)', async () => {
   const { callGemini } = await import('../src/lib/services/gemini-client');
-  const { runWebSearch } = await import('../src/lib/server/cloudflare');
+  const { runWebSearch } = await import('../src/lib/server/web-search');
   const { withUsageRoute, currentSpendLimit, mayRememberFailure, isUpstreamLimit } = await import('../src/lib/server/usage');
   const inRoute = <T>(fn: () => Promise<T>) => withUsageRoute('test', fn, [{ kind: 'ip', key: 'ip:203.0.113.9' }])();
   assert.ok(isUpstreamLimit(429) && !isUpstreamLimit(500) && !isUpstreamLimit(401));
@@ -8358,7 +8359,7 @@ test('131. Upstream limits: a 429 from AI Gateway or Google counts as a limit, n
 test('132. Barcode research: a brand check that could not run is not a shared "not found" (security audit lead 1)', async () => {
   const { researchBarcode } = await import('../src/lib/services/web-research');
   const { lookupByBarcode } = await import('../src/lib/services/search-barcode-service');
-  const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+  const { cacheGetJSON } = await import('../src/lib/server/cache');
   const code = '4900000000048';
   const page = `https://shop.example.com/jan/${code}`;
   const search = fakeWebSearchAI((provider) => (provider === 'linkup' ? [{ url: page, title: `JAN ${code} 化粧水` }] : []));
@@ -8420,7 +8421,7 @@ test('133. Label parsing stays linear on long runs in third-party text (security
 test('134. A web page cannot replace an Open Beauty Facts product with the same barcode or name (security audit lead 5)', async () => {
   const { lookupByBarcode } = await import('../src/lib/services/search-barcode-service');
   const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
-  const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+  const { cacheGetJSON } = await import('../src/lib/server/cache');
   const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
   const obf = verifiedProduct({ id: 'obf_4901234567893', barcode: '4901234567893', name: 'OBF 乳液', brand: 'OBFブランド', ingredients: ['水', 'グリセリン'], labelFormat: LABEL_FORMAT });
   addProductToDynamicCache(obf);
@@ -8456,7 +8457,7 @@ test('134. A web page cannot replace an Open Beauty Facts product with the same 
 
 test('135. Free Open Beauty Facts results cannot push researched products out of the shared index (security audit lead 6)', async () => {
   const { rememberVerifiedProducts } = await import('../src/lib/data/cosmetics-db');
-  const { cacheGetJSON } = await import('../src/lib/server/cloudflare');
+  const { cacheGetJSON } = await import('../src/lib/server/cache');
   const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
   const target = { ...verifiedProduct({ name: 'T 化粧水', brand: 'Tブランド', ingredients: ['水', 'グリセリン', 'BG'] }), id: 'web_t135', ingredientSource: 'web_page' as const, sourceUrl: 'https://example.test/t' };
   await rememberVerifiedProducts([target]);
@@ -8604,7 +8605,7 @@ test('139. Each saved product expires 30 days after it entered the index; re-sav
     resetVerifiedIndexStateForTests,
     verifiedIndexEntries,
   } = await import('../src/lib/data/cosmetics-db');
-  const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { cacheGetJSON, cachePutJSON } = await import('../src/lib/server/cache');
   const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
   const DAY = 24 * 60 * 60 * 1000;
   const t0 = Date.now();
@@ -8671,7 +8672,7 @@ test('140. Saved products are refreshed from the same source before they expire;
   } = await import('../src/lib/data/cosmetics-db');
   const { REFRESH_PAID_PER_DAY, REFRESH_PER_DAY, refreshNextProduct } = await import('../src/lib/services/seeding');
   const { runRefreshSchedule } = await import('../src/worker/seed-schedule');
-  const { cachePutJSON } = await import('../src/lib/server/cloudflare');
+  const { cachePutJSON } = await import('../src/lib/server/cache');
   const { utcDay } = await import('../src/lib/server/spend-cap-core');
   const { LABEL_FORMAT } = await import('../src/lib/analyzer/label-parser');
   const DAY = 24 * 60 * 60 * 1000;
@@ -9466,7 +9467,7 @@ test('153. Search cases: brand spellings, per-brand name aliases and kana folds 
 test('154. Close matches: when nothing matches the searched name, checked products of a brand in the search are shown as close matches, not as the answer', async () => {
   const { searchCosmeticsLiveWithCloseMatches } = await import('../src/lib/services/live-cosmetics-service');
   const { summarizeCloseMatches } = await import('../src/lib/services/chat-replies');
-  const { cachePutJSON, hashedCacheKey } = await import('../src/lib/server/cloudflare');
+  const { cachePutJSON, hashedCacheKey } = await import('../src/lib/server/cache');
   const { toProductSearchQuery } = await import('../src/lib/services/page-search');
   const lip = (id: string, name: string) =>
     verifiedProduct({ id, brand: 'メイベリン ニューヨーク', name, category: 'lip', ingredientSource: 'web_page', sourceUrl: `https://www.maybelline.co.jp/all-products/lip/${id}` });
