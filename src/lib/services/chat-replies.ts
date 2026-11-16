@@ -4,11 +4,9 @@ import { isPlainReplyText } from '../utils/safe-text';
 import { getDisplayBrand, productLabel } from '../display-brand';
 import { hasProhibitedClaim, PROMPT_WORDING_RULES } from '../wording';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
-import {
-  findMatchingKnownIngredient,
-  hasVerifiedIngredients,
-  normalizeIngredientName,
-} from '../analyzer/ingredient-analyzer';
+import { normalizeIngredientName } from '../analyzer/ingredient-analyzer';
+import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
+import { hasVerifiedIngredients } from '../analyzer/alternative-gate';
 import {
   DifferentialAnalysisResult,
   IngredientCategory,

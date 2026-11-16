@@ -29,7 +29,7 @@ export function isVerifiedSource(p: Product): boolean {
 /**
  * 成分を確かめた製品の一覧（KV）に保存し、保存済みの製品として使ってよいデータ源か：確認済みのデータ源と、
  * Yahoo!ショッピングの商品説明（自動の保存で作る。shop_yahoo）。代わりの商品のおすすめに使えるかは別
- * （ingredient-analyzer の hasVerifiedIngredients は確認済みのデータ源だけ）
+ * （alternative-gate の hasVerifiedIngredients は確認済みのデータ源だけ）
  */
 export function isStoredSource(p: Product): boolean {
   return isVerifiedSource(p) || p.ingredientSource === 'shop_yahoo';

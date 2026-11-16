@@ -1,7 +1,7 @@
 import 'server-only';
 import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
-import { alternativeGate } from '../analyzer/ingredient-analyzer';
+import { alternativeGate } from '../analyzer/alternative-gate';
 import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';

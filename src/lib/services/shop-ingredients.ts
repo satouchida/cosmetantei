@@ -2,7 +2,7 @@ import 'server-only';
 import { Product } from '../types';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
-import { findMatchingKnownIngredient } from '../analyzer/ingredient-analyzer';
+import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
 import { SHOP_TEXT_ID_PREFIX, yahooStore } from '../product-source';
 import { searchKey } from '../search/product-match';

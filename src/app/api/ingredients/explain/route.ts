@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { explainIngredientWithAI, NOT_AN_INGREDIENT_NAME } from '@/lib/services/dynamic-ingredient-service';
-import { findMatchingKnownIngredient } from '@/lib/analyzer/ingredient-analyzer';
+import { findMatchingKnownIngredient } from '@/lib/analyzer/ingredient-match';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/cloudflare';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 
