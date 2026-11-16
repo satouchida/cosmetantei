@@ -84,6 +84,39 @@ Wave 2, after wave 1 is merged (it changes import lines across the codebase):
 Then the main session merges, runs the three checks and the Cloudflare build, checks the app in
 the browser, and runs one code-improver pass.
 
-## Outcome
+## Outcome (2026-11-18)
 
-(filled in when the work lands)
+All six packages are merged into `main` (Opus 5.5 subagents; wave 1 in separate worktrees). Types,
+lint, 162 tests and the Cloudflare build pass. Nothing was pushed or deployed.
+
+| Package | Result | How "no behavior change" was checked |
+|---|---|---|
+| A (Q2, Q7) | `ingredient-analyzer.ts` 829 → 308 lines; `ingredient-match.ts`, `alternative-gate.ts`, `differential-analysis.ts`. `performDifferentialAnalysis` 164 → 45 lines | Byte-identical JSON for 614 products, 943 comparison groups and 395 current-use groups. The products were synthetic (built from every known ingredient name) plus the gallery fixtures, because real product data lives in production storage |
+| B (Q3) | `live-cosmetics-service.ts` 628 → 254 lines; `query-check.ts`, `product-filter.ts`, `open-beauty-facts.ts`, `searched-name.ts`. `searchCosmeticsLiveWithCloseMatches` 114 lines / 43 branches / nesting 5 → 46 / 11 / 2 | Byte-identical output for 64 queries × 4 option sets in three setups, 3,460 classified strings and 629 products |
+| C (Q4) | `web-research.ts` 857 → 409 lines; `research-guards.ts`, `page-search.ts`, `page-reader.ts` | All 69 top-level declarations hash-identical |
+| D (Q5, Q7) | `BarcodeScannerModal.tsx` 417 → 226 and `LabelInputModal.tsx` 320 → 198; `useBarcodeScanner.ts`, `useLabelReader.ts`. The `exhaustive-deps` disable stays, with its reason | Old and new lines diffed; hook and effect order kept |
+| E (Q6) | `RoutineSidebar.tsx` 457 → 129, `IngredientAnalysisCard.tsx` 401 → 164, `LiveSearchCandidateTray.tsx` 357 → 245; 21 new component files | Rendered HTML byte-identical for 25 states |
+| F (Q1) | `server/cloudflare.ts` 419 → 106 lines; `cache.ts`, `rate-limit.ts`, `web-search.ts`, `workers-ai.ts` | All 38 top-level declarations hash-identical; each module-level state lives in one file |
+
+From the review of the merged result (code-improver, one pass), fixed:
+
+- Four compatibility re-exports that predate this work are gone
+  (`search-barcode-service.ts`, `web-research.ts`, `ingredient-analyzer.ts`, `RoutineSidebar.tsx`);
+  importers name the owning file (`2466e82`).
+- `detectQueryIntent` and `normalizeSearchString` had no caller and were deleted, with the search
+  evidence in the commit (`4e70777`).
+
+Checked in a browser (the built-in one; the Chrome extension was not connected): the label
+dialog → analysis flow end to end, and the scanner dialog, sidebar and analysis card screens.
+
+Still open:
+
+- **Unverified:** the camera path of the scanner (start, scan once, stop on close) and reading a
+  label photo. The browser used for the check blocks the camera.
+- **Found, not fixed (it is a behavior change, and it predates this work):** the camera's decode
+  callback in `useBarcodeScanner.ts` keeps the `onScanSuccess` from the render that started the
+  camera. The manual and sample paths use the current one. A ref that follows `onScanSuccess`
+  fixes it.
+- `LiveSearchCandidateTray` is still one 196-line function; only its two sub-components were in
+  scope.
+- The deferred items above are unchanged.
