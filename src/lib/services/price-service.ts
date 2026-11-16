@@ -3,7 +3,7 @@ import { PriceApiCredit, PriceOffer, PriceResult } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { rakutenOffers, ShopOfferCandidate, yahooOffers } from './shop-apis';
 import { ShopId, shopLink, shopOfUrl, SHOPS } from './shops';
-import { toProductSearchQuery } from './web-research';
+import { toProductSearchQuery } from './page-search';
 import { isPlainLabelText } from '../utils/safe-text';
 
 /**

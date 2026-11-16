@@ -7,7 +7,7 @@ import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { shopLink } from './shops';
 import { searchKey } from '../search/product-match';
 import { withoutListingNoise } from '../search/listing-name';
-import { productSearchQuery } from './web-research';
+import { productSearchQuery } from './page-search';
 
 /**
  * ブランドの製品一覧を、楽天市場・Yahoo!ショッピングの商品検索から作る（docs/walkthroughs/2026-10-15-shop-lineups.md）
