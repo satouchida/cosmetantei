@@ -1,6 +1,6 @@
 import 'server-only';
 import { Product } from '../types';
-import { findMatchingKnownIngredient } from '../analyzer/ingredient-analyzer';
+import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { callGemini, parseJsonLoose } from './gemini-client';
 import { cacheGetJSON, cachePutJSON } from '../server/cloudflare';
 import { isPlainLabelText } from '../utils/safe-text';

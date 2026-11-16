@@ -1,6 +1,6 @@
 /**
  * 成分名の正規化（全角英数を半角に、小文字化、空白・ハイフン・中点・スラッシュ・括弧の除去）。
- * 成分DBとの照合（ingredient-analyzer）・ルールの解説（dynamic-ingredient-service）・化粧品基準（jp-standards）で同じものを使う
+ * 成分DBとの照合（ingredient-match）・ルールの解説（ingredient-rules）・化粧品基準（jp-standards）で同じものを使う
  */
 /**
  * 小麦由来であることの注記（「グリセリン（小麦由来）」）。厚生労働省の2011年の通知

@@ -1,12 +1,9 @@
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert';
-import {
-  analyzeProduct,
-  performDifferentialAnalysis,
-  findSafeAlternatives,
-  findMatchingKnownIngredient,
-  hasVerifiedIngredients,
-} from '../src/lib/analyzer/ingredient-analyzer';
+import { analyzeProduct } from '../src/lib/analyzer/ingredient-analyzer';
+import { performDifferentialAnalysis } from '../src/lib/analyzer/differential-analysis';
+import { findSafeAlternatives, hasVerifiedIngredients } from '../src/lib/analyzer/alternative-gate';
+import { findMatchingKnownIngredient } from '../src/lib/analyzer/ingredient-match';
 import { COSMETICS_DATABASE, addProductToDynamicCache } from '../src/lib/data/cosmetics-db';
 import { clearMemoryCacheForTests } from '../src/lib/server/cloudflare';
 import { buildAmazonAffiliateUrl } from '../src/lib/services/amazon-affiliate';
@@ -3177,7 +3174,7 @@ test('71. Products from the browser: the server copy wins; sent data stays out o
 
 test('72. Ingredient explanations: rules classify look-alike names correctly; the AI explanation takes the name as data and shares no spelling', async () => {
   const { getOrGenerateIngredientExplanation } = require('../src/lib/services/dynamic-ingredient-service');
-  const { findMatchingKnownIngredient } = require('../src/lib/analyzer/ingredient-analyzer');
+  const { findMatchingKnownIngredient } = require('../src/lib/analyzer/ingredient-match');
   const classify = (name: string) => findMatchingKnownIngredient(name) ?? getOrGenerateIngredientExplanation(name);
 
   // 名前が似ているが別の成分
@@ -3532,7 +3529,7 @@ test('75. Pair rules across products: retinoid with salicylic acid, overlapping 
 });
 
 test('76. Usable products: combination check (in use only), wording, the stored list and the 3-month check', async () => {
-  const { checkCurrentUse } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { checkCurrentUse } = await import('../src/lib/analyzer/differential-analysis');
   const {
     isStale,
     parseUsable,
@@ -6464,7 +6461,7 @@ test('105. Shop ingredients: Rakuten captions (cut, cleaned, this reply only) an
 
 test('106. Alternatives from the shops: fixed search words and genre, ingredients checked cheapest first, same gate', async () => {
   const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
-  const { alternativeGate } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { alternativeGate } = await import('../src/lib/analyzer/alternative-gate');
 
   // 確かめ：エタノールを避けても、成分DBで防腐剤と分かるフェノキシエタノールでは除かない。エタノールそのものは除く
   const gate = alternativeGate([{ nameJa: 'エタノール' }]);
@@ -7146,7 +7143,7 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
 test('115. Active ingredients: 「有効成分」 only for 医薬部外品; a list without the mark counts as ordinary ingredients (compliance audit 2026-10-21)', async () => {
   const { readFileSync } = await import('node:fs');
   const { quasiDrugActives } = await import('../src/lib/quasi-drug');
-  const { labelIngredients } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { labelIngredients } = await import('../src/lib/analyzer/ingredient-match');
   const base = { id: 'q', name: 'テスト', brand: 'テスト', country: 'JP' as const, category: 'cream' as const, ingredients: ['水', 'グリセリン'] };
   const quasi = { ...base, isQuasiDrug: true, activeIngredientsJa: ['グリチルリチン酸ジカリウム'] };
   // 共有の画像・リンクや保存した一覧から、印が無いまま有効成分の一覧だけ届いた製品
@@ -7258,7 +7255,7 @@ test('117. Display wording: neutral 有効成分 line, no 「主成分」, no sa
   assert.ok(!hasProhibitedClaim('角層までうるおいを与え、肌を整えます'));
   const { PROMPT_WORDING_RULES } = await import('../src/lib/wording');
   assert.ok(PROMPT_WORDING_RULES.includes('「有効成分」は医薬部外品') && PROMPT_WORDING_RULES.includes('皮膚科専門医'));
-  const analyzer = readFileSync('src/lib/analyzer/ingredient-analyzer.ts', 'utf8');
+  const analyzer = readFileSync('src/lib/analyzer/differential-analysis.ts', 'utf8');
   assert.ok(analyzer.includes('赤みやヒリつきなどがあるときは使用を中止し、皮膚科専門医にご相談ください。'));
   assert.ok(!analyzer.includes('ワセリン等'));
 });
@@ -7323,7 +7320,8 @@ test('120. Typeahead search sends only product names to Open Beauty Facts (pre-p
 
 test('121. Pre-publish audit: visible PR on Rakuten source links, Japanese standard in the alternatives gate, 旧表示指定成分 not green, rule wording (2026-10-23)', async () => {
   const { readFileSync } = await import('node:fs');
-  const { analyzeProduct, alternativeGate, alternativeAvoidItems } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { alternativeGate, alternativeAvoidItems } = await import('../src/lib/analyzer/alternative-gate');
   const { hasProhibitedClaim } = await import('../src/lib/wording');
   const { getOrGenerateIngredientExplanation } = await import('../src/lib/services/dynamic-ingredient-service');
 
@@ -8103,7 +8101,7 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
     assert.ok(COSMETICS_DATABASE.some((p) => p.id === 'obf_4987107000001' && p.ingredientSource === 'open_beauty_facts'));
     // Yahoo! の商品説明の全成分（Open Beauty Facts に無い製品）：shop_yahoo として保存し、容量違いの JAN コードも結び付ける
     const { isShareable, isStoredSource } = await import('../src/lib/data/cosmetics-db');
-    const { hasVerifiedIngredients } = await import('../src/lib/analyzer/ingredient-analyzer');
+    const { hasVerifiedIngredients } = await import('../src/lib/analyzer/alternative-gate');
     const { productSourceInfo, isSellerTextProduct } = await import('../src/lib/product-source');
     const { findSavedByBarcode } = await import('../src/lib/services/search-barcode-service');
     const viaYahoo = await seedProduct('キュレル 潤浸保湿 シードテスト クリーム', now);
@@ -9619,7 +9617,9 @@ test('156. Owner allowance: a signed cookie from the owner key replaces the per-
 
 test('157. Alternatives never suggest a registered product (problem, usable or current), including the same product saved under another id', async () => {
   const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
-  const { analyzeProduct, findSafeAlternatives, performDifferentialAnalysis } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  const { performDifferentialAnalysis } = await import('../src/lib/analyzer/differential-analysis');
   const { isSameProduct } = await import('../src/lib/search/product-identity');
   const { alternativeRequestFromRoutine } = await import('../src/lib/services/alternatives-service');
 

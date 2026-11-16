@@ -1,12 +1,9 @@
 import 'server-only';
 import { CulpritIngredient, KnownIngredient, PriceApiCredit, Product, UserRoutineState } from '../types';
-import {
-  alternativeAvoidItems,
-  analyzeProduct,
-  findMatchingKnownIngredient,
-  findSafeAlternatives,
-  performDifferentialAnalysis,
-} from '../analyzer/ingredient-analyzer';
+import { analyzeProduct } from '../analyzer/ingredient-analyzer';
+import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
+import { alternativeAvoidItems, findSafeAlternatives } from '../analyzer/alternative-gate';
+import { performDifferentialAnalysis } from '../analyzer/differential-analysis';
 import {
   AlternativeCategory,
   CATEGORY_LABELS_JA,

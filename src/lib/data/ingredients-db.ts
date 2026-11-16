@@ -837,7 +837,7 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
 
   // ==========================================
   // 色素（2026-11-07。docs/plans/ingredient-db-audit.md の Additions）
-  // 名前の形で照合する（src/lib/data/tar-dyes.ts。ingredient-analyzer の findKnownIngredient）。
+  // 名前の形で照合する（src/lib/data/tar-dyes.ts。ingredient-match の findMatchingKnownIngredient）。
   // 個別の報告がある赤色219号・黄色204号は別の項目にして、総合判定に数える
   // ==========================================
   {

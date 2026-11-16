@@ -65,7 +65,7 @@ interface ProductProfile {
   fragrances: string[];
 }
 
-/** resolve は成分名から成分の解説（成分DB、無ければルール）を返す（ingredient-analyzer から渡す） */
+/** resolve は成分名から成分の解説（成分DB、無ければルール）を返す（differential-analysis から渡す） */
 export function findPairFindings(
   products: Product[],
   ingredientsOf: (p: Product) => string[],

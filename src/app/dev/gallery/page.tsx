@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { analyzeProduct, checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
+import { analyzeProduct } from '@/lib/analyzer/ingredient-analyzer';
+import { checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/differential-analysis';
 import {
   aiRatedLotion,
   aiRatings,

@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server';
 import { searchCosmeticsLive, lookupByBarcode, BARCODE_PATTERN } from '@/lib/services/search-barcode-service';
-import {
-  analyzeProduct,
-  checkCurrentUse,
-  hasVerifiedIngredients,
-  isPlaceholderIngredient,
-  performDifferentialAnalysis,
-} from '@/lib/analyzer/ingredient-analyzer';
+import { analyzeProduct } from '@/lib/analyzer/ingredient-analyzer';
+import { isPlaceholderIngredient } from '@/lib/analyzer/ingredient-match';
+import { hasVerifiedIngredients } from '@/lib/analyzer/alternative-gate';
+import { checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/differential-analysis';
 import { Product } from '@/lib/types';
 import { explainCulprits, summarizeProductAnalysis, summarizeProductResults } from '@/lib/services/chat-replies';
 import { alternativeRequestFromProduct, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';

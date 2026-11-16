@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { analyzeProduct, performDifferentialAnalysis } from '@/lib/analyzer/ingredient-analyzer';
+import { analyzeProduct } from '@/lib/analyzer/ingredient-analyzer';
+import { performDifferentialAnalysis } from '@/lib/analyzer/differential-analysis';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { isValidProduct, isValidProductList } from '@/lib/server/validation';
 import { resolveClientProduct, resolveClientProducts } from '@/lib/server/client-products';
