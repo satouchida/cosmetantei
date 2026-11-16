@@ -19,18 +19,16 @@ import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS, UNTRUSTED_ONLY_TTL_SECONDS 
 import { mayRememberFailure } from '../server/usage';
 import { ETHANOL_IN_LABEL } from './label-reader';
 import { contactEmail, SITE_URL } from '../site';
+import { searchCosmeticsLive, searchCosmeticsLiveWithCloseMatches } from './live-cosmetics-service';
+import { searchOpenBeautyFacts } from './open-beauty-facts';
 import {
-  searchCosmeticsLive,
-  searchCosmeticsLiveWithCloseMatches,
-  searchOpenBeautyFacts,
   normalizeSearchString,
   isGreetingOrConsultation,
   getServicePurposeExplanation,
-  isActualCosmeticProduct,
   isNonCosmeticSearchQuery,
   isGenericCosmeticTerm,
-  getDisplayBrand,
-} from './live-cosmetics-service';
+} from './query-check';
+import { isActualCosmeticProduct, getDisplayBrand } from './product-filter';
 
 export {
   normalizeSearchString,

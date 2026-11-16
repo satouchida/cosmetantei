@@ -14,7 +14,9 @@ import {
 import { cacheGetJSON, cacheGetJSONStrict, cachePutJSON, cachePutJSONStrict, hasSharedCache } from '../server/cloudflare';
 import { utcDay } from '../server/spend-cap-core';
 import { currentRequestSpendMicros } from '../server/usage';
-import { hasVerifiedIngredientList, namesProduct, searchOpenBeautyFacts } from './live-cosmetics-service';
+import { hasVerifiedIngredientList } from './product-filter';
+import { namesProduct } from './searched-name';
+import { searchOpenBeautyFacts } from './open-beauty-facts';
 import { searchKey } from '../search/product-match';
 import { fetchObfProduct, linkBarcode } from './search-barcode-service';
 import {

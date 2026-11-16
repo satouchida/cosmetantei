@@ -271,7 +271,7 @@ test('9. Live search never fills results with synthesized products', async () =>
 });
 
 test('10. Greeting and consultation detection & service purpose explanation', async () => {
-  const { isGreetingOrConsultation, getServicePurposeExplanation } = await import('../src/lib/services/live-cosmetics-service');
+  const { isGreetingOrConsultation, getServicePurposeExplanation } = await import('../src/lib/services/query-check');
 
   assert.strictEqual(isGreetingOrConsultation('こんにちは'), true);
   assert.strictEqual(isGreetingOrConsultation('はじめまして！'), true);
@@ -294,7 +294,9 @@ test('10. Greeting and consultation detection & service purpose explanation', as
 });
 
 test('11. Cosmetic-only suggestion filter (Rejects Google search query noise, returns real cosmetics only)', async () => {
-  const { isNonCosmeticSearchQuery, isActualCosmeticProduct, searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { isNonCosmeticSearchQuery } = await import('../src/lib/services/query-check');
+  const { isActualCosmeticProduct } = await import('../src/lib/services/product-filter');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
 
   // 1. 一般的なGoogle検索ノイズ・クエリの完全排除テスト
   const searchNoiseQueries = [
@@ -514,7 +516,8 @@ test('14. Strict formatting validation (Zero markdown bold/italic asterisks in i
 });
 
 test('15. Strict authentic cosmetics guarantee (Zero fictional products or disguised search queries)', async () => {
-  const { searchCosmeticsLive, isActualCosmeticProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { isActualCosmeticProduct } = await import('../src/lib/services/product-filter');
   const { rankProducts } = await import('../src/lib/search/product-match');
   const { removeFromDynamicCache } = await import('../src/lib/data/cosmetics-db');
 
@@ -583,9 +586,8 @@ test('15. Strict authentic cosmetics guarantee (Zero fictional products or disgu
 });
 
 test('16. Zero user query reflection in brand field (Rejects generic terms in brand)', async () => {
-  const { searchCosmeticsLive, getDisplayBrand } = await import(
-    '../src/lib/services/live-cosmetics-service'
-  );
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
+  const { getDisplayBrand } = await import('../src/lib/services/product-filter');
   const { rankProducts } = await import('../src/lib/search/product-match');
   const { removeFromDynamicCache } = await import('../src/lib/data/cosmetics-db');
 
@@ -4651,7 +4653,7 @@ test('84. Web research survives Gemini RECITATION: page-by-page retry without ca
 });
 
 test('85. Products with English names (global brand pages) count as cosmetics; other English names do not', async () => {
-  const { isActualCosmeticProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { isActualCosmeticProduct } = await import('../src/lib/services/product-filter');
   const mk = (brand: string, name: string): Product =>
     ({ id: 't85', brand, name, country: 'JP', category: 'other', ingredients: ['水'] }) as Product;
   for (const [brand, name] of [
@@ -8167,7 +8169,7 @@ test('130. Scheduled seeding: free sources first (Open Beauty Facts, then shop J
       { result: 'paid_limit', paid: false }
     );
     // 「II」は「III」の製品に合わせない（保存済みと思って調べないことが無いように）
-    const { namesProduct } = await import('../src/lib/services/live-cosmetics-service');
+    const { namesProduct } = await import('../src/lib/services/searched-name');
     const three = { id: 'x', name: 'モイストチャージ ローション III', brand: 'ミノン', country: 'JP' as const, category: 'toner' as const, ingredients: ['水'] };
     assert.ok(!namesProduct(three, 'ミノン モイストチャージ ローション II'));
     assert.ok(namesProduct(three, 'ミノン モイストチャージ ローション III'));
@@ -8926,7 +8928,7 @@ test('145. Foundations are their own kind, other makeup has none, and the altern
 test('146. A chat product lookup answers only with products named like the query, and blocked page reads log their host (2026-11-03 logs)', async () => {
   const { readFileSync } = await import('node:fs');
   const { matchesProductWords, rankProducts } = await import('../src/lib/search/product-match');
-  const { namesSearchedProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { namesSearchedProduct } = await import('../src/lib/services/searched-name');
   const rouge = verifiedProduct({ id: 't146_rouge', brand: 'マキアージュ', name: 'ドラマティックエッセンスルージュ', category: 'lip' });
   const liquid = verifiedProduct({ id: 't146_liquid', brand: 'マキアージュ', name: 'ドラマティックエッセンスリキッド', category: 'foundation' });
   const curel = verifiedProduct({ id: 't146_curel', brand: 'キュレル', name: '潤浸保湿 化粧水 III', category: 'toner' });
@@ -9340,7 +9342,8 @@ test('151. Trusted sites: LIPS and @cosme SHOPPING are trusted on product pages 
 });
 
 test('152. A checked product with a known category counts as a cosmetic without a category word in its name; brand name aliases (Maybelline searches 2026-11-07)', async () => {
-  const { isActualCosmeticProduct, namesSearchedProduct, namesProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { isActualCosmeticProduct } = await import('../src/lib/services/product-filter');
+  const { namesSearchedProduct, namesProduct } = await import('../src/lib/services/searched-name');
   const lip = (name: string, extra: Partial<Product> = {}): Product => ({
     id: 'web_maybelline',
     brand: 'メイベリン ニューヨーク',
@@ -9389,7 +9392,7 @@ test('152. A checked product with a known category counts as a cosmetic without 
 
 test('153. Search cases: brand spellings, per-brand name aliases and kana folds (tests/search-cases.ts)', async () => {
   const { SEARCH_CASES } = await import('./search-cases');
-  const { namesSearchedProduct } = await import('../src/lib/services/live-cosmetics-service');
+  const { namesSearchedProduct } = await import('../src/lib/services/searched-name');
   const { withNameAliases, searchKey, listedBrandKeys } = await import('../src/lib/search/product-match');
   for (const c of SEARCH_CASES) {
     const product = verifiedProduct({ id: `case_${c.query}`, brand: c.brand, name: c.name, category: c.category as Product['category'], ingredientSource: 'web_page' });
