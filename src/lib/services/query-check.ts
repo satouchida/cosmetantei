@@ -1,18 +1,6 @@
 import { isKnownGenericTerm } from './brand-check';
 
-/** 検索語の分け方（挨拶・相談、コスメ以外の検索、一般名詞、入力の意図）。どの検索にも使う */
-
-/**
- * 検索文字列の正規化（全角半角・大文字小文字・不要記号の統一）
- */
-export function normalizeSearchString(str: string): string {
-  if (!str) return '';
-  return str
-    .toLowerCase()
-    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xfee0))
-    .replace(/[\s\-_・/\\,.]+/g, '')
-    .trim();
-}
+/** 検索語の分け方（挨拶・相談、コスメ以外の検索、一般名詞）。どの検索にも使う */
 
 /**
  * ユーザー入力が「挨拶」や「サービスへの一般的な相談・質問」であるかを判定
@@ -95,85 +83,4 @@ export function isNonCosmeticSearchQuery(text: string): boolean {
  */
 export function isGenericCosmeticTerm(text: string): boolean {
   return isKnownGenericTerm(text);
-}
-
-/**
- * ユーザーの入力意図の自動判定
- * - 特定ブランドの静的一覧を持たず、入力文字列と自然言語パターンから動的に判定
- */
-export function detectQueryIntent(query: string): {
-  type: 'greeting_or_consult' | 'skin_concern' | 'category' | 'ingredient' | 'brand' | 'product_search' | 'general';
-  key?: string;
-  expandedQuery?: string;
-} {
-  const clean = query.replace(/\u3000/g, ' ').trim();
-  if (!clean) {
-    return { type: 'greeting_or_consult' };
-  }
-
-  if (isGreetingOrConsultation(clean)) {
-    return { type: 'greeting_or_consult' };
-  }
-
-  // 1. 肌トラブル・お悩み
-  if (/乾燥|カサつき|かさつき|つっぱり|粉ふき|皮むけ/i.test(clean)) {
-    return { type: 'skin_concern', key: 'dryness', expandedQuery: `${clean} 保湿 スキンケア` };
-  }
-  if (/ニキビ|吹き出物|コメド|アクネ/i.test(clean)) {
-    return { type: 'skin_concern', key: 'acne', expandedQuery: `${clean} 洗顔料` };
-  }
-  if (/赤み|赤ら顔|ヒリヒリ|ピリピリ|しみる|敏感|酒さ|痒い|かゆみ|肌荒れ|荒れ/i.test(clean)) {
-    return { type: 'skin_concern', key: 'redness', expandedQuery: `${clean} 低刺激 スキンケア` };
-  }
-  if (/毛穴|黒ずみ|角栓|テカリ|皮脂/i.test(clean)) {
-    return { type: 'skin_concern', key: 'pores', expandedQuery: `${clean} 洗顔 美容液` };
-  }
-  if (/日焼け|紫外線|uv/i.test(clean)) {
-    return { type: 'skin_concern', key: 'sunburn', expandedQuery: `${clean} 日焼け止め` };
-  }
-
-  // 2. 成分名
-  if (/レチノール|ビタミンa/i.test(clean)) {
-    return { type: 'ingredient', key: 'retinol', expandedQuery: `${clean} 美容液` };
-  }
-  if (/セラミド/i.test(clean)) {
-    return { type: 'ingredient', key: 'ceramide', expandedQuery: `${clean} 保湿` };
-  }
-  if (/ビタミンc|アスコルビン/i.test(clean)) {
-    return { type: 'ingredient', key: 'vitaminc', expandedQuery: `${clean} 美容液` };
-  }
-  if (/cica|シカ|ツボクサ/i.test(clean)) {
-    return { type: 'ingredient', key: 'cica', expandedQuery: `${clean} スキンケア` };
-  }
-
-  // 3. カテゴリ
-  // ファンデーションは、ティント・バーム・ローションなどの語を名前に含むことがあるので先に見る
-  if (/ファンデ|(?<![a-z])(bb|cc) ?(クリーム|cream)|foundation/i.test(clean)) {
-    return { type: 'category', key: 'foundation', expandedQuery: `${clean} ファンデーション` };
-  }
-  if (/リップ|口紅|ルージュ|ティント|バーム|lip/i.test(clean)) {
-    return { type: 'category', key: 'lip', expandedQuery: `${clean} コスメ` };
-  }
-  if (/化粧水|ローション|トナー|lotion|toner/i.test(clean)) {
-    return { type: 'category', key: 'toner', expandedQuery: `${clean} 化粧品` };
-  }
-  if (/洗顔|クレンジング|ウォッシュ|soap|cleanser/i.test(clean)) {
-    return { type: 'category', key: 'cleanser', expandedQuery: `${clean} コスメ` };
-  }
-  if (/クリーム|乳液|ミルク|cream/i.test(clean)) {
-    return { type: 'category', key: 'cream', expandedQuery: `${clean} スキンケア` };
-  }
-  if (/美容液|セラム|エッセンス|serum/i.test(clean)) {
-    return { type: 'category', key: 'serum', expandedQuery: `${clean} 美容液` };
-  }
-  if (/日焼け止め|日やけ止め|sunscreen/i.test(clean)) {
-    return { type: 'category', key: 'sunscreen', expandedQuery: `${clean} 日焼け止め` };
-  }
-
-  // 複数単語または2文字以上のコスメ検索
-  if (clean.length >= 2) {
-    return { type: 'product_search', expandedQuery: `${clean} コスメ` };
-  }
-
-  return { type: 'general', expandedQuery: `${clean} コスメ` };
 }
