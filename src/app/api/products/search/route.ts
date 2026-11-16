@@ -13,7 +13,7 @@ import {
 import { Product } from '@/lib/types';
 import { apiRoute } from '@/lib/server/api-route';
 import { classifyWithHeuristics } from '@/lib/services/chat-gate';
-import { toProductSearchQuery } from '@/lib/services/web-research';
+import { toProductSearchQuery } from '@/lib/services/page-search';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts, isStoredSource } from '@/lib/data/cosmetics-db';
 
 const DEFAULT_LIMIT = 6;

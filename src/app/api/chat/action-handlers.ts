@@ -7,7 +7,7 @@ import { checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/dif
 import { Product } from '@/lib/types';
 import { explainCulprits, summarizeProductAnalysis, summarizeProductResults } from '@/lib/services/chat-replies';
 import { alternativeRequestFromProduct, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
-import { productSearchQuery } from '@/lib/services/web-research';
+import { productSearchQuery } from '@/lib/services/page-search';
 import { getClientIp } from '@/lib/server/cloudflare';
 import { resolveClientProduct } from '@/lib/server/client-products';
 import { COSMETICS_DATABASE, hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';

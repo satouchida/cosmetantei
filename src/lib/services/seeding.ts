@@ -25,7 +25,8 @@ import {
   yahooJanCodes,
 } from './shop-ingredients';
 import { yahooStore } from '../product-source';
-import { productSearchQuery, refreshPageProduct, researchProducts, toProductSearchQuery } from './web-research';
+import { refreshPageProduct, researchProducts } from './web-research';
+import { productSearchQuery, toProductSearchQuery } from './page-search';
 import { REFRESH_PER_DAY } from './refresh-limits';
 
 export { REFRESH_PER_DAY };
