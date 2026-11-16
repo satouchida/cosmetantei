@@ -7921,7 +7921,7 @@ test('128. Spend limits reach the screen: the route says which limit refused, th
     assert.match(chatRoute, /limit \? `\$\{spendLimitMessage\(limit\)\}\\n\\n\$\{summarizeCloseMatches\(closeMatches\)\}`/);
     assert.doesNotMatch(chatRoute, /currentSpendLimit\(\)/);
     // 写真：今月・本日・端末の上限では「もう一度読み取る」を出さない
-    assert.match(readFileSync('src/components/label/LabelInputModal.tsx', 'utf8'), /&& !lasting\);/);
+    assert.match(readFileSync('src/components/label/useLabelReader.ts', 'utf8'), /&& !lasting\);/);
   } finally {
     store.resetSpendLimitForTests();
     resetSpendCap();
