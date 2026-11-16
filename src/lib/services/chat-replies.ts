@@ -4,7 +4,7 @@ import { isPlainReplyText } from '../utils/safe-text';
 import { getDisplayBrand, productLabel } from '../display-brand';
 import { hasProhibitedClaim, PROMPT_WORDING_RULES } from '../wording';
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
-import { normalizeIngredientName } from '../analyzer/ingredient-analyzer';
+import { normalizeIngredientName } from '../utils/ingredient-name';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { hasVerifiedIngredients } from '../analyzer/alternative-gate';
 import {

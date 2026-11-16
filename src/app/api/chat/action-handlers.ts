@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { searchCosmeticsLive, lookupByBarcode, BARCODE_PATTERN } from '@/lib/services/search-barcode-service';
+import { searchCosmeticsLive } from '@/lib/services/live-cosmetics-service';
+import { lookupByBarcode, BARCODE_PATTERN } from '@/lib/services/search-barcode-service';
 import { analyzeProduct } from '@/lib/analyzer/ingredient-analyzer';
 import { isPlaceholderIngredient } from '@/lib/analyzer/ingredient-match';
 import { hasVerifiedIngredients } from '@/lib/analyzer/alternative-gate';

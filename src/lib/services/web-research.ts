@@ -404,6 +404,3 @@ export async function refreshPageProduct(stored: Product): Promise<Product | nul
   }
   return read.incomplete ? undefined : null;
 }
-
-/** 同じ製品のキー（src/lib/search/product-identity.ts。今までの import のため） */
-export { productIdentityKey };

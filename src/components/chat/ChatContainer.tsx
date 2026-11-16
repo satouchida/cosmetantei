@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatMessage, Product } from '@/lib/types';
-import { DIFFERENTIAL_LABEL, RoutineSidebar } from '../routine/RoutineSidebar';
+import { RoutineSidebar } from '../routine/RoutineSidebar';
+import { DIFFERENTIAL_LABEL } from '../routine/routine-labels';
 import { MAX_USABLE, updateUsable, UsableEntry } from '@/lib/usable-products';
 import { shareFragment } from '@/lib/routine-share';
 import {

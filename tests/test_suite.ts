@@ -1842,7 +1842,7 @@ test('51. Only a product name is ever used as a web search query', async () => {
   }
 
   // 入力途中の候補表示は Web リサーチをしない。チャットでは商品名だけで検索する
-  const { searchCosmeticsLive } = await import('../src/lib/services/search-barcode-service');
+  const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
   const { AI, searches } = fakeWebSearchAI(() => []);
   setGatewayEnv();
   try {
@@ -1930,7 +1930,7 @@ test('52. Barcode web research only accepts a page that shows the same barcode',
 });
 
 test('53. Web research merges the same product listed by several pages', async () => {
-  const { productIdentityKey } = await import('../src/lib/services/web-research');
+  const { productIdentityKey } = await import('../src/lib/search/product-identity');
   const official = productIdentityKey('ちふれ・CHIFURE', '美白化粧水 Ｗ');
   assert.strictEqual(productIdentityKey('ちふれ化粧品', 'ちふれ美白化粧水 W'), official);
   assert.strictEqual(productIdentityKey('ちふれ(Chifure)', '美白化粧水W'), official);
@@ -2020,7 +2020,7 @@ test('54. Chat replies: lookups and single products use templates; the cause rep
 test('55. Every ingredient DB entry cites sources and a review date; old reviews are flagged', async () => {
   const { KNOWN_INGREDIENTS } = await import('../src/lib/data/ingredients-db');
   const REVIEW_INTERVAL_DAYS = 365;
-  const { normalizeIngredientName, abbreviateIngredientName } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { normalizeIngredientName, abbreviateIngredientName } = await import('../src/lib/utils/ingredient-name');
   const overdue: string[] = [];
   const ids = new Set<string>();
   // 照合は最初に一致した項目を返すため、ID や別名の重複は後の項目を隠してしまう
@@ -3371,7 +3371,7 @@ test('72. Ingredient explanations: rules classify look-alike names correctly; th
 test('73. 化粧品基準: the tables match the 告示; label names find their entries; notes only for cosmetics', async () => {
   const { COSMETIC_STANDARD } = await import('../src/lib/data/cosmetic-standards-jp');
   const { findStandardEntry, standardNote } = await import('../src/lib/analyzer/jp-standards');
-  const { normalizeIngredientName, abbreviateIngredientName } = await import('../src/lib/analyzer/ingredient-analyzer');
+  const { normalizeIngredientName, abbreviateIngredientName } = await import('../src/lib/utils/ingredient-name');
 
   // 表ごとの項目数（告示の PDF、令和6年7月12日改正版）
   const counts: Record<string, number> = {};

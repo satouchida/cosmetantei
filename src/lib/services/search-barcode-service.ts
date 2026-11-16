@@ -19,29 +19,6 @@ import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS, UNTRUSTED_ONLY_TTL_SECONDS 
 import { mayRememberFailure } from '../server/usage';
 import { ETHANOL_IN_LABEL } from './label-reader';
 import { contactEmail, SITE_URL } from '../site';
-import { searchCosmeticsLive, searchCosmeticsLiveWithCloseMatches } from './live-cosmetics-service';
-import { searchOpenBeautyFacts } from './open-beauty-facts';
-import {
-  normalizeSearchString,
-  isGreetingOrConsultation,
-  getServicePurposeExplanation,
-  isNonCosmeticSearchQuery,
-  isGenericCosmeticTerm,
-} from './query-check';
-import { isActualCosmeticProduct, getDisplayBrand } from './product-filter';
-
-export {
-  normalizeSearchString,
-  searchCosmeticsLive,
-  searchCosmeticsLiveWithCloseMatches,
-  searchOpenBeautyFacts,
-  isGreetingOrConsultation,
-  getServicePurposeExplanation,
-  isActualCosmeticProduct,
-  isNonCosmeticSearchQuery,
-  isGenericCosmeticTerm,
-  getDisplayBrand,
-};
 
 /**
  * バーコード（JANコード・EAN・UPC）から製品情報を検索する

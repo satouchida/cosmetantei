@@ -10,8 +10,6 @@ import { RoutineImageButtons } from './RoutineImageButtons';
 import { DifferentialAction } from './DifferentialAction';
 
 // 差分分析を始めるボタンの文言（React を読まずに使えるよう routine-labels.ts に置く）
-import { DIFFERENTIAL_LABEL } from './routine-labels';
-export { DIFFERENTIAL_LABEL };
 
 /** 使えるコスメの見出しの ID（3か月の確認の「確認する」から、ここへ移る） */
 export const USABLE_SECTION_ID = 'usable-section';

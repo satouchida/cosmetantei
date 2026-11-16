@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { isActualCosmeticProduct, searchCosmeticsLive } from '@/lib/services/search-barcode-service';
+import { searchCosmeticsLive } from '@/lib/services/live-cosmetics-service';
+import { isActualCosmeticProduct } from '@/lib/services/product-filter';
 import { brandProducts, BrandSuggestion, buildBrandIndex, resolveBrand, suggestBrands } from '@/lib/services/brand-suggest';
 import { onePerBarcode, searchKey } from '@/lib/search/product-match';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '@/lib/server/cache';

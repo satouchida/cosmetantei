@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
-import {
-  searchCosmeticsLive,
-  searchCosmeticsLiveWithCloseMatches,
-  getServicePurposeExplanation,
-} from '@/lib/services/search-barcode-service';
+import { searchCosmeticsLive, searchCosmeticsLiveWithCloseMatches } from '@/lib/services/live-cosmetics-service';
+import { getServicePurposeExplanation } from '@/lib/services/query-check';
 import {
   answerIngredientQuestion,
   findIngredientsInText,

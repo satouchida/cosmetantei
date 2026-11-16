@@ -15,7 +15,6 @@ import { AnalyzedIngredient, IngredientCategory, KnownIngredient, Product, Produ
 export const MARKETPLACE_DISCLAIMER_JA =
   '※本製品の全成分情報は、Amazon / 楽天市場 / Olive Young / Sephora などのオンラインマーケットプレイスおよび公開情報をもとに探索・収集したものです。商品のリニューアルや販売地域（国内処方・並行輸入・海外処方）により実際のパッケージ表記と一部異なる（誤差を含む）場合がありますので、ご使用前にお手元の製品パッケージ表記もご確認ください。';
 
-export { normalizeIngredientName, abbreviateIngredientName };
 
 /** 「注意」の要約に書く、成分の種類 */
 const CAUTION_KIND_JA: Partial<Record<IngredientCategory, string>> = {
