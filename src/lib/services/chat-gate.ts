@@ -4,7 +4,7 @@ import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import { KnownIngredient } from '../types';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey, runAfterResponse, runWorkersAI } from '../server/cloudflare';
 import { isCosmeticTopicRelevant, isJailbreakAttempt, OFF_TOPIC_REPLY_JA } from './gemini';
-import { isGreetingOrConsultation } from './live-cosmetics-service';
+import { isGreetingOrConsultation } from './query-check';
 import { ClefModel, clefModelId, clefModelSetting } from './clef-models';
 
 /**

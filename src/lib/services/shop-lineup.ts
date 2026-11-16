@@ -1,7 +1,7 @@
 import 'server-only';
 import { Product, PriceApiCredit, SHOP_ID_PREFIX } from '../types';
 import { IndexedBrand, textHasBrand } from './brand-suggest';
-import { isActualCosmeticProduct } from './live-cosmetics-service';
+import { isActualCosmeticProduct } from './product-filter';
 import { NOT_SINGLE_ITEM } from './price-service';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { shopLink } from './shops';
