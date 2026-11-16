@@ -79,6 +79,20 @@ const CHAT_CONTAINER_FILES = [
   'src/components/chat/ChatDialogs.tsx',
 ];
 
+/** 成分の分析カード（IngredientAnalysisCard と、そこから分けた欄のコンポーネント）。ソースの文字列を調べるテストはこれを読む */
+const ANALYSIS_CARD_FILES = [
+  'src/components/chat/IngredientAnalysisCard.tsx',
+  'src/components/chat/AnalysisCardHeader.tsx',
+  'src/components/chat/AIStatusNotices.tsx',
+  'src/components/chat/LabelNotesPanel.tsx',
+  'src/components/chat/DataSourceDisclaimer.tsx',
+  'src/components/chat/WarningsSection.tsx',
+  'src/components/chat/SoothingIngredientsSection.tsx',
+  'src/components/chat/AIRatedIngredients.tsx',
+  'src/components/chat/FullIngredientList.tsx',
+  'src/components/chat/AnalysisRoutineActions.tsx',
+];
+
 /** 一覧に入れる形（入れた日時つき）。savedAt の既定は今 */
 function indexEntries(products: Product[], savedAt = Date.now()): { product: Product; savedAt: number }[] {
   return products.map((product) => ({ product, savedAt }));
@@ -6770,7 +6784,7 @@ test('109. Terms and privacy pages: required notices, and the facts they state m
   for (const f of ['AmazonAlternativeCard', 'PriceResultCard', 'ProductSuggestionCard', 'ProductSourceLink']) {
     assert.match(read(`src/components/chat/${f}.tsx`), /noreferrer/);
   }
-  assert.match(read('src/components/search/LiveSearchCandidateTray.tsx'), /noreferrer/);
+  assert.match(read('src/components/search/ShopProductSummary.tsx'), /noreferrer/);
   assert.ok(privacy.includes('rel="noreferrer"') && !privacy.includes('遷移元のサイトのアドレス'));
   // KV に保存する期間の上限（ブランド名の確認結果 90日・製品情報 30日）とポリシーの記載
   assert.match(read('src/lib/services/brand-check.ts'), /BRAND_VERDICT_TTL_SECONDS = 60 \* 60 \* 24 \* 90;/);
@@ -7128,6 +7142,27 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
     'chat/ProductSourceLink': 'inside the cards',
     'chat/RegisteredProducts': 'context and hook, no layout of its own',
     'chat/IngredientDetailPanel': 'inside IngredientAnalysisCard (opens when an ingredient is tapped)',
+    'chat/AnalysisCardHeader': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/AIStatusNotices': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/LabelNotesPanel': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/DataSourceDisclaimer': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/WarningsSection': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/SoothingIngredientsSection': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/AIRatedIngredients': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/FullIngredientList': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'chat/AnalysisRoutineActions': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
+    'routine/BadProductsSection': 'part of RoutineSidebar (checked in /dev/gallery)',
+    'routine/UsableProductsSection': 'part of RoutineSidebar (checked in /dev/gallery)',
+    'routine/RoutineImageButtons': 'part of RoutineSidebar (checked in /dev/gallery)',
+    'routine/DifferentialAction': 'part of RoutineSidebar (checked in /dev/gallery)',
+    'routine/SectionHeading': 'inside the RoutineSidebar lists',
+    'routine/EmptyState': 'inside the RoutineSidebar lists',
+    'routine/ProductRow': 'inside the RoutineSidebar lists',
+    'routine/InUseSwitch': 'inside the RoutineSidebar usable list',
+    'routine/ClearButton': 'inside the RoutineSidebar lists',
+    'routine/ChecklistItem': 'inside the RoutineSidebar differential hint',
+    'search/ShopProductSummary': 'inside LiveSearchCandidateTray (shop products, checked in /dev/gallery)',
+    'search/ScrollWithFade': 'inside LiveSearchCandidateTray (scroll area, no layout of its own)',
     'legal/LegalPage': 'checked at /terms and /privacy',
     'legal/ContactEmail': 'inside LegalLinks and the contact sections of /terms and /privacy',
     'owner/OwnerForm': 'checked at /owner (the owner allowance page)',
@@ -7267,7 +7302,7 @@ test('117. Display wording: neutral 有効成分 line, no 「主成分」, no sa
 test('118. Layout: scroll areas are positioned, so sr-only text cannot stretch the page (live check 2026-10-22)', async () => {
   const { readFileSync } = await import('node:fs');
   // sr-only は position: absolute。位置を決める親が無いとページの外まで伸び、カードへのフォーカスでページ全体がスクロールする
-  for (const file of ['src/components/chat/MessageList.tsx', 'src/components/routine/RoutineSidebar.tsx', 'src/components/search/LiveSearchCandidateTray.tsx']) {
+  for (const file of ['src/components/chat/MessageList.tsx', 'src/components/routine/RoutineSidebar.tsx', 'src/components/search/LiveSearchCandidateTray.tsx', 'src/components/search/ScrollWithFade.tsx']) {
     const src = readFileSync(file, 'utf8');
     for (const m of src.matchAll(/className=\{?[`"]([^`"]*\boverflow-y-auto\b[^`"]*)[`"]/g)) {
       assert.match(m[1], /\brelative\b/, `${file}: ${m[1]}`);
@@ -7333,8 +7368,8 @@ test('121. Pre-publish audit: visible PR on Rakuten source links, Japanese stand
   const sourceLink = readFileSync('src/components/chat/ProductSourceLink.tsx', 'utf8');
   assert.match(sourceLink, /const sponsored = product\.ingredientSource === 'shop_listing' && !!source\.href/);
   assert.match(sourceLink, /\{sponsored && <span[^>]*>PR<\/span>\}/);
-  // カードと、カードから分けた hook・解説の枠（useIngredientExplanation.ts に「AIで解説」の書き込みがある）
-  const card = ['IngredientAnalysisCard.tsx', 'IngredientDetailPanel.tsx', 'useAIAnalysis.ts', 'useIngredientExplanation.ts']
+  // カードと、カードから分けた hook・解説の枠（useIngredientExplanation.ts に「AIで解説」の書き込みがある）。見出しのバッジは AnalysisCardHeader.tsx
+  const card = ['IngredientAnalysisCard.tsx', 'IngredientDetailPanel.tsx', 'useAIAnalysis.ts', 'useIngredientExplanation.ts', 'AnalysisCardHeader.tsx']
     .map((f) => readFileSync(`src/components/chat/${f}`, 'utf8'))
     .join('\n');
   assert.match(card, /原因候補の成分を含まない商品を探す<\/span>\s*\{\/\*[^]*?\*\/\}\s*<span className=\{badgeClass\('neutral'\)\}>PR<\/span>/);
@@ -7397,7 +7432,8 @@ test('122. Analysis card: ingredients outside the Japanese standard are marked, 
   assert.strictEqual(r.outsideJpStandard, true, 'The headline and the marked pill come from the same notAllowedHere');
 
   // カードと、カードから分けた解説の枠・hook（adviceFor は IngredientDetailPanel.tsx。この順なら下の slice の範囲は adviceFor から始まる）
-  const card = ['IngredientAnalysisCard.tsx', 'IngredientDetailPanel.tsx', 'useAIAnalysis.ts', 'useIngredientExplanation.ts']
+  // 成分のボタンと凡例は FullIngredientList.tsx、AI が評価した成分の一覧は AIRatedIngredients.tsx
+  const card = ['IngredientAnalysisCard.tsx', 'IngredientDetailPanel.tsx', 'useAIAnalysis.ts', 'useIngredientExplanation.ts', 'FullIngredientList.tsx', 'AIRatedIngredients.tsx']
     .map((f) => readFileSync(`src/components/chat/${f}`, 'utf8'))
     .join('\n');
   // ボタン：基準の外は白地に赤の枠と「基準」の印（読み上げにも理由を付ける）。凡例にも出す
@@ -7544,9 +7580,12 @@ test('123. Live review fixes: shop cards looked up by barcode then name, one car
     const chat = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
     assert.ok(!chat.includes('handleBarcodeScanned(product.barcode'));
     assert.ok(chat.includes("pickReply(data, ['singleAnalysis', 'productSuggestions', 'quickReplies'])"));
+    // 緑の欄は SoothingIngredientsSection.tsx（カードは AI が評価した成分の欄の前に、1つ以上あるときだけ出す）
     const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
-    assert.ok(card.includes('const SOOTHING_SHOWN = 2;'));
-    const box = card.slice(card.indexOf('soothingHighlightsJa.length > 0'), card.indexOf('aiIngredients.length > 0 &&'));
+    const soothingAt = card.indexOf('soothingHighlightsJa.length > 0 && <SoothingIngredientsSection');
+    assert.ok(soothingAt >= 0 && soothingAt < card.indexOf('aiIngredients.length > 0 &&'));
+    const box = readFileSync('src/components/chat/SoothingIngredientsSection.tsx', 'utf8');
+    assert.ok(box.includes('const SOOTHING_SHOWN = 2;'));
     assert.ok(box.indexOf('soothingHighlightsJa.slice(0, SOOTHING_SHOWN)') < box.indexOf('<details>'));
     assert.ok(box.indexOf('<details>') < box.indexOf('soothingHighlightsJa.slice(SOOTHING_SHOWN)'));
   } finally {
@@ -7661,8 +7700,11 @@ test('124. Second live review: no ingredient-less candidates from a shop card, h
     const chat = CHAT_CONTAINER_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
     assert.ok(chat.includes('`「${productLabel(product)}」の成分を詳しく知りたい`'));
     assert.ok(!chat.includes('`「${product.brand} ${product.name}」'));
+    // 全成分リストの欄は FullIngredientList.tsx（カードは成分があるときだけ出す）
     const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
-    assert.match(card, /\{ingredients\.length > 0 && \(\s*<section>\s*<div[^>]*>\s*(\{\/\*[^]*?\*\/\}\s*)?<h3[^>]*>\s*全成分リスト/);
+    assert.match(card, /\{ingredients\.length > 0 && \(\s*<FullIngredientList\b/);
+    const fullList = readFileSync('src/components/chat/FullIngredientList.tsx', 'utf8');
+    assert.match(fullList, /return \(\s*<section>\s*<div[^>]*>\s*(\{\/\*[^]*?\*\/\}\s*)?<h3[^>]*>\s*全成分リスト/);
     const replies = readFileSync('src/lib/services/chat-replies.ts', 'utf8');
     assert.ok(!replies.includes('function productLabel'), 'One copy, in display-brand.ts');
   } finally {
@@ -7748,7 +7790,7 @@ test('125. Third live review: the analysis reply states only what the AI rating 
   const repeated = analyzeProduct({ ...aiRatedLotion, ingredients: ['水', '安息香酸Na', '安息香酸Na', 'ベンジルアルコール'] });
   assert.deepStrictEqual(mildCautionNames(repeated), [], 'Two mild ones, not three');
 
-  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  const card = ANALYSIS_CARD_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
   assert.ok(card.includes("{riskOf('low_caution').label}の成分（{mildNames.length}成分）: {mildNames.join('、')}"));
   // 全成分リストの見出し：件数の途中で折り返さない
   assert.ok(card.includes('<span className="whitespace-nowrap">({ingredients.length}成分)</span>'));
@@ -7791,7 +7833,7 @@ test('126. Fourth live review: raised 表示指定成分 get their own mark, so 
   assert.strictEqual(riskLabelFor(outsideRaised), '表示指定成分');
 
   // カードはこのモジュールの印・凡例を使う（「注＝軽度の注意・表示指定成分」の古い凡例は無い）
-  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  const card = ANALYSIS_CARD_FILES.map((f) => readFileSync(f, 'utf8')).join('\n');
   assert.ok(card.includes("from './ingredient-marks'") && !card.includes('function pillMark') && !card.includes("'・表示指定成分'"));
   // カードから分けた成分の解説の枠も、同じモジュールを使う
   const detailPanel = readFileSync('src/components/chat/IngredientDetailPanel.tsx', 'utf8');
@@ -7800,7 +7842,8 @@ test('126. Fourth live review: raised 表示指定成分 get their own mark, so 
 
 test('127. Fifth live review: raised 表示指定成分 are outlined, not filled like 注 (2026-10-24)', async () => {
   const { readFileSync } = await import('node:fs');
-  const card = readFileSync('src/components/chat/IngredientAnalysisCard.tsx', 'utf8');
+  // 成分のボタンの色は FullIngredientList.tsx
+  const card = readFileSync('src/components/chat/FullIngredientList.tsx', 'utf8');
   const outlined = "if (ing.raisedForLabel) return 'bg-white text-amber-900 border-amber-400";
   // 「表」は白地に黄の枠（「注」は黄の塗り）。基準の外の判定より後なので、基準の外なら赤の枠のまま
   assert.ok(card.includes(outlined));
@@ -9156,7 +9199,7 @@ test('149. Shop candidates show the product name without listing extras or a rep
   assert.strictEqual(displayListingName('テスト [01]', 'テスト'), 'テスト [01]');
   assert.strictEqual(displayListingName('【公式】', ''), '【公式】');
   const { readFileSync } = await import('node:fs');
-  const tray = readFileSync('src/components/search/LiveSearchCandidateTray.tsx', 'utf8');
+  const tray = readFileSync('src/components/search/ShopProductSummary.tsx', 'utf8');
   assert.match(tray, /displayListingName\(product\.name, product\.brand\)/);
   // 代わりの商品のカードも同じ（owner request 2026-11-04）
   assert.match(readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8'), /isAlternatives \? displayListingName\(p\.name, p\.brand\)/);
@@ -9715,7 +9758,9 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
   for (const file of [
     'src/components/chat/ProductSuggestionCard.tsx',
     'src/components/search/LiveSearchCandidateTray.tsx',
-    'src/components/chat/IngredientAnalysisCard.tsx',
+    'src/components/search/ShopProductSummary.tsx',
+    'src/components/search/ScrollWithFade.tsx',
+    ...ANALYSIS_CARD_FILES,
     'src/components/chat/IngredientDetailPanel.tsx',
     'src/components/chat/useAIAnalysis.ts',
     'src/components/chat/useIngredientExplanation.ts',
@@ -9741,7 +9786,22 @@ test('158. Two lists: 肌荒れしたコスメ and 使えるコスメ (what is s
   // おすすめは、応答の後の最新の値で決める（押したときの描画の値ではない）
   assert.match(chat, /const latest = reminderStateRef\.current;/);
   assert.ok(chat.includes("'肌荒れしたコスメに移す'") && chat.includes("'使えるコスメから削除'"));
-  const sidebar = readFileSync('src/components/routine/RoutineSidebar.tsx', 'utf8');
+  // サイドバーと、そこから分けたコンポーネント（クリアのボタンは2つのリストの欄の中）
+  const sidebar = [
+    'RoutineSidebar',
+    'BadProductsSection',
+    'UsableProductsSection',
+    'RoutineImageButtons',
+    'DifferentialAction',
+    'SectionHeading',
+    'EmptyState',
+    'ProductRow',
+    'InUseSwitch',
+    'ClearButton',
+    'ChecklistItem',
+  ]
+    .map((f) => readFileSync(`src/components/routine/${f}.tsx`, 'utf8'))
+    .join('\n');
   assert.ok(sidebar.includes('肌荒れしたコスメのリストをクリア') && sidebar.includes('使えるコスメのリストをクリア'));
   assert.ok(!/>\s*クリア\s*</.test(sidebar), 'No unnamed 「クリア」');
   assert.match(chat, /choices=\{\[\{ label: 'クリアする', tone: 'danger', onSelect: \(\) => clearList\(clearTarget\) \}\]\}/);
