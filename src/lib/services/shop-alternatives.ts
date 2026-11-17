@@ -1,7 +1,7 @@
 import 'server-only';
 import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
-import { alternativeGate } from '../analyzer/alternative-gate';
+import { AlternativeGateReason, alternativeGateReason } from '../analyzer/alternative-gate';
 import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';
@@ -67,7 +67,61 @@ export interface ShopAlternativeResult {
   products: Product[];
   /** 表示するクレジット（使った API） */
   credits: PriceApiCredit[];
+  /** どこで候補が減ったかの数（ログ [alternatives] と scripts/eval-alternatives.mts。表示には使わない） */
+  counts: ShopSearchCounts;
 }
+
+/**
+ * お店の候補が外れた理由。otherKind: 別の種類 / notSingle: セット・まとめ売り・中古・試供品など / excluded: 勧めない製品 /
+ * noList: 読める成分表示も保存済みの製品も無い / suspect・irritant・standard・unrated: 確認（alternativeGateReason）/
+ * duplicate: 同じ製品がもう候補にある
+ */
+export type ShopDropReason =
+  | 'otherKind'
+  | 'notSingle'
+  | 'excluded'
+  | 'noList'
+  | 'suspect'
+  | 'irritant'
+  | 'standard'
+  | 'unrated'
+  | 'duplicate';
+
+/** 数と決まった語だけ（商品名・ブランド・JAN コード・URL・お店の文は入れない） */
+export interface ShopSearchCounts {
+  /** お店が返した商品の数 */
+  fetched: { rakuten: number; yahoo: number };
+  dropped: Record<ShopDropReason, number>;
+  /** 成分を確かめに進んだ候補の数 */
+  checked: number;
+  /** 確かめなかった候補の数（必要な数がそろった後・上限を超えた）。fetched は落とした数・checked・これの合計になる */
+  notChecked: number;
+  /** JAN コードで調べた数（有料のことがある） */
+  paidLookups: number;
+  shown: number;
+}
+
+function emptyCounts(): ShopSearchCounts {
+  return {
+    fetched: { rakuten: 0, yahoo: 0 },
+    dropped: { otherKind: 0, notSingle: 0, excluded: 0, noList: 0, suspect: 0, irritant: 0, standard: 0, unrated: 0, duplicate: 0 },
+    checked: 0,
+    notChecked: 0,
+    paidLookups: 0,
+    shown: 0,
+  };
+}
+
+/** 確認で外れた理由を、ログの理由に。確かめた全成分が無い・利用者の成分表示は「読める成分表示が無い」に数える */
+const GATE_DROP: Record<Exclude<AlternativeGateReason, 'ok'>, ShopDropReason> = {
+  kind: 'otherKind',
+  unverified: 'noList',
+  userLabel: 'noList',
+  standard: 'standard',
+  suspect: 'suspect',
+  irritant: 'irritant',
+  unrated: 'unrated',
+};
 
 /** お店の商品のブランド名（Yahoo! はブランドの欄、楽天は商品名にある一覧のブランド） */
 function brandOf(item: ShopItem, brands: IndexedBrand[]): string {
@@ -120,7 +174,8 @@ function withDeadline<T>(promise: Promise<T>): Promise<T | null> {
 }
 
 export async function findShopAlternatives(input: ShopAlternativeInput): Promise<ShopAlternativeResult> {
-  if (!isRakutenApiConfigured() && !isYahooApiConfigured()) return { status: 'unavailable', products: [], credits: [] };
+  const counts = emptyCounts();
+  if (!isRakutenApiConfigured() && !isYahooApiConfigured()) return { status: 'unavailable', products: [], credits: [], counts };
   const genre = GENRES[input.category];
   // お店に送るのは種類の名前と決まった語だけ
   const keyword = [CATEGORY_LABELS_JA[input.category], ...input.terms].join(' ');
@@ -128,7 +183,11 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     rakutenItemSearch(keyword, { caption: true, genreId: genre.rakuten }),
     yahooItemSearch(keyword, { genreCategoryId: genre.yahoo }),
   ]);
-  if (!rakuten && !yahoo) return { status: 'unavailable', products: [], credits: [] };
+  counts.fetched = { rakuten: rakuten?.length ?? 0, yahoo: yahoo?.length ?? 0 };
+  if (!rakuten && !yahoo) return { status: 'unavailable', products: [], credits: [], counts };
+  const drop = (reason: ShopDropReason) => {
+    counts.dropped[reason]++;
+  };
 
   const brands = buildBrandIndex(COSMETICS_DATABASE);
   const excludedKeys = input.exclude.map((p) => seriesKey(p.name)).filter((k) => k.length >= 4);
@@ -140,23 +199,33 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       if (!item) continue;
       const name = withoutListingNoise(item.name);
       const jan = normalJan(item.janCode);
-      if (NOT_SINGLE_ITEM.test(name)) continue;
+      if (NOT_SINGLE_ITEM.test(name)) {
+        drop('notSingle');
+        continue;
+      }
       // 別の種類（ジャンルが広い・名前が別の種類を言う）と、勧めない製品（同じ製品・同じシリーズ）は除く
       const kind = categoryFromText(name);
-      if (kind && kind !== input.category) continue;
-      if (jan && excludedJans.has(jan)) continue;
+      if (kind && kind !== input.category) {
+        drop('otherKind');
+        continue;
+      }
       const series = seriesKey(item.name);
-      if (series.length >= 4 && excludedKeys.some((k) => series.includes(k) || k.includes(series))) continue;
+      if ((jan && excludedJans.has(jan)) || (series.length >= 4 && excludedKeys.some((k) => series.includes(k) || k.includes(series)))) {
+        drop('excluded');
+        continue;
+      }
       items.push(item);
     }
   }
 
-  const passes = alternativeGate(input.avoid);
+  const gateReason = alternativeGateReason(input.avoid);
   const excludeIds = new Set(input.exclude.map((p) => p.id));
-  const ok = (p: Product) =>
-    !excludeIds.has(p.id) &&
-    !excludedJans.has(normalJan(p.barcode)) &&
-    passes(p, { category: input.category, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
+  /** 勧めてよければ null、だめなら理由 */
+  const rejection = (p: Product): ShopDropReason | null => {
+    if (excludeIds.has(p.id) || excludedJans.has(normalJan(p.barcode))) return 'excluded';
+    const reason = gateReason(p, { category: input.category, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
+    return reason === 'ok' ? null : GATE_DROP[reason];
+  };
   const found: { product: Product; item: ShopItem }[] = [];
   // 同じ製品は1つだけ（別のお店・別の容量・先頭の 0 の違う JAN コード）。確かめた後で比べる
   // （確かめられない同じ製品の出品が先にあっても、確かめられる出品を落とさない）
@@ -172,7 +241,13 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
         listingKey(f.item) === key ||
         (jan !== '' && normalJan(f.item.janCode) === jan)
     );
-    if (!duplicate) found.push({ product, item });
+    if (duplicate) drop('duplicate');
+    else found.push({ product, item });
+  };
+  const consider = (product: Product, item: ShopItem) => {
+    const reason = rejection(product);
+    if (reason) drop(reason);
+    else add(product, item);
   };
   const candidates = items.slice(0, MAX_CANDIDATES);
   // 1. 保存済みの確かめた製品（JAN コード）。KV はまとめて読む
@@ -180,35 +255,43 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const unchecked: ShopItem[] = [];
   for (const [idx, item] of candidates.entries()) {
     if (found.length >= input.limit) break;
+    counts.checked++;
     const saved = savedList[idx];
     if (saved) {
       // 出品者の書いた JAN コードは間違えていることがある。保存済みの製品の名前と、お店の商品名が合うときだけ
-      if (sameListing(saved, item) && ok(saved)) add(saved, item);
+      if (sameListing(saved, item)) consider(saved, item);
+      else drop('noList');
       continue;
     }
     // 2. 楽天の商品説明の全成分
     if (item.caption) {
       const label = await ingredientsFromCaption(item.caption);
       if (label) {
-        const product = shopListingProduct(item, brandOf(item, brands), label);
-        if (ok(product)) add(product, item);
+        consider(shopListingProduct(item, brandOf(item, brands), label), item);
         continue;
       }
     }
     if (item.janCode) unchecked.push(item);
+    else drop('noList');
   }
   // 3. まだ足りなければ、上位の JAN コードの商品を調べる（有料のことがある。必要な数だけ、並べて、時間の上限つき）。
   //    全員で共有してよい製品（信頼するサイト等）で、名前がお店の商品と合うものだけ
   const toLookup = input.allowPaidLookups
     ? unchecked.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - found.length)))
     : [];
+  counts.paidLookups = toLookup.length;
+  // 調べない JAN コードの商品は、成分を確かめられなかった
+  counts.dropped.noList += unchecked.length - toLookup.length;
   const looked = await Promise.all(toLookup.map((item) => withDeadline(lookupByBarcode(item.janCode!).catch(() => null))));
   looked.forEach((product, i) => {
-    if (product && isShareable(product) && sameListing(product, toLookup[i]) && ok(product)) add(product, toLookup[i]);
+    if (product && isShareable(product) && sameListing(product, toLookup[i])) consider(product, toLookup[i]);
+    else drop('noList');
   });
 
   const products = found.slice(0, input.limit).map(({ product, item }) => withShopInfo(product, item));
   const used = found.slice(0, input.limit).map(({ item }) => item.shopId);
   const credits: PriceApiCredit[] = (['rakuten', 'yahoo'] as const).filter((s) => used.includes(s));
-  return { status: 'ok', products, credits };
+  counts.notChecked = items.length - counts.checked;
+  counts.shown = products.length;
+  return { status: 'ok', products, credits, counts };
 }

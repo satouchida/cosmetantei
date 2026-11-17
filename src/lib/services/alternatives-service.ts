@@ -11,7 +11,7 @@ import {
   mostCommonCategory,
   productCategory,
 } from '../analyzer/product-category';
-import { findShopAlternatives } from './shop-alternatives';
+import { findShopAlternatives, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { productIdentityKey, ProductIdentity, registeredMatcher } from '../search/product-identity';
@@ -129,8 +129,11 @@ export function alternativeRequestFromProduct(product: Product): AlternativeRequ
   };
 }
 
-/** お店の検索語に足す決まった語（お店の商品名によく書かれる語だけ。多すぎると結果が減る） */
-function shopTerms(req: AlternativeRequest): string[] {
+/**
+ * お店の検索語に足す決まった語（お店の商品名によく書かれる語だけ。多すぎると結果が減る）。
+ * scripts/eval-alternatives.mts も、本番と同じ語で測るためにこれを使う
+ */
+export function shopTerms(req: Pick<AlternativeRequest, 'known'>): string[] {
   const terms = new Set<string>();
   for (const k of req.known) {
     if (k.category === 'fragrance' || k.category === 'essential_oil') terms.add('無香料');
@@ -170,7 +173,23 @@ export interface AlternativeResult {
  * 確認済み、同じ種類）をやり直す
  */
 export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_LIMIT): Promise<AlternativeResult> {
-  if (req.unknownKind) return { products: [], researched: false, credits: [] };
+  const terms = shopTerms(req);
+  let saved = 0;
+  let shopLog: AlternativesLog['shop'] = null;
+  const done = (result: AlternativeResult, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
+    logAlternatives({
+      kind: req.unknownKind ? 'unknown' : (req.category ?? 'any'),
+      // 確認で避けない成分（低刺激と判定済み）は数えない
+      avoid: req.avoid.filter((a) => !('riskLevel' in a) || a.riskLevel !== 'safe').length,
+      terms,
+      saved,
+      answeredBy,
+      shown: result.products.length,
+      shop: shopLog,
+    });
+    return result;
+  };
+  if (req.unknownKind) return done({ products: [], researched: false, credits: [] }, 'none');
   // 同じ製品がブランド表記違いで重複して登録されていることがあるため、多めに取って1件にまとめる
   const check = () => {
     const unique: Product[] = [];
@@ -184,7 +203,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     return unique.slice(0, limit);
   };
   const local = check();
-  if (local.length >= limit) return { products: local, researched: false, credits: [] };
+  saved = local.length;
+  if (local.length >= limit) return done({ products: local, researched: false, credits: [] }, 'saved');
 
   let shopProducts: Product[] = [];
   let credits: PriceApiCredit[] = [];
@@ -192,7 +212,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     const shop = await findShopAlternatives({
       category: req.category,
       avoid: req.avoid,
-      terms: shopTerms(req),
+      terms,
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
       limit: limit - local.length,
       allowPaidLookups: req.allowPaidLookups ?? true,
@@ -201,7 +221,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);
     shopProducts = shop.products.filter((p) => !isRegistered(p));
     credits = shop.credits;
-    if (local.length + shopProducts.length >= limit) return { products: [...local, ...shopProducts], researched: false, credits };
+    shopLog = { status: shop.status, ...shop.counts };
+    if (local.length + shopProducts.length >= limit) return done({ products: [...local, ...shopProducts], researched: false, credits }, 'shop');
   }
 
   // お店で足りない（キーが無い・失敗した・確かめられる商品が少ない）ときは、Web で候補を探してから確かめ直す。
@@ -212,8 +233,41 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   const keys = new Set(checked.map((p) => productIdentityKey(p.brand, p.name)));
   const extra = shopProducts.filter((p) => !checked.some((c) => c.id === p.id) && !keys.has(productIdentityKey(p.brand, p.name)));
   const products = [...checked, ...extra].slice(0, limit);
+  const fromShop = products.some((p) => extra.includes(p));
+  // 答えたのは、表示した製品を足した最後の段（Web で保存された製品 → お店 → もとから保存済み）
+  const answeredBy = products.some((p) => !extra.includes(p) && !local.some((l) => l.id === p.id))
+    ? 'web'
+    : fromShop
+      ? 'shop'
+      : products.length > 0
+        ? 'saved'
+        : 'none';
   // クレジットは、表示するお店の商品があるときだけ
-  return { products, researched: true, credits: products.some((p) => extra.includes(p)) ? credits : [] };
+  return done({ products, researched: true, credits: fromShop ? credits : [] }, answeredBy);
+}
+
+/**
+ * 1回の代わりの商品探しのログ（[alternatives]）。種類ごとに、どこで候補が減ったかを数えるため
+ * （docs/plans/alternative-search-improvements.md「Path 0」）。数と決まった語だけで、商品名・ブランド・JAN コード・
+ * URL・お店の文・利用者の文は出さない
+ */
+interface AlternativesLog {
+  /** unknown: 種類が分からず探さなかった / any: 種類を決めずに探した */
+  kind: AlternativeCategory | 'unknown' | 'any';
+  /** 避ける成分の数 */
+  avoid: number;
+  /** お店の検索語に足す決まった語（依頼から決まる。お店に聞かなかったときも出す） */
+  terms: string[];
+  /** 保存済みの製品から見つかった数 */
+  saved: number;
+  answeredBy: 'saved' | 'shop' | 'web' | 'none';
+  shown: number;
+  /** お店に聞かなかったときは null。shop.shown は、登録した製品を除く前の数 */
+  shop: ({ status: ShopAlternativeResult['status'] } & ShopSearchCounts) | null;
+}
+
+function logAlternatives(line: AlternativesLog): void {
+  console.log(`[alternatives] ${JSON.stringify(line)}`);
 }
 
 /** 返答で見せる、避けた成分の名前（最大3つ） */

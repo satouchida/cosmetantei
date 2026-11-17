@@ -52,11 +52,27 @@ export interface AlternativeGateOptions {
 }
 
 /**
+ * 確認の結果。ok 以外は、最初に外れた決まり（ログで、どこで候補が減ったかを数えるため）
+ * kind: 別の種類 / unverified: 全成分を確かめられない / userLabel: 利用者が入力した成分表示 /
+ * standard: 化粧品基準でこの種類に配合できない成分 / suspect: 避ける成分 / irritant: 強い刺激成分 /
+ * unrated: 評価できた成分が下限に満たない
+ */
+export type AlternativeGateReason = 'ok' | 'kind' | 'unverified' | 'userLabel' | 'standard' | 'suspect' | 'irritant' | 'unrated';
+
+/**
  * 避ける成分から、代わりの商品の確認を作る。含まない・強い刺激成分を含まない・同じ種類・全成分が確かめられている
  */
 export function alternativeGate(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
 ): (product: Product, options?: AlternativeGateOptions) => boolean {
+  const reason = alternativeGateReason(avoidCulprits);
+  return (product, options) => reason(product, options) === 'ok';
+}
+
+/** alternativeGate と同じ確認で、外れた理由を返す（決まりはここにだけ書く） */
+export function alternativeGateReason(
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
+): (product: Product, options?: AlternativeGateOptions) => AlternativeGateReason {
   // 避けるべき成分を「既知DBのID」と「日本語名・英語名」の両方で表す（英語INCI表記の製品にも対応）
   const avoidIds = new Set<string>();
   const avoidNames = new Set<string>();
@@ -74,11 +90,11 @@ export function alternativeGate(
 
   return (product, options = {}) => {
     // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
-    if (options.category && productCategory(product) !== options.category) return false;
+    if (options.category && productCategory(product) !== options.category) return 'kind';
     const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
-    if (!shopListing && !hasVerifiedIngredients(product)) return false;
+    if (!shopListing && !hasVerifiedIngredients(product)) return 'unverified';
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
-    if (product.ingredientSource === 'user_label') return false;
+    if (product.ingredientSource === 'user_label') return 'userLabel';
 
     const label = labelIngredients(product);
     // 日本の化粧品基準で、この種類の化粧品に配合できない成分（別表第1は全化粧品）。医薬部外品は対象外
@@ -88,13 +104,13 @@ export function alternativeGate(
       if (!product.isQuasiDrug) {
         const norm = normalizeIngredientName(raw);
         const standard = findStandardEntry(norm, abbreviateIngredientName(norm));
-        if (standard && standardNote(standard, useType).notAllowedHere) return false;
+        if (standard && standardNote(standard, useType).notAllowedHere) return 'standard';
       }
       const known = findMatchingKnownIngredient(raw);
-      if (known && avoidIds.has(known.id)) return false;
+      if (known && avoidIds.has(known.id)) return 'suspect';
       // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
       const rating = known ?? getOrGenerateIngredientExplanation(raw);
-      if (rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant') return false;
+      if (rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant') return 'irritant';
       if (rating.riskLevel !== 'unknown') rated++;
 
       const names = [normalizeIngredientName(raw)];
@@ -102,11 +118,11 @@ export function alternativeGate(
       // 名前の一部での一致は、成分DBで何の成分か分からない名前だけ（「フェノキシエタノール」は防腐剤で、
       // 「エタノール」を避けても除かない。DBで別の成分と分かる名前は、上の ID の照合で決める）
       for (const avoid of avoidNames) {
-        if (names.some((n) => n === avoid || (!known && n.includes(avoid)))) return false;
+        if (names.some((n) => n === avoid || (!known && n.includes(avoid)))) return 'suspect';
       }
     }
-    if (options.minRatedShare && label.length > 0 && rated / label.length < options.minRatedShare) return false;
-    return true;
+    if (options.minRatedShare && label.length > 0 && rated / label.length < options.minRatedShare) return 'unrated';
+    return 'ok';
   };
 }
 
