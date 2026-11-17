@@ -1,6 +1,6 @@
 # Plan: improving the alternatives search
 
-Written 2026-11-18. Status: Paths 0 and 1 done; Path 2 in progress; Paths 3 to 8 are plans for later.
+Written 2026-11-18. Status: Paths 0, 1 and 2 done (the owner's measurement runs are still to do); Paths 3 to 8 are plans for later.
 Why these paths: [alternative-search-quality.md](alternative-search-quality.md) (the report).
 Earlier work: [alternative-recommendations.md](alternative-recommendations.md).
 
@@ -153,6 +153,33 @@ Goal: for a mist, mists first. Ranking only; nothing is dropped for form.
   lists a mist before a gel when both pass); the keyword rule; no change in which products pass.
 
 Done when: the tests pass and the mist case orders correctly.
+
+Done 2026-11-17 (test 167):
+
+- `src/lib/analyzer/product-form.ts`: `formFromText`, `formProfile(text, kind)` (form; use face or
+  body, none for a name that says both; SPF, PA and ウォータープルーフ only for sunscreens),
+  `mostCommonForm` and `formSimilarity` (same form 100, same use 10, then 1 each for the same SPF
+  band (under 30 / 30 to 49 / 50 and over), the same PA level, and both waterproof). Only what
+  the analysed product says is compared. Word order is in a Japanese comment (オイルフリー and
+  ノンオイル are not oil; 化粧水, 保水, 防水 and ウォータープルーフ are not water).
+- Order everywhere: same sub-kind, then similarity, then (saved products only) 無香料 and
+  アルコールフリー as before. Stable sorts; nothing is dropped for form.
+- The request carries the form profile (never the name): from the analysed product's name, from
+  the text, or from the comparison list (the most common form among the 肌荒れしたコスメ of that
+  kind). The web research query is unchanged.
+- Shop keyword: one form word for sunscreen, cleanser and cream, only when the label does not
+  already say a form (so 乳液 and ハンドクリーム get none, and cream in practice gets none); it
+  replaces the second ingredient word. The log line's `terms` now shows the words actually sent.
+- Shop loop: when there is a sub-kind or a form profile to rank by, the free checks continue past
+  `limit` until `limit` best-possible candidates are found or `MAX_CANDIDATES` is reached; then a
+  stable sort and a cut to `limit`. No extra shop call; the paid step is unchanged. `checked`
+  includes the extra checks, and a new count `notShown` (passed but cut by rank) keeps the counts
+  adding up (`checked` = dropped after checking + `shown` + `notShown`). With nothing to rank by,
+  the loop stops at `limit` as before. The eval table has no `notShown` column (it searches with
+  no sub-kind or form, so it is always 0 there).
+- Unchanged for names with no sub-kind or form word: the same throwaway comparison as Path 1
+  gives identical output (counts identical apart from `notShown: 0`). Test 164 expects
+  `notShown: 0`.
 
 ## Measurements
 

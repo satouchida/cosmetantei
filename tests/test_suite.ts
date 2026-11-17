@@ -10258,6 +10258,8 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
         notChecked: 1,
         paidLookups: 0,
         shown: 3,
+        // 並べ替えるもの（下位の種類・形）が無いので、今までどおり3件で止める（Path 2）
+        notShown: 0,
       },
     });
 
@@ -10610,6 +10612,166 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
     assert.deepStrictEqual(Object.keys(parsed).slice(0, 2), ['kind', 'subKind']);
     assert.deepStrictEqual([parsed.kind, parsed.subKind, parsed.shop.dropped.otherKind], ['cleanser', 'makeup_remover', 2]);
     for (const text of [...rakutenNames, 'サブ', 'Gentle', 'クレンジングオイル', '洗顔フォーム']) assert.ok(!line.includes(text), `${text}: ${line}`);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetSpendCap();
+  }
+});
+
+test('167. Form and use: read from names, rank (never drop) saved and shop candidates, the shop form word (alternative-search-improvements.md Path 2)', async () => {
+  const { formFromText, formProfile, formSimilarity, mostCommonForm } = await import('../src/lib/analyzer/product-form');
+  const { findShopAlternatives, shopFormWord } = await import('../src/lib/services/shop-alternatives');
+  const { alternativeRequestFromProduct, alternativeRequestFromRoutine, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+
+  // 形（'-' は無し）
+  const forms: [string, string][] = [
+    ['ビオレUV アスリズム プロテクトミスト', 'mist'],
+    ['UVスプレー 全身用', 'mist'],
+    ['オイルミスト', 'mist'],
+    ['ミスト化粧水', 'mist'],
+    ['シートマスク 7枚入り', 'sheet'],
+    ['UVスティック', 'stick'],
+    ['キュレル 潤浸保湿 泡洗顔料', 'foam'],
+    ['ミノン アミノモイスト ジェントルウォッシュ ホイップ', 'foam'],
+    ['肌ラボ 極潤 クレンジングフォーム', 'foam'],
+    ['クレンジングバーム 90g', 'balm'],
+    ['ファンケル マイルドクレンジングオイル', 'oil'],
+    ['オイルフリー UVジェル', 'gel'],
+    ['ノンオイル 日焼け止め', '-'],
+    ['ジェル乳液', 'gel'],
+    ['アネッサ パーフェクトUV スキンケアミルク', 'milk'],
+    ['キュレル 潤浸保湿 乳液', 'milk'],
+    ['パウダー配合 UVミルク', 'milk'],
+    ['キュレル 潤浸保湿 フェイスクリーム', 'cream'],
+    ['保水クリーム', 'cream'],
+    ['UVパウダー', 'powder'],
+    ['アベンヌ ウオーター', 'water'],
+    ['ビフェスタ クレンジングウォーター', 'water'],
+    ['キュレル 潤浸保湿 化粧水 III', '-'],
+    ['ウォータープルーフ 日焼け止め', '-'],
+    ['ビオレUV アクアリッチ ウォータリーエッセンス', '-'],
+  ];
+  for (const [name, form] of forms) assert.strictEqual(formFromText(name) ?? '-', form, name);
+  // 使う場所と、日焼け止めの SPF・PA・ウォータープルーフ（ほかの種類では読まない）
+  assert.deepStrictEqual(formProfile('アネッサ UVジェル フェイス用 ＳＰＦ５０＋ ＰＡ＋＋＋＋ ウォータープルーフ', 'sunscreen'), { form: 'gel', use: 'face', spf: 50, pa: 4, waterproof: true });
+  assert.deepStrictEqual(formProfile('UVミルク ボディ用 SPF30 PA+++', 'sunscreen'), { form: 'milk', use: 'body', spf: 30, pa: 3 });
+  assert.deepStrictEqual(formProfile('顔・からだ用 日焼け止めミルク', 'sunscreen'), { form: 'milk' });
+  assert.deepStrictEqual(formProfile('UVリップ SPF20', 'lip'), {});
+  assert.deepStrictEqual(formProfile('やさしい化粧水', 'toner'), {});
+  // 近さ：形 → 使う場所 → SPF の帯・PA・ウォータープルーフ。分析した製品に書いていないことは比べない
+  const mistFace = formProfile('UVミスト 顔用 SPF50 PA++++', 'sunscreen');
+  const score = (name: string) => formSimilarity(mistFace, formProfile(name, 'sunscreen'));
+  assert.ok(score('UVスプレー') > score('UVジェル 顔用 SPF50 PA++++ ウォータープルーフ'), 'Form first');
+  assert.ok(score('UVジェル 顔用') > score('UVジェル SPF50 PA++++'), 'Then use');
+  assert.ok(score('UVジェル SPF50+') > score('UVジェル SPF30'), 'Then the SPF band');
+  assert.strictEqual(formSimilarity({}, formProfile('UVスプレー 顔用 SPF50', 'sunscreen')), 0);
+
+  // 保存済みの製品：ミストを分析したら、確認を通ったミストをジェルより先に。形で外すものは無い
+  const sun = (id: string, name: string, extra: Partial<Product> = {}) =>
+    verifiedProduct({ id: `form_${id}`, brand: `カタチ${id}`, name, category: 'sunscreen', ingredients: ['水', 'BG', 'グリセリン'], ...extra });
+  const pool = [
+    sun('gel', 'カタチA UVジェル', { fragranceFree: true, alcoholFree: true }),
+    sun('milk', 'カタチB UVミルク', { fragranceFree: true, alcoholFree: false }),
+    sun('spray', 'カタチC UVスプレー', { fragranceFree: false, alcoholFree: false }),
+  ];
+  COSMETICS_DATABASE.unshift(...pool);
+  try {
+    const mine = (ps: Product[]) => ps.map((p) => p.id).filter((id) => id.startsWith('form_'));
+    const mistName = 'ビオレUV アスリズム プロテクトミスト';
+    const profile = formProfile(mistName, 'sunscreen');
+    const ranked = mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'sunscreen', profile }));
+    assert.deepStrictEqual(ranked, ['form_spray', 'form_gel', 'form_milk']);
+    // 形が無ければ今までどおり（無香料・アルコールフリーの順）。どちらも同じ製品が通る
+    const today = mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'sunscreen' }));
+    assert.deepStrictEqual(today, ['form_gel', 'form_milk', 'form_spray']);
+    assert.deepStrictEqual([...ranked].sort(), [...today].sort());
+    // 分析カード（analyzeProduct）でも、ミストが先
+    const mist = verifiedProduct({ id: 'form_analysed_mist', brand: 'ビオレ', name: mistName, category: 'sunscreen', ingredients: ['水', 'エタノール', '香料'], ingredientSource: 'web_page', sourceUrl: 'https://www.kao.co.jp/m/' });
+    const card = mine(analyzeProduct(mist).safeAlternatives ?? []);
+    assert.strictEqual(card[0], 'form_spray', JSON.stringify(card));
+    // 依頼：分析した製品の名前から形を読む（名前そのものは持たない）。比較リストは肌荒れしたコスメに多い形
+    const req = alternativeRequestFromProduct(mist);
+    assert.deepStrictEqual(req.profile, { form: 'mist' });
+    assert.ok(!JSON.stringify(req.profile).includes('アスリズム'));
+    const bads = [sun('bad1', 'ワルA UVスプレー'), sun('bad2', 'ワルB UVミスト'), sun('bad3', 'ワルC UVジェル')];
+    assert.strictEqual(mostCommonForm(bads, 'sunscreen'), 'mist');
+    assert.strictEqual(mostCommonForm(bads.slice(1), 'sunscreen'), undefined, 'A tie gives no form');
+    assert.deepStrictEqual(alternativeRequestFromRoutine({ currentlyUsing: [], badProducts: bads, safeProducts: [] })?.profile, { form: 'mist' });
+  } finally {
+    for (const p of pool) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.findIndex((x) => x.id === p.id), 1);
+  }
+
+  // 形の語：日焼け止め・洗顔料・クリームだけ。探す名前が形を言っていれば足さない
+  assert.strictEqual(shopFormWord('sunscreen', undefined, 'mist'), 'ミスト');
+  assert.strictEqual(shopFormWord('cleanser', 'makeup_remover', 'oil'), 'オイル');
+  assert.strictEqual(shopFormWord('cleanser', 'face_wash', 'foam'), '泡');
+  assert.strictEqual(shopFormWord('cream', 'milk', 'milk'), undefined, '「乳液」already says the form');
+  assert.strictEqual(shopFormWord('cream', 'hand', 'gel'), undefined, '「ハンドクリーム」already says the form');
+  assert.strictEqual(shopFormWord('toner', undefined, 'mist'), undefined, 'Not a kind where sellers write the form');
+  assert.strictEqual(shopFormWord('sunscreen', undefined, undefined), undefined);
+
+  // お店：ミストを探す。検索語は種類の名前と決まった語2つまで（形の語は成分の語の2つ目と入れ替える）。
+  // ミストが後で見つかっても、無料の確かめを続けて先に出す。数は本当のまま（checked・shown・notShown）
+  const extras = ['セラミドNP', 'ヒアルロン酸Na', 'トレハロース', 'キサンタンガム'];
+  const caption = (i: number) =>
+    `説明です。<br>【全成分】<br>水、BG、グリセリン、ベタイン、スクワラン、ペンチレングリコール、${extras[i % extras.length]}、フェノキシエタノール<br>【使用方法】適量`;
+  const rakutenNames = ['カタチD UVジェル', 'カタチE UVミルク', 'カタチF UVジェル しっとり', 'カタチG UVスプレー', 'カタチH UV 3個セット'];
+  const requests: URL[] = [];
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const logs: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    requests.push(url);
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({ items: rakutenNames.map((itemName, i) => ({ itemName, itemCode: `fm:${i}`, itemUrl: `https://item.rakuten.co.jp/fm/${i}/`, availability: 1, itemCaption: caption(i) })) });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') return Response.json({ hits: [] });
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    delete process.env.RAKUTEN_AFFILIATE_ID;
+    resetSpendCap();
+    const base = { category: 'sunscreen' as const, avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 3, allowPaidLookups: true };
+    const plain = await findShopAlternatives(base);
+    assert.deepStrictEqual(plain.products.map((p) => p.id), ['shoptext_rakuten_fm:0', 'shoptext_rakuten_fm:1', 'shoptext_rakuten_fm:2']);
+    assert.deepStrictEqual([plain.counts.checked, plain.counts.notChecked, plain.counts.shown, plain.counts.notShown, plain.counts.paidLookups], [3, 1, 3, 0, 0]);
+    const ranked = await findShopAlternatives({ ...base, profile: { form: 'mist' } });
+    assert.deepStrictEqual(ranked.products.map((p) => p.id), ['shoptext_rakuten_fm:3', 'shoptext_rakuten_fm:0', 'shoptext_rakuten_fm:1']);
+    assert.deepStrictEqual([ranked.counts.checked, ranked.counts.notChecked, ranked.counts.shown, ranked.counts.notShown, ranked.counts.paidLookups], [4, 0, 3, 1, 0]);
+    assert.strictEqual(ranked.counts.dropped.notSingle, 1);
+    // 同じお店の呼び出しの数（1回ずつ）。JAN コードの調べものは無い
+    assert.deepStrictEqual(requests.map((u) => u.hostname).sort(), ['openapi.rakuten.co.jp', 'openapi.rakuten.co.jp', 'shopping.yahooapis.jp', 'shopping.yahooapis.jp']);
+
+    // 依頼から：お店に送るのは「日焼け止め 無香料 ミスト」（アルコールフリーと入れ替え）。ログの terms も同じ
+    console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+    requests.length = 0;
+    const fragrance = findMatchingKnownIngredient('香料')!;
+    const ethanol = findMatchingKnownIngredient('エタノール')!;
+    const result = await findAlternatives({
+      avoid: [{ nameJa: '香料' }, { nameJa: 'エタノール' }],
+      known: [fragrance, ethanol],
+      category: 'sunscreen',
+      profile: { form: 'mist' },
+      excludeIds: COSMETICS_DATABASE.map((p) => p.id),
+    });
+    assert.strictEqual(requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!.searchParams.get('keyword'), '日焼け止め 無香料 ミスト');
+    assert.strictEqual(requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!.searchParams.get('genreId'), '503054');
+    assert.strictEqual(result.products[0].id, 'shoptext_rakuten_fm:3');
+    const line = JSON.parse(logs.find((l) => l.startsWith('[alternatives] '))!.slice('[alternatives] '.length));
+    assert.deepStrictEqual([line.terms, line.shop.checked, line.shop.shown, line.shop.notShown], [['無香料', 'ミスト'], 4, 3, 1]);
+    for (const text of [...rakutenNames, 'カタチ']) assert.ok(!JSON.stringify(line).includes(text), text);
   } finally {
     console.log = originalLog;
     globalThis.fetch = originalFetch;

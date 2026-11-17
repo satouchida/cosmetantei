@@ -3,6 +3,7 @@ import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
 import { AlternativeGateReason, alternativeGateReason } from '../analyzer/alternative-gate';
 import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
+import { bestFormSimilarity, FormProfile, formFromText, formProfile, formSimilarity, hasFormProfile, ProductForm } from '../analyzer/product-form';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
@@ -73,6 +74,32 @@ function shopSearchFor(category: AlternativeCategory, subKind: SubKind | undefin
   return bySubKind ?? { label: CATEGORY_LABELS_JA[category], genre: GENRES[category] };
 }
 
+/** 検索語に足す形の語（お店の商品名によく書かれる言い方） */
+const FORM_SEARCH_WORDS: Record<ProductForm, string> = {
+  mist: 'ミスト',
+  sheet: 'シート',
+  stick: 'スティック',
+  foam: '泡',
+  balm: 'バーム',
+  oil: 'オイル',
+  gel: 'ジェル',
+  milk: 'ミルク',
+  cream: 'クリーム',
+  powder: 'パウダー',
+  water: 'ウォーター',
+};
+/** 出品者が商品名に形を書く種類（docs/plans/alternative-search-improvements.md「Path 2」） */
+const FORM_SEARCH_KINDS: ReadonlySet<AlternativeCategory> = new Set(['sunscreen', 'cleanser', 'cream']);
+
+/**
+ * お店の検索語に足す形の語。形を書く種類で、探す名前（「乳液」「ハンドクリーム」等）がまだ形を言っていないときだけ
+ * （「乳液 クリーム」のように食い違う語で結果を減らさない）
+ */
+export function shopFormWord(category: AlternativeCategory, subKind: SubKind | undefined, form: ProductForm | undefined): string | undefined {
+  if (!form || !FORM_SEARCH_KINDS.has(category)) return undefined;
+  return formFromText(shopSearchFor(category, subKind).label) ? undefined : FORM_SEARCH_WORDS[form];
+}
+
 /** 確かめる候補の数の上限（お店の商品の数） */
 const MAX_CANDIDATES = 30;
 /** JAN コードで製品を調べる（有料のことがある）候補の数 */
@@ -84,6 +111,8 @@ export interface ShopAlternativeInput {
   category: AlternativeCategory;
   /** 分析した製品の下位の種類（無ければ今までどおり。ハンド・からだ用などの候補は外す） */
   subKind?: SubKind;
+  /** 分析した製品の形・使う場所（並べ替えにだけ使う。形で候補を外さない） */
+  profile?: FormProfile;
   avoid: (CulpritIngredient | { nameJa: string; nameEn?: string })[];
   /** 検索語に足す決まった語（「無香料」「アルコールフリー」「ノンケミカル」など） */
   terms: string[];
@@ -130,11 +159,19 @@ export interface ShopSearchCounts {
   dropped: Record<ShopDropReason, number>;
   /** 成分を確かめに進んだ候補の数 */
   checked: number;
-  /** 確かめなかった候補の数（必要な数がそろった後・上限を超えた）。fetched は落とした数・checked・これの合計になる */
+  /**
+   * 確かめなかった候補の数（必要な数がそろった後・上限を超えた）。fetched は、確かめる前に落とした数（otherKind・notSingle・
+   * excluded）・checked・これの合計になる
+   */
   notChecked: number;
   /** JAN コードで調べた数（有料のことがある） */
   paidLookups: number;
   shown: number;
+  /**
+   * 確認は通ったが、下位の種類・形のより近い候補が limit 件あったので出さなかった数（近い候補を探して確かめ続けたとき）。
+   * checked は、確かめた後に落とした数・shown・これの合計になる
+   */
+  notShown: number;
 }
 
 function emptyCounts(): ShopSearchCounts {
@@ -145,6 +182,7 @@ function emptyCounts(): ShopSearchCounts {
     notChecked: 0,
     paidLookups: 0,
     shown: 0,
+    notShown: 0,
   };
 }
 
@@ -286,12 +324,25 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     if (reason) drop(reason);
     else add(product, item);
   };
+  // 並べ替えの順位：同じ下位の種類が先（名前で分からない候補は後）、次に形・使う場所の近さ（product-form.ts）
+  const profile = hasFormProfile(input.profile) ? input.profile : undefined;
+  const rank = ({ item }: { item: ShopItem }) => {
+    const name = withoutListingNoise(item.name);
+    const sameSubKind = subKindFit(input.subKind, subKindFromText(input.category, name)) === 'same';
+    return (sameSubKind ? 1000 : 0) + (profile ? formSimilarity(profile, formProfile(name, input.category)) : 0);
+  };
+  // 並べ替えるものが無ければ、今までどおり limit 件そろったら止める。あれば、いちばん近い候補が limit 件そろうまで、
+  // 無料の確かめ（保存済みの製品・楽天の説明）を MAX_CANDIDATES まで続ける（有料の調べものは増やさない）
+  const ranks = input.subKind !== undefined || profile !== undefined;
+  const best = (input.subKind ? 1000 : 0) + (profile ? bestFormSimilarity(profile) : 0);
+  const enough = () =>
+    found.length >= input.limit && (!ranks || found.filter((f) => rank(f) === best).length >= input.limit);
   const candidates = items.slice(0, MAX_CANDIDATES);
   // 1. 保存済みの確かめた製品（JAN コード）。KV はまとめて読む
   const savedList = await Promise.all(candidates.map((i) => (i.janCode ? findSavedByBarcode(i.janCode).catch(() => null) : null)));
   const unchecked: ShopItem[] = [];
   for (const [idx, item] of candidates.entries()) {
-    if (found.length >= input.limit) break;
+    if (enough()) break;
     counts.checked++;
     const saved = savedList[idx];
     if (saved) {
@@ -325,14 +376,13 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     else drop('noList');
   });
 
-  // 同じ下位の種類を先に（名前で分からない候補は後に。並べ替えは安定なので、同じなら見つけた順）
-  const sameSubKind = ({ item }: { item: ShopItem }) =>
-    subKindFit(input.subKind, subKindFromText(input.category, withoutListingNoise(item.name))) === 'same' ? 1 : 0;
-  const shown = found.sort((a, b) => sameSubKind(b) - sameSubKind(a)).slice(0, input.limit);
+  // 近い順に（並べ替えは安定なので、同じなら見つけた順）。limit 件より後は出さない
+  const shown = found.sort((a, b) => rank(b) - rank(a)).slice(0, input.limit);
   const products = shown.map(({ product, item }) => withShopInfo(product, item));
   const used = shown.map(({ item }) => item.shopId);
   const credits: PriceApiCredit[] = (['rakuten', 'yahoo'] as const).filter((s) => used.includes(s));
   counts.notChecked = items.length - counts.checked;
   counts.shown = products.length;
+  counts.notShown = found.length - shown.length;
   return { status: 'ok', products, credits, counts };
 }

@@ -3,6 +3,7 @@ import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredie
 import { normalizeIngredientName } from '../utils/ingredient-name';
 import { findPairFindings, PairContext } from './pair-rules';
 import { mostCommonCategory, mostCommonSubKind } from './product-category';
+import { mostCommonForm } from './product-form';
 import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { findSafeAlternatives } from './alternative-gate';
 import {
@@ -61,6 +62,7 @@ export function performDifferentialAnalysis(
     ? findSafeAlternatives(culprits, [...badProducts, ...safeProducts, ...otherRegistered], 3, {
         category,
         subKind: mostCommonSubKind(badProducts, category),
+        profile: { form: mostCommonForm(badProducts, category) },
       })
     : [];
 

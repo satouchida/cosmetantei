@@ -5,6 +5,7 @@ import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredie
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
 import { productCategory, SubKind, subKindFit, subKindFromText } from './product-category';
+import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';
 import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { AnalyzedIngredient, CulpritIngredient, Product } from '../types';
 
@@ -146,7 +147,8 @@ export function findSafeAlternatives(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
   excluded: readonly (string | ProductIdentity)[] = [],
   limit = 3,
-  options: Pick<AlternativeGateOptions, 'category' | 'subKind'> = {}
+  /** profile: 分析した製品の形・使う場所（並べ替えにだけ使う。product-form.ts） */
+  options: Pick<AlternativeGateOptions, 'category' | 'subKind'> & { profile?: FormProfile } = {}
 ): Product[] {
   const passes = alternativeGate(avoidCulprits);
   const excludedIds = new Set(excluded.filter((e): e is string => typeof e === 'string'));
@@ -159,15 +161,17 @@ export function findSafeAlternatives(
       !isExcluded(product)
   );
 
-  // 同じ下位の種類を先に（名前で分からない候補は後に）。その中で無香料・アルコールフリーを優先する。医薬部外品であることは
-  // 有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
-  const sameSubKind = (p: Product) =>
-    options.category && subKindFit(options.subKind, candidateSubKind(p, options.category)) === 'same' ? 1 : 0;
+  // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの。その中で無香料・アルコールフリーを
+  // 優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
+  const { category, profile } = options;
+  const sameSubKind = (p: Product) => (category && subKindFit(options.subKind, candidateSubKind(p, category)) === 'same' ? 1 : 0);
+  const similarity = (p: Product) =>
+    hasFormProfile(profile) ? formSimilarity(profile, formProfile(p.name, category === 'other' ? undefined : category)) : 0;
   return safeItems
     .sort((a, b) => {
       const scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0);
       const scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0);
-      return sameSubKind(b) - sameSubKind(a) || scoreB - scoreA;
+      return sameSubKind(b) - sameSubKind(a) || similarity(b) - similarity(a) || scoreB - scoreA;
     })
     .slice(0, limit);
 }

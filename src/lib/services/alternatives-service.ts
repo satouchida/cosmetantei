@@ -15,7 +15,8 @@ import {
   SubKind,
   subKindFromText,
 } from '../analyzer/product-category';
-import { findShopAlternatives, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
+import { FormProfile, formProfile, mostCommonForm } from '../analyzer/product-form';
+import { findShopAlternatives, shopFormWord, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { productIdentityKey, ProductIdentity, registeredMatcher } from '../search/product-identity';
@@ -38,6 +39,8 @@ export interface AlternativeRequest {
   category?: AlternativeCategory;
   /** 種類の中の下位の種類（クレンジング・乳液・ハンドクリーム等）。名前・文章の語から。無ければ今までどおり */
   subKind?: SubKind;
+  /** 形・使う場所（ミスト・顔用・SPF 等。名前・文章の語から。並べ替えとお店の検索語に使う。名前そのものは持たない） */
+  profile?: FormProfile;
   /** 比較リストから作ったが、肌荒れしたコスメの種類が分からない（同数・不明）。別の種類を勧めないよう探さない */
   unknownKind?: boolean;
   /** 候補から除く製品の ID（分析した製品・比較リストに登録した製品） */
@@ -62,7 +65,14 @@ export function alternativeRequestFromText(text: string): AlternativeRequest | n
   const category = categoryFromText(text);
   if (known.length === 0 && !category) return null;
   const subKind = subKindFromText(category, text);
-  return { avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })), known, category, ...(subKind && { subKind }), excludeIds: [] };
+  return {
+    avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })),
+    known,
+    category,
+    ...(subKind && { subKind }),
+    profile: formProfile(text, category),
+    excludeIds: [],
+  };
 }
 
 const NEGATION = /入っていない|入ってない|入らない|含まない|含まれていない|不使用|フリー|free|なし|無し|ゼロ|抜き/;
@@ -105,11 +115,14 @@ export function alternativeRequestFromRoutine(routine: UserRoutineState | undefi
   }
   const category = mostCommonCategory(routine.badProducts);
   const subKind = mostCommonSubKind(routine.badProducts, category);
+  // 形は肌荒れしたコスメに多い形だけ（使う場所・SPF は比べない）
+  const form = mostCommonForm(routine.badProducts, category);
   return {
     avoid: diff.culprits,
     known,
     category,
     ...(subKind && { subKind }),
+    ...(form && { profile: { form } }),
     // 登録した製品（肌荒れした・使えるコスメ）は勧めない
     excludeIds: registered.map((p) => p.id),
     excludeProducts: registered,
@@ -135,6 +148,7 @@ export function alternativeRequestFromProduct(product: Product): AlternativeRequ
     known,
     category,
     ...(subKind && { subKind }),
+    profile: formProfile(product.name, category),
     ...(!category && { unknownKind: true }),
     excludeIds: [product.id],
     excludeProducts: [product],
@@ -153,6 +167,16 @@ export function shopTerms(req: Pick<AlternativeRequest, 'known'>): string[] {
     else if (k.category === 'uv_filter') terms.add('ノンケミカル');
   }
   return [...terms].slice(0, 2);
+}
+
+/**
+ * お店に送る決まった語。成分の語（shopTerms）と、形の語（日焼け止め・洗顔料・クリームで、検索の名前に形が無いとき）。
+ * 合わせて2つまでで、形の語は成分の語の2つ目と入れ替える
+ */
+function shopWordsFor(req: AlternativeRequest): string[] {
+  const terms = shopTerms(req);
+  const form = req.category && shopFormWord(req.category, req.subKind, req.profile?.form);
+  return form ? [...terms.slice(0, 1), form] : terms;
 }
 
 /** 検索語の中の成分の言い方（「無香料」「アルコールフリー」「〇〇不使用」） */
@@ -185,7 +209,7 @@ export interface AlternativeResult {
  * 確認済み、同じ種類）をやり直す
  */
 export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_LIMIT): Promise<AlternativeResult> {
-  const terms = shopTerms(req);
+  const terms = shopWordsFor(req);
   let saved = 0;
   let shopLog: AlternativesLog['shop'] = null;
   const done = (result: AlternativeResult, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
@@ -207,7 +231,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   const check = () => {
     const unique: Product[] = [];
     const seen = new Set<string>();
-    const options = { category: req.category, subKind: req.subKind };
+    const options = { category: req.category, subKind: req.subKind, profile: req.profile };
     for (const p of findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], limit * 4, options)) {
       const key = productIdentityKey(p.brand, p.name);
       if (seen.has(key)) continue;
@@ -226,6 +250,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     const shop = await findShopAlternatives({
       category: req.category,
       subKind: req.subKind,
+      profile: req.profile,
       avoid: req.avoid,
       terms,
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
@@ -273,7 +298,7 @@ interface AlternativesLog {
   subKind: SubKind | null;
   /** 避ける成分の数 */
   avoid: number;
-  /** お店の検索語に足す決まった語（依頼から決まる。お店に聞かなかったときも出す） */
+  /** お店の検索語に足す決まった語（成分の語と形の語。依頼から決まる。お店に聞かなかったときも出す） */
   terms: string[];
   /** 保存済みの製品から見つかった数 */
   saved: number;
@@ -306,8 +331,8 @@ export function alternativeRequest(text: string, routine: UserRoutineState | und
   const fromRoutine = alternativeRequestFromRoutine(routine);
   if (fromRoutine) {
     // 文章で種類を指定されたら、下位の種類も文章から（「ハンドクリームで探して」）
-    const { category, subKind } = fromText?.category ? fromText : fromRoutine;
-    return { ...fromRoutine, category, subKind, ...(!category && { unknownKind: true }) };
+    const { category, subKind, profile } = fromText?.category ? fromText : fromRoutine;
+    return { ...fromRoutine, category, subKind, profile, ...(!category && { unknownKind: true }) };
   }
   return fromText;
 }

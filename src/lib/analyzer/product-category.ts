@@ -79,7 +79,7 @@ export function productCategory(product: Pick<Product, 'category' | 'name'>): Al
 }
 
 /** いちばん多い値。どれも無い・同数で決まらなければ undefined */
-function mostCommon<T>(values: (T | undefined)[]): T | undefined {
+export function mostCommon<T>(values: (T | undefined)[]): T | undefined {
   const counts = new Map<T, number>();
   for (const v of values) if (v !== undefined) counts.set(v, (counts.get(v) ?? 0) + 1);
   const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -116,9 +116,9 @@ export type SubKind =
   | 'wipe_off';
 
 /** からだ用の語で、顔の語が無い（「顔・からだ用」「フェイス&ボディ」は顔にも使うので、からだ用にしない） */
-const BODY_ONLY = /^(?!.*(顔|フェイス|フェイシャル)).*(ボディ|からだ用|体用|全身用)/;
+export const BODY_ONLY = /^(?!.*(顔|フェイス|フェイシャル)).*(ボディ|からだ用|体用|全身用)/;
 /** 顔用の語で、からだの語が無い */
-const FACE_ONLY = /^(?!.*(ボディ|からだ用|体用|全身用)).*(顔用|フェイス|フェイシャル)/;
+export const FACE_ONLY = /^(?!.*(ボディ|からだ用|体用|全身用)).*(顔用|フェイス|フェイシャル)/;
 
 /**
  * 種類ごとの、下位の種類の語（先に一致したものを使う。どれも無ければ下位の種類なし）
