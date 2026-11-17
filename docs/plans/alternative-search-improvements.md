@@ -326,6 +326,26 @@ name contains the other. The log line carries both through the shop counts; the 
 `janSet`, `janName`, `janNameLoose`, `janVariant`, `janNoCaption` and `janNoList` between `janSameJan`
 and `janFound`. Tests 164, 165, 173 and 174 now expect the new fields.
 
+### 2026-11-18, fourth run, with the breakdown (commit `5b395b3`)
+
+Same 30 cases. 46 of 90 shown (noise around the 44 to 46 of the last three runs).
+
+| Yahoo! items looked up on Rakuten | 55 |
+|---|---|
+| no listing with the same JAN code | 25 |
+| same JAN code, but a set | 0 |
+| same JAN code, but the names do not agree | **17** (3 would agree without shop decorations) |
+| same JAN code, but different variant words | 3 |
+| same JAN code, but no caption | 0 |
+| same JAN code, but no readable list | 6 |
+| used | 4 |
+
+What it shows: the name check is the main loss (17 of 30 same-JAN listings), and shop
+decorations explain only 3 of them. The other 14 are names that differ in words, not in brackets
+(for example word order, a line name added on one side). Two sellers writing the same JAN code is
+already strong evidence of the same product; the open choice is how much name agreement to require
+on top of it (see the reply of 2026-11-18).
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
