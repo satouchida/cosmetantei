@@ -214,7 +214,82 @@ searched as 「ボディソープ」 without a genre. Test 169.
 
 ## Measurements
 
-(the owner's runs of `scripts/eval-alternatives.mts` go here, dated)
+### 2026-11-18, after Paths 0 to 2 and the cleanser rule (commit `e413473`)
+
+Run by the owner against the real shops: 30 cases, limit 3 (one button press), paid lookups off.
+There is no "before" run, so this is the baseline for Paths 3 to 8, not a before/after comparison.
+
+| kind | subKind | avoid | terms | rakuten | yahoo | otherKind | notSingle | noList | suspect | irritant | unrated | checked | notChecked | shown |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| cleanser | - | 香料 | 無香料 | 30 | 24 | 6 | 9 | 27 | 0 | 2 | 0 | 30 | 9 | 1 |
+| cleanser | - | エタノール | アルコールフリー | 30 | 26 | 3 | 5 | 29 | 0 | 1 | 0 | 30 | 18 | 0 |
+| cleanser | - | フェノキシエタノール | - | 30 | 29 | 2 | 4 | 24 | 1 | 4 | 0 | 30 | 23 | 1 |
+| toner | - | 香料 | 無香料 | 30 | 29 | 3 | 7 | 27 | 0 | 1 | 0 | 30 | 19 | 2 |
+| toner | - | エタノール | アルコールフリー | 30 | 29 | 0 | 7 | 28 | 0 | 0 | 2 | 30 | 22 | 0 |
+| toner | - | フェノキシエタノール | - | 30 | 28 | 4 | 5 | 29 | 0 | 1 | 0 | 30 | 19 | 0 |
+| serum | - | 香料 | 無香料 | 30 | 26 | 4 | 6 | 27 | 1 | 0 | 1 | 30 | 17 | 0 |
+| serum | - | エタノール | アルコールフリー | 30 | 27 | 5 | 3 | 30 | 0 | 0 | 0 | 30 | 19 | 0 |
+| serum | - | フェノキシエタノール | - | 30 | 29 | 2 | 2 | 28 | 1 | 1 | 0 | 30 | 25 | 0 |
+| cream | - | 香料 | 無香料 | 30 | 30 | 3 | 10 | 29 | 0 | 0 | 0 | 30 | 17 | 1 |
+| cream | - | エタノール | アルコールフリー | 30 | 21 | 1 | 5 | 26 | 0 | 3 | 0 | 30 | 15 | 1 |
+| cream | - | フェノキシエタノール | - | 30 | 29 | 3 | 4 | 26 | 1 | 3 | 0 | 30 | 22 | 0 |
+| sunscreen | - | 香料 | 無香料 | 30 | 26 | 3 | 11 | 25 | 0 | 2 | 1 | 30 | 12 | 2 |
+| sunscreen | - | エタノール | アルコールフリー | 30 | 23 | 0 | 8 | 26 | 0 | 4 | 0 | 30 | 15 | 0 |
+| sunscreen | - | フェノキシエタノール | - | 30 | 28 | 1 | 1 | 26 | 0 | 4 | 0 | 30 | 26 | 0 |
+| mask | - | 香料 | 無香料 | 30 | 22 | 10 | 11 | 25 | 0 | 2 | 1 | 30 | 1 | 2 |
+| mask | - | エタノール | アルコールフリー | 30 | 27 | 15 | 5 | 29 | 0 | 1 | 0 | 30 | 7 | 0 |
+| mask | - | フェノキシエタノール | - | 30 | 29 | 9 | 9 | 29 | 0 | 1 | 0 | 30 | 11 | 0 |
+| lip | - | 香料 | 無香料 | 30 | 27 | 5 | 18 | 24 | 0 | 4 | 0 | 30 | 5 | 1 |
+| lip | - | エタノール | アルコールフリー | 29 | 25 | 2 | 8 | 27 | 0 | 1 | 0 | 30 | 14 | 2 |
+| lip | - | フェノキシエタノール | - | 30 | 29 | 10 | 3 | 22 | 0 | 3 | 1 | 30 | 18 | 2 |
+| foundation | - | 香料 | 無香料 | 30 | 29 | 1 | 2 | 13 | 0 | 1 | 0 | 17 | 39 | 3 |
+| foundation | - | エタノール | アルコールフリー | 29 | 20 | 1 | 3 | 30 | 0 | 0 | 0 | 30 | 15 | 0 |
+| foundation | - | フェノキシエタノール | - | 30 | 30 | 2 | 1 | 28 | 0 | 0 | 1 | 30 | 27 | 1 |
+| cleanser | makeup_remover | 香料 | 無香料 | 30 | 28 | 0 | 6 | 5 | 0 | 0 | 0 | 8 | 44 | 3 |
+| cream | milk | 香料 | 無香料 | 30 | 25 | 9 | 5 | 1 | 0 | 0 | 0 | 4 | 37 | 3 |
+| cream | hand | 香料 | 無香料 | 30 | 25 | 2 | 9 | 17 | 0 | 4 | 0 | 24 | 20 | 3 |
+| sunscreen | body | 香料 | 無香料 | 30 | 7 | 28 | 5 | 3 | 0 | 1 | 0 | 4 | 0 | 0 |
+| lip | lip_care | 香料 | 無香料 | 30 | 24 | 4 | 14 | 26 | 0 | 1 | 0 | 30 | 6 | 3 |
+| mask | sheet | 香料 | 無香料 | 30 | 22 | 12 | 20 | 19 | 0 | 0 | 1 | 20 | 0 | 0 |
+| all | | | | 898 | 773 | 150 | 206 | 705 | 4 | 45 | 8 | 797 | 522 | 31 |
+
+Columns that were 0 in every row are left out (`excluded`, `standard`, `duplicate`, `notShown`,
+`paid`).
+
+What it shows:
+
+- **31 shown of a possible 90.** 13 of 30 cases show nothing; 7 show all three.
+- **The loss is the missing ingredient list, not the gate.** Of 797 candidates checked, 705 (88%)
+  had no readable list and no saved product. The gate itself rejected 57 (45 for another irritant,
+  4 for the suspect, 8 for too many unrated names).
+- **The irritant rule is not the main limit in this run** (45 of 797), against what the report
+  expected. It may matter more once more lists can be read.
+- **Sub-kind searches do well where a checked genre exists:** makeup remover and 乳液 found three
+  after checking 8 and 4 candidates.
+- **Two sub-kind searches find nothing:** `sunscreen/body` (Yahoo! returns 7 items and 28 of 37
+  are dropped as another kind: without a genre, 「日焼け止め ボディ」 brings items that do not say
+  body) and `mask/sheet` (20 of 52 are sets or multi-packs, which `NOT_SINGLE_ITEM` drops; sheet
+  masks are sold by the pack).
+- **アルコールフリー finds little:** 0 shown in 6 of the 8 kinds.
+- **Serum shows nothing** for all three suspects.
+- **Half of each 30 checked are probably Yahoo! items**, which almost never carry a list (3% on
+  2026-10-18). Candidates alternate between the shops and the cap is 30, so only about 15 Rakuten
+  captions are read while up to 15 more are fetched and never looked at (`notChecked` 522).
+
+What to do next, in order of expected gain:
+
+1. **Read every Rakuten caption before spending the cap on Yahoo! items** (free: no extra call).
+   Put candidates that can be checked for free first (Rakuten with a caption, Yahoo! with a JAN
+   code that matches a saved product), or raise `MAX_CANDIDATES` to cover all 60. This is the
+   cheap half of Path 4.
+2. **Path 6 (fill the saved pool)** and **Path 5 (coverage)**: the only ways to turn `noList`
+   into checked products. In production the two paid lookups per press help a little; this run
+   had them off.
+3. **Sheet masks:** let a pack of sheets count as one item for the `sheet` sub-kind.
+4. **`sunscreen/body`:** find and pin a checked genre ID, or search 「ボディ 日焼け止め」 inside
+   the sunscreen genre.
+5. Add the shop to the `noList` count so the split between Rakuten and Yahoo! is measured, not
+   estimated.
 
 ---
 
