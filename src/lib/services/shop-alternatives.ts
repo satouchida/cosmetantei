@@ -178,6 +178,13 @@ export type ShopDropReason =
   | 'duplicate';
 
 /**
+ * 同じ JAN コードの楽天の出品を使わなかった理由（確かめる順）。set: セット・まとめ売り / name: 名前が合わない（sameListing） /
+ * variant: 型の語が違う（variantMarks） / noCaption: 説明が無い / noList: 説明から全成分を読めない
+ */
+export const JAN_MISS_REASONS = ['set', 'name', 'variant', 'noCaption', 'noList'] as const;
+export type JanMissReason = (typeof JAN_MISS_REASONS)[number];
+
+/**
  * 数と決まった語だけ（商品名・ブランド・JAN コード・URL・お店の文は入れない）。どの候補も1つにだけ数えるので、いつも
  *   fetched.rakuten + fetched.yahoo = dropped の合計（9つの理由）+ shown + notShown + notChecked
  *   dropped.noList = noListByShop.rakuten + noListByShop.yahoo
@@ -201,9 +208,14 @@ export interface ShopSearchCounts {
   /**
    * Yahoo! の JAN コードで楽天の同じ商品を探した数。tried: 楽天を呼んだ回数（失敗・回数の上限で断られた1回も） /
    * sameJan: 同じ JAN コードの出品があった /
-   * found: 名前も合い、全成分を読めた（確認に回した。その結果は dropped・shown などに数える）
+   * found: 名前も合い、全成分を読めた（確認に回した。その結果は dropped・shown などに数える） /
+   * why: 同じ JAN コードの出品があったのに使わなかった理由（JanMissReason。1件を1つにだけ数える） /
+   * nameLoose: why.name のうち、括弧の宣伝・先頭の店名を外して比べれば名前が合った数（名前の確かめが厳しすぎるかを測るだけ。決まりは変えない）
+   * 使わなかった理由は、Yahoo! の商品ごとに、同じ JAN コードの出品のうちいちばん先の確かめまで進んだものの理由なので、いつも
+   *   tried = (tried - sameJan) + why.set + why.name + why.variant + why.noCaption + why.noList + found
+   * になる（テスト 175 で確かめる）
    */
-  janToRakuten: { tried: number; sameJan: number; found: number };
+  janToRakuten: { tried: number; sameJan: number; found: number; why: Record<JanMissReason, number>; nameLoose: number };
   /** JAN コードで調べた数（有料のことがある） */
   paidLookups: number;
   shown: number;
@@ -221,7 +233,7 @@ function emptyCounts(): ShopSearchCounts {
     noListByShop: { rakuten: 0, yahoo: 0 },
     checked: 0,
     notChecked: 0,
-    janToRakuten: { tried: 0, sameJan: 0, found: 0 },
+    janToRakuten: { tried: 0, sameJan: 0, found: 0, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0 }, nameLoose: 0 },
     paidLookups: 0,
     shown: 0,
     notShown: 0,
@@ -326,25 +338,55 @@ function variantMarks(name: string): string {
 type CaptionLabel = NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>;
 
 /**
+ * 同じ JAN コードの楽天の出品を、説明を読む前に使えないと分かる理由（JAN_MISS_REASONS の順に確かめる）。使えそうなら null。
+ * どの理由も単なる条件なので、順番を変えても使う出品は変わらない（数えるために、最初に外れた理由を返す）
+ */
+function listingMiss(yahooItem: ShopItem, listing: ShopItem, sheet: boolean): Exclude<JanMissReason, 'noList'> | null {
+  if (notSingleItem(withoutListingNoise(listing.name), sheet)) return 'set';
+  if (!sameListing(yahooItem, listing)) return 'name';
+  if (variantMarks(listing.name) !== variantMarks(yahooItem.name)) return 'variant';
+  if (!listing.caption) return 'noCaption';
+  return null;
+}
+
+/**
+ * 名前の確かめが厳しすぎるかを測るためだけの、ゆるい名前（使う出品の決まりには使わない）。withoutListingNoise が外さない
+ * 括弧（(…)・≪…≫・《…》・〈…〉・◆…◆ など。宣伝の語が多い）と、先頭の「店名 / 」「店名|」を外す
+ */
+const LOOSE_NOISE = /\([^)]*\)|≪[^≫]*≫|《[^》]*》|〈[^〉]*〉|([◆■●▼▲◇□])[^◆■●▼▲◇□]*\1/g;
+const SHOP_PREFIX = /^[^/|]{1,30}(?:\||\s\/\s)\s*(?=\S)/;
+const looseName = (name: string) => withoutListingNoise(name).replace(LOOSE_NOISE, ' ').replace(SHOP_PREFIX, '');
+
+/**
  * Yahoo! の商品と同じ商品の楽天の出品と、その説明の全成分。JAN コードも名前も出品者が書いた値なので、両方が合うものだけ
- * （JAN コードが同じで、sameListing で名前も合う）。セット・まとめ売りの出品は使わない。sameJan は数えるためだけ
+ * （JAN コードが同じで、sameListing で名前も合う）。セット・まとめ売りの出品は使わない。
+ * sameJan・miss・nameLoose は数えるためだけ。miss は、同じ JAN コードの出品のうちいちばん先の確かめまで進んだものの理由
+ * （1件を1つの理由にだけ数え、合計が sameJan - found になるように）
  */
 async function sameItemOnRakuten(
   yahooItem: ShopItem,
   listings: ShopItem[],
   sheet: boolean
-): Promise<{ sameJan: boolean; match: { listing: ShopItem; label: CaptionLabel } | null }> {
+): Promise<{ sameJan: boolean; match: { listing: ShopItem; label: CaptionLabel } | null; miss: JanMissReason | null; nameLoose: boolean }> {
   const jan = normalJan(yahooItem.janCode);
   let sameJan = false;
+  let furthest = -1;
+  let nameLoose = false;
   for (const listing of listings) {
     if (listing.shopId !== 'rakuten' || !listingCarriesJan(listing, jan)) continue;
     sameJan = true;
-    if (!listing.caption || notSingleItem(withoutListingNoise(listing.name), sheet) || !sameListing(yahooItem, listing)) continue;
-    if (variantMarks(listing.name) !== variantMarks(yahooItem.name)) continue;
-    const label = await ingredientsFromCaption(listing.caption);
-    if (label) return { sameJan, match: { listing, label } };
+    let miss: JanMissReason | null = listingMiss(yahooItem, listing, sheet);
+    if (!miss) {
+      const label = await ingredientsFromCaption(listing.caption!);
+      if (label) return { sameJan, match: { listing, label }, miss: null, nameLoose: false };
+      miss = 'noList';
+    }
+    if (miss === 'name' && sameListing({ name: looseName(yahooItem.name) }, { ...listing, name: looseName(listing.name) })) nameLoose = true;
+    furthest = Math.max(furthest, JAN_MISS_REASONS.indexOf(miss));
   }
-  return { sameJan, match: null };
+  const miss = furthest >= 0 ? JAN_MISS_REASONS[furthest] : null;
+  // ゆるい名前の数は、名前で外れた商品（それより先に進んだ出品が無い）だけ
+  return { sameJan, match: null, miss, nameLoose: miss === 'name' && nameLoose };
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -532,8 +574,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       rakutenCalledAt = Date.now();
       // 失敗（通信・回数の上限）なら、続けて呼ばない
       if (!listings) break;
-      const { sameJan, match } = await sameItemOnRakuten(item, listings, sheet);
+      const { sameJan, match, miss, nameLoose } = await sameItemOnRakuten(item, listings, sheet);
       if (sameJan) counts.janToRakuten.sameJan++;
+      if (miss) counts.janToRakuten.why[miss]++;
+      if (nameLoose) counts.janToRakuten.nameLoose++;
       if (!match) continue;
       counts.janToRakuten.found++;
       viaRakuten.add(item);

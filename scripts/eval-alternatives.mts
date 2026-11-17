@@ -14,7 +14,7 @@
 import { realpathSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { ShopSearchCounts } from '../src/lib/services/shop-alternatives';
+import type { JanMissReason, ShopSearchCounts } from '../src/lib/services/shop-alternatives';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /** よくある原因候補（香料・アルコール・防腐剤） */
@@ -23,6 +23,14 @@ const DEFAULT_LIMIT = 3;
 /** お店の API は同じアプリで1秒に1回まで（shop-apis.ts の API_INTERVAL_MS と同じ間隔） */
 const CASE_INTERVAL_MS = 1_100;
 const DROP_COLUMNS = ['otherKind', 'notSingle', 'excluded', 'noList', 'suspect', 'irritant', 'standard', 'unrated', 'duplicate'] as const;
+/** 同じ JAN コードの楽天の出品を使わなかった理由の列（shop-alternatives.ts の JAN_MISS_REASONS と同じ順） */
+const JAN_WHY_COLUMNS = [
+  ['janSet', 'set'],
+  ['janName', 'name'],
+  ['janVariant', 'variant'],
+  ['janNoCaption', 'noCaption'],
+  ['janNoList', 'noList'],
+] as const satisfies readonly (readonly [string, JanMissReason])[];
 
 /** 下位の種類ごとの検索（Path 1）を確かめる分。原因候補は香料だけ */
 export const SUB_KIND_CASES = [
@@ -86,9 +94,12 @@ export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERV
 /** Markdown の表（見出し・行・合計）。数と決まった語だけ */
 export function formatTable(rows: EvalRow[]): string {
   // noList の後に、そのお店ごとの内訳（noListRakuten・noListYahoo）。paid の前に、Yahoo! の JAN コードで楽天を探した数
-  // （janTried: 楽天を呼んだ回数、janSameJan: 同じ JAN コードの出品があった、janFound: 名前も合い全成分を読めた）
+  // （janTried: 楽天を呼んだ回数、janSameJan: 同じ JAN コードの出品があった、janFound: 名前も合い全成分を読めた）。
+  // janSameJan と janFound の間に、同じ JAN コードの出品を使わなかった理由（確かめる順。janSameJan = この5つ + janFound）と、
+  // janName のうち括弧・先頭の店名を外せば名前が合った数（janNameLoose）
   const dropColumns = DROP_COLUMNS.flatMap((d) => (d === 'noList' ? [d, 'noListRakuten', 'noListYahoo'] : [d]));
-  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...dropColumns, 'checked', 'notChecked', 'notShown', 'janTried', 'janSameJan', 'janFound', 'paid', 'shown'];
+  const janWhyColumns = JAN_WHY_COLUMNS.flatMap(([column]) => (column === 'janName' ? [column, 'janNameLoose'] : [column]));
+  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...dropColumns, 'checked', 'notChecked', 'notShown', 'janTried', 'janSameJan', ...janWhyColumns, 'janFound', 'paid', 'shown'];
   const numbers = (c: ShopSearchCounts) => [
     c.fetched.rakuten,
     c.fetched.yahoo,
@@ -98,6 +109,7 @@ export function formatTable(rows: EvalRow[]): string {
     c.notShown,
     c.janToRakuten.tried,
     c.janToRakuten.sameJan,
+    ...JAN_WHY_COLUMNS.flatMap(([column, reason]) => (column === 'janName' ? [c.janToRakuten.why[reason], c.janToRakuten.nameLoose] : [c.janToRakuten.why[reason]])),
     c.janToRakuten.found,
     c.paidLookups,
     c.shown,

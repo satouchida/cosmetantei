@@ -10259,7 +10259,7 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
         checked: 8,
         notChecked: 2,
         // Yahoo! の「ミズログ」には JAN コードが無いので、楽天を JAN コードで探さない
-        janToRakuten: { tried: 0, sameJan: 0, found: 0 },
+        janToRakuten: { tried: 0, sameJan: 0, found: 0, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0 }, nameLoose: 0 },
         paidLookups: 0,
         shown: 3,
         // 並べ替えるもの（下位の種類・形）が無いので、今までどおり3件で止める（Path 2）
@@ -10368,8 +10368,9 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
     const tableLines = table.split('\n');
     // noList の後に、お店ごとの内訳（Yahoo! の JAN コードの商品は、有料の調べものをしないので成分表示なし）
     // paid の前に、Yahoo! の JAN コードで楽天を探した数（楽天の説明に JAN コードが無いので、呼んだが見つからない）
-    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | janTried | janSameJan | janFound | paid | shown |');
-    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |');
+    // janSameJan と janFound の間に、同じ JAN コードの出品を使わなかった理由（テスト 175）
+    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | janTried | janSameJan | janSet | janName | janNameLoose | janVariant | janNoCaption | janNoList | janFound | paid | shown |');
+    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |');
     assert.strictEqual(tableLines.length, 2 + 30 + 1);
     assert.match(tableLines.at(-1)!, /^\| all \|/);
     // 数と決まった語だけ（商品名・ブランド・コード・URL・キーは出さない）
@@ -10982,6 +10983,17 @@ function assertCountsAddUp(c: import('../src/lib/services/shop-alternatives').Sh
   assert.strictEqual(c.fetched.rakuten + c.fetched.yahoo - c.notChecked - c.dropped.otherKind - c.dropped.notSingle - c.dropped.excluded, c.checked, `${label}: checked`);
 }
 
+/** 期待する janToRakuten（使わなかった理由 why は書いたものだけ、ほかは 0） */
+function janCounts(
+  tried: number,
+  sameJan: number,
+  found: number,
+  why: Partial<Record<import('../src/lib/services/shop-alternatives').JanMissReason, number>> = {},
+  nameLoose = 0
+): import('../src/lib/services/shop-alternatives').ShopSearchCounts['janToRakuten'] {
+  return { tried, sameJan, found, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0, ...why }, nameLoose };
+}
+
 test('170. Alternatives: candidates with a free ingredient source are checked first; the paid step still gets Yahoo! JAN codes in relevance order; KV reads bounded; counts add up (alternative-search-improvements.md, 2026-11-18 next steps 1 and 5)', async () => {
   const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
@@ -11237,7 +11249,8 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     assert.deepStrictEqual(a.credits, ['rakuten']);
     // 楽天を呼んだ順：種類の検索、そして Yahoo! の関連順に3件まで（4件目の j3 は呼ばない）
     assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', j0, j1, j2]);
-    assert.deepStrictEqual(a.counts.janToRakuten, { tried: 3, sameJan: 2, found: 1 });
+    // 同じ JAN コードで使わなかったのは、名前の合わない j2（テスト 175）
+    assert.deepStrictEqual(a.counts.janToRakuten, janCounts(3, 2, 1, { name: 1 }));
     // 楽天で見つからなかった3件は、今までどおり成分表示なし（有料の調べものはオフ）
     assert.deepStrictEqual([a.counts.dropped.noList, a.counts.noListByShop, a.counts.paidLookups], [3, { rakuten: 0, yahoo: 3 }, 0]);
     assertCountsAddUp(a.counts, 'A');
@@ -11256,7 +11269,7 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     };
     const a2 = await search();
     assert.deepStrictEqual(a2.products.map((p) => p.id), [`shoptext_rakuten_msj:${j4}-0`]);
-    assert.deepStrictEqual(a2.counts.janToRakuten, { tried: 2, sameJan: 2, found: 1 });
+    assert.deepStrictEqual(a2.counts.janToRakuten, janCounts(2, 2, 1, { noList: 1 }));
     assertCountsAddUp(a2.counts, 'A2');
 
     // B. 楽天で見つけた商品（確認で落ちたものも）は、有料の調べものに回さない。見つからなかった商品だけ、今までどおり関連順に
@@ -11273,7 +11286,7 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     added.push(`obf_${j2}`);
     assert.deepStrictEqual(shops.requests.filter((u) => u.hostname === 'world.openbeautyfacts.org').map((u) => u.pathname), [`/api/v2/product/${j2}.json`]);
     assert.deepStrictEqual(b.products.map((p) => p.id), [`shoptext_rakuten_msj:${j0}-0`, `obf_${j2}`]);
-    assert.deepStrictEqual([b.counts.janToRakuten, b.counts.paidLookups, b.counts.dropped.suspect], [{ tried: 3, sameJan: 2, found: 2 }, 1, 1]);
+    assert.deepStrictEqual([b.counts.janToRakuten, b.counts.paidLookups, b.counts.dropped.suspect], [janCounts(3, 2, 2), 1, 1]);
     assert.deepStrictEqual(b.credits, ['rakuten', 'yahoo']);
     assertCountsAddUp(b.counts, 'B');
 
@@ -11284,13 +11297,13 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     shops.requests.length = 0;
     const c = await search(3);
     assert.strictEqual(rakutenCalls().length, 1, 'Only the kind search');
-    assert.deepStrictEqual(c.counts.janToRakuten, { tried: 0, sameJan: 0, found: 0 });
+    assert.deepStrictEqual(c.counts.janToRakuten, janCounts(0, 0, 0));
     assertCountsAddUp(c.counts, 'C');
     state.rakuten = [];
     shops.requests.length = 0;
     const c1 = await search(1);
     assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', j0]);
-    assert.deepStrictEqual([c1.products.map((p) => p.id), c1.counts.janToRakuten], [[`shoptext_rakuten_msj:${j0}-0`], { tried: 1, sameJan: 1, found: 1 }]);
+    assert.deepStrictEqual([c1.products.map((p) => p.id), c1.counts.janToRakuten], [[`shoptext_rakuten_msj:${j0}-0`], janCounts(1, 1, 1)]);
     assertCountsAddUp(c1.counts, 'C limit 1');
 
     // C2. 楽天で見つけた出品が、無料の確かめで見つけた楽天の出品と同じ商品（名前が同じ。容量違い）なら1つだけ
@@ -11328,13 +11341,13 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     assert.deepStrictEqual(timed.map((t) => t.keyword), ['化粧水', ...jansD]);
     assert.strictEqual(maxInFlight, 1, 'One Rakuten call at a time');
     for (let i = 1; i < timed.length; i++) assert.ok(timed[i].at - timed[i - 1].at >= 39, `Gap ${timed[i].at - timed[i - 1].at}ms`);
-    assert.deepStrictEqual(d.counts.janToRakuten, { tried: 3, sameJan: 0, found: 0 });
+    assert.deepStrictEqual(d.counts.janToRakuten, janCounts(3, 0, 0));
     globalThis.fetch = mocked;
     state.rakutenByJan = { [jansD[0]]: null };
     shops.requests.length = 0;
     const e = await search(3);
     assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', jansD[0]], 'No more calls after a failed one');
-    assert.deepStrictEqual(e.counts.janToRakuten, { tried: 1, sameJan: 0, found: 0 });
+    assert.deepStrictEqual(e.counts.janToRakuten, janCounts(1, 0, 0));
     assertCountsAddUp(e.counts, 'E');
   } finally {
     shops.restore();
@@ -11372,15 +11385,104 @@ test('174. Alternatives, Rakuten by JAN code (review): the JAN code in the capti
     };
     const a = await search();
     assert.deepStrictEqual(a.products.map((p) => p.name), ['【公式】ヨミC 化粧水 II しっとり 150ml']);
-    assert.deepStrictEqual(a.counts.janToRakuten, { tried: 3, sameJan: 2, found: 1 });
+    // 説明の JAN コードが違う k0 は同じ JAN コードに数えない。型の違う k1 は variant（テスト 175）
+    assert.deepStrictEqual(a.counts.janToRakuten, janCounts(3, 2, 1, { variant: 1 }));
 
     // 最初の楽天の検索が失敗したら、JAN コードでも呼ばない（Yahoo! の商品は今までどおり成分表示なし）
     state.rakutenFails = true;
     shops.requests.length = 0;
     const b = await search();
     assert.strictEqual(janCalls().length, 0);
-    assert.deepStrictEqual(b.counts.janToRakuten, { tried: 0, sameJan: 0, found: 0 });
+    assert.deepStrictEqual(b.counts.janToRakuten, janCounts(0, 0, 0));
     assert.deepStrictEqual(b.products, []);
+  } finally {
+    shops.restore();
+    resetSpendCap();
+  }
+});
+
+test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used, one reason per Yahoo! item (the furthest check any of its listings reached); the reasons add up; a count of name misses that pass without brackets and a shop prefix (alternative-search-improvements.md, third run)', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  // .mts は tsc の対象外なので、パスを変数にして読み込む
+  const scriptPath = '../scripts/eval-alternatives.mts';
+  const { formatTable } = await import(scriptPath);
+  const withJan = (i: number, jan: string) => `${readableCaption(i)}<br>【JANコード】${jan}`;
+  const [n0, n1, n2, n3, n4, n5, n6, n7, n8] = Array.from({ length: 9 }, (_, i) => `49017008000${String(i).padStart(2, '0')}`);
+  const state: Parameters<typeof mockShops>[0] = { rakuten: [], yahoo: [] };
+  const shops = mockShops(state);
+  const search = () => findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 3, shopCallIntervalMs: 0 });
+  const janCalls = () => shops.requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp' && /^[0-9]+$/.test(u.searchParams.get('keyword') ?? '')).map((u) => u.searchParams.get('keyword'));
+  // 恒等式：tried = (tried - sameJan) + 5つの理由 + found（1件を1つにだけ数える）
+  const assertJanAddsUp = (j: ReturnType<typeof janCounts>, label: string) => {
+    const why = j.why.set + j.why.name + j.why.variant + j.why.noCaption + j.why.noList;
+    assert.strictEqual(j.tried, j.tried - j.sameJan + why + j.found, `${label}: ${JSON.stringify(j)}`);
+    assert.ok(j.nameLoose <= j.why.name, label);
+  };
+  try {
+    resetSpendCap();
+    // A. セット / 型の違う出品とセットの出品（いちばん先まで進んだ variant に1回だけ） / 括弧と先頭の店名だけが違う名前
+    state.yahoo = [
+      { name: 'ヨミS 化粧水', jan: n0 },
+      { name: 'ヨミT 化粧水 しっとり', jan: n1 },
+      { name: 'ヨミU 化粧水 (医薬部外品)', jan: n2 },
+    ];
+    state.rakutenByJan = {
+      [n0]: [{ name: 'ヨミS 化粧水 3個セット', caption: withJan(0, n0) }],
+      // 最後の出品（セット）ではなく、先まで進んだ出品（型の語が違う）の理由
+      [n1]: [{ name: 'ヨミT 化粧水 しっとり 無香料', caption: withJan(1, n1) }, { name: 'ヨミT 化粧水 しっとり 2個セット', caption: withJan(1, n1) }],
+      [n2]: [{ name: 'ショップX / ヨミU 化粧水', caption: withJan(2, n2) }],
+    };
+    shops.requests.length = 0;
+    const a = await search();
+    assert.deepStrictEqual(a.products, []);
+    assert.deepStrictEqual(janCalls(), [n0, n1, n2]);
+    assert.deepStrictEqual(a.counts.janToRakuten, janCounts(3, 3, 0, { set: 1, variant: 1, name: 1 }, 1));
+    assertJanAddsUp(a.counts.janToRakuten, 'A');
+    assertCountsAddUp(a.counts, 'A');
+
+    // B. 説明が無い（名前の JAN コードで同じ） / 説明に全成分が無い / 本当に違う名前（ゆるく比べても合わない）。
+    //    説明の JAN コードが違う出品は、同じ JAN コードに数えない
+    state.yahoo = [
+      { name: 'ヨミV 化粧水', jan: n3 },
+      { name: 'ヨミW 化粧水', jan: n4 },
+      { name: 'ヨミX 化粧水', jan: n5 },
+    ];
+    state.rakutenByJan = {
+      [n3]: [{ name: `ヨミV 化粧水 ${n3}` }],
+      [n4]: [{ name: 'ヨミW 化粧水', caption: `説明です。<br>【JANコード】${n4}` }],
+      [n5]: [{ name: 'ヨミX 化粧水', caption: withJan(5, '4901700899990') }, { name: 'マッタクベツ 化粧水', caption: withJan(5, n5) }],
+    };
+    const b = await search();
+    assert.deepStrictEqual(b.products, []);
+    assert.deepStrictEqual(b.counts.janToRakuten, janCounts(3, 3, 0, { noCaption: 1, noList: 1, name: 1 }, 0));
+    assertJanAddsUp(b.counts.janToRakuten, 'B');
+    assertCountsAddUp(b.counts, 'B');
+
+    // C. 同じ JAN コードの出品が無い・使えた・呼び出しが失敗した（失敗の1回は tried にだけ数え、そこで止める）
+    state.yahoo = [
+      { name: 'ヨミY 化粧水', jan: n6 },
+      { name: 'ヨミZ 化粧水', jan: n7 },
+      { name: 'ヨミQ 化粧水', jan: n8 },
+    ];
+    state.rakutenByJan = { [n6]: [], [n7]: [{ name: 'ヨミZ 化粧水', caption: withJan(7, n7) }], [n8]: null };
+    const c = await search();
+    assert.deepStrictEqual(c.products.map((p) => p.id), [`shoptext_rakuten_msj:${n7}-0`]);
+    assert.deepStrictEqual(c.counts.janToRakuten, janCounts(3, 1, 1));
+    assertJanAddsUp(c.counts.janToRakuten, 'C');
+    assertCountsAddUp(c.counts, 'C');
+
+    // 評価の表：janSameJan と janFound の間に5つの理由（janName の後に janNameLoose）。数だけ（名前・JAN コードは出さない）
+    const table: string = formatTable([{ kind: 'toner', subKind: '', avoid: '香料', terms: [], status: 'ok', counts: a.counts }]);
+    const [header, , row] = table.split('\n').map((l) => l.split('|').map((s) => s.trim()).slice(1, -1));
+    const cell = (column: string) => row[header.indexOf(column)];
+    assert.deepStrictEqual(
+      ['janTried', 'janSameJan', 'janSet', 'janName', 'janNameLoose', 'janVariant', 'janNoCaption', 'janNoList', 'janFound'].map(cell),
+      ['3', '3', '1', '1', '1', '1', '0', '0', '0']
+    );
+    assert.strictEqual(header.indexOf('janSet'), header.indexOf('janSameJan') + 1);
+    assert.strictEqual(header.indexOf('janFound'), header.indexOf('janNoList') + 1);
+    for (const text of ['ヨミ', 'ショップ', n0, n1, n2]) assert.ok(!table.includes(text), text);
   } finally {
     shops.restore();
     resetSpendCap();

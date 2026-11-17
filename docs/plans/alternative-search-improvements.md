@@ -309,6 +309,23 @@ What it shows:
   net gain of this step is about +1 to +3 of 90, not a clear win yet.
 - Each press still short of three now makes up to 3 more Rakuten calls (about 3 seconds).
 
+Added 2026-11-17 (test 175; measurement only, the owner's rerun is still to do): each Yahoo! item
+whose lookup found a same-JAN listing but was not used is now counted once, under
+`janToRakuten.why`, by the furthest check any of its same-JAN listings reached, in this order: `set`
+(`notSingleItem`), `name` (`sameListing`), `variant` (`variantMarks`), `noCaption`, `noList`
+(`ingredientsFromCaption` read nothing); a used item is `found`. So `tried` = (`tried` − `sameJan`) +
+`set` + `name` + `variant` + `noCaption` + `noList` + `found`. `janToRakuten.nameLoose` counts the `name`
+items that would pass if both names also dropped (…), ≪…≫, 《…》, 〈…〉 and ◆…◆-style parts and a leading
+「shop / 」 or 「shop|」 prefix (【…】 and ［…］ were already dropped by `withoutListingNoise`); the rule
+itself is unchanged. The checks now run in that order (the caption check moved from first to
+fourth); since they are plain conditions, the accepted listing, the order and the calls are the same:
+a throwaway comparison of tests 173 and 174's searches plus four more gave identical products,
+credits, requests and counts apart from the new fields. Note that a different variant word usually
+fails `name` first (the words are part of the series key), so `variant` only counts cases where one
+name contains the other. The log line carries both through the shop counts; the script adds
+`janSet`, `janName`, `janNameLoose`, `janVariant`, `janNoCaption` and `janNoList` between `janSameJan`
+and `janFound`. Tests 164, 165, 173 and 174 now expect the new fields.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
