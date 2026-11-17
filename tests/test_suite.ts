@@ -10999,6 +10999,27 @@ test('170. Alternatives: candidates with a free ingredient source are checked fi
     assert.deepStrictEqual(b.credits, ['yahoo']);
     assertCountsAddUp(b.counts, 'B');
 
+    // B2. 同じ JAN コードの別の出品には、有料の調べものを使わない（2件の枠を重複に使うと、次の製品に届かない）
+    const [janX, janY] = ['4901700200001', '4901700200002'];
+    state.rakuten = [];
+    state.yahoo = [
+      { name: 'ヤフD0号 化粧水 しっとり', jan: janX },
+      { name: 'ヤフD0号 化粧水 しっとり 別のお店', jan: janX },
+      { name: 'ヤフD1号 化粧水 しっとり', jan: janY },
+    ];
+    state.obf = { [janY]: { name: 'ヤフD1号 化粧水 しっとり', ingredients: '水、BG、グリセリン、ペンチレングリコール、クエン酸、ヒアルロン酸Na、セラミドNP' } };
+    shops.requests.length = 0;
+    const b2 = await search(3, true);
+    added.push(`obf_${janY}`);
+    assert.deepStrictEqual(
+      shops.requests.filter((u) => u.hostname === 'world.openbeautyfacts.org').map((u) => u.pathname),
+      [`/api/v2/product/${janX}.json`, `/api/v2/product/${janY}.json`],
+      'The second listing of the same JAN code is not looked up'
+    );
+    assert.deepStrictEqual(b2.products.map((p) => p.id), [`obf_${janY}`]);
+    assert.deepStrictEqual([b2.counts.paidLookups, b2.counts.dropped.duplicate], [2, 1]);
+    assertCountsAddUp(b2.counts, 'B2');
+
     // C. 出す順：同じ近さなら確かめた順ではなく、お店の関連順（交互の並び）。有料の調べもので後から見つかった Yahoo! の1件目が、
     //    楽天の2件目より先
     state.rakuten = [{ name: 'ラクC0号 化粧水', caption: noList }, { name: 'ラクC1号 化粧水', caption: readableCaption(1) }];
@@ -11076,6 +11097,9 @@ test('171. Sheet masks: a pack of sheets of one mask is one item for the sheet s
     'マスクL シートマスク 7枚入り×3袋',
     'マスクM シートマスク 1枚×5袋 2個セット',
     'マスクN シートマスク 詰め合わせ',
+    'マスクO シートマスク 1枚×5袋 3セット',
+    'マスクP よりどり シートマスク 7枚入り',
+    'マスクQ 選べる シートマスク 7枚入り',
   ];
   // NOT_SINGLE_ITEM そのものは変えない（価格・ほかの種類）。袋で数えた1箱にも当たるので、シートマスクの検索だけで外して見る
   assert.ok(NOT_SINGLE_ITEM.test('マスクC シートマスク 1枚×5袋'));
@@ -11111,6 +11135,8 @@ test('172. Body sunscreen: searched in the sunscreen genre; the name must say bo
   assert.strictEqual(subKindFromText('cream', '全身保湿クリーム'), 'body');
   assert.strictEqual(subKindFromText('toner', 'カラダ用 ローション'), 'body_lotion');
   assert.strictEqual(formProfile('全身に使える UVミルク', 'sunscreen').use, 'body');
+  // 「全身にも使える」は顔の日焼け止めの言い方（からだ用にしない）
+  assert.strictEqual(formProfile('SPF50 全身にも使える UVミルク', 'sunscreen').use, undefined);
   assert.strictEqual(formProfile('顔・全身用 UVミルク', 'sunscreen').use, undefined);
 
   const state: Parameters<typeof mockShops>[0] = { rakuten: [...body, ...notBody].map((name, i) => ({ name, caption: readableCaption(i) })), yahoo: [] };

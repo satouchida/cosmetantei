@@ -204,6 +204,17 @@ Test 168 covers these. Left as they are:
   (processing time only; no extra shop call, saved-product read or paid lookup).
 - The web-search fallback still asks with the kind's label, not the sub-kind's.
 
+## Review of the 2026-11-18 next steps (commit `81d1891`)
+
+One code-improver pass. No critical or high finding; bounds, the counts identity, the paid
+step's order and the shown order were walked by hand and hold. Fixed:
+
+- A paid lookup is no longer spent on a JAN code that was already found or that a second
+  listing repeats (counted as `duplicate`).
+- For sheet masks, a bare multi-buy such as 「1枚×5袋 3セット」 is dropped; removing the pack part
+  had hidden it.
+- 「全身にも使える」 is not body-only.
+
 ## Owner's decision on cleansers (2026-11-18)
 
 A cleanser candidate must say what it washes: face wash, makeup remover or body wash. One whose

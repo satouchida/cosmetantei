@@ -254,9 +254,10 @@ const CATEGORY_KEYS = Object.values(CATEGORY_SYNONYMS)
 const ONE_SHEET_PACK = /(?<!\d)1\s*枚(?:入り?)?\)?\s*[x×]\s*\d+\s*(?:個|袋|箱|包)?/gi;
 /**
  * 違うマスクの詰め合わせ（NOT_SINGLE_ITEM に無い）。1つの成分表示で確かめられないので、シートマスクでは外す。
- * 「3種のセラミド」は成分の言い方なので、「種」の後にセット・各などが続くときだけ
+ * 「3種のセラミド」は成分の言い方なので、「種」の後にセット・各などが続くときだけ。「3セット」のような数だけのまとめ買いも
+ * ここで外す（「1枚×5袋 3セット」は、袋の部分を外すと NOT_SINGLE_ITEM に当たらなくなる）
  */
-const SHEET_ASSORTMENT = /\d+\s*種類?\s*(?:セット|アソート|各|[x×])|アソート|詰め?合わ?せ|よりどり|選べる/i;
+const SHEET_ASSORTMENT = /\d+\s*種類?\s*(?:セット|アソート|各|[x×])|アソート|詰め?合わ?せ|よりどり|選べる|(?<![x×]\s*)\d+\s*セット/i;
 
 /** 1個の商品でない（セット・まとめ売り・中古・試供品など）。シートマスクを探すときだけ、袋で数えた1箱を1個とする */
 function notSingleItem(name: string, sheet: boolean): boolean {
@@ -423,12 +424,24 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // 3. まだ足りなければ、上位の JAN コードの商品を調べる（有料のことがある。必要な数だけ、並べて、時間の上限つき）。
   //    もとの関連順で上から。全員で共有してよい製品（信頼するサイト等）で、名前がお店の商品と合うものだけ
   unchecked.sort((a, b) => position.get(a)! - position.get(b)!);
+  // もう見つけた製品と同じ JAN コード・同じ JAN コードの別の出品は調べない（有料の調べものを重複に使わない）
+  const seenJans = new Set(found.map((f) => normalJan(f.item.janCode)).filter(Boolean));
+  const lookable: ShopItem[] = [];
+  for (const item of unchecked) {
+    const jan = normalJan(item.janCode);
+    if (jan && seenJans.has(jan)) {
+      drop('duplicate', item);
+      continue;
+    }
+    if (jan) seenJans.add(jan);
+    lookable.push(item);
+  }
   const toLookup = input.allowPaidLookups
-    ? unchecked.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - found.length)))
+    ? lookable.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - found.length)))
     : [];
   counts.paidLookups = toLookup.length;
   // 調べない JAN コードの商品は、成分を確かめられなかった
-  for (const item of unchecked.slice(toLookup.length)) drop('noList', item);
+  for (const item of lookable.slice(toLookup.length)) drop('noList', item);
   const looked = await Promise.all(toLookup.map((item) => withDeadline(lookupByBarcode(item.janCode!).catch(() => null))));
   looked.forEach((product, i) => {
     if (product && isShareable(product) && sameListing(product, toLookup[i])) consider(product, toLookup[i]);
