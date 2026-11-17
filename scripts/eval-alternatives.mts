@@ -75,6 +75,8 @@ export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERV
       exclude: [],
       limit,
       allowPaidLookups: false,
+      // Yahoo! の JAN コードで楽天を探す回（無料。有料の調べもの無しでも動く）も、同じ間隔で呼ぶ
+      shopCallIntervalMs: intervalMs,
     });
     rows.push({ kind, subKind: subKind ?? '', avoid, terms, status: result.status, counts: result.counts });
   }
@@ -83,9 +85,10 @@ export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERV
 
 /** Markdown の表（見出し・行・合計）。数と決まった語だけ */
 export function formatTable(rows: EvalRow[]): string {
-  // noList の後に、そのお店ごとの内訳（noListRakuten・noListYahoo）
+  // noList の後に、そのお店ごとの内訳（noListRakuten・noListYahoo）。paid の前に、Yahoo! の JAN コードで楽天を探した数
+  // （janTried: 楽天を呼んだ回数、janSameJan: 同じ JAN コードの出品があった、janFound: 名前も合い全成分を読めた）
   const dropColumns = DROP_COLUMNS.flatMap((d) => (d === 'noList' ? [d, 'noListRakuten', 'noListYahoo'] : [d]));
-  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...dropColumns, 'checked', 'notChecked', 'notShown', 'paid', 'shown'];
+  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...dropColumns, 'checked', 'notChecked', 'notShown', 'janTried', 'janSameJan', 'janFound', 'paid', 'shown'];
   const numbers = (c: ShopSearchCounts) => [
     c.fetched.rakuten,
     c.fetched.yahoo,
@@ -93,6 +96,9 @@ export function formatTable(rows: EvalRow[]): string {
     c.checked,
     c.notChecked,
     c.notShown,
+    c.janToRakuten.tried,
+    c.janToRakuten.sameJan,
+    c.janToRakuten.found,
     c.paidLookups,
     c.shown,
   ];

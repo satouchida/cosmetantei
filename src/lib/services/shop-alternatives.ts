@@ -9,8 +9,8 @@ import { normalJan } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { NOT_SINGLE_ITEM } from './price-service';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
-import { isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
-import { ingredientsFromCaption, shopListingProduct } from './shop-ingredients';
+import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
+import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
 import { withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
@@ -21,6 +21,7 @@ import { shopLink } from './shops';
  * - 成分は安い順に確かめる（1 と 2 の候補を、お店の関連順のまま先に。どちらも無い候補は、足りないときだけ 3 へ）：
  *   1. Yahoo! の JAN コードで、保存済みの確かめた製品（費用なし）
  *   2. 楽天の商品説明の全成分（shop-ingredients.ts。その返答にだけ使う。楽天の規約 第10条 (9)）
+ *   2b. まだ確かめられない Yahoo! の商品の JAN コードで楽天を探し、同じ商品の出品の説明の全成分（費用なし。数回まで）
  *   3. まだ確かめられない上位の Yahoo! の商品だけ、JAN コードで製品を調べる（Open Beauty Facts、無ければ Web。
  *      有料の調べものは1回の要求の予算の範囲で。見つけた製品は今までどおり保存される）
  * - 確かめるのは今までと同じ（含まない・強い刺激成分を含まない・同じ種類）。お店の説明から読んだ一覧は、
@@ -118,6 +119,12 @@ export function shopFormWord(category: AlternativeCategory, subKind: SubKind | u
 const MAX_CANDIDATES = 30;
 /** JAN コードで製品を調べる（有料のことがある）候補の数 */
 const MAX_BARCODE_LOOKUPS = 2;
+/**
+ * Yahoo! の JAN コードで楽天を探す回数の上限（1回の押下で）。ボタン1回で出すのは3件なので、3件そろえるのに足りる数。
+ * 楽天は1秒に1回までなので順番に呼び、待ち時間は約3秒まで増える。楽天の呼び出しは全員で1分50回まで（spend-cap.ts）なので、
+ * 1回の押下で最初の検索と合わせて4回まで（それ以上は、待ち時間と全員の枠を使いすぎる）
+ */
+const MAX_RAKUTEN_JAN_LOOKUPS = 3;
 /** お店の説明から読んだ一覧で、評価できた成分の割合の下限 */
 const MIN_RATED_SHARE = 0.8;
 
@@ -138,6 +145,8 @@ export interface ShopAlternativeInput {
    * ブラウザから送られただけの製品（入力した成分表示・お店の説明から読んだ製品）では調べない
    */
   allowPaidLookups?: boolean;
+  /** お店の API を続けて呼ぶ間隔（ミリ秒）。既定は API_INTERVAL_MS（1秒に1回まで）。変えるのは評価のスクリプト・テストだけ */
+  shopCallIntervalMs?: number;
 }
 
 export interface ShopAlternativeResult {
@@ -187,6 +196,12 @@ export interface ShopSearchCounts {
    * excluded）・checked・これの合計になる
    */
   notChecked: number;
+  /**
+   * Yahoo! の JAN コードで楽天の同じ商品を探した数。tried: 楽天を呼んだ回数（失敗・回数の上限で断られた1回も） /
+   * sameJan: 同じ JAN コードの出品があった /
+   * found: 名前も合い、全成分を読めた（確認に回した。その結果は dropped・shown などに数える）
+   */
+  janToRakuten: { tried: number; sameJan: number; found: number };
   /** JAN コードで調べた数（有料のことがある） */
   paidLookups: number;
   shown: number;
@@ -204,6 +219,7 @@ function emptyCounts(): ShopSearchCounts {
     noListByShop: { rakuten: 0, yahoo: 0 },
     checked: 0,
     notChecked: 0,
+    janToRakuten: { tried: 0, sameJan: 0, found: 0 },
     paidLookups: 0,
     shown: 0,
     notShown: 0,
@@ -282,6 +298,38 @@ function sameListing(product: Pick<Product, 'name'>, item: ShopItem): boolean {
   return nameKey.length >= 3 && itemKey.length >= 3 && (itemKey.includes(nameKey) || nameKey.includes(itemKey));
 }
 
+/** 楽天の出品が、この JAN コード（normalJan の形）を書いているか。説明は「JAN：」の後の数字、名前は数字の並びそのもの */
+function listingCarriesJan(listing: ShopItem, jan: string): boolean {
+  const inCaption = listing.caption ? janFromCaption(listing.caption) : null;
+  if (inCaption && normalJan(inCaption) === jan) return true;
+  return (listing.name.normalize('NFKC').match(/(?<!\d)\d{8,14}(?!\d)/g) ?? []).some((d) => normalJan(d) === jan);
+}
+
+type CaptionLabel = NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>;
+
+/**
+ * Yahoo! の商品と同じ商品の楽天の出品と、その説明の全成分。JAN コードも名前も出品者が書いた値なので、両方が合うものだけ
+ * （JAN コードが同じで、sameListing で名前も合う）。セット・まとめ売りの出品は使わない。sameJan は数えるためだけ
+ */
+async function sameItemOnRakuten(
+  yahooItem: ShopItem,
+  listings: ShopItem[],
+  sheet: boolean
+): Promise<{ sameJan: boolean; match: { listing: ShopItem; label: CaptionLabel } | null }> {
+  const jan = normalJan(yahooItem.janCode);
+  let sameJan = false;
+  for (const listing of listings) {
+    if (listing.shopId !== 'rakuten' || !listingCarriesJan(listing, jan)) continue;
+    sameJan = true;
+    if (!listing.caption || notSingleItem(withoutListingNoise(listing.name), sheet) || !sameListing(yahooItem, listing)) continue;
+    const label = await ingredientsFromCaption(listing.caption);
+    if (label) return { sameJan, match: { listing, label } };
+  }
+  return { sameJan, match: null };
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function withDeadline<T>(promise: Promise<T>): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<null>((resolve) => {
@@ -296,6 +344,8 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const { label, genre } = shopSearchFor(input.category, input.subKind);
   // お店に送るのは種類（下位の種類）の名前と決まった語だけ
   const keyword = [label, ...input.terms].join(' ');
+  // 楽天を続けて呼ぶとき（下の 2b）に、前の呼び出しから間をあけるため
+  let rakutenCalledAt = Date.now();
   const [rakuten, yahoo] = await Promise.all([
     rakutenItemSearch(keyword, { caption: true, genreId: genre?.rakuten }),
     yahooItemSearch(keyword, { genreCategoryId: genre?.yahoo }),
@@ -346,28 +396,32 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     const reason = gateReason(p, { category: input.category, subKind: input.subKind, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
     return reason === 'ok' ? null : GATE_DROP[reason];
   };
-  const found: { product: Product; item: ShopItem }[] = [];
+  // item: お店が返した候補（数・順位・関連順はこれで）。listing: 表示する別の出品（Yahoo! の商品を JAN コードで楽天に見つけたとき）
+  const found: { product: Product; item: ShopItem; listing?: ShopItem }[] = [];
   // 同じ製品は1つだけ（別のお店・別の容量・先頭の 0 の違う JAN コード）。確かめた後で比べる
   // （確かめられない同じ製品の出品が先にあっても、確かめられる出品を落とさない）
   const listingKey = (item: ShopItem) => searchKey(withoutListingNoise(item.name).replace(SIZE, ''));
-  const add = (product: Product, item: ShopItem) => {
+  const add = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const list = product.ingredients.join('|');
     const key = listingKey(item);
+    // 楽天で見つけた商品は、表示する楽天の出品の名前でも比べる（無料の確かめで見つけた楽天の出品と同じ商品）
+    const shownKey = listingKey(listing ?? item);
     const jan = normalJan(item.janCode);
     const duplicate = found.some(
       (f) =>
         f.product.id === product.id ||
         f.product.ingredients.join('|') === list ||
         listingKey(f.item) === key ||
+        listingKey(f.listing ?? f.item) === shownKey ||
         (jan !== '' && normalJan(f.item.janCode) === jan)
     );
     if (duplicate) drop('duplicate', item);
-    else found.push({ product, item });
+    else found.push({ product, item, ...(listing && { listing }) });
   };
-  const consider = (product: Product, item: ShopItem) => {
+  const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const reason = rejection(product);
     if (reason) drop(reason, item);
-    else add(product, item);
+    else add(product, item, listing);
   };
   // 並べ替えの順位：同じ下位の種類が先（名前で分からない候補は後）、次に形・使う場所の近さ（product-form.ts）
   const profile = hasFormProfile(input.profile) ? input.profile : undefined;
@@ -421,10 +475,9 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       else drop('noList', item);
     }
   }
-  // 3. まだ足りなければ、上位の JAN コードの商品を調べる（有料のことがある。必要な数だけ、並べて、時間の上限つき）。
-  //    もとの関連順で上から。全員で共有してよい製品（信頼するサイト等）で、名前がお店の商品と合うものだけ
+  // まだ確かめられない JAN コードの商品を、もとの関連順に（2b の楽天、3 の有料の調べものの順）
   unchecked.sort((a, b) => position.get(a)! - position.get(b)!);
-  // もう見つけた製品と同じ JAN コード・同じ JAN コードの別の出品は調べない（有料の調べものを重複に使わない）
+  // もう見つけた製品と同じ JAN コード・同じ JAN コードの別の出品は調べない（楽天・有料の調べものを重複に使わない）
   const seenJans = new Set(found.map((f) => normalJan(f.item.janCode)).filter(Boolean));
   const lookable: ShopItem[] = [];
   for (const item of unchecked) {
@@ -436,12 +489,41 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     if (jan) seenJans.add(jan);
     lookable.push(item);
   }
+  // 2b. Yahoo! の説明には全成分がほとんど無いが、JAN コードはある。同じ JAN コードの楽天の出品の説明から全成分を読む（無料）。
+  //     足りない間だけ、関連順に MAX_RAKUTEN_JAN_LOOKUPS 回まで、1秒に1回の決まりに合わせて順番に呼ぶ（有料の調べものより先）。
+  //     楽天に送るのは JAN コード（数字）だけ。読んだ説明はこの返答にだけ使う。楽天で見つけた商品は有料の調べものに回さない
+  const viaRakuten = new Set<ShopItem>();
+  if (isRakutenApiConfigured()) {
+    const interval = input.shopCallIntervalMs ?? API_INTERVAL_MS;
+    for (const item of lookable) {
+      if (found.length >= input.limit || counts.janToRakuten.tried >= MAX_RAKUTEN_JAN_LOOKUPS) break;
+      const jan = item.janCode ?? '';
+      if (item.shopId !== 'yahoo' || !/^[0-9]{8,14}$/.test(jan) || !normalJan(jan)) continue;
+      const since = Date.now() - rakutenCalledAt;
+      if (since < interval) await wait(interval - since);
+      counts.janToRakuten.tried++;
+      const listings = await rakutenItemSearch(jan, { caption: true });
+      rakutenCalledAt = Date.now();
+      // 失敗（通信・回数の上限）なら、続けて呼ばない
+      if (!listings) break;
+      const { sameJan, match } = await sameItemOnRakuten(item, listings, sheet);
+      if (sameJan) counts.janToRakuten.sameJan++;
+      if (!match) continue;
+      counts.janToRakuten.found++;
+      viaRakuten.add(item);
+      // 確認・数え方はほかのお店の候補と同じ（数えるのは Yahoo! の候補として。表示は楽天の出品）
+      consider(shopListingProduct(match.listing, brandOf(match.listing, brands), match.label), item, match.listing);
+    }
+  }
+  // 3. まだ足りなければ、上位の JAN コードの商品を調べる（有料のことがある。必要な数だけ、並べて、時間の上限つき）。
+  //    もとの関連順で上から。全員で共有してよい製品（信頼するサイト等）で、名前がお店の商品と合うものだけ
+  const payable = lookable.filter((item) => !viaRakuten.has(item));
   const toLookup = input.allowPaidLookups
-    ? lookable.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - found.length)))
+    ? payable.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - found.length)))
     : [];
   counts.paidLookups = toLookup.length;
   // 調べない JAN コードの商品は、成分を確かめられなかった
-  for (const item of lookable.slice(toLookup.length)) drop('noList', item);
+  for (const item of payable.slice(toLookup.length)) drop('noList', item);
   const looked = await Promise.all(toLookup.map((item) => withDeadline(lookupByBarcode(item.janCode!).catch(() => null))));
   looked.forEach((product, i) => {
     if (product && isShareable(product) && sameListing(product, toLookup[i])) consider(product, toLookup[i]);
@@ -450,8 +532,9 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
 
   // 近い順に。同じ近さなら、確かめた順ではなくお店の関連順（交互の並び）。limit 件より後は出さない
   const shown = found.sort((a, b) => rank(b) - rank(a) || position.get(a.item)! - position.get(b.item)!).slice(0, input.limit);
-  const products = shown.map(({ product, item }) => withShopInfo(product, item));
-  const used = shown.map(({ item }) => item.shopId);
+  // 楽天で見つけた Yahoo! の商品は、楽天の出品の写真・価格・リンク（クレジットも楽天。表示するのは楽天のデータだけ）
+  const products = shown.map(({ product, item, listing }) => withShopInfo(product, listing ?? item));
+  const used = shown.map(({ item, listing }) => (listing ?? item).shopId);
   const credits: PriceApiCredit[] = (['rakuten', 'yahoo'] as const).filter((s) => used.includes(s));
   counts.notChecked = items.length - counts.checked;
   counts.shown = products.length;

@@ -57,8 +57,8 @@ function rakutenOrigin(): string {
   }
 }
 
-/** 同じアプリ ID の呼び出しの間隔（楽天・Yahoo! とも 1秒に1回まで） */
-const API_INTERVAL_MS = 1_100;
+/** 同じアプリ ID の呼び出しの間隔（楽天・Yahoo! とも 1秒に1回まで）。続けて呼ぶところは、この間をあける */
+export const API_INTERVAL_MS = 1_100;
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

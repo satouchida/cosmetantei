@@ -219,6 +219,58 @@ only when it is the same product (its caption or name carries the same JAN code,
 agree). Shop text is used for that reply only. Counts: a new reason or field so the gain shows
 in the evaluation script.
 
+Done 2026-11-17 (test 173; the owner's measurement is still to do):
+
+- **Where.** Step 2b in `findShopAlternatives`, after the free pass and before the paid step. It takes
+  the Yahoo! items still unchecked that have a JAN code, in relevance order, after the existing
+  de-duplication (a JAN code already found or repeated is skipped). It runs only while fewer than
+  `limit` have been found, and also with `allowPaidLookups` false, so the evaluation script measures it.
+- **The call.** `rakutenItemSearch(jan, { caption: true })`: the keyword is the Yahoo! JAN code (8 to
+  14 digits) and nothing else, with no genre. At most `MAX_RAKUTEN_JAN_LOOKUPS` = 3 calls per press
+  (enough to fill one press of 3; about 3 s more waiting; 4 Rakuten calls per press against the
+  shared 50 a minute). The calls are made one at a time, each at least `API_INTERVAL_MS` (now
+  exported) after the previous Rakuten call, the first search included. The step stops after a
+  failed or refused call. No KV reads. The paid step is unchanged (still at most 2, the same
+  formula), and an item resolved here (shown or rejected by the gate) is not sent to it.
+- **Same product.** A returned Rakuten listing is used only when it carries the same JAN code
+  (`janFromCaption` on its caption, or the code as a run of digits in its name, compared with
+  `normalJan`), its name agrees with the Yahoo! name (`sameListing`), it is not a set
+  (`notSingleItem`), and its caption gives a readable list (`ingredientsFromCaption`). The
+  product comes from `shopListingProduct` and goes through the same `consider` path and gate
+  (`allowShopListing`, `minRatedShare`). It is counted as the Yahoo! candidate. The duplicate check
+  also compares the Rakuten listing's name, so a listing already found in the free pass is not
+  shown twice.
+- **Not verified against the live API.** Nothing in the code or its tests shows that a JAN code
+  as the keyword finds listings that only mention it in the caption. The search-scope parameter
+  (`field`) is not used or documented in `shop-apis.ts`, so the default scope is sent. The Item
+  Search API has no JAN field, so the caption and name are the only places checked. `janSameJan`
+  in the table answers this: if `janTried` > 0 and `janSameJan` is 0 everywhere, the keyword does
+  not reach captions (or captions rarely carry the code), and `field` is the next thing to try.
+- **Shown.** The Rakuten listing: its name (unaltered), photo, price and link (affiliate only,
+  through `shopLink`, the same rule as other Rakuten listings), the source link 「楽天市場の商品説明」, and
+  the card's Amazon and Qoo10 search links. Credits list Rakuten only, because no Yahoo! data is
+  shown. **No Yahoo! link**: `Product` has a single `shopLink`, and the card shows no second shop
+  link; carrying one would need a new field, validation and a new card element.
+- **Counts.** `janToRakuten: { tried, sameJan, found }` (calls made; calls that returned a listing
+  with the same JAN code; items whose list was read and sent to the gate). The identity is
+  unchanged: an item resolved here is counted under the gate's reason, `duplicate` or `shown`,
+  no longer `noList`. In the log line through the shop counts; in the script as `janTried`,
+  `janSameJan` and `janFound` before `paid`. The script passes its interval to the new
+  `shopCallIntervalMs` input (production uses `API_INTERVAL_MS`).
+- **Tests.** Changed: 164 (the new counts field), 165 (new columns; the step's requests are
+  checked apart from the kind searches; the Yahoo! fixture uses a JAN code that no other test saves,
+  and the memory per-minute cap is raised for the run, since 30 cases at interval 0 now make
+  more than 50 Rakuten calls), 170 (`shopCallIntervalMs: 0`, because the step now runs there
+  and would wait about 11 s; no assertion changed). `mockShops` can answer JAN-code searches.
+- **Unchanged without JAN codes.** A throwaway comparison over 12 mocked searches (24 runs, with and
+  without the affiliate ID) where no Yahoo! item has a JAN code gives the same products, credits,
+  counts and requests before and after.
+- **Watch in the measurement.** With 30 cases, one Rakuten call every 1.1 s plus the response
+  time comes close to the memory counter's 50 calls a minute (`spend-cap.ts`). If the run logs
+  「Rakuten item search skipped: rate limit reached」, that case's counts are short. Rerun it with
+  `SPEND_PER_MINUTE_RAKUTEN_API` set a little higher for the script's own process. The spacing
+  still keeps to one call a second.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.

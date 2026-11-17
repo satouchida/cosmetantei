@@ -10258,6 +10258,8 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
         // 3件そろった後の「アマリログ」と「ミズログ」は確かめない
         checked: 8,
         notChecked: 2,
+        // Yahoo! の「ミズログ」には JAN コードが無いので、楽天を JAN コードで探さない
+        janToRakuten: { tried: 0, sameJan: 0, found: 0 },
         paidLookups: 0,
         shown: 3,
         // 並べ替えるもの（下位の種類・形）が無いので、今までどおり3件で止める（Path 2）
@@ -10307,7 +10309,8 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
   const scriptPath = '../scripts/eval-alternatives.mts';
   const { evaluate, formatTable } = await import(scriptPath);
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
-  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  // 間隔 0 で 30 件を続けて調べ、Yahoo! の JAN コードで楽天も呼ぶので、楽天の1分の上限（50回）を超える。テストでは上げる
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID', 'SPEND_PER_MINUTE_RAKUTEN_API'];
   const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
   const originalFetch = globalThis.fetch;
   const requests: URL[] = [];
@@ -10322,7 +10325,7 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
       ] });
     }
     if (url.hostname === 'shopping.yahooapis.jp') {
-      return Response.json({ hits: [{ name: 'エバルテスト ヤフー 150ml', code: 'yev_1', url: 'https://store.shopping.yahoo.co.jp/s/yev1.html', inStock: true, condition: 'new', brand: { name: 'エバルテスト' }, janCode: '4900000000017' }] });
+      return Response.json({ hits: [{ name: 'エバルテスト ヤフー 150ml', code: 'yev_1', url: 'https://store.shopping.yahoo.co.jp/s/yev1.html', inStock: true, condition: 'new', brand: { name: 'エバルテスト' }, janCode: '4900000001651' }] });
     }
     return new Response('offline in tests', { status: 503 });
   }) as typeof fetch;
@@ -10335,6 +10338,7 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
     process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
     process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
     process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    process.env.SPEND_PER_MINUTE_RAKUTEN_API = '1000';
     resetSpendCap();
     const rows = await evaluate({ intervalMs: 0 });
     assert.strictEqual(rows.length, 24 + 6);
@@ -10344,7 +10348,13 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
     // 検索語は本番と同じ決まった語（フェノキシエタノールには語が無い）
     const toner = rows.filter((r: { kind: string }) => r.kind === 'toner');
     assert.deepStrictEqual(toner.map((r: { avoid: string; terms: string[] }) => [r.avoid, r.terms]), [['香料', ['無香料']], ['エタノール', ['アルコールフリー']], ['フェノキシエタノール', []]]);
-    const keywords = requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp').map((u) => u.searchParams.get('keyword'));
+    const rakutenRequests = requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp');
+    // Yahoo! の JAN コードで楽天を探す回（有料の調べもの無しでも動く）は、種類の検索と分けて見る
+    // （JAN コードは、ほかのテストが保存する製品に当たらないもの。当たると保存済みの製品として先に確かめる）
+    const janRequests = rakutenRequests.filter((u) => /^[0-9]+$/.test(u.searchParams.get('keyword') ?? ''));
+    assert.ok(janRequests.length > 0 && janRequests.every((u) => u.searchParams.get('keyword') === '4900000001651' && !u.searchParams.has('genreId')));
+    assert.strictEqual(janRequests.length, rows.reduce((n: number, r: { counts: { janToRakuten: { tried: number } } }) => n + r.counts.janToRakuten.tried, 0));
+    const keywords = rakutenRequests.filter((u) => !janRequests.includes(u)).map((u) => u.searchParams.get('keyword'));
     assert.deepStrictEqual(keywords.slice(3, 6), ['化粧水 無香料', '化粧水 アルコールフリー', '化粧水']);
     assert.deepStrictEqual(keywords.slice(24), ['クレンジング 無香料', '乳液 無香料', 'ハンドクリーム 無香料', '日焼け止め ボディ 無香料', 'リップクリーム 無香料', 'シートマスク 無香料']);
     // 有料の調べもの（JAN コード）はしない。呼ぶのはお店の検索だけ
@@ -10357,12 +10367,13 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
     const table: string = formatTable(rows);
     const tableLines = table.split('\n');
     // noList の後に、お店ごとの内訳（Yahoo! の JAN コードの商品は、有料の調べものをしないので成分表示なし）
-    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | paid | shown |');
-    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |');
+    // paid の前に、Yahoo! の JAN コードで楽天を探した数（楽天の説明に JAN コードが無いので、呼んだが見つからない）
+    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | janTried | janSameJan | janFound | paid | shown |');
+    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 |');
     assert.strictEqual(tableLines.length, 2 + 30 + 1);
     assert.match(tableLines.at(-1)!, /^\| all \|/);
     // 数と決まった語だけ（商品名・ブランド・コード・URL・キーは出さない）
-    for (const text of [itemName, 'エバルテスト', 'ev:1', 'yev_1', '4900000000017', 'https://', 'test-rakuten', 'test-yahoo']) {
+    for (const text of [itemName, 'エバルテスト', 'ev:1', 'yev_1', '4900000001651', 'https://', 'test-rakuten', 'test-yahoo']) {
       assert.ok(!table.includes(text), text);
     }
   } finally {
@@ -10889,19 +10900,34 @@ test('169. Alternatives for cleansers: a candidate must say face wash, makeup re
 });
 
 /**
- * お店の検索のモック（テスト 170〜172）。楽天は説明つき、Yahoo! は JAN コードつき（説明は取らない）。
- * Open Beauty Facts は obf に書いた JAN コードだけ製品を返す。呼んだ URL を requests に残す
+ * お店の検索のモック（テスト 170〜173）。楽天は説明つき、Yahoo! は JAN コードつき（説明は取らない）。
+ * Open Beauty Facts は obf に書いた JAN コードだけ製品を返す。呼んだ URL を requests に残す。
+ * rakutenByJan があれば、数字だけの検索語（JAN コード）の楽天の検索にはその一覧を返す（無い JAN コードは0件、null は失敗）
  */
 function mockShops(state: {
   rakuten: { name: string; caption?: string }[];
   yahoo: { name: string; jan?: string }[] | null;
   obf?: Record<string, { name: string; ingredients: string }>;
+  rakutenByJan?: Record<string, { name: string; caption?: string; price?: number; image?: boolean }[] | null>;
 }) {
   const requests: URL[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request) => {
     const url = new URL(String(input instanceof Request ? input.url : input));
     requests.push(url);
+    const keyword = url.searchParams.get('keyword') ?? '';
+    if (url.hostname === 'openapi.rakuten.co.jp' && state.rakutenByJan && /^[0-9]+$/.test(keyword)) {
+      const listings = state.rakutenByJan[keyword];
+      if (listings === null) return new Response('error', { status: 503 });
+      return Response.json({
+        items: (listings ?? []).map((r, i) => ({
+          itemName: r.name, itemCode: `msj:${keyword}-${i}`, itemUrl: `https://item.rakuten.co.jp/msj/${keyword}-${i}/`, availability: 1,
+          ...(r.price && { itemPrice: r.price, taxFlag: 0 }),
+          ...(r.image && { mediumImageUrls: [`https://thumbnail.image.rakuten.co.jp/@0_mall/msj/${keyword}-${i}.jpg`] }),
+          ...(r.caption && { itemCaption: r.caption }),
+        })),
+      });
+    }
     if (url.hostname === 'openapi.rakuten.co.jp') {
       return Response.json({
         items: state.rakuten.map((r, i) => ({ itemName: r.name, itemCode: `ms:${i}`, itemUrl: `https://item.rakuten.co.jp/ms/${i}/`, availability: 1, ...(r.caption && { itemCaption: r.caption }) })),
@@ -10965,8 +10991,9 @@ test('170. Alternatives: candidates with a free ingredient source are checked fi
   };
   const state: Parameters<typeof mockShops>[0] = { rakuten: [], yahoo: [] };
   const shops = mockShops(state);
+  // Yahoo! の JAN コードで楽天を探す回（テスト 173）も動くので、呼び出しの間隔だけ 0 にする（モックなので待たない）
   const search = (limit = 3, allowPaidLookups = false) =>
-    findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit, allowPaidLookups });
+    findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit, allowPaidLookups, shopCallIntervalMs: 0 });
   try {
     resetSpendCap();
     // A. 読める説明が楽天の後ろの方にだけある。交互に30件だと楽天は15件目までしか読まなかった（0件）。無料の候補を先に読めば3件
@@ -11155,6 +11182,163 @@ test('172. Body sunscreen: searched in the sunscreen genre; the name must say bo
     assert.strictEqual(result.counts.dropped.otherKind, notBody.length);
   } finally {
     shops.restore();
+    resetSpendCap();
+  }
+});
+
+test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten by its JAN code; only the same product (same JAN code, names agree) is used, shown with the Rakuten listing; at most 3 calls in sequence, only while short; not sent to the paid step; only digits sent (alternative-search-improvements.md, Next)', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  // 楽天の出品の説明：読める全成分と、出品者が書いた JAN コード
+  const withJan = (i: number, jan: string, extra = '') => `${readableCaption(i, extra)}<br>【JANコード】${jan}`;
+  const [j0, j1, j2, j3, j4, j5] = ['4901700500000', '4901700500017', '4901700500024', '4901700500031', '4901700500048', '4901700500055'];
+  const state: Parameters<typeof mockShops>[0] = { rakuten: [], yahoo: [] };
+  const shops = mockShops(state);
+  process.env.RAKUTEN_AFFILIATE_ID = '0a1b2c3d.4e5f6a7b.0a1b2c3e.8c9d0e1f';
+  const added: string[] = [];
+  const search = (limit = 3, extra: { allowPaidLookups?: boolean; shopCallIntervalMs?: number } = {}) =>
+    findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit, shopCallIntervalMs: 0, ...extra });
+  const rakutenCalls = () => shops.requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp');
+  try {
+    resetSpendCap();
+    // A. 関連順に3回まで。同じ JAN コードで名前の合う出品だけ使う（別の JAN コード・名前の違う出品は使わない）
+    state.rakuten = [];
+    state.yahoo = [
+      { name: 'ヤフA0号 化粧水 しっとり', jan: j0 },
+      { name: 'ヤフA1号 化粧水', jan: j1 },
+      { name: 'ヤフA2号 化粧水 さっぱり', jan: j2 },
+      { name: 'ヤフA3号 化粧水', jan: j3 },
+    ];
+    state.rakutenByJan = {
+      [j0]: [
+        // 同じ JAN コードでもセットの出品は使わず、次の出品を見る
+        { name: 'ヤフA0号 化粧水 しっとり 3個セット', caption: withJan(0, j0) },
+        { name: '【公式】ヤフA0号 化粧水 しっとり 150ml', caption: withJan(0, j0), price: 1480, image: true },
+      ],
+      // 説明の JAN コードが違う（キーワードが別の所に当たった）
+      [j1]: [{ name: 'ヤフA1号 化粧水', caption: withJan(1, '4901700599996') }],
+      // JAN コードは同じだが名前が合わない（出品者の書き間違い）
+      [j2]: [{ name: 'ベツモノ 化粧水 しっとり', caption: withJan(2, j2) }],
+      [j3]: [{ name: 'ヤフA3号 化粧水', caption: withJan(3, j3) }],
+    };
+    shops.requests.length = 0;
+    const a = await search();
+    assert.deepStrictEqual(a.products.map((p) => p.id), [`shoptext_rakuten_msj:${j0}-1`]);
+    const shown = a.products[0];
+    // 表示は楽天の出品：名前はそのまま、写真・価格・アフィリエイトのリンクは楽天。Yahoo! のデータは出さないのでクレジットは楽天だけ
+    assert.strictEqual(shown.name, '【公式】ヤフA0号 化粧水 しっとり 150ml');
+    assert.strictEqual(shown.ingredientSource, 'shop_listing');
+    assert.ok(shown.shopLink?.sponsored && shown.shopLink.href.startsWith('https://hb.afl.rakuten.co.jp/') && shown.shopLink.href.includes(encodeURIComponent(`https://item.rakuten.co.jp/msj/${j0}-1/`)), JSON.stringify(shown.shopLink));
+    assert.deepStrictEqual(shown.shopPrice, { yen: 1480, taxIncluded: true });
+    assert.strictEqual(shown.imageUrl, `https://thumbnail.image.rakuten.co.jp/@0_mall/msj/${j0}-1.jpg`);
+    assert.deepStrictEqual(a.credits, ['rakuten']);
+    // 楽天を呼んだ順：種類の検索、そして Yahoo! の関連順に3件まで（4件目の j3 は呼ばない）
+    assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', j0, j1, j2]);
+    assert.deepStrictEqual(a.counts.janToRakuten, { tried: 3, sameJan: 2, found: 1 });
+    // 楽天で見つからなかった3件は、今までどおり成分表示なし（有料の調べものはオフ）
+    assert.deepStrictEqual([a.counts.dropped.noList, a.counts.noListByShop, a.counts.paidLookups], [3, { rakuten: 0, yahoo: 3 }, 0]);
+    assertCountsAddUp(a.counts, 'A');
+    // 楽天に送るのは JAN コードの数字だけ（決まったパラメーターのほか、商品名・ジャンル・利用者の文は送らない）
+    for (const u of rakutenCalls().slice(1)) {
+      assert.match(u.searchParams.get('keyword')!, /^[0-9]{8,14}$/);
+      assert.deepStrictEqual([...u.searchParams.keys()].sort(), ['applicationId', 'availability', 'elements', 'formatVersion', 'hits', 'keyword']);
+      assert.ok(!decodeURIComponent(u.href).includes('ヤフ') && !decodeURIComponent(u.href).includes('化粧水'), u.href);
+    }
+
+    // A2. 楽天の商品名に JAN コードが書いてあっても同じ商品（説明には JAN コードが無い）。説明に全成分が無ければ使わない
+    state.yahoo = [{ name: 'ヤフN0号 化粧水', jan: j4 }, { name: 'ヤフN1号 化粧水', jan: j5 }];
+    state.rakutenByJan = {
+      [j4]: [{ name: `ヤフN0号 化粧水 JAN:${j4}`, caption: readableCaption(4) }],
+      [j5]: [{ name: `ヤフN1号 化粧水 ${j5}`, caption: '説明です。' }],
+    };
+    const a2 = await search();
+    assert.deepStrictEqual(a2.products.map((p) => p.id), [`shoptext_rakuten_msj:${j4}-0`]);
+    assert.deepStrictEqual(a2.counts.janToRakuten, { tried: 2, sameJan: 2, found: 1 });
+    assertCountsAddUp(a2.counts, 'A2');
+
+    // B. 楽天で見つけた商品（確認で落ちたものも）は、有料の調べものに回さない。見つからなかった商品だけ、今までどおり関連順に
+    state.yahoo = [{ name: 'ヤフB0号 化粧水', jan: j0 }, { name: 'ヤフB1号 化粧水', jan: j1 }, { name: 'ヤフB2号 化粧水', jan: j2 }];
+    state.rakutenByJan = {
+      [j0]: [{ name: 'ヤフB0号 化粧水', caption: withJan(0, j0) }],
+      // 原因候補（香料）を含む → 確認で落ちる（成分は分かったので、有料で調べ直さない）
+      [j1]: [{ name: 'ヤフB1号 化粧水', caption: withJan(1, j1, '香料') }],
+    };
+    const obfList = '水、BG、グリセリン、ペンチレングリコール、クエン酸、ヒアルロン酸Na、セラミドNP';
+    state.obf = { [j0]: { name: 'ヤフB0号 化粧水', ingredients: obfList }, [j1]: { name: 'ヤフB1号 化粧水', ingredients: obfList }, [j2]: { name: 'ヤフB2号 化粧水', ingredients: `${obfList}、トレハロース` } };
+    shops.requests.length = 0;
+    const b = await search(3, { allowPaidLookups: true });
+    added.push(`obf_${j2}`);
+    assert.deepStrictEqual(shops.requests.filter((u) => u.hostname === 'world.openbeautyfacts.org').map((u) => u.pathname), [`/api/v2/product/${j2}.json`]);
+    assert.deepStrictEqual(b.products.map((p) => p.id), [`shoptext_rakuten_msj:${j0}-0`, `obf_${j2}`]);
+    assert.deepStrictEqual([b.counts.janToRakuten, b.counts.paidLookups, b.counts.dropped.suspect], [{ tried: 3, sameJan: 2, found: 2 }, 1, 1]);
+    assert.deepStrictEqual(b.credits, ['rakuten', 'yahoo']);
+    assertCountsAddUp(b.counts, 'B');
+
+    // C. もう limit 件そろっていれば楽天を JAN コードで呼ばない。途中でそろえば、そこで止める
+    state.rakuten = Array.from({ length: 3 }, (_, i) => ({ name: `ラクC${i}号 化粧水`, caption: readableCaption(i) }));
+    state.yahoo = [{ name: 'ヤフC0号 化粧水 しっとり', jan: j0 }, { name: 'ヤフC1号 化粧水', jan: j1 }];
+    state.rakutenByJan = { [j0]: [{ name: 'ヤフC0号 化粧水 しっとり', caption: withJan(5, j0) }] };
+    shops.requests.length = 0;
+    const c = await search(3);
+    assert.strictEqual(rakutenCalls().length, 1, 'Only the kind search');
+    assert.deepStrictEqual(c.counts.janToRakuten, { tried: 0, sameJan: 0, found: 0 });
+    assertCountsAddUp(c.counts, 'C');
+    state.rakuten = [];
+    shops.requests.length = 0;
+    const c1 = await search(1);
+    assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', j0]);
+    assert.deepStrictEqual([c1.products.map((p) => p.id), c1.counts.janToRakuten], [[`shoptext_rakuten_msj:${j0}-0`], { tried: 1, sameJan: 1, found: 1 }]);
+    assertCountsAddUp(c1.counts, 'C limit 1');
+
+    // C2. 楽天で見つけた出品が、無料の確かめで見つけた楽天の出品と同じ商品（名前が同じ。容量違い）なら1つだけ
+    state.rakuten = [{ name: 'ラクG号 化粧水 しっとり 300ml', caption: readableCaption(6) }];
+    state.yahoo = [{ name: 'ブランドG ラクG号 化粧水 しっとり', jan: j3 }];
+    state.rakutenByJan = { [j3]: [{ name: 'ラクG号 化粧水 しっとり 150ml', caption: withJan(8, j3) }] };
+    const c2 = await search(3);
+    assert.deepStrictEqual(c2.products.map((p) => p.id), ['shoptext_rakuten_ms:0']);
+    assert.deepStrictEqual([c2.counts.janToRakuten.found, c2.counts.dropped.duplicate], [1, 1]);
+    assertCountsAddUp(c2.counts, 'C2');
+    state.rakuten = [];
+
+    // D. 順番に、間をあけて呼ぶ（同時に2つ呼ばない）。楽天が失敗したら、続けて呼ばない
+    const timed: { at: number; keyword: string }[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const mocked = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.hostname !== 'openapi.rakuten.co.jp') return mocked(input, init);
+      timed.push({ at: Date.now(), keyword: url.searchParams.get('keyword') ?? '' });
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      try {
+        await new Promise((r) => setTimeout(r, 5));
+        return await mocked(input, init);
+      } finally {
+        inFlight--;
+      }
+    }) as typeof fetch;
+    // （B で j2 の製品が保存されたので、保存済みの製品に当たらない JAN コードで）
+    const jansD = ['4901700500062', '4901700500079', '4901700500086'];
+    state.yahoo = jansD.map((jan, i) => ({ name: `ヤフD${i}号 化粧水`, jan }));
+    state.rakutenByJan = {};
+    const d = await search(3, { shopCallIntervalMs: 40 });
+    assert.deepStrictEqual(timed.map((t) => t.keyword), ['化粧水', ...jansD]);
+    assert.strictEqual(maxInFlight, 1, 'One Rakuten call at a time');
+    for (let i = 1; i < timed.length; i++) assert.ok(timed[i].at - timed[i - 1].at >= 39, `Gap ${timed[i].at - timed[i - 1].at}ms`);
+    assert.deepStrictEqual(d.counts.janToRakuten, { tried: 3, sameJan: 0, found: 0 });
+    globalThis.fetch = mocked;
+    state.rakutenByJan = { [jansD[0]]: null };
+    shops.requests.length = 0;
+    const e = await search(3);
+    assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', jansD[0]], 'No more calls after a failed one');
+    assert.deepStrictEqual(e.counts.janToRakuten, { tried: 1, sameJan: 0, found: 0 });
+    assertCountsAddUp(e.counts, 'E');
+  } finally {
+    shops.restore();
+    for (const id of added) {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
     resetSpendCap();
   }
 });
