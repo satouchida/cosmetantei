@@ -285,6 +285,30 @@ Not done: two presses at the same moment can still call Rakuten together (it nee
 throttle in the shop client), and test 165 avoids an earlier test's saved product by using a
 different JAN code rather than that test cleaning up after itself.
 
+### 2026-11-18, third run, with the Rakuten-by-JAN step (commits `761eb19`, `0d49843`)
+
+Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
+
+| | Second run | Third run |
+|---|---|---|
+| Shown (of 90) | 44 | **45** |
+| Yahoo! items looked up on Rakuten (`janTried`) | - | 58 |
+| ... a Rakuten listing carried the same JAN code (`janSameJan`) | - | 32 (55%) |
+| ... used (`janFound`) | - | 5 |
+| No readable list (Rakuten / Yahoo!) | 459 / 390 | 462 / 380 |
+
+What it shows:
+
+- **Rakuten's keyword search does reach captions:** 32 of 58 JAN lookups found a listing that
+  carries the same JAN code. The open question from the plan is answered.
+- **Few of them become alternatives:** 5 of 32. The other 27 were dropped by one of: no readable
+  list in that listing's caption, a set listing, the names not agreeing, or different variant
+  words. The run does not say which; that split is the next thing to count.
+- **Shop results move between runs**, so a difference of one or two per case is noise: cream with
+  香料 showed 3 in the second run and 1 in this one, with the same code path for that case. The
+  net gain of this step is about +1 to +3 of 90, not a clear win yet.
+- Each press still short of three now makes up to 3 more Rakuten calls (about 3 seconds).
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
