@@ -83,11 +83,13 @@ export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERV
 
 /** Markdown の表（見出し・行・合計）。数と決まった語だけ */
 export function formatTable(rows: EvalRow[]): string {
-  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...DROP_COLUMNS, 'checked', 'notChecked', 'notShown', 'paid', 'shown'];
+  // noList の後に、そのお店ごとの内訳（noListRakuten・noListYahoo）
+  const dropColumns = DROP_COLUMNS.flatMap((d) => (d === 'noList' ? [d, 'noListRakuten', 'noListYahoo'] : [d]));
+  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...dropColumns, 'checked', 'notChecked', 'notShown', 'paid', 'shown'];
   const numbers = (c: ShopSearchCounts) => [
     c.fetched.rakuten,
     c.fetched.yahoo,
-    ...DROP_COLUMNS.map((d) => c.dropped[d]),
+    ...DROP_COLUMNS.flatMap((d) => (d === 'noList' ? [c.dropped.noList, c.noListByShop.rakuten, c.noListByShop.yahoo] : [c.dropped[d]])),
     c.checked,
     c.notChecked,
     c.notShown,

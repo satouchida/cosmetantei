@@ -291,6 +291,44 @@ What to do next, in order of expected gain:
 5. Add the shop to the `noList` count so the split between Rakuten and Yahoo! is measured, not
    estimated.
 
+Done 2026-11-18 (items 1, 3, 4 and 5; tests 170 to 172; the owner's re-run is still to do):
+
+- **1. Free sources first.** Order of checking: candidates with a free source (a Rakuten caption, or a
+  Yahoo! JAN code that matches a saved product), in the interleaved relevance order, up to
+  `MAX_CANDIDATES`; then, only if still short, the rest (no work: a JAN code goes to the paid pool,
+  no JAN code is `noList`); then the paid step as before (at most 2, first unchecked JAN codes in the
+  original relevance order, even when the free checks used the whole cap). Decision: **reorder only,
+  `MAX_CANDIDATES` stays 30.** A shop page is 30 items, so 30 free checks cover every Rakuten caption
+  that survives the name filters; going past 30 would only add saved Yahoo! matches (rare) and more
+  sequential caption parsing. KV reads: the first 30 items with a JAN code (Yahoo! returns at most 30,
+  so in practice every Yahoo! item; the same maximum as before). Shown order: rank (sub-kind, then
+  form) first, then the shops' relevance order (interleaved position), not the order found, so a
+  Yahoo! item found by the paid step can come before a lower-ranked Rakuten one; credits still
+  follow what is shown. `checked` now includes the no-source items looked at in the second pass,
+  so expect higher `checked` and `noList`, lower `notChecked`. With every candidate free and under
+  the cap, the shown set, order, credits and counts are unchanged (throwaway comparison, 9 mocked
+  searches). Test 164 changed: the Yahoo! item with no source is no longer checked before three
+  are found (`noList` 2 → 1, `checked` 9 → 8, `notChecked` 1 → 2).
+- **3. Sheet masks.** `NOT_SINGLE_ITEM` never matched 「7枚入り」 or 「30枚」 (it does not count 枚);
+  it matched 「1枚×5袋」 and 「(1枚入)×10個」 through its 「×N 個/袋/箱」 pattern. For the `sheet`
+  sub-kind only, that 「1枚 × N」 part is ignored before the test, and assortments
+  (「5種セット」「アソート」「詰め合わせ」「よりどり」「選べる」, which `NOT_SINGLE_ITEM` does not catch)
+  are dropped. Sets (「2個セット」「3袋セット」「7枚入り×3袋」「まとめ買い」「福袋」) still drop. So
+  the 20 `notSingle` in the measurement were probably mostly real sets; the re-run will tell.
+  `NOT_SINGLE_ITEM` itself is unchanged.
+- **4. Genres.** `sunscreen/body` and `mask/sheet` now search in their kind's genre (checked IDs
+  in `GENRES`). Left without a genre: body wash, body lotion, hand, body and eye creams,
+  all-in-one (other shop genres), 保湿ジェル (unknown whether the cream genre holds it), lip care
+  (the lip genre may be the colour side; it already finds three without a genre). Body wording:
+  `BODY_ONLY` already had ボディ (so ボディ用), からだ用, 体用 and 全身用; added カラダ用 and 全身
+  without 用 (not 全身性). Bare からだ / カラダ are not body words (「からだにやさしい」); a name with
+  顔 or フェイス is never body-only. The body sub-kind stays strict.
+- **5.** `noListByShop: { rakuten, yahoo }` next to `dropped.noList` (total), in the log line and as
+  `noListRakuten` / `noListYahoo` columns in the script (test 165 changed for the new columns).
+- Also changed: test 106 and 166 expect the genre for the sheet mask and body sunscreen searches.
+- Not done: item 2 (Paths 5 and 6); English 「BODY」 is not read as body (it would also catch
+  ザ・ボディショップ, which ボディ already does today).
+
 ---
 
 # Plans for later (not started)

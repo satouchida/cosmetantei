@@ -6596,10 +6596,10 @@ test('106. Alternatives from the shops: fixed search words and genre, ingredient
     assert.strictEqual(reply.productSuggestions.at(-1).id, 'shoptext_rakuten_r:6', JSON.stringify(reply.productSuggestions.map((p: Product) => p.id)));
     assert.deepStrictEqual(reply.alternativeCredits, ['rakuten']);
     // お店に送ったのは種類（下位の種類）の名前と決まった語だけ（商品名・成分表示は送らない）。シートマスクは下位の種類の
-    // 名前で探し、確かめたジャンルの ID が無いのでジャンルで絞らない（Path 1）
+    // 名前で探し（Path 1）、自分の ID は無いがパックのジャンルの一部なので、パックのジャンルで絞る（2026-11-18 の実測の後）
     const maskReq = requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!;
     assert.strictEqual(maskReq.searchParams.get('keyword'), 'シートマスク 無香料');
-    assert.strictEqual(maskReq.searchParams.get('genreId'), null);
+    assert.strictEqual(maskReq.searchParams.get('genreId'), '503020');
 
     // お店のキーが無ければ、今までの Web の探し方に戻る（お店には聞かない）
     for (const k of ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID']) delete process.env[k];
@@ -10252,10 +10252,12 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
       shop: {
         status: 'ok',
         fetched: { rakuten: 12, yahoo: 1 },
-        dropped: { otherKind: 1, notSingle: 1, excluded: 1, noList: 2, suspect: 1, irritant: 1, standard: 0, unrated: 1, duplicate: 1 },
-        // 3件そろった後の「アマリログ」は確かめない
-        checked: 9,
-        notChecked: 1,
+        dropped: { otherKind: 1, notSingle: 1, excluded: 1, noList: 1, suspect: 1, irritant: 1, standard: 0, unrated: 1, duplicate: 1 },
+        // 成分表示の読めない「ムジログ」（楽天）。説明の無い Yahoo! の「ミズログ」は、無料の確かめの後に回すので見ない
+        noListByShop: { rakuten: 1, yahoo: 0 },
+        // 3件そろった後の「アマリログ」と「ミズログ」は確かめない
+        checked: 8,
+        notChecked: 2,
         paidLookups: 0,
         shown: 3,
         // 並べ替えるもの（下位の種類・形）が無いので、今までどおり3件で止める（Path 2）
@@ -10354,8 +10356,9 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
 
     const table: string = formatTable(rows);
     const tableLines = table.split('\n');
-    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | paid | shown |');
-    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |');
+    // noList の後に、お店ごとの内訳（Yahoo! の JAN コードの商品は、有料の調べものをしないので成分表示なし）
+    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | paid | shown |');
+    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |');
     assert.strictEqual(tableLines.length, 2 + 30 + 1);
     assert.match(tableLines.at(-1)!, /^\| all \|/);
     // 数と決まった語だけ（商品名・ブランド・コード・URL・キーは出さない）
@@ -10584,10 +10587,11 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
       ['cream', 'gel', ['保湿ジェル', null, '保湿ジェル', null]],
       ['lip', 'lip_care', ['リップクリーム', null, 'リップクリーム', null]],
       ['lip', 'lip_color', ['リップ', '405206', 'リップ', '5005']],
-      ['mask', 'sheet', ['シートマスク', null, 'シートマスク', null]],
+      // シートマスク・からだ用の日焼け止めは、種類のジャンルの一部なので種類のジャンルで絞る（2026-11-18 の実測の後）
+      ['mask', 'sheet', ['シートマスク', '503020', 'シートマスク', '1767']],
       ['toner', 'body_lotion', ['ボディローション', null, 'ボディローション', null]],
       ['toner', 'wipe_off', ['化粧水', '216307', '化粧水', '1764']],
-      ['sunscreen', 'body', ['日焼け止め ボディ', null, '日焼け止め ボディ', null]],
+      ['sunscreen', 'body', ['日焼け止め ボディ', '503054', '日焼け止め ボディ', '46427']],
       ['sunscreen', 'base', ['日焼け止め', '503054', '日焼け止め', '46427']],
       ['toner', undefined, ['化粧水', '216307', '化粧水', '1764']],
     ];
@@ -10882,4 +10886,249 @@ test('169. Alternatives for cleansers: a candidate must say face wash, makeup re
   assert.strictEqual(gate(cleanser('t169_oil', 'T169 クレンジングオイル'), { category: 'cleanser', subKind: 'face_wash' }), 'kind');
   assert.strictEqual(gate(cleanser('t169_body', 'T169 ボディソープ'), { category: 'cleanser', subKind: 'body_wash' }), 'ok');
   assert.strictEqual(gate(cleanser('t169_body', 'T169 ボディソープ'), { category: 'cleanser' }), 'kind');
+});
+
+/**
+ * お店の検索のモック（テスト 170〜172）。楽天は説明つき、Yahoo! は JAN コードつき（説明は取らない）。
+ * Open Beauty Facts は obf に書いた JAN コードだけ製品を返す。呼んだ URL を requests に残す
+ */
+function mockShops(state: {
+  rakuten: { name: string; caption?: string }[];
+  yahoo: { name: string; jan?: string }[] | null;
+  obf?: Record<string, { name: string; ingredients: string }>;
+}) {
+  const requests: URL[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input instanceof Request ? input.url : input));
+    requests.push(url);
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({
+        items: state.rakuten.map((r, i) => ({ itemName: r.name, itemCode: `ms:${i}`, itemUrl: `https://item.rakuten.co.jp/ms/${i}/`, availability: 1, ...(r.caption && { itemCaption: r.caption }) })),
+      });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') {
+      if (!state.yahoo) return new Response('error', { status: 503 });
+      return Response.json({
+        hits: state.yahoo.map((y, i) => ({ name: y.name, code: `yms_${i}`, url: `https://store.shopping.yahoo.co.jp/s/yms${i}.html`, inStock: true, condition: 'new', brand: { name: y.name.split(' ')[0] }, ...(y.jan && { janCode: y.jan }) })),
+      });
+    }
+    if (url.hostname === 'world.openbeautyfacts.org') {
+      const jan = /product\/(\d+)\.json/.exec(url.pathname)?.[1] ?? '';
+      const hit = state.obf?.[jan];
+      return Response.json(hit ? { status: 1, product: { product_name_ja: hit.name, brands: hit.name.split(' ')[0], ingredients_text_ja: hit.ingredients } } : { status: 0 });
+    }
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+  process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+  process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+  delete process.env.RAKUTEN_AFFILIATE_ID;
+  return {
+    requests,
+    restore() {
+      globalThis.fetch = originalFetch;
+      for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    },
+  };
+}
+
+/** 読める全成分のある説明（i ごとに一覧を変える。同じ一覧は同じ製品として1つにされるので） */
+function readableCaption(i: number, extra = ''): string {
+  const extras = ['セラミドNP', 'ヒアルロン酸Na', 'トレハロース', 'キサンタンガム', 'アラントイン', 'パンテノール', 'ソルビトール', 'カルボマー', 'ジグリセリン', 'グリチルリチン酸2K', 'スクワラン', 'ベタイン'];
+  const list = ['水', 'BG', 'グリセリン', 'ペンチレングリコール', 'クエン酸', 'クエン酸Na', extras[i % 12], extras[(i + 5) % 12], 'フェノキシエタノール', ...(extra ? [extra] : [])];
+  return `説明です。<br>【全成分】<br>${list.join('、')}<br>【使用方法】適量`;
+}
+
+/** 数の恒等式（ShopSearchCounts のコメント）：どの候補も1つにだけ数える */
+function assertCountsAddUp(c: import('../src/lib/services/shop-alternatives').ShopSearchCounts, label: string): void {
+  const dropped = Object.values(c.dropped).reduce((a, b) => a + b, 0);
+  assert.strictEqual(c.fetched.rakuten + c.fetched.yahoo, dropped + c.shown + c.notShown + c.notChecked, `${label}: ${JSON.stringify(c)}`);
+  assert.strictEqual(c.dropped.noList, c.noListByShop.rakuten + c.noListByShop.yahoo, `${label}: noList split`);
+  assert.strictEqual(c.fetched.rakuten + c.fetched.yahoo - c.notChecked - c.dropped.otherKind - c.dropped.notSingle - c.dropped.excluded, c.checked, `${label}: checked`);
+}
+
+test('170. Alternatives: candidates with a free ingredient source are checked first; the paid step still gets Yahoo! JAN codes in relevance order; KV reads bounded; counts add up (alternative-search-improvements.md, 2026-11-18 next steps 1 and 5)', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const noList = '説明です。成分はパッケージをご覧ください。';
+  const added: string[] = [];
+  const saveProduct = (jan: string, name: string, i: number) => {
+    const id = `obf_${jan}`;
+    added.push(id);
+    addProductToDynamicCache({ id, name, brand: name.split(' ')[0], country: 'JP', category: 'toner', barcode: jan, ingredients: ['水', 'BG', 'グリセリン', 'ペンチレングリコール', 'クエン酸', `T170成分${i}`], ingredientSource: 'open_beauty_facts', labelFormat: 2 });
+  };
+  const state: Parameters<typeof mockShops>[0] = { rakuten: [], yahoo: [] };
+  const shops = mockShops(state);
+  const search = (limit = 3, allowPaidLookups = false) =>
+    findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit, allowPaidLookups });
+  try {
+    resetSpendCap();
+    // A. 読める説明が楽天の後ろの方にだけある。交互に30件だと楽天は15件目までしか読まなかった（0件）。無料の候補を先に読めば3件
+    state.rakuten = Array.from({ length: 20 }, (_, i) => ({ name: `ラク${i}号 化粧水`, caption: i >= 17 ? readableCaption(i) : noList }));
+    state.yahoo = Array.from({ length: 20 }, (_, i) => ({ name: `ヤフ${i}号 化粧水`, jan: `49017000${String(i).padStart(5, '0')}` }));
+    const a = await search();
+    assert.deepStrictEqual(a.products.map((p) => p.id), ['shoptext_rakuten_ms:17', 'shoptext_rakuten_ms:18', 'shoptext_rakuten_ms:19']);
+    // そろったので、無料の手段の無い Yahoo! の商品は見ない
+    assert.deepStrictEqual([a.counts.checked, a.counts.notChecked, a.counts.dropped.noList, a.counts.noListByShop], [20, 20, 17, { rakuten: 17, yahoo: 0 }]);
+    assert.strictEqual(shops.requests.filter((u) => u.hostname === 'world.openbeautyfacts.org').length, 0);
+    assertCountsAddUp(a.counts, 'A');
+
+    // B. 楽天の説明が無料の確かめの上限（30）を使い切っても、Yahoo! の JAN コードの商品は関連順に有料の調べものに届く。
+    //    保存済みの製品に合う Yahoo! の商品は無料なので先に確かめる。有料の調べものは2件まで（増えない）
+    state.rakuten = Array.from({ length: 30 }, (_, i) => ({ name: `ラクB${i}号 化粧水`, caption: noList }));
+    const jansB = Array.from({ length: 5 }, (_, i) => `49017001${String(i).padStart(5, '0')}`);
+    state.yahoo = jansB.map((jan, i) => ({ name: `ヤフB${i}号 化粧水 しっとり`, jan }));
+    saveProduct(jansB[0], 'ヤフB0号 化粧水 しっとり', 0);
+    state.obf = { [jansB[2]]: { name: 'ヤフB2号 化粧水 しっとり', ingredients: '水、BG、グリセリン、ペンチレングリコール、クエン酸、ヒアルロン酸Na、セラミドNP' } };
+    shops.requests.length = 0;
+    const b = await search(3, true);
+    assert.deepStrictEqual(b.products.map((p) => p.id), [`obf_${jansB[0]}`, `obf_${jansB[2]}`]);
+    added.push(`obf_${jansB[2]}`);
+    const looked = shops.requests.filter((u) => u.hostname === 'world.openbeautyfacts.org').map((u) => u.pathname);
+    assert.deepStrictEqual(looked, [`/api/v2/product/${jansB[1]}.json`, `/api/v2/product/${jansB[2]}.json`], 'The first two unchecked JAN codes, in relevance order');
+    assert.strictEqual(b.counts.paidLookups, 2);
+    // 無料の確かめは30件まで（楽天の31件目に当たる最後の1件は見ない）。無料の手段の無い Yahoo! の4件は有料の調べものの候補に回す
+    assert.deepStrictEqual([b.counts.checked, b.counts.notChecked], [30 + 4, 1]);
+    assert.deepStrictEqual(b.counts.noListByShop, { rakuten: 29, yahoo: 3 });
+    assert.deepStrictEqual(b.credits, ['yahoo']);
+    assertCountsAddUp(b.counts, 'B');
+
+    // C. 出す順：同じ近さなら確かめた順ではなく、お店の関連順（交互の並び）。有料の調べもので後から見つかった Yahoo! の1件目が、
+    //    楽天の2件目より先
+    state.rakuten = [{ name: 'ラクC0号 化粧水', caption: noList }, { name: 'ラクC1号 化粧水', caption: readableCaption(1) }];
+    const janC = '4901700200001';
+    state.yahoo = [{ name: 'ヤフC0号 化粧水 さっぱり', jan: janC }];
+    state.obf = { [janC]: { name: 'ヤフC0号 化粧水 さっぱり', ingredients: '水、BG、グリセリン、ペンチレングリコール、クエン酸、トレハロース、アラントイン' } };
+    const c = await search(3, true);
+    added.push(`obf_${janC}`);
+    assert.deepStrictEqual(c.products.map((p) => p.id), [`obf_${janC}`, 'shoptext_rakuten_ms:1']);
+    assert.deepStrictEqual(c.credits, ['rakuten', 'yahoo']);
+    assertCountsAddUp(c.counts, 'C');
+
+    // D. 保存済みの製品を KV で読むのは、JAN コードのある商品の先頭30件だけ（31件目より後の保存済みの製品は使わない）
+    state.rakuten = [];
+    const jansD = Array.from({ length: 35 }, (_, i) => `49017003${String(i).padStart(5, '0')}`);
+    state.yahoo = jansD.map((jan, i) => ({ name: `ヤフD${i}号 化粧水`, jan }));
+    saveProduct(jansD[29], 'ヤフD29号 化粧水', 29);
+    saveProduct(jansD[34], 'ヤフD34号 化粧水', 34);
+    const d = await search();
+    assert.deepStrictEqual(d.products.map((p) => p.id), [`obf_${jansD[29]}`]);
+    assert.deepStrictEqual([d.counts.checked, d.counts.notChecked, d.counts.noListByShop], [35, 0, { rakuten: 0, yahoo: 34 }]);
+    assertCountsAddUp(d.counts, 'D');
+
+    // E. Yahoo! が失敗しても数は合う（楽天だけ）
+    state.rakuten = Array.from({ length: 6 }, (_, i) => ({ name: `ラクE${i}号 化粧水`, caption: i % 2 ? readableCaption(i) : noList }));
+    state.yahoo = null;
+    const e = await search();
+    assert.deepStrictEqual(e.products.map((p) => p.id), ['shoptext_rakuten_ms:1', 'shoptext_rakuten_ms:3', 'shoptext_rakuten_ms:5']);
+    assert.deepStrictEqual([e.counts.fetched, e.counts.noListByShop, e.credits], [{ rakuten: 6, yahoo: 0 }, { rakuten: 3, yahoo: 0 }, ['rakuten']]);
+    assertCountsAddUp(e.counts, 'E');
+
+    // F. 名前で落ちる候補・確認で落ちる候補・同じ製品・limit より後の候補が混ざっても数は合う
+    state.rakuten = [
+      { name: 'ラクF0号 化粧水 2個セット', caption: readableCaption(0) },
+      { name: 'ラクF1号 リップクリーム', caption: readableCaption(1) },
+      { name: 'ラクF2号 化粧水 しっとり', caption: readableCaption(2, '香料') },
+      { name: 'ラクF3号 化粧水 150ml', caption: readableCaption(3) },
+      { name: 'ラクF3号 化粧水 300ml', caption: readableCaption(3) },
+      ...Array.from({ length: 5 }, (_, i) => ({ name: `ラクF${i + 4}号 化粧水`, caption: readableCaption(i + 4) })),
+    ];
+    state.yahoo = [{ name: 'ヤフF0号 化粧水' }, { name: 'ヤフF1号 化粧水', jan: '4901700400001' }];
+    for (const limit of [1, 3, 30]) {
+      const f = await search(limit);
+      assert.strictEqual(f.products.length, Math.min(limit, 6), `F limit ${limit}`);
+      assertCountsAddUp(f.counts, `F limit ${limit}`);
+    }
+  } finally {
+    shops.restore();
+    for (const id of added) {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    resetSpendCap();
+  }
+});
+
+test('171. Sheet masks: a pack of sheets of one mask is one item for the sheet sub-kind; sets, multi-buys and assortments are not; other kinds keep NOT_SINGLE_ITEM (alternative-search-improvements.md, 2026-11-18 next step 3)', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { NOT_SINGLE_ITEM } = await import('../src/lib/services/price-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const kept = [
+    'マスクA シートマスク 7枚入り',
+    'マスクB フェイスパック 30枚',
+    'マスクC シートマスク 1枚×5袋',
+    'マスクD シートマスク (1枚入)×10個',
+    'マスクE 3種のセラミド シートマスク 32枚入',
+  ];
+  const dropped = [
+    'マスクF シートマスク 7枚入り 2個セット',
+    'マスクG シートマスク 3袋セット',
+    'マスクH シートマスク まとめ買い',
+    'マスクI シートマスク 福袋',
+    'マスクJ シートマスク 5種セット',
+    'マスクK シートマスク アソート 10枚',
+    'マスクL シートマスク 7枚入り×3袋',
+    'マスクM シートマスク 1枚×5袋 2個セット',
+    'マスクN シートマスク 詰め合わせ',
+  ];
+  // NOT_SINGLE_ITEM そのものは変えない（価格・ほかの種類）。袋で数えた1箱にも当たるので、シートマスクの検索だけで外して見る
+  assert.ok(NOT_SINGLE_ITEM.test('マスクC シートマスク 1枚×5袋'));
+  assert.ok(!NOT_SINGLE_ITEM.test('マスクA シートマスク 7枚入り'), '「枚入り」 was never a set');
+  const state: Parameters<typeof mockShops>[0] = { rakuten: [...kept, ...dropped].map((name, i) => ({ name, caption: readableCaption(i) })), yahoo: [] };
+  const shops = mockShops(state);
+  try {
+    resetSpendCap();
+    const search = (subKind?: 'sheet') => findShopAlternatives({ category: 'mask', subKind, avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 30 });
+    const sheet = await search('sheet');
+    assert.deepStrictEqual(sheet.products.map((p) => p.name), kept);
+    assert.strictEqual(sheet.counts.dropped.notSingle, dropped.length);
+    // 下位の種類の無いパックの検索は今までどおり（「1枚×5袋」はセットとして外す。詰め合わせの語は見ない）
+    const mask = await search();
+    assert.ok(!mask.products.some((p) => p.name.includes('1枚×5袋')));
+    assert.ok(mask.products.some((p) => p.name.includes('アソート')));
+  } finally {
+    shops.restore();
+    resetSpendCap();
+  }
+});
+
+test('172. Body sunscreen: searched in the sunscreen genre; the name must say body (ボディ用, からだ用, カラダ用, 全身), and a face-and-body name is not body-only (alternative-search-improvements.md, 2026-11-18 next step 4)', async () => {
+  const { subKindFromText } = await import('../src/lib/analyzer/product-category');
+  const { formProfile } = await import('../src/lib/analyzer/product-form');
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const body = ['ボディ用 日焼け止めミルク', 'からだ用 UVジェル', 'カラダ用 UVスプレー', '全身に使える 日焼け止め', '全身用 UVミルク', 'ボディUV ローション SPF50+'];
+  const notBody = ['顔・からだ用 日焼け止めミルク', 'フェイス&ボディ UV', '肌とからだにやさしい日焼け止め', 'カラダにやさしい UVミルク', 'UVミルク しっとり'];
+  for (const name of body) assert.strictEqual(subKindFromText('sunscreen', name), 'body', name);
+  for (const name of notBody) assert.notStrictEqual(subKindFromText('sunscreen', name), 'body', name);
+  // クリーム・化粧水のからだ用、形の「使う場所」も同じ語
+  assert.strictEqual(subKindFromText('cream', '全身保湿クリーム'), 'body');
+  assert.strictEqual(subKindFromText('toner', 'カラダ用 ローション'), 'body_lotion');
+  assert.strictEqual(formProfile('全身に使える UVミルク', 'sunscreen').use, 'body');
+  assert.strictEqual(formProfile('顔・全身用 UVミルク', 'sunscreen').use, undefined);
+
+  const state: Parameters<typeof mockShops>[0] = { rakuten: [...body, ...notBody].map((name, i) => ({ name, caption: readableCaption(i) })), yahoo: [] };
+  const shops = mockShops(state);
+  try {
+    resetSpendCap();
+    const result = await findShopAlternatives({ category: 'sunscreen', subKind: 'body', avoid: [{ nameJa: '香料' }], terms: ['無香料'], exclude: [], limit: 30 });
+    const rakutenReq = shops.requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!;
+    const yahooReq = shops.requests.find((u) => u.hostname === 'shopping.yahooapis.jp')!;
+    assert.deepStrictEqual(
+      [rakutenReq.searchParams.get('keyword'), rakutenReq.searchParams.get('genreId'), yahooReq.searchParams.get('query'), yahooReq.searchParams.get('genre_category_id')],
+      ['日焼け止め ボディ 無香料', '503054', '日焼け止め ボディ 無香料', '46427']
+    );
+    // からだ用は厳しいまま：名前にからだ用と書いていない候補は外す
+    assert.deepStrictEqual(result.products.map((p) => p.name), body);
+    assert.strictEqual(result.counts.dropped.otherKind, notBody.length);
+  } finally {
+    shops.restore();
+    resetSpendCap();
+  }
 });
