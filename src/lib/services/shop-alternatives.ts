@@ -125,6 +125,8 @@ const MAX_BARCODE_LOOKUPS = 2;
  * 1回の押下で最初の検索と合わせて4回まで（それ以上は、待ち時間と全員の枠を使いすぎる）
  */
 const MAX_RAKUTEN_JAN_LOOKUPS = 3;
+/** JAN コードで楽天を探す手順に使ってよい時間（ふつうは3回で約3秒。遅いときはここで止める） */
+const JAN_STEP_BUDGET_MS = 6_000;
 /** お店の説明から読んだ一覧で、評価できた成分の割合の下限 */
 const MIN_RATED_SHARE = 0.8;
 
@@ -298,11 +300,27 @@ function sameListing(product: Pick<Product, 'name'>, item: ShopItem): boolean {
   return nameKey.length >= 3 && itemKey.length >= 3 && (itemKey.includes(nameKey) || nameKey.includes(itemKey));
 }
 
-/** 楽天の出品が、この JAN コード（normalJan の形）を書いているか。説明は「JAN：」の後の数字、名前は数字の並びそのもの */
+/**
+ * 楽天の出品が、この JAN コード（normalJan の形）を書いているか。説明に JAN コードがあればそれで決める（説明が別の JAN コードを
+ * 書いていれば、名前に数字があってもセット・別の型の出品なので使わない）。説明に無いときだけ、名前の数字の並びを見る
+ */
 function listingCarriesJan(listing: ShopItem, jan: string): boolean {
   const inCaption = listing.caption ? janFromCaption(listing.caption) : null;
-  if (inCaption && normalJan(inCaption) === jan) return true;
+  if (inCaption) return normalJan(inCaption) === jan;
   return (listing.name.normalize('NFKC').match(/(?<!\d)\d{8,14}(?!\d)/g) ?? []).some((d) => normalJan(d) === jan);
+}
+
+/**
+ * 同じ系列の別の型を分ける語（I・II・III、しっとり・さっぱり等、SPF・PA の値、無香料）。系列のキーは片方がもう片方に含まれれば
+ * 合うので、「キュレル 化粧水」が「キュレル 化粧水 III とてもしっとり」にも合ってしまう。JAN コードで見つけた楽天の出品は、
+ * 出品者が別の型の JAN コードを書いていることがあるので、この語が両方で同じときだけ同じ商品とする
+ */
+const VARIANT_MARK = /(?<![A-Za-z])(?:I{1,3}|IV|V)(?![A-Za-z])|[Ⅰ-Ⅹ]|とてもしっとり|しっとり|さっぱり|しっかり|みずみずしい|リッチ|モイスト|ライト|無香料|SPF\s*\d+|PA\s*\++/gi;
+
+function variantMarks(name: string): string {
+  const marks = (name.normalize('NFKC').match(VARIANT_MARK) ?? []).map((m) => m.replace(/\s+/g, '').toUpperCase());
+  // 「とてもしっとり」は「しっとり」も含むので、長い語を先に取った結果だけを使う
+  return [...new Set(marks)].sort().join('|');
 }
 
 type CaptionLabel = NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>;
@@ -322,6 +340,7 @@ async function sameItemOnRakuten(
     if (listing.shopId !== 'rakuten' || !listingCarriesJan(listing, jan)) continue;
     sameJan = true;
     if (!listing.caption || notSingleItem(withoutListingNoise(listing.name), sheet) || !sameListing(yahooItem, listing)) continue;
+    if (variantMarks(listing.name) !== variantMarks(yahooItem.name)) continue;
     const label = await ingredientsFromCaption(listing.caption);
     if (label) return { sameJan, match: { listing, label } };
   }
@@ -347,7 +366,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // 楽天を続けて呼ぶとき（下の 2b）に、前の呼び出しから間をあけるため
   let rakutenCalledAt = Date.now();
   const [rakuten, yahoo] = await Promise.all([
-    rakutenItemSearch(keyword, { caption: true, genreId: genre?.rakuten }),
+    // 終わった時刻から数える（429 で一度やり直したときも、次の呼び出しを続けて送らない）
+    rakutenItemSearch(keyword, { caption: true, genreId: genre?.rakuten }).finally(() => {
+      rakutenCalledAt = Date.now();
+    }),
     yahooItemSearch(keyword, { genreCategoryId: genre?.yahoo }),
   ]);
   counts.fetched = { rakuten: rakuten?.length ?? 0, yahoo: yahoo?.length ?? 0 };
@@ -493,10 +515,14 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   //     足りない間だけ、関連順に MAX_RAKUTEN_JAN_LOOKUPS 回まで、1秒に1回の決まりに合わせて順番に呼ぶ（有料の調べものより先）。
   //     楽天に送るのは JAN コード（数字）だけ。読んだ説明はこの返答にだけ使う。楽天で見つけた商品は有料の調べものに回さない
   const viaRakuten = new Set<ShopItem>();
-  if (isRakutenApiConfigured()) {
+  // 最初の楽天の検索が失敗した（回数の上限・障害）なら、続けて呼ばない
+  if (isRakutenApiConfigured() && rakuten !== null) {
     const interval = input.shopCallIntervalMs ?? API_INTERVAL_MS;
+    const startedAt = Date.now();
     for (const item of lookable) {
       if (found.length >= input.limit || counts.janToRakuten.tried >= MAX_RAKUTEN_JAN_LOOKUPS) break;
+      // この手順全体の時間の上限（遅い応答が続いても、ボタンを押してからの待ち時間を延ばしすぎない）
+      if (Date.now() - startedAt > JAN_STEP_BUDGET_MS) break;
       const jan = item.janCode ?? '';
       if (item.shopId !== 'yahoo' || !/^[0-9]{8,14}$/.test(jan) || !normalJan(jan)) continue;
       const since = Date.now() - rakutenCalledAt;

@@ -271,6 +271,20 @@ Done 2026-11-17 (test 173; the owner's measurement is still to do):
   `SPEND_PER_MINUTE_RAKUTEN_API` set a little higher for the script's own process. The spacing
   still keeps to one call a second.
 
+Review of `761eb19` (one code-improver pass; bounds, privacy and the counts identity hold).
+Fixed in the next commit, test 174:
+
+- When a Rakuten caption gives a JAN code, that code decides; a matching number in the name no
+  longer overrides a different code in the caption.
+- Another variant of the same line is not the same product: names must carry the same variant
+  words (I/II/III, しっとり/さっぱり/とてもしっとり, SPF and PA values, 無香料).
+- The spacing is counted from when the first Rakuten search ends, no JAN call is made when that
+  search failed, and the step stops after 6 seconds.
+
+Not done: two presses at the same moment can still call Rakuten together (it needs a shared
+throttle in the shop client), and test 165 avoids an earlier test's saved product by using a
+different JAN code rather than that test cleaning up after itself.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
