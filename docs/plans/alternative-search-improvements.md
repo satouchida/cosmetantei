@@ -204,6 +204,21 @@ Test 168 covers these. Left as they are:
   (processing time only; no extra shop call, saved-product read or paid lookup).
 - The web-search fallback still asks with the kind's label, not the sub-kind's.
 
+### Next: Yahoo! JAN code → the same item on Rakuten (owner's choice, 2026-11-18)
+
+Yahoo! descriptions almost never carry an ingredient list (390 of ~400 Yahoo! items in the
+second run), but most carry a JAN code. For a Yahoo! item still unchecked after the free pass,
+search Rakuten for the same item by its JAN code (free API), read the ingredient list from that
+Rakuten listing's caption, and offer the product with links to the same item: Rakuten (the
+listing, affiliate), Yahoo! (the listing), Amazon and Qoo10 (the existing affiliate search
+links). Amazon and Qoo10 have no product API this app can use and their pages are not fetched.
+
+Rules: before the paid step, only while still short of `limit`, at most a few Rakuten calls per
+press in sequence (the shop API allows about one call a second), and a Rakuten listing is used
+only when it is the same product (its caption or name carries the same JAN code, and the names
+agree). Shop text is used for that reply only. Counts: a new reason or field so the gain shows
+in the evaluation script.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
