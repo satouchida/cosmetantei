@@ -95,10 +95,9 @@ export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERV
 export function formatTable(rows: EvalRow[]): string {
   // noList の後に、そのお店ごとの内訳（noListRakuten・noListYahoo）。paid の前に、Yahoo! の JAN コードで楽天を探した数
   // （janTried: 楽天を呼んだ回数、janSameJan: 同じ JAN コードの出品があった、janFound: 名前も合い全成分を読めた）。
-  // janSameJan と janFound の間に、同じ JAN コードの出品を使わなかった理由（確かめる順。janSameJan = この5つ + janFound）と、
-  // janName のうち括弧・先頭の店名を外せば名前が合った数（janNameLoose）
+  // janSameJan と janFound の間に、同じ JAN コードの出品を使わなかった理由（確かめる順。janSameJan = この5つ + janFound）
   const dropColumns = DROP_COLUMNS.flatMap((d) => (d === 'noList' ? [d, 'noListRakuten', 'noListYahoo'] : [d]));
-  const janWhyColumns = JAN_WHY_COLUMNS.flatMap(([column]) => (column === 'janName' ? [column, 'janNameLoose'] : [column]));
+  const janWhyColumns = JAN_WHY_COLUMNS.map(([column]) => column);
   const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...dropColumns, 'checked', 'notChecked', 'notShown', 'janTried', 'janSameJan', ...janWhyColumns, 'janFound', 'paid', 'shown'];
   const numbers = (c: ShopSearchCounts) => [
     c.fetched.rakuten,
@@ -109,7 +108,7 @@ export function formatTable(rows: EvalRow[]): string {
     c.notShown,
     c.janToRakuten.tried,
     c.janToRakuten.sameJan,
-    ...JAN_WHY_COLUMNS.flatMap(([column, reason]) => (column === 'janName' ? [c.janToRakuten.why[reason], c.janToRakuten.nameLoose] : [c.janToRakuten.why[reason]])),
+    ...JAN_WHY_COLUMNS.map(([, reason]) => c.janToRakuten.why[reason]),
     c.janToRakuten.found,
     c.paidLookups,
     c.shown,

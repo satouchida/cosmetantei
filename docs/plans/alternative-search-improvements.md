@@ -346,6 +346,37 @@ decorations explain only 3 of them. The other 14 are names that differ in words,
 already strong evidence of the same product; the open choice is how much name agreement to require
 on top of it (see the reply of 2026-11-18).
 
+Done 2026-11-17 (owner's choice; test 176; the owner's rerun is still to do): in step 2b only, the name
+check is `sameJanListing` instead of `sameListing`. The paid step (3) and saved products keep
+`sameListing`. A same-JAN Rakuten listing passes the name check when all of these hold:
+
+- **Same brand.** Both names hit the same brand in `buildBrandIndex` (`textHasBrand`); the Yahoo!
+  brand field counts on the Yahoo! side when it is exactly a listed brand, and an unlisted brand field
+  counts when the Rakuten name contains it. A brand on one side only must be a maker (花王, 資生堂).
+- **Same kind.** Kind, sub-kind and form must not disagree when both names state them (化粧水 vs 乳液,
+  クリーム vs ジェル, sunscreen ジェル vs ミルク are rejected).
+- **Most words shared.** Both names are split into words: decorations (`withoutListingNoise`, other
+  brackets, a leading 「shop / 」 or 「shop|」), sizes, the brand, the variant words and the kind words are
+  removed, and runs without spaces are cut where those words were (キュレル潤浸保湿化粧水III → 潤浸保湿).
+  Words of one character, digits only (JAN codes) and generic words (医薬部外品, 保湿, 敏感肌, 詰め替え,
+  本体 …) are not counted. At least **70%** of the words of the name with fewer words must appear in the
+  other name, in any order and with any spacing: up to 3 words all must appear, 4 to 6 may miss one, 7
+  or more may miss two. So one catch-phrase word on the shorter side does not reject it, but a short name
+  with a different product word does.
+- **Not too short.** If the shorter name's words total under 3 characters and the other name has other
+  words, it is rejected (キュレル 化粧水 vs キュレル 皮脂トラブルケア 化粧水). Two names with no words
+  left (brand and kind only) agree.
+- Unchanged after it: the variant words (`variantMarks`) and the set check.
+
+Falls back to the strict `sameListing` when no brand is found on either side, or when one side has a
+non-maker brand the other lacks. Stricter than before for three kinds of pair that `sameListing`
+accepted when one name contained the other: a different kind in the same line, a too-short name, and
+different brands. `janToRakuten.nameLoose` and the script's `janNameLoose` column are removed: their
+question is answered (3 of 17), and the new rule already compares without those decorations, so what
+it would count now (brandless or too-short names) no longer measures decorations. Test 175 changed:
+「ヨミU 化粧水 (医薬部外品)」 vs 「ショップX / ヨミU 化粧水」 is now used (was a `name` miss). Tests 164 and
+165 lost the field and the column; 173 and 174 are unchanged.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.

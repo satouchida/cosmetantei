@@ -10259,7 +10259,7 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
         checked: 8,
         notChecked: 2,
         // Yahoo! の「ミズログ」には JAN コードが無いので、楽天を JAN コードで探さない
-        janToRakuten: { tried: 0, sameJan: 0, found: 0, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0 }, nameLoose: 0 },
+        janToRakuten: { tried: 0, sameJan: 0, found: 0, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0 } },
         paidLookups: 0,
         shown: 3,
         // 並べ替えるもの（下位の種類・形）が無いので、今までどおり3件で止める（Path 2）
@@ -10368,9 +10368,9 @@ test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases w
     const tableLines = table.split('\n');
     // noList の後に、お店ごとの内訳（Yahoo! の JAN コードの商品は、有料の調べものをしないので成分表示なし）
     // paid の前に、Yahoo! の JAN コードで楽天を探した数（楽天の説明に JAN コードが無いので、呼んだが見つからない）
-    // janSameJan と janFound の間に、同じ JAN コードの出品を使わなかった理由（テスト 175）
-    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | janTried | janSameJan | janSet | janName | janNameLoose | janVariant | janNoCaption | janNoList | janFound | paid | shown |');
-    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |');
+    // janSameJan と janFound の間に、同じ JAN コードの出品を使わなかった理由（テスト 175。janNameLoose はテスト 176 で外した）
+    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | noListRakuten | noListYahoo | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | janTried | janSameJan | janSet | janName | janVariant | janNoCaption | janNoList | janFound | paid | shown |');
+    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |');
     assert.strictEqual(tableLines.length, 2 + 30 + 1);
     assert.match(tableLines.at(-1)!, /^\| all \|/);
     // 数と決まった語だけ（商品名・ブランド・コード・URL・キーは出さない）
@@ -10988,10 +10988,9 @@ function janCounts(
   tried: number,
   sameJan: number,
   found: number,
-  why: Partial<Record<import('../src/lib/services/shop-alternatives').JanMissReason, number>> = {},
-  nameLoose = 0
+  why: Partial<Record<import('../src/lib/services/shop-alternatives').JanMissReason, number>> = {}
 ): import('../src/lib/services/shop-alternatives').ShopSearchCounts['janToRakuten'] {
-  return { tried, sameJan, found, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0, ...why }, nameLoose };
+  return { tried, sameJan, found, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0, ...why } };
 }
 
 test('170. Alternatives: candidates with a free ingredient source are checked first; the paid step still gets Yahoo! JAN codes in relevance order; KV reads bounded; counts add up (alternative-search-improvements.md, 2026-11-18 next steps 1 and 5)', async () => {
@@ -11401,7 +11400,7 @@ test('174. Alternatives, Rakuten by JAN code (review): the JAN code in the capti
   }
 });
 
-test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used, one reason per Yahoo! item (the furthest check any of its listings reached); the reasons add up; a count of name misses that pass without brackets and a shop prefix (alternative-search-improvements.md, third run)', async () => {
+test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used, one reason per Yahoo! item (the furthest check any of its listings reached); the reasons add up (alternative-search-improvements.md, third run)', async () => {
   const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
   // .mts は tsc の対象外なので、パスを変数にして読み込む
@@ -11417,11 +11416,11 @@ test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used
   const assertJanAddsUp = (j: ReturnType<typeof janCounts>, label: string) => {
     const why = j.why.set + j.why.name + j.why.variant + j.why.noCaption + j.why.noList;
     assert.strictEqual(j.tried, j.tried - j.sameJan + why + j.found, `${label}: ${JSON.stringify(j)}`);
-    assert.ok(j.nameLoose <= j.why.name, label);
   };
   try {
     resetSpendCap();
     // A. セット / 型の違う出品とセットの出品（いちばん先まで進んだ variant に1回だけ） / 括弧と先頭の店名だけが違う名前
+    //    （以前は name。テスト 176 の決まりでは、ブランドが同じで飾りを外した語も同じなので使う）
     state.yahoo = [
       { name: 'ヨミS 化粧水', jan: n0 },
       { name: 'ヨミT 化粧水 しっとり', jan: n1 },
@@ -11435,13 +11434,13 @@ test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used
     };
     shops.requests.length = 0;
     const a = await search();
-    assert.deepStrictEqual(a.products, []);
+    assert.deepStrictEqual(a.products.map((p) => p.name), ['ショップX / ヨミU 化粧水']);
     assert.deepStrictEqual(janCalls(), [n0, n1, n2]);
-    assert.deepStrictEqual(a.counts.janToRakuten, janCounts(3, 3, 0, { set: 1, variant: 1, name: 1 }, 1));
+    assert.deepStrictEqual(a.counts.janToRakuten, janCounts(3, 3, 1, { set: 1, variant: 1 }));
     assertJanAddsUp(a.counts.janToRakuten, 'A');
     assertCountsAddUp(a.counts, 'A');
 
-    // B. 説明が無い（名前の JAN コードで同じ） / 説明に全成分が無い / 本当に違う名前（ゆるく比べても合わない）。
+    // B. 説明が無い（名前の JAN コードで同じ） / 説明に全成分が無い / 本当に違う名前（楽天の名前にブランドが無い → 今までの比べ方）。
     //    説明の JAN コードが違う出品は、同じ JAN コードに数えない
     state.yahoo = [
       { name: 'ヨミV 化粧水', jan: n3 },
@@ -11455,7 +11454,7 @@ test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used
     };
     const b = await search();
     assert.deepStrictEqual(b.products, []);
-    assert.deepStrictEqual(b.counts.janToRakuten, janCounts(3, 3, 0, { noCaption: 1, noList: 1, name: 1 }, 0));
+    assert.deepStrictEqual(b.counts.janToRakuten, janCounts(3, 3, 0, { noCaption: 1, noList: 1, name: 1 }));
     assertJanAddsUp(b.counts.janToRakuten, 'B');
     assertCountsAddUp(b.counts, 'B');
 
@@ -11472,19 +11471,143 @@ test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used
     assertJanAddsUp(c.counts.janToRakuten, 'C');
     assertCountsAddUp(c.counts, 'C');
 
-    // 評価の表：janSameJan と janFound の間に5つの理由（janName の後に janNameLoose）。数だけ（名前・JAN コードは出さない）
+    // 評価の表：janSameJan と janFound の間に5つの理由。数だけ（名前・JAN コードは出さない）
     const table: string = formatTable([{ kind: 'toner', subKind: '', avoid: '香料', terms: [], status: 'ok', counts: a.counts }]);
     const [header, , row] = table.split('\n').map((l) => l.split('|').map((s) => s.trim()).slice(1, -1));
     const cell = (column: string) => row[header.indexOf(column)];
     assert.deepStrictEqual(
-      ['janTried', 'janSameJan', 'janSet', 'janName', 'janNameLoose', 'janVariant', 'janNoCaption', 'janNoList', 'janFound'].map(cell),
-      ['3', '3', '1', '1', '1', '1', '0', '0', '0']
+      ['janTried', 'janSameJan', 'janSet', 'janName', 'janVariant', 'janNoCaption', 'janNoList', 'janFound'].map(cell),
+      ['3', '3', '1', '0', '1', '0', '0', '1']
     );
+    assert.ok(!header.includes('janNameLoose'));
     assert.strictEqual(header.indexOf('janSet'), header.indexOf('janSameJan') + 1);
     assert.strictEqual(header.indexOf('janFound'), header.indexOf('janNoList') + 1);
     for (const text of ['ヨミ', 'ショップ', n0, n1, n2]) assert.ok(!table.includes(text), text);
   } finally {
     shops.restore();
+    resetSpendCap();
+  }
+});
+
+test('176. Alternatives, Rakuten by JAN code: a same-JAN listing is used when the brand is the same, the kind agrees and most words are shared (word order, line names, shop prefixes and widths do not matter); variants and sets still are not; the paid step keeps the strict name check (alternative-search-improvements.md, fourth run)', async () => {
+  const { findShopAlternatives, sameJanListing } = await import('../src/lib/services/shop-alternatives');
+  const { buildBrandIndex } = await import('../src/lib/services/brand-suggest');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const brands = buildBrandIndex(COSMETICS_DATABASE);
+  type Item = Parameters<typeof sameJanListing>[0];
+  const item = (shopId: Item['shopId'], name: string, brand?: string): Item => ({ shopId, code: 'c176', name, brands: brand ? [brand] : [], url: 'https://example.com/176', taxIncluded: null });
+  const same = (yahooName: string, rakutenName: string, yahooBrand?: string) => sameJanListing(item('yahoo', yahooName, yahooBrand), item('rakuten', rakutenName), brands);
+
+  // A. 同じ商品（JAN コードは合っている前提）。今までの「一方がもう一方を含む」では、どれも合わなかった
+  const shouldMatch: [string, string, string?][] = [
+    // 語順が違う
+    ['ミノン 化粧水 うるおいバリア 薬用 しっとり', 'ミノン 薬用 うるおいバリア 化粧水 しっとり 150ml'],
+    // 片方にシリーズ・宣伝の語が足してある（語の少ない方の語は全部ある）
+    ['キュレル 潤浸保湿 フェイスクリーム', 'キュレル セラミドケア 潤浸保湿 フェイスクリーム 40g'],
+    // 先頭の店名（「店名 | 」）と、公式ショップの飾り。ブランドは別の書き方（ハダラボ）でも同じ
+    ['肌ラボ 透明潤 薬用美白 化粧水', 'ハダラボ公式ショップ | 肌ラボ 薬用美白 透明潤 化粧水 170ml'],
+    // 半角カナ・全角英字と、【】の飾り
+    ['ｵﾙﾋﾞｽ ｱｸﾈｸﾘｱ ﾛｰｼｮﾝ ＥＸ', '【ORBIS】オルビス 薬用 アクネクリア ローション EX 180mL'],
+    // 容量が片方だけ・語順が違う
+    ['無印良品 薬用 ふっくら肌 化粧水 400ml', '無印良品 化粧水 ふっくら肌 薬用'],
+    // Yahoo! の名前にブランドが無い：ブランドの欄（一覧のブランド）を使う
+    ['潤いベール 薬用 化粧水 しっとり', 'ちふれ 化粧水 潤いベール 薬用 しっとり 180mL', 'ちふれ'],
+    // 一覧に無いブランド：楽天の名前がブランドの欄を含む。[送料無料] の飾り
+    ['ソラトモリ 森のめぐみ 化粧水', '[送料無料] 森のめぐみ 化粧水 ソラトモリ 120ml', 'ソラトモリ'],
+    // 語の少ない方の4語のうち3語（0.75）がある。肌の種類の語は数えない
+    ['アベンヌ ターマルケア 薬用 化粧水 うるおい 低刺激', 'アベンヌ 薬用 ターマルケア 化粧水 うるおい ゆらぎ肌 乾燥 200ml'],
+    // 片方にだけ会社名（資生堂）。区切りの無い「ハリつやローション」も種類の語で切る
+    ['エリクシール ハリつやローション II', 'エリクシール 資生堂 ローション ハリつや II 170mL'],
+    // 括弧の宣伝・詰め替え（成分は同じ）
+    ['キュレル 潤浸保湿 化粧水 (医薬部外品)', 'キュレル 化粧水 潤浸保湿 つめかえ用 130ml'],
+  ];
+  for (const [y, r, b] of shouldMatch) assert.ok(same(y, r, b), `should match: ${y} / ${r}`);
+
+  // B. 同じ JAN コードでも使わない
+  const mustNot: [string, string, string?][] = [
+    // 別のブランド・同じ製品の語
+    ['ミノン 薬用 うるおいバリア 化粧水', 'キュレル 薬用 うるおいバリア 化粧水'],
+    // ブランドの欄と楽天の名前のブランドが違う
+    ['潤いベール 薬用 化粧水', 'キュレル 化粧水 潤いベール 薬用', 'ちふれ'],
+    // 同じブランド・同じシリーズの別の製品（化粧水と乳液、クリームとジェル、ジェルとミルク）。今までの比べ方では合っていた
+    ['キュレル 潤浸保湿 化粧水', 'キュレル 潤浸保湿 乳液 120ml'],
+    ['キュレル 潤浸保湿 クリーム', 'キュレル 潤浸保湿 ジェル'],
+    ['アネッサ 日焼け止め パーフェクトUV ジェル', 'アネッサ パーフェクトUV 日焼け止め ミルク'],
+    // 4語のうち2語だけ（0.5）
+    ['アベンヌ ターマルケア 薬用 化粧水 うるおい 低刺激', 'アベンヌ 薬用 ターマルケア 化粧水 さらさら 皮脂 200ml'],
+    // 短い名前で、製品の語が違う
+    ['無印良品 化粧水 ふっくら肌', '無印良品 化粧水 すべすべ肌'],
+    // 短すぎて比べられない（ブランドと種類だけ / 2文字だけ）のに、もう一方には製品の語がある。今までの比べ方では合っていた
+    ['キュレル 化粧水', 'キュレル 皮脂トラブルケア 化粧水 150ml'],
+    ['オルビス EX 化粧水', 'オルビス 薬用 美白 化粧水 EX'],
+    // どちらにもブランドが無い：語だけでは決めず、今までの比べ方（一方がもう一方を含まない）
+    ['うるおい 化粧水 森のしずく', '森のしずく 化粧水 うるおい'],
+  ];
+  for (const [y, r, b] of mustNot) assert.ok(!same(y, r, b), `must not match: ${y} / ${r}`);
+  // ブランドが分からないときの今までの比べ方は、一方がもう一方を含めば合う
+  assert.ok(same('うるおい 化粧水 森のしずく', 'うるおい 化粧水 森のしずく 200ml'));
+
+  // C. 検索を通して：語順の違う出品は使う。型の違い（II と III、しっとりとさっぱり）とセットは今までどおり使わない。
+  //    名前で外れたもの（別のブランド・短すぎる名前）は name に数える
+  const withJan = (i: number, jan: string) => `${readableCaption(i)}<br>【JANコード】${jan}`;
+  const [p0, p1, p2, p3, p4, p5, q0, q1] = Array.from({ length: 8 }, (_, i) => `49017009000${String(i).padStart(2, '0')}`);
+  const state: Parameters<typeof mockShops>[0] = { rakuten: [], yahoo: [] };
+  const shops = mockShops(state);
+  const added: string[] = [];
+  const search = (allowPaidLookups = false) =>
+    findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 3, shopCallIntervalMs: 0, allowPaidLookups });
+  try {
+    resetSpendCap();
+    // （モックの Yahoo! の商品は、名前の最初の語がブランドの欄）
+    state.yahoo = [
+      { name: 'ミノン 化粧水 うるおいバリア 薬用', jan: p0 },
+      { name: 'キュレル 潤浸保湿 化粧水 II', jan: p1 },
+      { name: 'ちふれ 化粧水 しっとり 潤いベール', jan: p2 },
+    ];
+    state.rakutenByJan = {
+      [p0]: [{ name: '【公式】ミノン 薬用 うるおいバリア 化粧水 150ml', caption: withJan(0, p0) }],
+      [p1]: [{ name: 'キュレル 化粧水 潤浸保湿 III', caption: withJan(1, p1) }],
+      [p2]: [{ name: 'ちふれ 潤いベール 化粧水 さっぱり', caption: withJan(2, p2) }],
+    };
+    const a = await search();
+    assert.deepStrictEqual(a.products.map((p) => p.name), ['【公式】ミノン 薬用 うるおいバリア 化粧水 150ml']);
+    assert.deepStrictEqual(a.counts.janToRakuten, janCounts(3, 3, 1, { variant: 2 }));
+    assertCountsAddUp(a.counts, 'C1');
+
+    state.yahoo = [
+      { name: 'オルビス アクネクリア 化粧水 EX', jan: p3 },
+      { name: 'ミノン 薬用 化粧水 アミノバリア', jan: p4 },
+      { name: 'キュレル 化粧水', jan: p5 },
+    ];
+    state.rakutenByJan = {
+      [p3]: [{ name: '【まとめ買い】オルビス 薬用 アクネクリア 化粧水 EX 2本セット', caption: withJan(3, p3) }],
+      [p4]: [{ name: 'キュレル 薬用 化粧水 アミノバリア', caption: withJan(4, p4) }],
+      [p5]: [{ name: 'キュレル 皮脂トラブルケア 化粧水 150ml', caption: withJan(5, p5) }],
+    };
+    const b = await search();
+    assert.deepStrictEqual(b.products, []);
+    assert.deepStrictEqual(b.counts.janToRakuten, janCounts(3, 3, 0, { set: 1, name: 2 }));
+    assertCountsAddUp(b.counts, 'C2');
+
+    // D. 有料の調べもの（3）は今までどおり sameListing：語順だけが違う製品でも使わない（2b の決まりなら合う組）。
+    //    名前がそのまま合う製品は使う。楽天に同じ JAN コードの出品は無い
+    const reordered = ['ミノン 化粧水 うるおいバリア 薬用', 'ミノン 薬用 うるおいバリア 化粧水'];
+    assert.ok(same(reordered[0], reordered[1]));
+    state.yahoo = [{ name: reordered[0], jan: q0 }, { name: 'ミノン 化粧水 アミノリペア 薬用', jan: q1 }];
+    state.rakutenByJan = { [q0]: [], [q1]: [] };
+    const obfList = '水、BG、グリセリン、ペンチレングリコール、クエン酸、ヒアルロン酸Na、パンテノール';
+    state.obf = { [q0]: { name: reordered[1], ingredients: obfList }, [q1]: { name: 'ミノン 化粧水 アミノリペア 薬用', ingredients: `${obfList}、ベタイン` } };
+    const d = await search(true);
+    added.push(`obf_${q0}`, `obf_${q1}`);
+    assert.deepStrictEqual(d.products.map((p) => p.id), [`obf_${q1}`]);
+    assert.deepStrictEqual([d.counts.paidLookups, d.counts.dropped.noList, d.counts.janToRakuten], [2, 1, janCounts(2, 0, 0)]);
+    assertCountsAddUp(d.counts, 'D');
+  } finally {
+    shops.restore();
+    for (const id of added) {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
     resetSpendCap();
   }
 });

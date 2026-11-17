@@ -178,7 +178,7 @@ export type ShopDropReason =
   | 'duplicate';
 
 /**
- * 同じ JAN コードの楽天の出品を使わなかった理由（確かめる順）。set: セット・まとめ売り / name: 名前が合わない（sameListing） /
+ * 同じ JAN コードの楽天の出品を使わなかった理由（確かめる順）。set: セット・まとめ売り / name: 名前が合わない（sameJanListing） /
  * variant: 型の語が違う（variantMarks） / noCaption: 説明が無い / noList: 説明から全成分を読めない
  */
 export const JAN_MISS_REASONS = ['set', 'name', 'variant', 'noCaption', 'noList'] as const;
@@ -210,12 +210,11 @@ export interface ShopSearchCounts {
    * sameJan: 同じ JAN コードの出品があった /
    * found: 名前も合い、全成分を読めた（確認に回した。その結果は dropped・shown などに数える） /
    * why: 同じ JAN コードの出品があったのに使わなかった理由（JanMissReason。1件を1つにだけ数える） /
-   * nameLoose: why.name のうち、括弧の宣伝・先頭の店名を外して比べれば名前が合った数（名前の確かめが厳しすぎるかを測るだけ。決まりは変えない）
    * 使わなかった理由は、Yahoo! の商品ごとに、同じ JAN コードの出品のうちいちばん先の確かめまで進んだものの理由なので、いつも
    *   tried = (tried - sameJan) + why.set + why.name + why.variant + why.noCaption + why.noList + found
    * になる（テスト 175 で確かめる）
    */
-  janToRakuten: { tried: number; sameJan: number; found: number; why: Record<JanMissReason, number>; nameLoose: number };
+  janToRakuten: { tried: number; sameJan: number; found: number; why: Record<JanMissReason, number> };
   /** JAN コードで調べた数（有料のことがある） */
   paidLookups: number;
   shown: number;
@@ -233,7 +232,7 @@ function emptyCounts(): ShopSearchCounts {
     noListByShop: { rakuten: 0, yahoo: 0 },
     checked: 0,
     notChecked: 0,
-    janToRakuten: { tried: 0, sameJan: 0, found: 0, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0 }, nameLoose: 0 },
+    janToRakuten: { tried: 0, sameJan: 0, found: 0, why: { set: 0, name: 0, variant: 0, noCaption: 0, noList: 0 } },
     paidLookups: 0,
     shown: 0,
     notShown: 0,
@@ -327,7 +326,10 @@ function listingCarriesJan(listing: ShopItem, jan: string): boolean {
  * 合うので、「キュレル 化粧水」が「キュレル 化粧水 III とてもしっとり」にも合ってしまう。JAN コードで見つけた楽天の出品は、
  * 出品者が別の型の JAN コードを書いていることがあるので、この語が両方で同じときだけ同じ商品とする
  */
-const VARIANT_MARK = /(?<![A-Za-z])(?:I{1,3}|IV|V)(?![A-Za-z])|[Ⅰ-Ⅹ]|とてもしっとり|しっとり|さっぱり|しっかり|みずみずしい|リッチ|モイスト|ライト|無香料|SPF\s*\d+|PA\s*\++/gi;
+const VARIANT_WORDS = ['とてもしっとり', 'しっとり', 'さっぱり', 'しっかり', 'みずみずしい', 'リッチ', 'モイスト', 'ライト', '無香料'];
+const VARIANT_MARK = new RegExp(`(?<![A-Za-z])(?:I{1,3}|IV|V)(?![A-Za-z])|[Ⅰ-Ⅹ]|${VARIANT_WORDS.join('|')}|SPF\\s*\\d+|PA\\s*\\++`, 'gi');
+/** 照合用のキー（searchKey の形）の中の型の語（nameWords で、ブランドを外した後に外す。「ヨミV」の V を型にしない） */
+const VARIANT_KEY = new RegExp(`(?<![a-z])(?:i{1,3}|iv|v)(?![a-z])|${VARIANT_WORDS.map(searchKey).join('|')}|spf\\d+|pa\\++`, 'g');
 
 function variantMarks(name: string): string {
   const marks = (name.normalize('NFKC').match(VARIANT_MARK) ?? []).map((m) => m.replace(/\s+/g, '').toUpperCase());
@@ -338,55 +340,182 @@ function variantMarks(name: string): string {
 type CaptionLabel = NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>;
 
 /**
- * 同じ JAN コードの楽天の出品を、説明を読む前に使えないと分かる理由（JAN_MISS_REASONS の順に確かめる）。使えそうなら null。
- * どの理由も単なる条件なので、順番を変えても使う出品は変わらない（数えるために、最初に外れた理由を返す）
- */
-function listingMiss(yahooItem: ShopItem, listing: ShopItem, sheet: boolean): Exclude<JanMissReason, 'noList'> | null {
-  if (notSingleItem(withoutListingNoise(listing.name), sheet)) return 'set';
-  if (!sameListing(yahooItem, listing)) return 'name';
-  if (variantMarks(listing.name) !== variantMarks(yahooItem.name)) return 'variant';
-  if (!listing.caption) return 'noCaption';
-  return null;
-}
-
-/**
- * 名前の確かめが厳しすぎるかを測るためだけの、ゆるい名前（使う出品の決まりには使わない）。withoutListingNoise が外さない
- * 括弧（(…)・≪…≫・《…》・〈…〉・◆…◆ など。宣伝の語が多い）と、先頭の「店名 / 」「店名|」を外す
+ * 語に分ける前に外す飾り。withoutListingNoise が外さない括弧（(…)・≪…≫・《…》・〈…〉・◆…◆ など。宣伝の語が多い）と、
+ * 先頭の「店名 / 」「店名|」（2026-11-18 の4回目の測定で、名前で外れた 17 件のうち 3 件はこれだけの違い）
  */
 const LOOSE_NOISE = /\([^)]*\)|≪[^≫]*≫|《[^》]*》|〈[^〉]*〉|([◆■●▼▲◇□])[^◆■●▼▲◇□]*\1/g;
 const SHOP_PREFIX = /^[^/|]{1,30}(?:\||\s\/\s)\s*(?=\S)/;
 const looseName = (name: string) => withoutListingNoise(name).replace(LOOSE_NOISE, ' ').replace(SHOP_PREFIX, '');
 
 /**
+ * どの商品の名前にも付く語（効能の宣伝・肌の種類・容器）。製品を分けないので、語の比べから外す。詰め替え・本体・ボトルは
+ * 成分が同じなので分けない（product-identity.ts で容量・つめかえ用を分けないのと同じ）
+ */
+const GENERIC_WORDS: ReadonlySet<string> = new Set(
+  [
+    '医薬部外品', '国内正規品', '化粧品', '基礎化粧品', 'コスメ', 'スキンケア', '保湿', '敏感肌', '敏感肌用', '乾燥肌', '乾燥肌用',
+    '単品', '本体', 'ボトル', '大容量', '詰め替え', '詰め替え用', '詰替', '詰替用', 'つめかえ', 'つめかえ用', 'レフィル', 'リフィル',
+    '新品', 'JAN', 'JANコード',
+  ].map(searchKey)
+);
+const ASCII_WORD = /^[a-z0-9]+$/;
+/** 名前を語に分ける区切り（空白・記号）。区切りの無い日本語の続きは、ブランド・種類の語のところでさらに切る */
+const WORD_BREAK = /[\s/|｜・,、:：]+/;
+
+/**
+ * 名前の語（照合用のキー）。飾り・容量を外して区切りで分け、ブランド・型の語（型は variantMarks で別に比べる）・種類の語の
+ * ところで切る（「キュレル潤浸保湿化粧水III」→「潤浸保湿」）。英字のブランドは語の途中を切らない（続く語をつなげた形は外す）。
+ * 1文字の語・数字だけの語（JAN コード等）・どの商品にも付く語は入れない
+ */
+function nameWords(name: string, brandKeys: readonly string[]): string[] {
+  const tokens = looseName(name).replace(SIZE, ' ').split(WORD_BREAK).map(searchKey).filter(Boolean);
+  const asciiBrands = brandKeys.filter((k) => ASCII_WORD.test(k));
+  const otherBrands = brandKeys.filter((k) => !ASCII_WORD.test(k));
+  const dropped = new Set<number>();
+  for (let i = 0; i < tokens.length; i++) {
+    let joined = '';
+    for (let j = i; j < tokens.length && ASCII_WORD.test(tokens[j]); j++) {
+      joined += tokens[j];
+      if (asciiBrands.includes(joined)) for (let d = i; d <= j; d++) dropped.add(d);
+    }
+  }
+  const words: string[] = [];
+  tokens.forEach((token, i) => {
+    if (dropped.has(i)) return;
+    let rest = token;
+    for (const k of otherBrands) rest = rest.split(k).join(' ');
+    rest = rest.replace(VARIANT_KEY, ' ');
+    for (const k of CATEGORY_KEYS) rest = rest.split(k).join(' ');
+    for (const w of rest.split(' ')) if (w.length >= 2 && !/^[0-9]+$/.test(w) && !GENERIC_WORDS.has(w)) words.push(w);
+  });
+  return words;
+}
+
+/** 語が、もう一方の名前の語にあるか（区切り方の違い「潤浸 保湿」「潤浸保湿」は問わない。英字の語は英字の途中に合わせない） */
+function wordAppears(word: string, others: readonly string[]): boolean {
+  if (!ASCII_WORD.test(word)) return others.join('').includes(word);
+  const whole = new RegExp(`(?<![a-z0-9])${word}(?![a-z0-9])`);
+  return others.some((o) => whole.test(o));
+}
+
+/** 語の少ない方の語のうち、これだけの割合がもう一方にあれば「語の大半が同じ」（理由は sameJanListing のコメント） */
+const SHARED_WORD_SHARE = 0.7;
+/** 語の少ない方の語がこれより短い（文字の合計）と、どの製品かを比べられない */
+const MIN_WORD_CHARS = 3;
+
+/** ブランドの欄（Yahoo!）の文字列そのものが一覧のブランドならそれ（語の一部では探さない） */
+function listedBrandOf(field: string, brands: IndexedBrand[]): IndexedBrand | undefined {
+  const key = searchKey(field);
+  return key ? brands.find((b) => b.keys.includes(key)) : undefined;
+}
+
+/**
+ * 2つの名前のブランドが同じか。same: 同じ（外すブランドのキー） / different: 別のブランド / unknown: 片方でも分からない、
+ * または片方にだけ会社名でないブランドがある（どちらとも言えない）
+ */
+function brandAgreement(
+  yahooItem: ShopItem,
+  listing: ShopItem,
+  brands: IndexedBrand[]
+): { verdict: 'same'; keys: string[] } | { verdict: 'different' | 'unknown' } {
+  const yahooName = withoutListingNoise(yahooItem.name);
+  const listingName = withoutListingNoise(listing.name);
+  const ofYahoo = new Set(brands.filter((b) => textHasBrand(yahooName, b)));
+  const ofListing = new Set(brands.filter((b) => textHasBrand(listingName, b)));
+  const field = yahooItem.brands[0] ?? '';
+  const listed = listedBrandOf(field, brands);
+  if (listed) ofYahoo.add(listed);
+  else if (ofYahoo.size === 0 && searchKey(field).length >= 2) {
+    // 一覧に無いブランドの欄は、楽天の名前がそれを含むかで比べる
+    const own: IndexedBrand = { entry: { name: field }, keys: [searchKey(field)] };
+    ofYahoo.add(own);
+    if (textHasBrand(listingName, own)) ofListing.add(own);
+  }
+  if (ofYahoo.size === 0 || ofListing.size === 0) return { verdict: 'unknown' };
+  const both = [...ofYahoo].filter((b) => ofListing.has(b));
+  if (both.length === 0) return { verdict: 'different' };
+  const onlyOne = [...ofYahoo, ...ofListing].filter((b) => !both.includes(b));
+  if (onlyOne.some((b) => !b.entry.maker)) return { verdict: 'unknown' };
+  const keys = [...new Set([...ofYahoo, ...ofListing].flatMap((b) => b.keys))].sort((a, b) => b.length - a.length);
+  return { verdict: 'same', keys };
+}
+
+/** 種類・下位の種類・形が食い違わないか（両方の名前が言うときだけ比べる。言わない方は合うとする） */
+function kindsAgree(a: string, b: string): boolean {
+  const differ = <T>(x: T | undefined, y: T | undefined) => x !== undefined && y !== undefined && x !== y;
+  const kindA = categoryFromText(a);
+  const kindB = categoryFromText(b);
+  if (differ(kindA, kindB)) return false;
+  const kind = kindA ?? kindB;
+  return !differ(subKindFromText(kind, a), subKindFromText(kind, b)) && !differ(formFromText(a), formFromText(b));
+}
+
+/**
+ * 2b（Yahoo! の JAN コードで見つけた楽天の出品）だけの名前の確かめ。3 の有料の調べもの・保存済みの製品は sameListing のまま。
+ * 2人の出品者が同じ JAN コードを書いているのは強い手がかりなので、「一方の名前がもう一方を含む」までは求めない
+ * （4回目の測定で、同じ JAN コードの 30 件のうち 17 件が名前で外れ、飾りだけの違いは 3 件。残りは語順・シリーズ名の有無）。
+ * 次のすべてで同じ商品とする：
+ * - 同じブランド：両方の名前が一覧（buildBrandIndex）の同じブランドに当たる。Yahoo! のブランドの欄も Yahoo! 側に数え、一覧に
+ *   無いブランドの欄は楽天の名前がそれを含めばよい。片方にだけあってよいのは会社名（花王・資生堂など）だけ
+ * - 同じ種類・下位の種類・形（両方の名前が言うときだけ。「化粧水」と「乳液」、「クリーム」と「ジェル」は同じ系列の別の商品）
+ * - 語の大半が同じ：nameWords の語の少ない方の 7 割以上が、もう一方にある（順番は問わない）。7 割だと、3語までは全部、4〜6語は
+ *   1語、7語からは2語まで違ってよい（宣伝の語が1つ混じっても落とさず、短い名前で製品名の語が違うものは別の商品とする）
+ * - 語の少ない方の語が短すぎる（合わせて3文字未満）のに、もう一方にほかの語がある：どの製品か比べられない（両方とも語が無い・
+ *   同じ短い語だけなら、ブランドと種類だけの同じ名前なので合う）
+ * どちらかのブランドが分からないときは、語だけでは決めず、今までの sameListing（一方がもう一方を含む）。
+ * 型の語（variantMarks）・セットの確かめは、これとは別に続ける（listingMiss）
+ */
+export function sameJanListing(yahooItem: ShopItem, listing: ShopItem, brands: IndexedBrand[]): boolean {
+  const brand = brandAgreement(yahooItem, listing, brands);
+  if (brand.verdict !== 'same') return brand.verdict === 'unknown' && sameListing(yahooItem, listing);
+  if (!kindsAgree(withoutListingNoise(yahooItem.name), withoutListingNoise(listing.name))) return false;
+  const [fewer, more] = [nameWords(yahooItem.name, brand.keys), nameWords(listing.name, brand.keys)].sort(
+    (a, b) => a.length - b.length || a.join('').length - b.join('').length
+  );
+  // 短すぎる名前は、もう一方の語がすべてこちらにもある（同じことしか言っていない）ときだけ
+  if (fewer.join('').length < MIN_WORD_CHARS) return more.every((w) => wordAppears(w, fewer));
+  return fewer.filter((w) => wordAppears(w, more)).length / fewer.length >= SHARED_WORD_SHARE;
+}
+
+/**
+ * 同じ JAN コードの楽天の出品を、説明を読む前に使えないと分かる理由（JAN_MISS_REASONS の順に確かめる）。使えそうなら null。
+ * どの理由も単なる条件なので、順番を変えても使う出品は変わらない（数えるために、最初に外れた理由を返す）
+ */
+function listingMiss(yahooItem: ShopItem, listing: ShopItem, sheet: boolean, brands: IndexedBrand[]): Exclude<JanMissReason, 'noList'> | null {
+  if (notSingleItem(withoutListingNoise(listing.name), sheet)) return 'set';
+  if (!sameJanListing(yahooItem, listing, brands)) return 'name';
+  if (variantMarks(listing.name) !== variantMarks(yahooItem.name)) return 'variant';
+  if (!listing.caption) return 'noCaption';
+  return null;
+}
+
+/**
  * Yahoo! の商品と同じ商品の楽天の出品と、その説明の全成分。JAN コードも名前も出品者が書いた値なので、両方が合うものだけ
- * （JAN コードが同じで、sameListing で名前も合う）。セット・まとめ売りの出品は使わない。
- * sameJan・miss・nameLoose は数えるためだけ。miss は、同じ JAN コードの出品のうちいちばん先の確かめまで進んだものの理由
+ * （JAN コードが同じで、sameJanListing で名前も合う）。セット・まとめ売りの出品は使わない。
+ * sameJan・miss は数えるためだけ。miss は、同じ JAN コードの出品のうちいちばん先の確かめまで進んだものの理由
  * （1件を1つの理由にだけ数え、合計が sameJan - found になるように）
  */
 async function sameItemOnRakuten(
   yahooItem: ShopItem,
   listings: ShopItem[],
-  sheet: boolean
-): Promise<{ sameJan: boolean; match: { listing: ShopItem; label: CaptionLabel } | null; miss: JanMissReason | null; nameLoose: boolean }> {
+  sheet: boolean,
+  brands: IndexedBrand[]
+): Promise<{ sameJan: boolean; match: { listing: ShopItem; label: CaptionLabel } | null; miss: JanMissReason | null }> {
   const jan = normalJan(yahooItem.janCode);
   let sameJan = false;
   let furthest = -1;
-  let nameLoose = false;
   for (const listing of listings) {
     if (listing.shopId !== 'rakuten' || !listingCarriesJan(listing, jan)) continue;
     sameJan = true;
-    let miss: JanMissReason | null = listingMiss(yahooItem, listing, sheet);
+    let miss: JanMissReason | null = listingMiss(yahooItem, listing, sheet, brands);
     if (!miss) {
       const label = await ingredientsFromCaption(listing.caption!);
-      if (label) return { sameJan, match: { listing, label }, miss: null, nameLoose: false };
+      if (label) return { sameJan, match: { listing, label }, miss: null };
       miss = 'noList';
     }
-    if (miss === 'name' && sameListing({ name: looseName(yahooItem.name) }, { ...listing, name: looseName(listing.name) })) nameLoose = true;
     furthest = Math.max(furthest, JAN_MISS_REASONS.indexOf(miss));
   }
-  const miss = furthest >= 0 ? JAN_MISS_REASONS[furthest] : null;
-  // ゆるい名前の数は、名前で外れた商品（それより先に進んだ出品が無い）だけ
-  return { sameJan, match: null, miss, nameLoose: miss === 'name' && nameLoose };
+  return { sameJan, match: null, miss: furthest >= 0 ? JAN_MISS_REASONS[furthest] : null };
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -574,10 +703,9 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       rakutenCalledAt = Date.now();
       // 失敗（通信・回数の上限）なら、続けて呼ばない
       if (!listings) break;
-      const { sameJan, match, miss, nameLoose } = await sameItemOnRakuten(item, listings, sheet);
+      const { sameJan, match, miss } = await sameItemOnRakuten(item, listings, sheet, brands);
       if (sameJan) counts.janToRakuten.sameJan++;
       if (miss) counts.janToRakuten.why[miss]++;
-      if (nameLoose) counts.janToRakuten.nameLoose++;
       if (!match) continue;
       counts.janToRakuten.found++;
       viaRakuten.add(item);
