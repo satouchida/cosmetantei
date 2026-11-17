@@ -41,6 +41,12 @@ export function useBarcodeScanner({ isOpen, onScanSuccess }: BarcodeScannerDeps)
   useEffect(() => {
     isOpenRef.current = isOpen;
   }, [isOpen]);
+  // カメラの読み取りは、起動したときの描画の関数を持ち続ける。開いている間に親の onScanSuccess が変わっても
+  // （前の返答を待っているかどうか等）、番号の入力と同じ最新のものを呼ぶ
+  const onScanSuccessRef = useRef(onScanSuccess);
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess;
+  }, [onScanSuccess]);
   const readerElementId = 'barcode-reader-viewport';
 
   const stopScanner = async () => {
@@ -71,7 +77,7 @@ export function useBarcodeScanner({ isOpen, onScanSuccess }: BarcodeScannerDeps)
   const handleSuccess = (code: string): true | string | null => {
     if (handledRef.current) return null;
     handledRef.current = true;
-    const accepted = onScanSuccess(code.trim());
+    const accepted = onScanSuccessRef.current(code.trim());
     if (accepted !== true) {
       // 受け付けられなければ開いたまま理由を出し、少ししてからまた読む（同じ映像で続けて断らない）
       setErrorMsg(accepted);
