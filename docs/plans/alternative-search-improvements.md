@@ -204,6 +204,38 @@ Test 168 covers these. Left as they are:
   (processing time only; no extra shop call, saved-product read or paid lookup).
 - The web-search fallback still asks with the kind's label, not the sub-kind's.
 
+### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
+
+Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
+
+| | First run | Second run |
+|---|---|---|
+| Shown (of 90) | 31 | **44** |
+| Cases with 3 shown | 7 | 10 |
+| Cases with nothing | 13 | 10 |
+| Checked | 797 | 1,033 |
+| No readable list | 705 | 849 (Rakuten 459, Yahoo! 390) |
+| Rejected by the gate (suspect + irritant + unrated) | 57 | 91 |
+
+Per case, the gains are where Rakuten captions sat beyond the old cap: cleanser 2/1/1 (was 1/0/1),
+cream 3/1/1 (was 1/1/0), sunscreen with 香料 3 (was 2), mask with 香料 3 (was 2), lip with
+エタノール 3 (was 2), foundation 3/2/3 (was 3/0/1), toner with エタノール 1 (was 0). No case shows
+fewer than before.
+
+What it shows:
+
+- **The reorder worked**: about 30% more candidates checked and 13 more shown, with no extra call.
+- **Rakuten captions are now the limit.** About 20 of 30 Rakuten items per case have no readable
+  list (459 in all). Reading more of them needs Path 5 (coverage) and better caption cutting, not
+  more ordering.
+- **Serum still shows nothing** in all three cases; most candidates have no list.
+- **Body sunscreen and sheet masks still show nothing.** The genre did not help: body sunscreen
+  drops 27 of 37 as another kind (the items in the sunscreen genre found by 「日焼け止め ボディ」
+  rarely say ボディ in the name), and sheet masks still lose 17 as sets. Both need a look at the
+  actual listings before another rule is written.
+- **The irritant rule rises with what is read** (45 → 69). As more lists become readable it
+  becomes the next limit, which is where Path 7 comes in.
+
 ## Review of the 2026-11-18 next steps (commit `81d1891`)
 
 One code-improver pass. No critical or high finding; bounds, the counts identity, the paid
