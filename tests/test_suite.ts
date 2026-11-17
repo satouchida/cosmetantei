@@ -10456,7 +10456,8 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
     ['肌ラボ 極潤 ヒアルロン液', '-', '-'],
     ['イハダ 薬用バーム', '-', '-'],
     ['ヴァセリン オリジナル ピュアスキンジェリー', '-', '-'],
-    ['ケアセラ 泡の高保湿ボディウォッシュ', '-', '-'],
+    // ボディソープは洗浄料の下位の種類（オーナーの判断 2026-11-18）
+    ['ケアセラ 泡の高保湿ボディウォッシュ', 'cleanser', 'body_wash'],
     ['アベンヌ ウオーター', '-', '-'],
     ['ビオデルマ サンシビオ H2O', '-', '-'],
     ['ミノン アミノモイスト ジェントルウォッシュ ホイップ', '-', '-'],
@@ -10477,11 +10478,11 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
   for (const strict of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_lotion'] as const) {
     assert.strictEqual(subKindFit(strict, undefined), 'other', strict);
   }
-  // 分析した製品に下位の種類が無いとき：ハンド・からだ用・目元・口紅・ボディローションは外し、ほかは今までどおり
-  for (const notForUnsaid of ['hand', 'body', 'eye', 'lip_color', 'body_lotion'] as const) {
+  // 分析した製品に下位の種類が無いとき：ハンド・からだ用・目元・口紅・メイク落とし・ボディソープ・ボディローションは外し、ほかは今までどおり
+  for (const notForUnsaid of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion'] as const) {
     assert.strictEqual(subKindFit(undefined, notForUnsaid), 'other', notForUnsaid);
   }
-  for (const kept of ['makeup_remover', 'face_wash', 'milk', 'gel', 'face_cream', 'lip_care', 'sheet', 'wipe_off', undefined] as const) {
+  for (const kept of ['face_wash', 'milk', 'gel', 'face_cream', 'lip_care', 'sheet', 'wipe_off', undefined] as const) {
     assert.strictEqual(subKindFit(undefined, kept), 'unsaid', String(kept));
   }
 
@@ -10512,7 +10513,7 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
     assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cream', subKind: 'hand' })), ['sub_cream_hand']);
     // クレンジングオイル：メイク落としだけ（名前で分からない洗浄料も外す）。洗顔料には、メイク落とし以外
     assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cleanser', subKind: 'makeup_remover' })), ['sub_remover_oil']);
-    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cleanser', subKind: 'face_wash' })), ['sub_wash_foam', 'sub_cleanser_plain']);
+    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cleanser', subKind: 'face_wash' })), ['sub_wash_foam'], 'A cleanser that does not say what it washes is not offered');
     // 分析カード（analyzeProduct）も同じ：クレンジングオイルに洗顔料を出さない
     const oil = verifiedProduct({ id: 'sub_analysed_oil', name: 'テスト マイルドクレンジングオイル', category: 'cleanser', ingredients: ['ミネラルオイル', '香料'], ingredientSource: 'web_page', sourceUrl: 'https://www.kao.co.jp/z/' });
     const cardIds = (analyzeProduct(oil).safeAlternatives ?? []).map((p) => p.id);
@@ -10845,4 +10846,40 @@ test('168. Alternatives, review fixes: hair and hand products, lipstick words, a
   ] as const) {
     assert.strictEqual(formFromText(name), form, name);
   }
+});
+
+test('169. Alternatives for cleansers: a candidate must say face wash, makeup remover or body wash (owner, 2026-11-18)', async () => {
+  const { categoryFromText, productSubKind, subKindFit } = await import('../src/lib/analyzer/product-category');
+  const { alternativeGateReason } = await import('../src/lib/analyzer/alternative-gate');
+  const sub = (name: string) => [categoryFromText(name), productSubKind(verifiedProduct({ name, category: 'other' }))];
+  // からだを洗うものは、洗浄料のボディソープ
+  for (const name of ['ミノン 全身シャンプー ボディソープ', '泡のボディウォッシュ 詰め替え', 'ボディシャンプー しっとり']) {
+    assert.deepStrictEqual(sub(name), ['cleanser', 'body_wash'], name);
+  }
+  assert.deepStrictEqual(sub('ヘア&ボディソープ'), [undefined, undefined], 'Hair products have no kind');
+  // 同じ下位の種類だけ。名前に無い候補は、どの洗浄料の代わりにも出さない
+  for (const wanted of ['face_wash', 'makeup_remover', 'body_wash', undefined] as const) {
+    assert.strictEqual(subKindFit(wanted, undefined, 'cleanser'), 'other', String(wanted));
+  }
+  assert.strictEqual(subKindFit('face_wash', 'face_wash', 'cleanser'), 'same');
+  assert.strictEqual(subKindFit('face_wash', 'makeup_remover', 'cleanser'), 'other');
+  assert.strictEqual(subKindFit('body_wash', 'face_wash', 'cleanser'), 'other');
+  // 分析した製品の名前に無ければ、洗顔料の候補だけ
+  assert.strictEqual(subKindFit(undefined, 'face_wash', 'cleanser'), 'unsaid');
+  assert.strictEqual(subKindFit(undefined, 'makeup_remover', 'cleanser'), 'other');
+  assert.strictEqual(subKindFit(undefined, 'body_wash', 'cleanser'), 'other');
+  // ほかの種類は今までどおり（名前に無い候補は残る）
+  assert.strictEqual(subKindFit(undefined, undefined, 'toner'), 'unsaid');
+  assert.strictEqual(subKindFit('milk', undefined, 'cream'), 'unsaid');
+
+  // 確認（gate）も同じ：名前に無い洗浄料は「種類」で外れる
+  const gate = alternativeGateReason([{ nameJa: '香料' }]);
+  const cleanser = (id: string, name: string) =>
+    verifiedProduct({ id, name, brand: 'T169', category: 'cleanser', ingredients: ['水', 'グリセリン', 'BG', 'ココイルグリシンK', 'ベタイン', 'クエン酸', 'ヒアルロン酸Na', 'スクワラン'] });
+  assert.strictEqual(gate(cleanser('t169_plain', 'T169 マイルドクレンザー'), { category: 'cleanser' }), 'kind');
+  assert.strictEqual(gate(cleanser('t169_wash', 'T169 泡洗顔料'), { category: 'cleanser' }), 'ok');
+  assert.strictEqual(gate(cleanser('t169_wash', 'T169 泡洗顔料'), { category: 'cleanser', subKind: 'face_wash' }), 'ok');
+  assert.strictEqual(gate(cleanser('t169_oil', 'T169 クレンジングオイル'), { category: 'cleanser', subKind: 'face_wash' }), 'kind');
+  assert.strictEqual(gate(cleanser('t169_body', 'T169 ボディソープ'), { category: 'cleanser', subKind: 'body_wash' }), 'ok');
+  assert.strictEqual(gate(cleanser('t169_body', 'T169 ボディソープ'), { category: 'cleanser' }), 'kind');
 });

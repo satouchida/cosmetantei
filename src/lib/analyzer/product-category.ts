@@ -47,7 +47,7 @@ const CATEGORY_WORDS: readonly [RegExp, AlternativeCategory | 'makeup'][] = [
   ],
   [/日焼け止め|サンスクリーン|sunscreen|(?<![a-z])uv(?![a-z])/i, 'sunscreen'],
   [/化粧下地|メイク下地|メイクアップベース|コントロールカラー|\bprimer\b/i, 'makeup'],
-  [/洗顔(?!後)|クレンジング(?!後)|メイク落とし|\bcleanser\b/i, 'cleanser'],
+  [/洗顔(?!後)|クレンジング(?!後)|メイク落とし|ボディソープ|ボディウォッシュ|ボディシャンプー|\bcleanser\b/i, 'cleanser'],
   [/オールインワン/, 'cream'],
   [/化粧水|ローション|トナー|スキンコンディショナー|\btoner\b/i, 'toner'],
   [/美容液|セラム|エッセンス|\bserum\b/i, 'serum'],
@@ -101,6 +101,7 @@ export function mostCommonCategory(products: Pick<Product, 'category' | 'name'>[
 export type SubKind =
   | 'makeup_remover'
   | 'face_wash'
+  | 'body_wash'
   | 'all_in_one'
   | 'hand'
   | 'body'
@@ -137,6 +138,8 @@ export const FACE_ONLY = /^(?![\s\S]*(ボディ|からだ用|体用|全身用))[
  */
 const SUB_KIND_WORDS: Partial<Record<AlternativeCategory, readonly [RegExp, SubKind][]>> = {
   cleanser: [
+    // からだを洗うものが最初（「ボディソープ 泡」を洗顔料にしない）
+    [/ボディソープ|ボディウォッシュ|ボディシャンプー/, 'body_wash'],
     [/クレンジング(フォーム|ウォッシュ)/, 'face_wash'],
     [/クレンジング|メイク落とし|リムーバー|日焼け止め落とし/, 'makeup_remover'],
     [/洗顔|ウォッシュ|フォーム|石けん|石鹸/, 'face_wash'],
@@ -198,18 +201,25 @@ export function mostCommonSubKind(
 }
 
 /**
- * 同じ下位の種類の候補しか代わりにならないもの（顔の製品はハンド・からだ・目元・口紅・メイク落とし・ボディローションの
+ * 同じ下位の種類の候補しか代わりにならないもの（顔の製品はハンド・からだ・目元・口紅・メイク落とし・洗顔料・ボディソープ・ボディローションの
  * 代わりにならず、その逆も同じ）。分析した製品がこれなら、名前に下位の種類が無い候補も外す
  */
-const STRICT_SUB_KINDS: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_lotion']);
+const STRICT_SUB_KINDS: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'face_wash', 'body_wash', 'body_lotion']);
 /** 分析した製品に下位の種類が無いとき（顔のクリーム等として扱う）に外す、候補の下位の種類 */
-const NOT_FOR_UNSAID: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'body_lotion']);
+const NOT_FOR_UNSAID: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion']);
 
 /**
  * 候補の下位の種類が、分析した製品に合うか。same: 同じ（先に並べる）/ unsaid: 名前で分からない・どちらでもよい（後に並べる）/
  * other: 別の下位の種類（外す）。分析した製品にも候補にも下位の種類が無ければ unsaid（今までどおり）
+ * 洗浄料は、名前に洗顔料・メイク落とし・ボディソープのどれかを書いた候補だけ（オーナーの判断 2026-11-18。何を洗うものか
+ * 分からない候補は出さない）。分析した製品の名前に無ければ、洗顔料の候補だけ
  */
-export function subKindFit(wanted: SubKind | undefined, candidate: SubKind | undefined): 'same' | 'unsaid' | 'other' {
+export function subKindFit(
+  wanted: SubKind | undefined,
+  candidate: SubKind | undefined,
+  kind?: Product['category']
+): 'same' | 'unsaid' | 'other' {
+  if (kind === 'cleanser' && !candidate) return 'other';
   if (!wanted) return candidate && NOT_FOR_UNSAID.has(candidate) ? 'other' : 'unsaid';
   if (candidate === wanted) return 'same';
   if (candidate) return 'other';

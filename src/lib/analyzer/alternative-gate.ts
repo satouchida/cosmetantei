@@ -97,7 +97,7 @@ export function alternativeGateReason(
   return (product, options = {}) => {
     // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
     if (options.category && productCategory(product) !== options.category) return 'kind';
-    if (options.category && subKindFit(options.subKind, candidateSubKind(product, options.category)) === 'other') return 'kind';
+    if (options.category && subKindFit(options.subKind, candidateSubKind(product, options.category), options.category) === 'other') return 'kind';
     const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
     if (!shopListing && !hasVerifiedIngredients(product)) return 'unverified';
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
@@ -164,7 +164,7 @@ export function findSafeAlternatives(
   // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの。その中で無香料・アルコールフリーを
   // 優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
   const { category, profile } = options;
-  const sameSubKind = (p: Product) => (category && subKindFit(options.subKind, candidateSubKind(p, category)) === 'same' ? 1 : 0);
+  const sameSubKind = (p: Product) => (category && subKindFit(options.subKind, candidateSubKind(p, category), category) === 'same' ? 1 : 0);
   const similarity = (p: Product) =>
     hasFormProfile(profile) ? formSimilarity(profile, formProfile(p.name, category === 'other' ? undefined : category)) : 0;
   return safeItems

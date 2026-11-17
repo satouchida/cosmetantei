@@ -52,7 +52,10 @@ const GENRES: Record<AlternativeCategory, ShopGenre> = {
  * 種類の名前と種類のジャンルで探す（その種類のジャンルに入っている）
  */
 const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKind, { label: string; genre?: ShopGenre }>>>> = {
-  cleanser: { makeup_remover: { label: 'クレンジング', genre: { rakuten: 405100, yahoo: 48902 } } },
+  cleanser: {
+    makeup_remover: { label: 'クレンジング', genre: { rakuten: 405100, yahoo: 48902 } },
+    body_wash: { label: 'ボディソープ' },
+  },
   cream: {
     milk: { label: '乳液', genre: { rakuten: 216387, yahoo: 1766 } },
     // 「クリーム」で探すと、ほとんどが顔のクリームで外れるので、それぞれの名前で探す
@@ -280,7 +283,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       // 別の種類（ジャンルが広い・名前が別の種類を言う）・別の下位の種類（クレンジングに洗顔料）と、勧めない製品
       // （同じ製品・同じシリーズ）は除く
       const kind = categoryFromText(name);
-      if ((kind && kind !== input.category) || subKindFit(input.subKind, subKindFromText(input.category, name)) === 'other') {
+      if ((kind && kind !== input.category) || subKindFit(input.subKind, subKindFromText(input.category, name), input.category) === 'other') {
         drop('otherKind');
         continue;
       }
@@ -328,7 +331,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const profile = hasFormProfile(input.profile) ? input.profile : undefined;
   const rank = ({ item }: { item: ShopItem }) => {
     const name = withoutListingNoise(item.name);
-    const sameSubKind = subKindFit(input.subKind, subKindFromText(input.category, name)) === 'same';
+    const sameSubKind = subKindFit(input.subKind, subKindFromText(input.category, name), input.category) === 'same';
     return (sameSubKind ? 1000 : 0) + (profile ? formSimilarity(profile, formProfile(name, input.category)) : 0);
   };
   // 並べ替えるものが無ければ、今までどおり limit 件そろったら止める。あれば、いちばん近い候補が limit 件そろうまで、

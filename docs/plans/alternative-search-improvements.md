@@ -200,11 +200,17 @@ One code-improver pass over the three paths. Fixed:
 
 Test 168 covers these. Left as they are:
 
-- A cleanser with no sub-kind word still accepts makeup removers. Dropping them is a behavior
-  choice for the owner.
 - With SPF, PA or waterproof wanted, the free checks usually run through all 30 candidates
   (processing time only; no extra shop call, saved-product read or paid lookup).
 - The web-search fallback still asks with the kind's label, not the sub-kind's.
+
+## Owner's decision on cleansers (2026-11-18)
+
+A cleanser candidate must say what it washes: face wash, makeup remover or body wash. One whose
+name says none is not offered, for any cleanser. The three are strict (only the same one is an
+alternative). When the analysed product's own name says none, only face washes are offered.
+Body wash (ボディソープ, ボディウォッシュ, ボディシャンプー) is now kind `cleanser`, sub-kind `body_wash`,
+searched as 「ボディソープ」 without a genre. Test 169.
 
 ## Measurements
 
