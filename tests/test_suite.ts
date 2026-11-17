@@ -11490,13 +11490,16 @@ test('175. Alternatives, Rakuten by JAN code: why a same-JAN listing is not used
 });
 
 test('176. Alternatives, Rakuten by JAN code: a same-JAN listing is used when the brand is the same, the kind agrees and most words are shared (word order, line names, shop prefixes and widths do not matter); variants and sets still are not; the paid step keeps the strict name check (alternative-search-improvements.md, fourth run)', async () => {
-  const { findShopAlternatives, sameJanListing } = await import('../src/lib/services/shop-alternatives');
+  const { findShopAlternatives, sameJanListing, variantMarks } = await import('../src/lib/services/shop-alternatives');
   const { buildBrandIndex } = await import('../src/lib/services/brand-suggest');
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
   const brands = buildBrandIndex(COSMETICS_DATABASE);
   type Item = Parameters<typeof sameJanListing>[0];
   const item = (shopId: Item['shopId'], name: string, brand?: string): Item => ({ shopId, code: 'c176', name, brands: brand ? [brand] : [], url: 'https://example.com/176', taxIncluded: null });
   const same = (yahooName: string, rakutenName: string, yahooBrand?: string) => sameJanListing(item('yahoo', yahooName, yahooBrand), item('rakuten', rakutenName), brands);
+  // 2b で使う出品か（名前が合い、型・版・数の印も同じ。listingMiss の name・variant の確かめ）
+  const usable = (yahooName: string, rakutenName: string, yahooBrand?: string) =>
+    same(yahooName, rakutenName, yahooBrand) && variantMarks(yahooName) === variantMarks(rakutenName);
 
   // A. 同じ商品（JAN コードは合っている前提）。今までの「一方がもう一方を含む」では、どれも合わなかった
   const shouldMatch: [string, string, string?][] = [
@@ -11520,8 +11523,15 @@ test('176. Alternatives, Rakuten by JAN code: a same-JAN listing is used when th
     ['エリクシール ハリつやローション II', 'エリクシール 資生堂 ローション ハリつや II 170mL'],
     // 括弧の宣伝・詰め替え（成分は同じ）
     ['キュレル 潤浸保湿 化粧水 (医薬部外品)', 'キュレル 化粧水 潤浸保湿 つめかえ用 130ml'],
+    // 区切り方の違い（保湿は語に数えないので、片方は「潤浸」だけ）
+    ['キュレル 潤浸保湿 化粧水', 'キュレル 潤浸 保湿 化粧水 150ml'],
+    // 名前に書いた JAN コード・容量は型の数に数えない。SPF の値は「SPF」が無くても同じ
+    ['ミノン 薬用 うるおいバリア 化粧水 JAN:4987107616586', 'ミノン 化粧水 うるおいバリア 薬用 150ml'],
+    ['アネッサ パーフェクトUV スキンケアミルク SPF50+ PA++++', 'アネッサ パーフェクトUV スキンケアミルク 50+ PA++++ 60mL'],
+    // 「赤ちゃんにも使える」は版の語ではない
+    ['キュレル 潤浸保湿 フェイスクリーム', 'キュレル 潤浸保湿 フェイスクリーム 赤ちゃんにも使える 40g'],
   ];
-  for (const [y, r, b] of shouldMatch) assert.ok(same(y, r, b), `should match: ${y} / ${r}`);
+  for (const [y, r, b] of shouldMatch) assert.ok(usable(y, r, b), `should match: ${y} / ${r}`);
 
   // B. 同じ JAN コードでも使わない
   const mustNot: [string, string, string?][] = [
@@ -11544,6 +11554,28 @@ test('176. Alternatives, Rakuten by JAN code: a same-JAN listing is used when th
     ['うるおい 化粧水 森のしずく', '森のしずく 化粧水 うるおい'],
   ];
   for (const [y, r, b] of mustNot) assert.ok(!same(y, r, b), `must not match: ${y} / ${r}`);
+  // 見直し（2026-11-17）：どれも直す前は使っていた。片方にだけある語が違いそのもの（上位版・男性用・限定・ミニ・お試し・香り）、
+  // 数だけの違い、2文字のブランドが別の語の中にあるだけ
+  const otherVersion: [string, string, string?][] = [
+    // 上位版（語の中に付いた「プレミアム」）・一覧に無い語が語の中に付いたもの
+    ['肌ラボ 極潤 ヒアルロン液', '肌ラボ 極潤プレミアム ヒアルロン液'],
+    ['キュレル 潤浸保湿 化粧水', 'キュレル 潤浸保湿エイジングケア 化粧水'],
+    // 語の少ない方の語は全部あるが、もう一方が男性用・限定・ミニ
+    ['ミノン 化粧水 うるおいバリア', 'ミノン 薬用 うるおいバリア 化粧水 メンズ 限定 ミニ'],
+    ['キュレル 潤浸保湿 化粧水', 'キュレル 潤浸保湿 化粧水 メンズ 150ml'],
+    ['キュレル 潤浸保湿 フェイスクリーム', 'キュレル 潤浸保湿 フェイスクリーム 数量限定 40g'],
+    ['ミノン 薬用 うるおいバリア 化粧水', 'ミノン 薬用 うるおいバリア 化粧水 ミニサイズ 30ml'],
+    ['ミノン 薬用 うるおいバリア 化粧水', 'ミノン 薬用 うるおいバリア 化粧水 お試し'],
+    // 香りの違い（4語のうち1語だけ違う）
+    ['アベンヌ ターマルケア 薬用 化粧水 うるおい ローズ', 'アベンヌ ターマルケア 薬用 化粧水 うるおい ラベンダー'],
+    // 数だけの違い・「SPF」の無い SPF の値・SPF50+ と SPF50
+    ['ミノン 化粧水 1', 'ミノン 化粧水 2'],
+    ['アネッサ パーフェクトUV スキンケアミルク 50+', 'アネッサ パーフェクトUV スキンケアミルク 35'],
+    ['アネッサ パーフェクトUV スキンケアミルク SPF50+', 'アネッサ パーフェクトUV スキンケアミルク SPF50'],
+    // 「ペア」は「リペア」の中にあるだけ（ブランドが分からないので今までの比べ方。語順が違うので合わない）
+    ['ペア アクネ 薬用 クリーム', 'リペア 薬用 アクネ クリーム'],
+  ];
+  for (const [y, r, b] of otherVersion) assert.ok(!usable(y, r, b), `other version, must not match: ${y} / ${r}`);
   // ブランドが分からないときの今までの比べ方は、一方がもう一方を含めば合う
   assert.ok(same('うるおい 化粧水 森のしずく', 'うるおい 化粧水 森のしずく 200ml'));
 

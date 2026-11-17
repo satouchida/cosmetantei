@@ -179,7 +179,7 @@ export type ShopDropReason =
 
 /**
  * 同じ JAN コードの楽天の出品を使わなかった理由（確かめる順）。set: セット・まとめ売り / name: 名前が合わない（sameJanListing） /
- * variant: 型の語が違う（variantMarks） / noCaption: 説明が無い / noList: 説明から全成分を読めない
+ * variant: 型・版の語や数が違う（variantMarks） / noCaption: 説明が無い / noList: 説明から全成分を読めない
  */
 export const JAN_MISS_REASONS = ['set', 'name', 'variant', 'noCaption', 'noList'] as const;
 export type JanMissReason = (typeof JAN_MISS_REASONS)[number];
@@ -327,13 +327,54 @@ function listingCarriesJan(listing: ShopItem, jan: string): boolean {
  * 出品者が別の型の JAN コードを書いていることがあるので、この語が両方で同じときだけ同じ商品とする
  */
 const VARIANT_WORDS = ['とてもしっとり', 'しっとり', 'さっぱり', 'しっかり', 'みずみずしい', 'リッチ', 'モイスト', 'ライト', '無香料'];
-const VARIANT_MARK = new RegExp(`(?<![A-Za-z])(?:I{1,3}|IV|V)(?![A-Za-z])|[Ⅰ-Ⅹ]|${VARIANT_WORDS.join('|')}|SPF\\s*\\d+|PA\\s*\\++`, 'gi');
+// SPF の値は下の数（NUMBER_MARK）で比べる（「SPF50+」と「50+」を同じに、「SPF50+」と「SPF50」を別に）
+const VARIANT_MARK = new RegExp(`(?<![A-Za-z])(?:I{1,3}|IV|V)(?![A-Za-z])|[Ⅰ-Ⅹ]|${VARIANT_WORDS.join('|')}|PA\\s*\\++`, 'gi');
 /** 照合用のキー（searchKey の形）の中の型の語（nameWords で、ブランドを外した後に外す。「ヨミV」の V を型にしない） */
 const VARIANT_KEY = new RegExp(`(?<![a-z])(?:i{1,3}|iv|v)(?![a-z])|${VARIANT_WORDS.map(searchKey).join('|')}|spf\\d+|pa\\++`, 'g');
 
-function variantMarks(name: string): string {
-  const marks = (name.normalize('NFKC').match(VARIANT_MARK) ?? []).map((m) => m.replace(/\s+/g, '').toUpperCase());
+/**
+ * 同じ系列の別の版を分ける語（男性用・赤ちゃん用・限定・お試し・ミニ・上位版・香り）。片方の名前にだけあれば別の商品
+ * （「極潤」と「極潤プレミアム」、「ローズ」と「ラベンダー」）。型の語と同じく variantMarks で比べ、nameWords の語からは外す。
+ * 「赤ちゃんにも使える」は版ではないので数えない。薬用は入れない（同じ医薬部外品を、出品者が書かないことが多い）
+ */
+const VERSION_GROUPS: Record<string, string> = {
+  men: `(?:メンズ|男性|(?<![A-Za-z])MEN(?:['’]?S)?(?![A-Za-z]))(?!にも|も|から)`,
+  baby: `(?:ベビー|赤ちゃん)(?!にも|も|から)`,
+  kids: `キッズ(?!にも|も|から)`,
+  // 「期間限定ポイント10倍」「お試し価格」は売り方の宣伝なので数えない
+  limited: '(?<!期間)限定(?!価格|特価|セール|クーポン|ポイント)',
+  collab: 'コラボ',
+  trial: '(?:トライアル|お試し)(?!価格)',
+  mini: 'ミニ(?!マ|ウム)',
+  premium: 'プレミアム',
+  rose: 'ローズ(?!マリー|ヒップ)',
+  lavender: 'ラベンダー',
+  citrus: 'シトラス',
+  floral: 'フローラル',
+  musk: 'ムスク',
+  savon: 'サボン|せっけんの香り|石けんの香り',
+  jasmine: 'ジャスミン',
+};
+const VERSION_MARK = new RegExp(
+  Object.entries(VERSION_GROUPS)
+    .map(([mark, pattern]) => `(?<${mark}>${pattern})`)
+    .join('|'),
+  'gi'
+);
+/**
+ * 容量を外した後に残る数（「化粧水 1」と「化粧水 2」、「SPF50+」「50+」と「35」）。後に単位・語が続く数（10倍・1位・3種）は
+ * 宣伝や成分の言い方なので数えない。8桁以上は JAN コード
+ */
+const NUMBER_MARK = /(?<!\d|\d\.)\d+(?:\.\d+)?\+?(?=$|[\s/|｜・,、:：)\]）】」』!！])/g;
+
+export function variantMarks(name: string): string {
+  const text = name.normalize('NFKC');
   // 「とてもしっとり」は「しっとり」も含むので、長い語を先に取った結果だけを使う
+  const marks = (text.match(VARIANT_MARK) ?? []).map((m) => m.replace(/\s+/g, '').toUpperCase());
+  for (const m of text.matchAll(VERSION_MARK)) marks.push(Object.keys(m.groups ?? {}).find((k) => m.groups?.[k]) ?? '');
+  for (const [n] of text.replace(SIZE, ' ').replace(/SPF\s*|PA\s*\++/gi, ' ').matchAll(NUMBER_MARK)) {
+    if (n.replace(/\D/g, '').length < 8) marks.push(`#${n}`);
+  }
   return [...new Set(marks)].sort().join('|');
 }
 
@@ -363,12 +404,14 @@ const ASCII_WORD = /^[a-z0-9]+$/;
 const WORD_BREAK = /[\s/|｜・,、:：]+/;
 
 /**
- * 名前の語（照合用のキー）。飾り・容量を外して区切りで分け、ブランド・型の語（型は variantMarks で別に比べる）・種類の語の
- * ところで切る（「キュレル潤浸保湿化粧水III」→「潤浸保湿」）。英字のブランドは語の途中を切らない（続く語をつなげた形は外す）。
- * 1文字の語・数字だけの語（JAN コード等）・どの商品にも付く語は入れない
+ * 名前の語（照合用のキー）。飾り・容量・版の語を外して区切りで分け、ブランド・型の語・種類の語のところで切る
+ * （「キュレル潤浸保湿化粧水III」→「潤浸保湿」。型・版の語は variantMarks で別に比べるので、二重に数えない）。
+ * 英字のブランドは語の途中を切らない（続く語をつなげた形は外す）。1文字の語・数字だけの語（JAN コード等）・どの商品にも
+ * 付く語は入れない
  */
 function nameWords(name: string, brandKeys: readonly string[]): string[] {
-  const tokens = looseName(name).replace(SIZE, ' ').split(WORD_BREAK).map(searchKey).filter(Boolean);
+  const text = looseName(name).normalize('NFKC').replace(SIZE, ' ').replace(VERSION_MARK, ' ');
+  const tokens = text.split(WORD_BREAK).map(searchKey).filter(Boolean);
   const asciiBrands = brandKeys.filter((k) => ASCII_WORD.test(k));
   const otherBrands = brandKeys.filter((k) => !ASCII_WORD.test(k));
   const dropped = new Set<number>();
@@ -391,11 +434,37 @@ function nameWords(name: string, brandKeys: readonly string[]): string[] {
   return words;
 }
 
-/** 語が、もう一方の名前の語にあるか（区切り方の違い「潤浸 保湿」「潤浸保湿」は問わない。英字の語は英字の途中に合わせない） */
-function wordAppears(word: string, others: readonly string[]): boolean {
-  if (!ASCII_WORD.test(word)) return others.join('').includes(word);
-  const whole = new RegExp(`(?<![a-z0-9])${word}(?![a-z0-9])`);
-  return others.some((o) => whole.test(o));
+/** 長い語から外すための、どの商品にも付く語 */
+const GENERIC_LONGEST_FIRST = [...GENERIC_WORDS].sort((a, b) => b.length - a.length);
+
+/** 文字列が、これらの語とどの商品にも付く語だけでできているか（何も残らない） */
+function madeOf(text: string, words: readonly string[]): boolean {
+  let rest = text;
+  for (const w of [...words].sort((a, b) => b.length - a.length).concat(GENERIC_LONGEST_FIRST)) rest = rest.split(w).join(' ');
+  return rest.trim() === '';
+}
+
+/**
+ * 語が、もう一方の名前の語にあるか（区切り方の違い「潤浸 保湿」「潤浸保湿」は問わない。英字の語は英字の途中に合わせない）。
+ * もう一方の長い語の一部に当たるときは、はみ出した部分がこちらの語・どの商品にも付く語のときだけ（「潤浸保湿」は
+ * 「潤浸保湿エイジングケア」の一部だが、こちらに「エイジングケア」が無ければ別の製品）。逆に、この語がもう一方の語とどの商品にも付く語
+ * だけでできていても合う（「潤浸保湿」と「潤浸」。保湿は語に数えない）
+ */
+function wordAppears(word: string, own: readonly string[], others: readonly string[]): boolean {
+  if (ASCII_WORD.test(word)) {
+    const whole = new RegExp(`(?<![a-z0-9])${word}(?![a-z0-9])`);
+    return others.some((o) => whole.test(o));
+  }
+  if (others.includes(word)) return true;
+  const joined = others.join('');
+  const starts = others.map((_, i) => others.slice(0, i).join('').length);
+  for (let at = joined.indexOf(word); at >= 0; at = joined.indexOf(word, at + 1)) {
+    const end = at + word.length;
+    const first = starts.findLastIndex((s) => s <= at);
+    const last = starts.findLastIndex((s) => s < end);
+    if (madeOf(joined.slice(starts[first], at), own) && madeOf(joined.slice(end, starts[last] + others[last].length), own)) return true;
+  }
+  return madeOf(word, others);
 }
 
 /** 語の少ない方の語のうち、これだけの割合がもう一方にあれば「語の大半が同じ」（理由は sameJanListing のコメント） */
@@ -409,6 +478,22 @@ function listedBrandOf(field: string, brands: IndexedBrand[]): IndexedBrand | un
   return key ? brands.find((b) => b.keys.includes(key)) : undefined;
 }
 
+/** 名前を語に分ける区切り（ブランドの短いキーが語の頭にあるかを見る） */
+const NAME_TOKEN_BREAK = /[\s/|｜・,，、:：()（）[\]［］【】「」『』〈〉《》≪≫]+/;
+
+/**
+ * 名前がこのブランドのものか（textHasBrand）。ただし会社名でないブランドの2文字以下の日本語のキーは、語の頭にあるときだけ
+ * （「ペア」が「リペア」に当たらないように。textHasBrand はほかでも使うので、ここだけ厳しくする）
+ */
+function nameHasBrand(name: string, brand: IndexedBrand): boolean {
+  if (brand.entry.maker) return textHasBrand(name, brand);
+  const short = (k: string) => k.length <= 2 && !ASCII_WORD.test(k);
+  const longKeys = brand.keys.filter((k) => !short(k));
+  if (longKeys.length > 0 && textHasBrand(name, { ...brand, keys: longKeys })) return true;
+  const shortKeys = brand.keys.filter(short);
+  return shortKeys.length > 0 && name.split(NAME_TOKEN_BREAK).some((t) => shortKeys.some((k) => searchKey(t).startsWith(k)));
+}
+
 /**
  * 2つの名前のブランドが同じか。same: 同じ（外すブランドのキー） / different: 別のブランド / unknown: 片方でも分からない、
  * または片方にだけ会社名でないブランドがある（どちらとも言えない）
@@ -420,8 +505,8 @@ function brandAgreement(
 ): { verdict: 'same'; keys: string[] } | { verdict: 'different' | 'unknown' } {
   const yahooName = withoutListingNoise(yahooItem.name);
   const listingName = withoutListingNoise(listing.name);
-  const ofYahoo = new Set(brands.filter((b) => textHasBrand(yahooName, b)));
-  const ofListing = new Set(brands.filter((b) => textHasBrand(listingName, b)));
+  const ofYahoo = new Set(brands.filter((b) => nameHasBrand(yahooName, b)));
+  const ofListing = new Set(brands.filter((b) => nameHasBrand(listingName, b)));
   const field = yahooItem.brands[0] ?? '';
   const listed = listedBrandOf(field, brands);
   if (listed) ofYahoo.add(listed);
@@ -429,7 +514,7 @@ function brandAgreement(
     // 一覧に無いブランドの欄は、楽天の名前がそれを含むかで比べる
     const own: IndexedBrand = { entry: { name: field }, keys: [searchKey(field)] };
     ofYahoo.add(own);
-    if (textHasBrand(listingName, own)) ofListing.add(own);
+    if (nameHasBrand(listingName, own)) ofListing.add(own);
   }
   if (ofYahoo.size === 0 || ofListing.size === 0) return { verdict: 'unknown' };
   const both = [...ofYahoo].filter((b) => ofListing.has(b));
@@ -459,11 +544,13 @@ function kindsAgree(a: string, b: string): boolean {
  *   無いブランドの欄は楽天の名前がそれを含めばよい。片方にだけあってよいのは会社名（花王・資生堂など）だけ
  * - 同じ種類・下位の種類・形（両方の名前が言うときだけ。「化粧水」と「乳液」、「クリーム」と「ジェル」は同じ系列の別の商品）
  * - 語の大半が同じ：nameWords の語の少ない方の 7 割以上が、もう一方にある（順番は問わない）。7 割だと、3語までは全部、4〜6語は
- *   1語、7語からは2語まで違ってよい（宣伝の語が1つ混じっても落とさず、短い名前で製品名の語が違うものは別の商品とする）
+ *   1語、7語からは2語まで違ってよい（宣伝の語が1つ混じっても落とさず、短い名前で製品名の語が違うものは別の商品とする）。
+ *   もう一方の長い語の一部に当たるだけの語は、はみ出した部分がこちらに無ければ数えない（wordAppears）
  * - 語の少ない方の語が短すぎる（合わせて3文字未満）のに、もう一方にほかの語がある：どの製品か比べられない（両方とも語が無い・
  *   同じ短い語だけなら、ブランドと種類だけの同じ名前なので合う）
  * どちらかのブランドが分からないときは、語だけでは決めず、今までの sameListing（一方がもう一方を含む）。
- * 型の語（variantMarks）・セットの確かめは、これとは別に続ける（listingMiss）
+ * 型・版の語と数（variantMarks。男性用・限定・ミニ・香り・名前の数など、片方にだけあれば別の商品）・セットの確かめは、
+ * これとは別に続ける（listingMiss）
  */
 export function sameJanListing(yahooItem: ShopItem, listing: ShopItem, brands: IndexedBrand[]): boolean {
   const brand = brandAgreement(yahooItem, listing, brands);
@@ -473,8 +560,8 @@ export function sameJanListing(yahooItem: ShopItem, listing: ShopItem, brands: I
     (a, b) => a.length - b.length || a.join('').length - b.join('').length
   );
   // 短すぎる名前は、もう一方の語がすべてこちらにもある（同じことしか言っていない）ときだけ
-  if (fewer.join('').length < MIN_WORD_CHARS) return more.every((w) => wordAppears(w, fewer));
-  return fewer.filter((w) => wordAppears(w, more)).length / fewer.length >= SHARED_WORD_SHARE;
+  if (fewer.join('').length < MIN_WORD_CHARS) return more.every((w) => wordAppears(w, more, fewer));
+  return fewer.filter((w) => wordAppears(w, fewer, more)).length / fewer.length >= SHARED_WORD_SHARE;
 }
 
 /**

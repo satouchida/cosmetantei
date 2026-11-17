@@ -377,6 +377,23 @@ it would count now (brandless or too-short names) no longer measures decorations
 「ヨミU 化粧水 (医薬部外品)」 vs 「ショップX / ヨミU 化粧水」 is now used (was a `name` miss). Tests 164 and
 165 lost the field and the column; 173 and 174 are unchanged.
 
+Review fix 2026-11-17 (test 176, new pairs): the relaxed check let through names where the extra words are
+the difference. Now, still in step 2b only:
+
+- A word found only inside a longer word of the other name counts only when the rest of that longer word
+  is on its own side or generic (潤浸保湿 vs 潤浸保湿エイジングケア no; 潤浸保湿 vs 潤浸 保湿 yes, which also fixes that
+  spacing pair, rejected before because 保湿 is generic).
+- Version words join the variant comparison (`variantMarks`, counted as `variant`) and leave the word
+  comparison: men's (メンズ, 男性, MEN), baby (ベビー, 赤ちゃん), キッズ, 限定, コラボ, トライアル/お試し, ミニ,
+  プレミアム, and scents ローズ, ラベンダー, シトラス, フローラル, ムスク, サボン, ジャスミン. Phrases such as
+  「赤ちゃんにも使える」, 「期間限定」 and 「お試し価格」 do not count. 薬用 is not one: sellers often omit it for
+  the same quasi-drug (test 176's オルビス アクネクリア pair).
+- Numbers left after removing sizes join the variant comparison when nothing follows them but a
+  space, punctuation or the end (化粧水 1 vs 2; SPF50+ = 50+, but not = SPF50 or 35). Runs of 8 digits or more
+  (a JAN code in the name) and numbers followed by a unit (10倍, 1位, 3種) do not count.
+- In the brand check, a non-maker brand key of two characters or fewer in Japanese must start a token
+  (ペア is not found in リペア). `textHasBrand` is unchanged for its other callers.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
