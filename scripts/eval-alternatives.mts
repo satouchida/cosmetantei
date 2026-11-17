@@ -24,8 +24,20 @@ const DEFAULT_LIMIT = 3;
 const CASE_INTERVAL_MS = 1_100;
 const DROP_COLUMNS = ['otherKind', 'notSingle', 'excluded', 'noList', 'suspect', 'irritant', 'standard', 'unrated', 'duplicate'] as const;
 
+/** 下位の種類ごとの検索（Path 1）を確かめる分。原因候補は香料だけ */
+export const SUB_KIND_CASES = [
+  ['cleanser', 'makeup_remover'],
+  ['cream', 'milk'],
+  ['cream', 'hand'],
+  ['sunscreen', 'body'],
+  ['lip', 'lip_care'],
+  ['mask', 'sheet'],
+] as const;
+
 export interface EvalRow {
   kind: string;
+  /** 下位の種類（無ければ空） */
+  subKind: string;
   avoid: string;
   /** お店の検索語に足した決まった語（本番と同じ shopTerms） */
   terms: string[];
@@ -35,7 +47,7 @@ export interface EvalRow {
 
 const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-/** 24 件を順に調べる。お店のキーが無ければ null（何も呼ばない） */
+/** 種類ごとの 24 件と、下位の種類の 6 件を順に調べる。お店のキーが無ければ null（何も呼ばない） */
 export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERVAL_MS } = {}): Promise<EvalRow[] | null> {
   const apis = await import(`${ROOT}/src/lib/services/shop-apis`);
   if (!apis.isRakutenApiConfigured() && !apis.isYahooApiConfigured()) return null;
@@ -44,44 +56,48 @@ export async function evaluate({ limit = DEFAULT_LIMIT, intervalMs = CASE_INTERV
   const { findMatchingKnownIngredient } = await import(`${ROOT}/src/lib/analyzer/ingredient-match`);
   const { CATEGORY_LABELS_JA } = await import(`${ROOT}/src/lib/analyzer/product-category`);
 
+  const cases: [string, string | undefined, string][] = [
+    ...Object.keys(CATEGORY_LABELS_JA).flatMap((kind) => SUSPECTS.map((avoid): [string, undefined, string] => [kind, undefined, avoid])),
+    ...SUB_KIND_CASES.map(([kind, subKind]): [string, string, string] => [kind, subKind, SUSPECTS[0]]),
+  ];
   const rows: EvalRow[] = [];
-  for (const kind of Object.keys(CATEGORY_LABELS_JA)) {
-    for (const avoid of SUSPECTS) {
-      if (rows.length > 0) await wait(intervalMs);
-      // 本番（alternativeRequestFromText）と同じく、成分DBの項目から避ける名前と検索語を作る
-      const known = findMatchingKnownIngredient(avoid);
-      if (!known) throw new Error(`${avoid} is not in the ingredient database`);
-      const terms: string[] = shopTerms({ known: [known] });
-      const result = await findShopAlternatives({
-        category: kind,
-        avoid: [{ nameJa: known.nameJa, nameEn: known.nameEn }],
-        terms,
-        exclude: [],
-        limit,
-        allowPaidLookups: false,
-      });
-      rows.push({ kind, avoid, terms, status: result.status, counts: result.counts });
-    }
+  for (const [kind, subKind, avoid] of cases) {
+    if (rows.length > 0) await wait(intervalMs);
+    // 本番（alternativeRequestFromText）と同じく、成分DBの項目から避ける名前と検索語を作る
+    const known = findMatchingKnownIngredient(avoid);
+    if (!known) throw new Error(`${avoid} is not in the ingredient database`);
+    const terms: string[] = shopTerms({ known: [known] });
+    const result = await findShopAlternatives({
+      category: kind,
+      ...(subKind && { subKind }),
+      avoid: [{ nameJa: known.nameJa, nameEn: known.nameEn }],
+      terms,
+      exclude: [],
+      limit,
+      allowPaidLookups: false,
+    });
+    rows.push({ kind, subKind: subKind ?? '', avoid, terms, status: result.status, counts: result.counts });
   }
   return rows;
 }
 
 /** Markdown の表（見出し・行・合計）。数と決まった語だけ */
 export function formatTable(rows: EvalRow[]): string {
-  const header = ['kind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...DROP_COLUMNS, 'checked', 'notChecked', 'paid', 'shown'];
+  const header = ['kind', 'subKind', 'avoid', 'terms', 'status', 'rakuten', 'yahoo', ...DROP_COLUMNS, 'checked', 'notChecked', 'notShown', 'paid', 'shown'];
   const numbers = (c: ShopSearchCounts) => [
     c.fetched.rakuten,
     c.fetched.yahoo,
     ...DROP_COLUMNS.map((d) => c.dropped[d]),
     c.checked,
     c.notChecked,
+    c.notShown,
     c.paidLookups,
     c.shown,
   ];
   const line = (cells: (string | number)[]) => `| ${cells.join(' | ')} |`;
-  const body = rows.map((r) => line([r.kind, r.avoid, r.terms.join(' ') || '-', r.status, ...numbers(r.counts)]));
-  const totals = rows.map((r) => numbers(r.counts)).reduce((sum, n) => sum.map((v, i) => v + n[i]), new Array<number>(header.length - 4).fill(0));
-  return [line(header), line(header.map(() => '---')), ...body, line(['all', '', '', '', ...totals])].join('\n');
+  const body = rows.map((r) => line([r.kind, r.subKind || '-', r.avoid, r.terms.join(' ') || '-', r.status, ...numbers(r.counts)]));
+  const totals = rows.map((r) => numbers(r.counts)).reduce((sum, n) => sum.map((v, i) => v + n[i]), new Array<number>(header.length - 5).fill(0));
+  return [line(header), line(header.map(() => '---')), ...body, line(['all', '', '', '', '', ...totals])].join('\n');
 }
 
 async function main(): Promise<void> {

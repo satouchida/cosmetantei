@@ -10300,7 +10300,7 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
   }
 });
 
-test('165. Alternatives evaluation script: 24 fixed cases with paid lookups off, a table of counts only; without keys it calls nothing (alternative-search-improvements.md Path 0b)', async () => {
+test('165. Alternatives evaluation script: 24 fixed cases and 6 sub-kind cases with paid lookups off, a table of counts only; without keys it calls nothing (alternative-search-improvements.md Path 0b)', async () => {
   // .mts は tsc の対象外なので、パスを変数にして読み込む（main は実行したときだけ動く）
   const scriptPath = '../scripts/eval-alternatives.mts';
   const { evaluate, formatTable } = await import(scriptPath);
@@ -10335,13 +10335,16 @@ test('165. Alternatives evaluation script: 24 fixed cases with paid lookups off,
     process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
     resetSpendCap();
     const rows = await evaluate({ intervalMs: 0 });
-    assert.strictEqual(rows.length, 24);
+    assert.strictEqual(rows.length, 24 + 6);
+    // 下位の種類の 6 件は、その検索語で探す（Path 1）
+    assert.deepStrictEqual(rows.slice(24).map((r: { kind: string; subKind: string }) => `${r.kind}/${r.subKind}`), ['cleanser/makeup_remover', 'cream/milk', 'cream/hand', 'sunscreen/body', 'lip/lip_care', 'mask/sheet']);
     assert.deepStrictEqual([...new Set(rows.map((r: { kind: string }) => r.kind))], ['cleanser', 'toner', 'serum', 'cream', 'sunscreen', 'mask', 'lip', 'foundation']);
     // 検索語は本番と同じ決まった語（フェノキシエタノールには語が無い）
     const toner = rows.filter((r: { kind: string }) => r.kind === 'toner');
     assert.deepStrictEqual(toner.map((r: { avoid: string; terms: string[] }) => [r.avoid, r.terms]), [['香料', ['無香料']], ['エタノール', ['アルコールフリー']], ['フェノキシエタノール', []]]);
     const keywords = requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp').map((u) => u.searchParams.get('keyword'));
     assert.deepStrictEqual(keywords.slice(3, 6), ['化粧水 無香料', '化粧水 アルコールフリー', '化粧水']);
+    assert.deepStrictEqual(keywords.slice(24), ['クレンジング 無香料', '乳液 無香料', 'ハンドクリーム 無香料', '日焼け止め ボディ 無香料', 'リップクリーム 無香料', 'シートマスク 無香料']);
     // 有料の調べもの（JAN コード）はしない。呼ぶのはお店の検索だけ
     assert.deepStrictEqual([...new Set(requests.map((u) => u.hostname))].sort(), ['openapi.rakuten.co.jp', 'shopping.yahooapis.jp']);
     const tonerFragrance = toner[0];
@@ -10351,9 +10354,9 @@ test('165. Alternatives evaluation script: 24 fixed cases with paid lookups off,
 
     const table: string = formatTable(rows);
     const tableLines = table.split('\n');
-    assert.strictEqual(tableLines[0], '| kind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | suspect | irritant | standard | unrated | duplicate | checked | notChecked | paid | shown |');
-    assert.strictEqual(tableLines[5], '| toner | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 0 |');
-    assert.strictEqual(tableLines.length, 2 + 24 + 1);
+    assert.strictEqual(tableLines[0], '| kind | subKind | avoid | terms | status | rakuten | yahoo | otherKind | notSingle | excluded | noList | suspect | irritant | standard | unrated | duplicate | checked | notChecked | notShown | paid | shown |');
+    assert.strictEqual(tableLines[5], '| toner | - | 香料 | 無香料 | ok | 2 | 1 | 0 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 0 |');
+    assert.strictEqual(tableLines.length, 2 + 30 + 1);
     assert.match(tableLines.at(-1)!, /^\| all \|/);
     // 数と決まった語だけ（商品名・ブランド・コード・URL・キーは出さない）
     for (const text of [itemName, 'エバルテスト', 'ev:1', 'yev_1', '4900000000017', 'https://', 'test-rakuten', 'test-yahoo']) {
@@ -10780,5 +10783,66 @@ test('167. Form and use: read from names, rank (never drop) saved and shop candi
       else process.env[k] = v;
     }
     resetSpendCap();
+  }
+});
+
+test('168. Alternatives, review fixes: hair and hand products, lipstick words, a majority for the sub-kind, the clause that names the kind, descriptive form words', async () => {
+  const { categoryFromText, productSubKind, mostCommonSubKind, subKindFit, subKindFromText } = await import('../src/lib/analyzer/product-category');
+  const { formFromText } = await import('../src/lib/analyzer/product-form');
+  const { alternativeRequestFromText } = await import('../src/lib/services/alternatives-service');
+  const named = (name: string) => verifiedProduct({ name, category: 'other' });
+  const kinds = (name: string) => [categoryFromText(name), productSubKind(named(name))];
+
+  // 髪・頭皮の製品は種類なし（乳液・洗顔料・クリームの代わりに出さない）
+  for (const name of ['ヘアミルク しっとり', 'ヘアオイル', 'スカルプクレンジング', '頭皮用 ローション', 'ヘアクリーム']) {
+    assert.deepStrictEqual(kinds(name), [undefined, undefined], name);
+  }
+  // ハンドの製品は、日焼け止め・化粧水に分かれてもハンド（顔の製品の代わりにしない）
+  assert.deepStrictEqual(kinds('ハンドクリーム UV SPF30'), ['sunscreen', 'hand']);
+  assert.deepStrictEqual(kinds('ハンドローション'), ['toner', 'hand']);
+  assert.strictEqual(subKindFit(undefined, 'hand'), 'other');
+  assert.strictEqual(subKindFit('face', 'hand'), 'other');
+  // 口紅の言い方。リップケアの語が先
+  for (const name of ['リップスティック 03', 'リップライナー ローズ', 'マットリップ', 'リップペンシル']) {
+    assert.deepStrictEqual(kinds(name), ['lip', 'lip_color'], name);
+  }
+  assert.deepStrictEqual(kinds('薬用リップクリーム スティック'), ['lip', 'lip_care']);
+  assert.strictEqual(subKindFit('lip_care', 'lip_color'), 'other');
+
+  // 下位の種類は、その種類の製品の半分より多いときだけ（名前に無い製品も数に入れる）
+  const creams = [named('保湿クリーム'), named('ナイトクリーム'), named('ハンドクリーム')];
+  assert.strictEqual(mostCommonSubKind(creams, 'cream'), 'face_cream');
+  assert.strictEqual(mostCommonSubKind([named('うるおいクリーム A'), named('ハンドクリーム')], 'cream'), undefined, '1 of 2 is not a majority');
+  assert.strictEqual(mostCommonSubKind([named('ハンドクリーム A'), named('ハンドクリーム B'), named('保湿クリーム')], 'cream'), 'hand');
+  assert.strictEqual(mostCommonSubKind([named('化粧水 A'), named('化粧水 B'), named('ボディローション')], 'toner'), undefined);
+
+  // 文章：下位の種類と形は、探す種類を書いた部分からだけ読む
+  const request = (text: string) => {
+    const r = alternativeRequestFromText(text);
+    return r && [r.category, r.subKind, r.profile?.form, r.profile?.use];
+  };
+  assert.deepStrictEqual(request('ボディミルクで荒れたので化粧水で探して'), ['toner', undefined, undefined, undefined]);
+  assert.deepStrictEqual(request('ハンドクリームで荒れた。顔用のクリームを探して'), ['cream', 'face_cream', 'cream', 'face']);
+  assert.deepStrictEqual(request('ミストの化粧水が合わなかったけど、香料の入っていない化粧水はある？'), ['toner', undefined, undefined, undefined]);
+  // 同じ部分に書いてあれば読む（「から」で「からだ用」を切らない。改行があっても全体を見る）
+  assert.deepStrictEqual(request('からだ用の日焼け止めを探して'), ['sunscreen', 'body', undefined, 'body']);
+  assert.deepStrictEqual(request('香料が入っていないボディクリーム'), ['cream', 'body', 'cream', 'body']);
+  assert.strictEqual(subKindFromText('toner', '化粧水\nボディ用'), 'body_lotion');
+  assert.strictEqual(subKindFromText('sunscreen', '日焼け止め\n顔・からだ用'), undefined);
+
+  // 形：説明の語は形ではない
+  for (const [name, form] of [
+    ['スクワランオイル配合 クリーム', 'cream'],
+    ['オイルイン 化粧水', undefined],
+    ['オイルコントロール ジェル', 'gel'],
+    ['耐水 UV ミルク', 'milk'],
+    ['撥水 日焼け止め', undefined],
+    ['ウォーターフリー バーム', 'balm'],
+    ['ウォーターレジスタント UV', undefined],
+    ['クレンジングオイル', 'oil'],
+    ['クレンジングウォーター', 'water'],
+    ['ノンオイル ジェル', 'gel'],
+  ] as const) {
+    assert.strictEqual(formFromText(name), form, name);
   }
 });

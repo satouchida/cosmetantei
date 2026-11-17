@@ -53,6 +53,16 @@ export interface AlternativeRequest {
   allowPaidLookups?: boolean;
 }
 
+/** 文や句の切れ目（読点・句点・改行と、理由や逆接でつなぐ語） */
+const CLAUSE_BREAK = /[、。,.!?！？\n]|ので|けど|けれど|から(?!だ)|のに/;
+
+/** 文章のうち、その種類の語がある部分（無ければ空）。同じ種類の語が続けて出るときは最後の部分（頼みごとは後ろに来る） */
+function clauseNaming(text: string, category: AlternativeCategory | undefined): string {
+  if (!category) return '';
+  const clauses = text.normalize('NFKC').split(CLAUSE_BREAK);
+  return clauses.findLast((c) => categoryFromText(c) === category) ?? '';
+}
+
 /**
  * 文章（「香料が入っていない化粧水」等）から。成分DBの成分も種類も無ければ null
  * 文章そのものは検索に使わない
@@ -64,13 +74,16 @@ export function alternativeRequestFromText(text: string): AlternativeRequest | n
   const known = negated.length > 0 ? negated : mentioned;
   const category = categoryFromText(text);
   if (known.length === 0 && !category) return null;
-  const subKind = subKindFromText(category, text);
+  // 下位の種類と形は、探す種類を書いた部分だけから読む（「ボディミルクで荒れたので化粧水を探して」の
+  // 「ボディ」で、からだ用の化粧水だけを探さない）
+  const clause = clauseNaming(text, category);
+  const subKind = subKindFromText(category, clause);
   return {
     avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })),
     known,
     category,
     ...(subKind && { subKind }),
-    profile: formProfile(text, category),
+    profile: formProfile(clause, category),
     excludeIds: [],
   };
 }

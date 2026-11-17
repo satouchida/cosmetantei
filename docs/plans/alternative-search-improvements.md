@@ -181,6 +181,31 @@ Done 2026-11-17 (test 167):
   gives identical output (counts identical apart from `notShown: 0`). Test 164 expects
   `notShown: 0`.
 
+## Review of Paths 0 to 2 (2026-11-18)
+
+One code-improver pass over the three paths. Fixed:
+
+- **A chat sentence that names two products.** The sub-kind and the form are now read only from
+  the clause that names the kind being asked for. 「ボディミルクで荒れたので化粧水で探して」 used to
+  search body lotions only.
+- **Hair and hand products.** Names with ヘア, スカルプ or 頭皮 get no kind (ヘアミルク was a 乳液).
+  A hand product that classifies as sunscreen or toner (ハンドクリーム UV, ハンドローション) is `hand`.
+- **Lipstick words.** リップスティック, リップライナー, リップペンシル and マットリップ are `lip_color`.
+- **Majority for the comparison list.** A sub-kind is used only when more than half of the
+  肌荒れしたコスメ of that kind have it; products whose names say none count against it.
+- **Descriptive form words.** オイル配合, オイルイン, オイルコントロール, 耐水, 撥水, ウォーターフリー and
+  ウォーターレジスタント are not a form, so they no longer add a word to the shop search.
+- **The evaluation script** now also runs six sub-kind cases and prints `subKind` and `notShown`
+  (30 rows).
+
+Test 168 covers these. Left as they are:
+
+- A cleanser with no sub-kind word still accepts makeup removers. Dropping them is a behavior
+  choice for the owner.
+- With SPF, PA or waterproof wanted, the free checks usually run through all 30 candidates
+  (processing time only; no extra shop call, saved-product read or paid lookup).
+- The web-search fallback still asks with the kind's label, not the sub-kind's.
+
 ## Measurements
 
 (the owner's runs of `scripts/eval-alternatives.mts` go here, dated)

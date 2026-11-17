@@ -37,7 +37,9 @@ const CATEGORY_WORDS: readonly [RegExp, AlternativeCategory | 'makeup'][] = [
   [/日焼け止め落とし|(?<![a-z])uv(クレンジング|リムーバー)|メイク(アップ)?リムーバー/i, 'cleanser'],
   // ファンデを「落とす」洗浄料（「ファンデまで落とせるクレンジング」）はファンデーションではない
   [/(ファンデ|メイク)\S{0,6}(落と|オフ)/i, 'cleanser'],
-  [/(?<![ァ-ヴー])リップ|ティントリップ|口紅|\blips?\b/i, 'lip'],
+  // 髪・頭皮の製品は種類なし（「ヘアミルク」を乳液、「スカルプクレンジング」を洗顔料にしない）
+  [/ヘア|スカルプ|頭皮/, 'makeup'],
+  [/(?<![ァ-ヴー])リップ|ティントリップ|マットリップ|口紅|\blips?\b/i, 'lip'],
   [/ファンデ|(?<![a-z])(bb|cc) ?(クリーム|cream)|\bfoundation\b/i, 'foundation'],
   [
     /コンシーラー|(フェイス|ルース|プレスト|おしろい)パウダー|おしろい|白粉|チーク|アイシャドウ|アイシャドー|マスカラ|アイライナー|アイブロウ|ハイライター|\b(concealer|mascara|eyeliner|eyeshadow|blush)\b/i,
@@ -115,10 +117,10 @@ export type SubKind =
   | 'body_lotion'
   | 'wipe_off';
 
-/** からだ用の語で、顔の語が無い（「顔・からだ用」「フェイス&ボディ」は顔にも使うので、からだ用にしない） */
-export const BODY_ONLY = /^(?!.*(顔|フェイス|フェイシャル)).*(ボディ|からだ用|体用|全身用)/;
+/** からだ用の語で、顔の語が無い（改行のある文章でも全体を見る。「顔・からだ用」「フェイス&ボディ」は顔にも使うので、からだ用にしない） */
+export const BODY_ONLY = /^(?![\s\S]*(顔|フェイス|フェイシャル))[\s\S]*(ボディ|からだ用|体用|全身用)/;
 /** 顔用の語で、からだの語が無い */
-export const FACE_ONLY = /^(?!.*(ボディ|からだ用|体用|全身用)).*(顔用|フェイス|フェイシャル)/;
+export const FACE_ONLY = /^(?![\s\S]*(ボディ|からだ用|体用|全身用))[\s\S]*(顔用|フェイス|フェイシャル)/;
 
 /**
  * 種類ごとの、下位の種類の語（先に一致したものを使う。どれも無ければ下位の種類なし）
@@ -149,19 +151,22 @@ const SUB_KIND_WORDS: Partial<Record<AlternativeCategory, readonly [RegExp, SubK
     [/クリーム/, 'face_cream'],
   ],
   sunscreen: [
+    // 「ハンドクリーム UV」は日焼け止めに分かれるが、顔の日焼け止めの代わりにしない
+    [/ハンド(?!メイド)/, 'hand'],
     [/下地|トーンアップ|(?<!ウォーター|ウオーター)ベース/, 'base'],
     [BODY_ONLY, 'body'],
     [FACE_ONLY, 'face'],
   ],
   lip: [
     [/リップクリーム|リップバーム|薬用リップ|リップケア|リップトリートメント|リップエッセンス|リップ美容液|リップセラム/, 'lip_care'],
-    [/口紅|ルージュ|ティント|グロス|リップカラー|色付き|色つき/, 'lip_color'],
+    [/口紅|ルージュ|ティント|グロス|リップカラー|リップスティック|リップライナー|リップペンシル|マットリップ|色付き|色つき/, 'lip_color'],
   ],
   mask: [
     [/シート|枚入り|\d+枚/, 'sheet'],
     [/洗い流す|洗い流し(?!不要)|ウォッシュオフ|クレイ|泥|ピールオフ/, 'wash_off'],
   ],
   toner: [
+    [/ハンド(?!メイド)/, 'hand'],
     [BODY_ONLY, 'body_lotion'],
     [/拭き取り|拭きとり|ふきとり|ふき取り/, 'wipe_off'],
   ],
@@ -179,12 +184,17 @@ export function productSubKind(product: Pick<Product, 'category' | 'name'>): Sub
   return subKindFromText(productCategory(product), product.name);
 }
 
-/** 肌荒れしたコスメのうち、その種類の製品に多い下位の種類。同数・無ければ undefined */
+/**
+ * 肌荒れしたコスメのうち、その種類の製品の半分より多くが同じ下位の種類なら、それ。名前に下位の種類が無い製品も数に入れる
+ * （顔のクリーム2つとハンドクリーム1つで、ハンドクリームだけを探さない）
+ */
 export function mostCommonSubKind(
   products: Pick<Product, 'category' | 'name'>[],
   kind: AlternativeCategory | undefined
 ): SubKind | undefined {
-  return mostCommon(products.filter((p) => kind && productCategory(p) === kind).map(productSubKind));
+  const subKinds = products.filter((p) => kind && productCategory(p) === kind).map(productSubKind);
+  const top = mostCommon(subKinds);
+  return top && subKinds.filter((s) => s === top).length * 2 > subKinds.length ? top : undefined;
 }
 
 /**
