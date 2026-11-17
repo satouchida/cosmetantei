@@ -5,7 +5,7 @@ import { abbreviateIngredientName, isWheatDerivedName, normalizeIngredientName }
 import { findStandardEntry, productUseType, standardLabelNotes, standardNote } from './jp-standards';
 import { designatedNote, findDesignatedEntry } from './jp-designated';
 import { COSMETIC_STANDARD_REFERENCE, StandardEntry } from '../data/cosmetic-standards-jp';
-import { productCategory } from './product-category';
+import { productCategory, productSubKind } from './product-category';
 import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { alternativeAvoidItems, findSafeAlternatives } from './alternative-gate';
 import { withoutSafetyRating } from '../wording';
@@ -283,7 +283,7 @@ export function analyzeProduct(
   const safeAlternatives =
     overallRiskLevel === 'caution' || overallRiskLevel === 'warning'
       ? category
-        ? findSafeAlternatives(suspectItems, [product, ...registered], 3, { category })
+        ? findSafeAlternatives(suspectItems, [product, ...registered], 3, { category, subKind: productSubKind(product) })
         : []
       : undefined;
 

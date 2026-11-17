@@ -4,7 +4,7 @@ import { ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
-import { productCategory } from './product-category';
+import { productCategory, SubKind, subKindFit, subKindFromText } from './product-category';
 import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { AnalyzedIngredient, CulpritIngredient, Product } from '../types';
 
@@ -42,6 +42,11 @@ export function alternativeAvoidItems(ingredients: AnalyzedIngredient[]): { name
 /** 代わりの商品として勧めてよいかの確認（findSafeAlternatives と、お店の候補の確認で同じものを使う） */
 export interface AlternativeGateOptions {
   category?: Product['category'];
+  /**
+   * 分析した製品の下位の種類（category と一緒に使う。無ければ、ハンド・からだ用・目元用・口紅・ボディローションの候補を外す）。
+   * 別の下位の種類は「別の種類」（kind）として外す
+   */
+  subKind?: SubKind;
   /** お店の商品説明から読んだ成分表示の製品も確かめる（その返答にだけ使う。確認済みの出典ではない） */
   allowShopListing?: boolean;
   /**
@@ -91,6 +96,7 @@ export function alternativeGateReason(
   return (product, options = {}) => {
     // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
     if (options.category && productCategory(product) !== options.category) return 'kind';
+    if (options.category && subKindFit(options.subKind, candidateSubKind(product, options.category)) === 'other') return 'kind';
     const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
     if (!shopListing && !hasVerifiedIngredients(product)) return 'unverified';
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
@@ -126,6 +132,11 @@ export function alternativeGateReason(
   };
 }
 
+/** 候補の下位の種類（探している種類の中で、名前から） */
+function candidateSubKind(product: Pick<Product, 'name'>, category: Product['category']): SubKind | undefined {
+  return category === 'other' ? undefined : subKindFromText(category, product.name);
+}
+
 /**
  * 代わりの商品（成分確認済みの製品のうち、避ける成分・強い刺激成分を含まない同じ種類の製品）。
  * excluded：勧めない製品。ID、または製品（ID・JAN コード・ブランドと名前で同じ製品を除く。比較リストに登録した製品は、
@@ -135,23 +146,28 @@ export function findSafeAlternatives(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
   excluded: readonly (string | ProductIdentity)[] = [],
   limit = 3,
-  options: { category?: Product['category'] } = {}
+  options: Pick<AlternativeGateOptions, 'category' | 'subKind'> = {}
 ): Product[] {
   const passes = alternativeGate(avoidCulprits);
   const excludedIds = new Set(excluded.filter((e): e is string => typeof e === 'string'));
   const isExcluded = registeredMatcher(excluded.filter((e): e is ProductIdentity => typeof e !== 'string'));
   // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
   const safeItems = COSMETICS_DATABASE.filter(
-    (product) => !excludedIds.has(product.id) && passes(product, { category: options.category }) && !isExcluded(product)
+    (product) =>
+      !excludedIds.has(product.id) &&
+      passes(product, { category: options.category, subKind: options.subKind }) &&
+      !isExcluded(product)
   );
 
-  // 無香料・アルコールフリーを優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、
-  // 刺激の少なさとは関係しないため順位に使わない
+  // 同じ下位の種類を先に（名前で分からない候補は後に）。その中で無香料・アルコールフリーを優先する。医薬部外品であることは
+  // 有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
+  const sameSubKind = (p: Product) =>
+    options.category && subKindFit(options.subKind, candidateSubKind(p, options.category)) === 'same' ? 1 : 0;
   return safeItems
     .sort((a, b) => {
       const scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0);
       const scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0);
-      return scoreB - scoreA;
+      return sameSubKind(b) - sameSubKind(a) || scoreB - scoreA;
     })
     .slice(0, limit);
 }

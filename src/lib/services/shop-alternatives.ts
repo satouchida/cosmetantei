@@ -2,7 +2,7 @@ import 'server-only';
 import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
 import { AlternativeGateReason, alternativeGateReason } from '../analyzer/alternative-gate';
-import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
+import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
@@ -15,8 +15,8 @@ import { shopLink } from './shops';
 
 /**
  * 代わりの商品を、楽天市場・Yahoo!ショッピングの商品検索から探す（docs/plans/alternative-recommendations.md の step 3）
- * - 検索語は種類の名前と決まった語（「無香料」「ノンケミカル」など）だけ。利用者が入力した文・成分表示は送らない。
- *   種類はお店のジャンル（step 2 で確かめた ID）でも絞る
+ * - 検索語は種類（下位の種類）の名前と決まった語（「無香料」「ノンケミカル」など）だけ。利用者が入力した文・成分表示は
+ *   送らない。種類はお店のジャンル（step 2 で確かめた ID）でも絞る。確かめた ID の無い下位の種類は絞らない
  * - 成分は安い順に確かめる：
  *   1. Yahoo! の JAN コードで、保存済みの確かめた製品（費用なし）
  *   2. 楽天の商品説明の全成分（shop-ingredients.ts。その返答にだけ使う。楽天の規約 第10条 (9)）
@@ -27,8 +27,13 @@ import { shopLink } from './shops';
  * - 結果は保存しない（共有のキャッシュに入れない）。商品名は API が返したまま。リンクはアフィリエイトのリンク
  */
 
+interface ShopGenre {
+  rakuten: number;
+  yahoo: number;
+}
+
 /** 種類ごとのお店のジャンル（2026-10-18 に確かめた、結果の多い ID。ファンデーションは 2026-11-03） */
-const GENRES: Record<AlternativeCategory, { rakuten: number; yahoo: number }> = {
+const GENRES: Record<AlternativeCategory, ShopGenre> = {
   sunscreen: { rakuten: 503054, yahoo: 46427 },
   toner: { rakuten: 216307, yahoo: 1764 },
   serum: { rakuten: 216348, yahoo: 1769 },
@@ -39,6 +44,35 @@ const GENRES: Record<AlternativeCategory, { rakuten: number; yahoo: number }> = 
   foundation: { rakuten: 210457, yahoo: 46351 },
 };
 
+/**
+ * 下位の種類ごとの検索語とジャンル（docs/plans/alternative-search-improvements.md「Path 1」）。ジャンルは確かめた ID だけ
+ * （乳液・クレンジングは 2026-10-18）。確かめた ID の無いものはジャンルで絞らず、名前の語で確かめる（ID を推測しない）。
+ * ここに無い下位の種類（洗顔料・顔のクリーム・顔用や下地の日焼け止め・口紅・洗い流すパック・拭き取り化粧水）は、
+ * 種類の名前と種類のジャンルで探す（その種類のジャンルに入っている）
+ */
+const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKind, { label: string; genre?: ShopGenre }>>>> = {
+  cleanser: { makeup_remover: { label: 'クレンジング', genre: { rakuten: 405100, yahoo: 48902 } } },
+  cream: {
+    milk: { label: '乳液', genre: { rakuten: 216387, yahoo: 1766 } },
+    // 「クリーム」で探すと、ほとんどが顔のクリームで外れるので、それぞれの名前で探す
+    gel: { label: '保湿ジェル' },
+    all_in_one: { label: 'オールインワンジェル' },
+    eye: { label: 'アイクリーム' },
+    hand: { label: 'ハンドクリーム' },
+    body: { label: 'ボディクリーム' },
+  },
+  sunscreen: { body: { label: '日焼け止め ボディ' } },
+  lip: { lip_care: { label: 'リップクリーム' } },
+  mask: { sheet: { label: 'シートマスク' } },
+  toner: { body_lotion: { label: 'ボディローション' } },
+};
+
+/** お店で探す語とジャンル。下位の種類の決まった検索語があればそれ、無ければ種類の名前とジャンル */
+function shopSearchFor(category: AlternativeCategory, subKind: SubKind | undefined): { label: string; genre?: ShopGenre } {
+  const bySubKind = subKind && SUB_KIND_SEARCH[category]?.[subKind];
+  return bySubKind ?? { label: CATEGORY_LABELS_JA[category], genre: GENRES[category] };
+}
+
 /** 確かめる候補の数の上限（お店の商品の数） */
 const MAX_CANDIDATES = 30;
 /** JAN コードで製品を調べる（有料のことがある）候補の数 */
@@ -48,6 +82,8 @@ const MIN_RATED_SHARE = 0.8;
 
 export interface ShopAlternativeInput {
   category: AlternativeCategory;
+  /** 分析した製品の下位の種類（無ければ今までどおり。ハンド・からだ用などの候補は外す） */
+  subKind?: SubKind;
   avoid: (CulpritIngredient | { nameJa: string; nameEn?: string })[];
   /** 検索語に足す決まった語（「無香料」「アルコールフリー」「ノンケミカル」など） */
   terms: string[];
@@ -72,7 +108,7 @@ export interface ShopAlternativeResult {
 }
 
 /**
- * お店の候補が外れた理由。otherKind: 別の種類 / notSingle: セット・まとめ売り・中古・試供品など / excluded: 勧めない製品 /
+ * お店の候補が外れた理由。otherKind: 別の種類・別の下位の種類 / notSingle: セット・まとめ売り・中古・試供品など / excluded: 勧めない製品 /
  * noList: 読める成分表示も保存済みの製品も無い / suspect・irritant・standard・unrated: 確認（alternativeGateReason）/
  * duplicate: 同じ製品がもう候補にある
  */
@@ -176,12 +212,12 @@ function withDeadline<T>(promise: Promise<T>): Promise<T | null> {
 export async function findShopAlternatives(input: ShopAlternativeInput): Promise<ShopAlternativeResult> {
   const counts = emptyCounts();
   if (!isRakutenApiConfigured() && !isYahooApiConfigured()) return { status: 'unavailable', products: [], credits: [], counts };
-  const genre = GENRES[input.category];
-  // お店に送るのは種類の名前と決まった語だけ
-  const keyword = [CATEGORY_LABELS_JA[input.category], ...input.terms].join(' ');
+  const { label, genre } = shopSearchFor(input.category, input.subKind);
+  // お店に送るのは種類（下位の種類）の名前と決まった語だけ
+  const keyword = [label, ...input.terms].join(' ');
   const [rakuten, yahoo] = await Promise.all([
-    rakutenItemSearch(keyword, { caption: true, genreId: genre.rakuten }),
-    yahooItemSearch(keyword, { genreCategoryId: genre.yahoo }),
+    rakutenItemSearch(keyword, { caption: true, genreId: genre?.rakuten }),
+    yahooItemSearch(keyword, { genreCategoryId: genre?.yahoo }),
   ]);
   counts.fetched = { rakuten: rakuten?.length ?? 0, yahoo: yahoo?.length ?? 0 };
   if (!rakuten && !yahoo) return { status: 'unavailable', products: [], credits: [], counts };
@@ -203,9 +239,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
         drop('notSingle');
         continue;
       }
-      // 別の種類（ジャンルが広い・名前が別の種類を言う）と、勧めない製品（同じ製品・同じシリーズ）は除く
+      // 別の種類（ジャンルが広い・名前が別の種類を言う）・別の下位の種類（クレンジングに洗顔料）と、勧めない製品
+      // （同じ製品・同じシリーズ）は除く
       const kind = categoryFromText(name);
-      if (kind && kind !== input.category) {
+      if ((kind && kind !== input.category) || subKindFit(input.subKind, subKindFromText(input.category, name)) === 'other') {
         drop('otherKind');
         continue;
       }
@@ -223,7 +260,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   /** 勧めてよければ null、だめなら理由 */
   const rejection = (p: Product): ShopDropReason | null => {
     if (excludeIds.has(p.id) || excludedJans.has(normalJan(p.barcode))) return 'excluded';
-    const reason = gateReason(p, { category: input.category, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
+    const reason = gateReason(p, { category: input.category, subKind: input.subKind, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
     return reason === 'ok' ? null : GATE_DROP[reason];
   };
   const found: { product: Product; item: ShopItem }[] = [];
@@ -288,8 +325,12 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     else drop('noList');
   });
 
-  const products = found.slice(0, input.limit).map(({ product, item }) => withShopInfo(product, item));
-  const used = found.slice(0, input.limit).map(({ item }) => item.shopId);
+  // 同じ下位の種類を先に（名前で分からない候補は後に。並べ替えは安定なので、同じなら見つけた順）
+  const sameSubKind = ({ item }: { item: ShopItem }) =>
+    subKindFit(input.subKind, subKindFromText(input.category, withoutListingNoise(item.name))) === 'same' ? 1 : 0;
+  const shown = found.sort((a, b) => sameSubKind(b) - sameSubKind(a)).slice(0, input.limit);
+  const products = shown.map(({ product, item }) => withShopInfo(product, item));
+  const used = shown.map(({ item }) => item.shopId);
   const credits: PriceApiCredit[] = (['rakuten', 'yahoo'] as const).filter((s) => used.includes(s));
   counts.notChecked = items.length - counts.checked;
   counts.shown = products.length;

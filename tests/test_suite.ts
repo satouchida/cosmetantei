@@ -6595,8 +6595,11 @@ test('106. Alternatives from the shops: fixed search words and genre, ingredient
     // 保存済みの製品の後に、お店の商品が続く
     assert.strictEqual(reply.productSuggestions.at(-1).id, 'shoptext_rakuten_r:6', JSON.stringify(reply.productSuggestions.map((p: Product) => p.id)));
     assert.deepStrictEqual(reply.alternativeCredits, ['rakuten']);
-    // お店に送ったのは種類の名前と決まった語だけ（商品名・成分表示は送らない）
-    assert.strictEqual(requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!.searchParams.get('keyword'), 'パック 無香料');
+    // お店に送ったのは種類（下位の種類）の名前と決まった語だけ（商品名・成分表示は送らない）。シートマスクは下位の種類の
+    // 名前で探し、確かめたジャンルの ID が無いのでジャンルで絞らない（Path 1）
+    const maskReq = requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!;
+    assert.strictEqual(maskReq.searchParams.get('keyword'), 'シートマスク 無香料');
+    assert.strictEqual(maskReq.searchParams.get('genreId'), null);
 
     // お店のキーが無ければ、今までの Web の探し方に戻る（お店には聞かない）
     for (const k of ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID']) delete process.env[k];
@@ -10240,6 +10243,7 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
     assert.strictEqual(lines().length, 1, 'One line per search');
     assert.deepStrictEqual(lines()[0], {
       kind: 'toner',
+      subKind: null,
       avoid: 1,
       terms: ['無香料'],
       saved: 0,
@@ -10281,7 +10285,7 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
     const none = await findAlternatives({ avoid: [{ nameJa: '香料' }], known: [fragrance], category: 'toner', excludeIds: allSaved() });
     assert.deepStrictEqual(none.products, []);
     const [unknown, noShops] = lines();
-    assert.deepStrictEqual(unknown, { kind: 'unknown', avoid: 1, terms: ['無香料'], saved: 0, answeredBy: 'none', shown: 0, shop: null });
+    assert.deepStrictEqual(unknown, { kind: 'unknown', subKind: null, avoid: 1, terms: ['無香料'], saved: 0, answeredBy: 'none', shown: 0, shop: null });
     assert.deepStrictEqual([noShops.answeredBy, noShops.shop.status, noShops.shop.fetched, noShops.shop.checked], ['none', 'unavailable', { rakuten: 0, yahoo: 0 }, 0]);
   } finally {
     console.log = originalLog;
@@ -10354,6 +10358,260 @@ test('165. Alternatives evaluation script: 24 fixed cases with paid lookups off,
       assert.ok(!table.includes(text), text);
     }
   } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetSpendCap();
+  }
+});
+
+test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the shop keyword and genre per sub-kind (alternative-search-improvements.md Path 1)', async () => {
+  const { categoryFromText, subKindFromText, subKindFit, productSubKind, mostCommonSubKind } = await import('../src/lib/analyzer/product-category');
+  const { alternativeGateReason } = await import('../src/lib/analyzer/alternative-gate');
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { alternativeRequest, alternativeRequestFromText, alternativeRequestFromProduct, alternativeRequestFromRoutine, findAlternatives } =
+    await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+
+  // 名前 → 種類・下位の種類（'-' は無し）。重なる語は CATEGORY_WORDS・SUB_KIND_WORDS のコメントの順で決まる
+  const table: [string, string, string][] = [
+    // 洗顔料：メイク落とし / 洗顔
+    ['ファンケル マイルドクレンジングオイル', 'cleanser', 'makeup_remover'],
+    ['キュレル 潤浸保湿 ジェルメイク落とし', 'cleanser', 'makeup_remover'],
+    ['ビフェスタ クレンジングウォーター', 'cleanser', 'makeup_remover'],
+    ['クレンジングミルク しっとり', 'cleanser', 'makeup_remover'],
+    ['クレンジングバーム 90g', 'cleanser', 'makeup_remover'],
+    ['W洗顔不要 クレンジングオイル', 'cleanser', 'makeup_remover'],
+    ['洗顔もできるクレンジングジェル', 'cleanser', 'makeup_remover'],
+    ['ポイントメイクリムーバー', 'cleanser', 'makeup_remover'],
+    ['リップ&アイメイクリムーバー', 'cleanser', 'makeup_remover'],
+    ['日焼け止め落とし ジェル', 'cleanser', 'makeup_remover'],
+    ['肌ラボ 極潤 クレンジングフォーム', 'cleanser', 'face_wash'],
+    ['キュレル 潤浸保湿 泡洗顔料', 'cleanser', 'face_wash'],
+    ['メイクも落とせる洗顔料', 'cleanser', 'face_wash'],
+    ['無添加 洗顔石けん', 'cleanser', 'face_wash'],
+    // クリーム：オールインワン / ハンド / からだ用 / 目元 / 乳液 / ジェル / クリーム
+    ['ニベア ハンドクリーム', 'cream', 'hand'],
+    ['ハンド&ボディクリーム', 'cream', 'hand'],
+    ['ボディミルク 無香料', 'cream', 'body'],
+    ['ニベアクリーム 顔・からだ用', 'cream', 'face_cream'],
+    ['アイクリーム 15g', 'cream', 'eye'],
+    ['目元用クリーム', 'cream', 'eye'],
+    ['目元にも使えるオールインワンジェル', 'cream', 'all_in_one'],
+    ['オールインワンジェル 化粧水 美容液 乳液 クリーム', 'cream', 'all_in_one'],
+    ['オールインワン美容液', 'cream', 'all_in_one'],
+    ['キュレル 潤浸保湿 乳液', 'cream', 'milk'],
+    ['ミノン アミノモイスト モイストチャージ ミルク', 'cream', 'milk'],
+    ['ジェル乳液', 'cream', 'milk'],
+    ['保湿ジェル', 'cream', 'gel'],
+    ['ジェルクリーム', 'cream', 'gel'],
+    ['キュレル 潤浸保湿 フェイスクリーム', 'cream', 'face_cream'],
+    ['ナイトクリーム', 'cream', 'face_cream'],
+    ['ラ ロッシュ ポゼ トレリアン ダブルリペア フェイスモイスチャライザー', 'cream', '-'],
+    // 日焼け止め：下地 / からだ用 / 顔用。顔とからだの両方は無し
+    ['UVミルク ボディ用', 'sunscreen', 'body'],
+    ['全身用 日焼け止めスプレー', 'sunscreen', 'body'],
+    ['顔・からだ用 日焼け止めミルク', 'sunscreen', '-'],
+    ['日焼け止め フェイス&ボディ', 'sunscreen', '-'],
+    ['顔用 日焼け止めジェル', 'sunscreen', 'face'],
+    ['トーンアップUV 下地', 'sunscreen', 'base'],
+    ['スキンアクア トーンアップUVエッセンス', 'sunscreen', 'base'],
+    ['セザンヌ UVウルトラフィットベースN', 'sunscreen', 'base'],
+    ['ウォーターベースの日焼け止め', 'sunscreen', '-'],
+    ['ビオレUV アスリズム プロテクトミスト', 'sunscreen', '-'],
+    // リップ：リップケア / 口紅
+    ['メンソレータム 薬用リップクリーム', 'lip', 'lip_care'],
+    ['リップバーム 無香料', 'lip', 'lip_care'],
+    ['色付きリップクリーム', 'lip', 'lip_care'],
+    ['ティントリップ', 'lip', 'lip_color'],
+    ['リップティント', 'lip', 'lip_color'],
+    ['色付きリップ', 'lip', 'lip_color'],
+    ['リップグロス', 'lip', 'lip_color'],
+    ['UVリップ SPF20', 'lip', '-'],
+    // パック：シート / 洗い流す
+    ['シートマスク 7枚入り', 'mask', 'sheet'],
+    ['フェイスパック 30枚', 'mask', 'sheet'],
+    ['クレイパック', 'mask', 'wash_off'],
+    ['洗い流すパック', 'mask', 'wash_off'],
+    ['洗い流し不要 スリーピングパック', 'mask', '-'],
+    // 化粧水：ボディローション / 拭き取り
+    ['拭き取り化粧水', 'toner', 'wipe_off'],
+    ['ふきとり化粧水', 'toner', 'wipe_off'],
+    ['ボディローション', 'toner', 'body_lotion'],
+    ['ハトムギ化粧水 顔・からだ用', 'toner', '-'],
+    ['ミスト化粧水', 'toner', '-'],
+    // 種類の語が無い・種類の外（ヘアケア・ボディソープ等は今までどおり種類なし）
+    ['ハンドソープ', '-', '-'],
+    ['ミノン 全身シャンプー 泡タイプ', '-', '-'],
+    // 保存しておく製品（SEED_PRODUCTS）のうち、今まで種類が分からなかった9件
+    ['ナチュリエ スキンコンディショナー', 'toner', '-'],
+    ['ラ ロッシュ ポゼ トレリアン ダブルリペア フェイスモイスチャライザー', 'cream', '-'],
+    ['肌ラボ 極潤 ヒアルロン液', '-', '-'],
+    ['イハダ 薬用バーム', '-', '-'],
+    ['ヴァセリン オリジナル ピュアスキンジェリー', '-', '-'],
+    ['ケアセラ 泡の高保湿ボディウォッシュ', '-', '-'],
+    ['アベンヌ ウオーター', '-', '-'],
+    ['ビオデルマ サンシビオ H2O', '-', '-'],
+    ['ミノン アミノモイスト ジェントルウォッシュ ホイップ', '-', '-'],
+  ];
+  assert.ok(table.length >= 40);
+  for (const [name, kind, sub] of table) {
+    const k = categoryFromText(name);
+    assert.deepStrictEqual([k ?? '-', subKindFromText(k, name) ?? '-'], [kind, sub], name);
+  }
+  // 保存された種類があれば、その種類の中で名前から読む
+  assert.strictEqual(productSubKind({ category: 'cream', name: 'ニベア ボディ 薬用' }), 'body');
+  assert.strictEqual(productSubKind({ category: 'other', name: 'ハダ 化粧水' }), undefined);
+
+  // 合うかの決まり：same は先に、unsaid は後に、other は外す
+  assert.strictEqual(subKindFit('milk', 'milk'), 'same');
+  assert.strictEqual(subKindFit('milk', 'face_cream'), 'other');
+  assert.strictEqual(subKindFit('milk', undefined), 'unsaid');
+  for (const strict of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_lotion'] as const) {
+    assert.strictEqual(subKindFit(strict, undefined), 'other', strict);
+  }
+  // 分析した製品に下位の種類が無いとき：ハンド・からだ用・目元・口紅・ボディローションは外し、ほかは今までどおり
+  for (const notForUnsaid of ['hand', 'body', 'eye', 'lip_color', 'body_lotion'] as const) {
+    assert.strictEqual(subKindFit(undefined, notForUnsaid), 'other', notForUnsaid);
+  }
+  for (const kept of ['makeup_remover', 'face_wash', 'milk', 'gel', 'face_cream', 'lip_care', 'sheet', 'wipe_off', undefined] as const) {
+    assert.strictEqual(subKindFit(undefined, kept), 'unsaid', String(kept));
+  }
+
+  // 保存済みの製品（findSafeAlternatives・確認の理由）：同じ下位の種類を先に、名前で分からないものを後に、別のものは外す
+  const saved = (id: string, name: string, category: Product['category'], extra: Partial<Product> = {}) =>
+    verifiedProduct({ id: `sub_${id}`, brand: `サブ${id}`, name, category, ingredients: ['水', 'BG', 'グリセリン'], ...extra });
+  const pool = [
+    saved('cream_plain', 'サブ デイリーケア', 'cream', { fragranceFree: true, alcoholFree: true }),
+    saved('cream_hand', 'サブ ハンドクリーム', 'cream'),
+    saved('cream_milk', 'サブ 乳液', 'cream', { fragranceFree: false, alcoholFree: false }),
+    saved('cream_face', 'サブ フェイスクリーム', 'cream', { fragranceFree: false, alcoholFree: false }),
+    saved('remover_oil', 'サブ クレンジングオイル', 'cleanser'),
+    saved('wash_foam', 'サブ 洗顔フォーム', 'cleanser'),
+    saved('cleanser_plain', 'サブ Gentle Cleanser', 'cleanser'),
+  ];
+  COSMETICS_DATABASE.unshift(...pool);
+  try {
+    const mine = (ps: Product[]) => ps.map((p) => p.id).filter((id) => id.startsWith('sub_'));
+    const why = alternativeGateReason([{ nameJa: '香料' }]);
+    const byId = (id: string) => pool.find((p) => p.id === `sub_${id}`)!;
+    // 乳液を探す：乳液が先（無香料・アルコールフリーの点数より先）、名前で分からないものが後。ハンド・顔のクリームは外す
+    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cream', subKind: 'milk' })), ['sub_cream_milk', 'sub_cream_plain']);
+    assert.strictEqual(why(byId('cream_face'), { category: 'cream', subKind: 'milk' }), 'kind');
+    // 下位の種類が無い：ハンドクリームだけ外し、ほかは今までどおりの順（無香料・アルコールフリーが先）
+    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cream' })), ['sub_cream_plain', 'sub_cream_milk', 'sub_cream_face']);
+    assert.strictEqual(why(byId('cream_hand'), { category: 'cream' }), 'kind');
+    // ハンドクリーム（同じものだけ）
+    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cream', subKind: 'hand' })), ['sub_cream_hand']);
+    // クレンジングオイル：メイク落としだけ（名前で分からない洗浄料も外す）。洗顔料には、メイク落とし以外
+    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cleanser', subKind: 'makeup_remover' })), ['sub_remover_oil']);
+    assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cleanser', subKind: 'face_wash' })), ['sub_wash_foam', 'sub_cleanser_plain']);
+    // 分析カード（analyzeProduct）も同じ：クレンジングオイルに洗顔料を出さない
+    const oil = verifiedProduct({ id: 'sub_analysed_oil', name: 'テスト マイルドクレンジングオイル', category: 'cleanser', ingredients: ['ミネラルオイル', '香料'], ingredientSource: 'web_page', sourceUrl: 'https://www.kao.co.jp/z/' });
+    const cardIds = (analyzeProduct(oil).safeAlternatives ?? []).map((p) => p.id);
+    assert.ok(!cardIds.includes('sub_wash_foam') && !cardIds.includes('sub_cleanser_plain'), JSON.stringify(cardIds));
+
+    // 比較リスト：肌荒れしたコスメに多い下位の種類（同数なら無し）
+    const hand1 = saved('bad_hand1', 'ワル ハンドクリーム', 'cream');
+    const hand2 = saved('bad_hand2', 'ワル2 ハンドクリーム', 'cream');
+    const milk1 = saved('bad_milk', 'ワル 乳液', 'cream');
+    assert.strictEqual(mostCommonSubKind([hand1, hand2, milk1, saved('bad_toner', 'ワル 拭き取り化粧水', 'toner')], 'cream'), 'hand');
+    assert.strictEqual(mostCommonSubKind([hand1, milk1], 'cream'), undefined);
+    const routine = { currentlyUsing: [], badProducts: [hand1, hand2, milk1], safeProducts: [] };
+    assert.strictEqual(alternativeRequestFromRoutine(routine)?.subKind, 'hand');
+    // 文章で種類を言えば、下位の種類も文章から（言わなければ比較リストから）
+    assert.deepStrictEqual([alternativeRequest('乳液でおすすめは？', routine)?.category, alternativeRequest('乳液でおすすめは？', routine)?.subKind], ['cream', 'milk']);
+    assert.strictEqual(alternativeRequest('💡 原因候補を含まないアイテムは？', routine)?.subKind, 'hand');
+    assert.strictEqual(alternativeRequest('化粧水でおすすめは？', routine)?.subKind, undefined);
+    assert.deepStrictEqual([alternativeRequestFromText('香料が入っていないハンドクリーム')?.category, alternativeRequestFromText('香料が入っていないハンドクリーム')?.subKind], ['cream', 'hand']);
+    assert.strictEqual(alternativeRequestFromText('香料不使用の化粧水')?.subKind, undefined);
+    assert.strictEqual(alternativeRequestFromProduct(oil).subKind, 'makeup_remover');
+  } finally {
+    for (const p of pool) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.findIndex((x) => x.id === p.id), 1);
+  }
+
+  // お店：検索語は下位の種類の名前（無ければ種類の名前）と決まった語だけ。ジャンルは確かめた ID だけ（無ければ絞らない）
+  // 一覧が同じだと同じ製品として1つにするので、1つずつ成分を変える
+  const extras = ['セラミドNP', 'ヒアルロン酸Na', 'トレハロース', 'キサンタンガム'];
+  const caption = (i: number) =>
+    `説明です。<br>【全成分】<br>水、BG、グリセリン、ベタイン、スクワラン、ペンチレングリコール、${extras[i % extras.length]}、フェノキシエタノール<br>【使用方法】適量`;
+  let rakutenNames: string[] = [];
+  const requests: URL[] = [];
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const logs: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    requests.push(url);
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({ items: rakutenNames.map((itemName, i) => ({ itemName, itemCode: `sk:${i}`, itemUrl: `https://item.rakuten.co.jp/sk/${i}/`, availability: 1, itemCaption: caption(i) })) });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') return Response.json({ hits: [] });
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    delete process.env.RAKUTEN_AFFILIATE_ID;
+    resetSpendCap();
+    const search = async (category: Parameters<typeof findShopAlternatives>[0]['category'], subKind: Parameters<typeof findShopAlternatives>[0]['subKind'], terms: string[] = []) => {
+      requests.length = 0;
+      const result = await findShopAlternatives({ category, subKind, avoid: [{ nameJa: '香料' }], terms, exclude: [], limit: 3 });
+      const r = requests.find((u) => u.hostname === 'openapi.rakuten.co.jp')!;
+      const y = requests.find((u) => u.hostname === 'shopping.yahooapis.jp')!;
+      return { result, sent: [r.searchParams.get('keyword'), r.searchParams.get('genreId'), y.searchParams.get('query'), y.searchParams.get('genre_category_id')] };
+    };
+    const cases: [Parameters<typeof search>[0], Parameters<typeof search>[1], (string | null)[]][] = [
+      ['cleanser', 'makeup_remover', ['クレンジング', '405100', 'クレンジング', '48902']],
+      ['cleanser', 'face_wash', ['洗顔料', '405130', '洗顔料', '48903']],
+      ['cream', 'milk', ['乳液', '216387', '乳液', '1766']],
+      ['cream', 'face_cream', ['クリーム', '216424', 'クリーム', '1753']],
+      ['cream', 'hand', ['ハンドクリーム', null, 'ハンドクリーム', null]],
+      ['cream', 'body', ['ボディクリーム', null, 'ボディクリーム', null]],
+      ['cream', 'eye', ['アイクリーム', null, 'アイクリーム', null]],
+      ['cream', 'all_in_one', ['オールインワンジェル', null, 'オールインワンジェル', null]],
+      ['cream', 'gel', ['保湿ジェル', null, '保湿ジェル', null]],
+      ['lip', 'lip_care', ['リップクリーム', null, 'リップクリーム', null]],
+      ['lip', 'lip_color', ['リップ', '405206', 'リップ', '5005']],
+      ['mask', 'sheet', ['シートマスク', null, 'シートマスク', null]],
+      ['toner', 'body_lotion', ['ボディローション', null, 'ボディローション', null]],
+      ['toner', 'wipe_off', ['化粧水', '216307', '化粧水', '1764']],
+      ['sunscreen', 'body', ['日焼け止め ボディ', null, '日焼け止め ボディ', null]],
+      ['sunscreen', 'base', ['日焼け止め', '503054', '日焼け止め', '46427']],
+      ['toner', undefined, ['化粧水', '216307', '化粧水', '1764']],
+    ];
+    for (const [category, subKind, sent] of cases) {
+      assert.deepStrictEqual((await search(category, subKind)).sent, sent, `${category} ${subKind}`);
+    }
+    // 決まった語は今までどおり2つまで
+    assert.deepStrictEqual((await search('cleanser', 'makeup_remover', ['無香料', 'アルコールフリー'])).sent[0], 'クレンジング 無香料 アルコールフリー');
+
+    // 外す・並べる：乳液を探す。名前で分からないもの（モイスチャライザー）が先に見つかっても、乳液を先に出す
+    rakutenNames = ['サブA モイスチャライザー', 'サブB フェイスクリーム', 'サブC ハンドクリーム', 'サブD 乳液 しっとり'];
+    const milk = await search('cream', 'milk');
+    assert.deepStrictEqual(milk.result.products.map((p) => p.id), ['shoptext_rakuten_sk:3', 'shoptext_rakuten_sk:0']);
+    assert.strictEqual(milk.result.counts.dropped.otherKind, 2, 'Another sub-kind counts as another kind');
+    // メイク落とし：名前で分からない洗浄料・洗顔料は外す
+    rakutenNames = ['サブE Gentle Cleanser', 'サブF 洗顔フォーム', 'サブG クレンジングオイル'];
+    const remover = await search('cleanser', 'makeup_remover');
+    assert.deepStrictEqual(remover.result.products.map((p) => p.id), ['shoptext_rakuten_sk:2']);
+    assert.strictEqual(remover.result.counts.dropped.otherKind, 2);
+
+    // ログの行：kind の次に subKind（決まった語）。商品名は入らない
+    console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+    await findAlternatives({ avoid: [{ nameJa: '香料' }], known: [], category: 'cleanser', subKind: 'makeup_remover', excludeIds: COSMETICS_DATABASE.map((p) => p.id) });
+    const line = logs.find((l) => l.startsWith('[alternatives] '))!;
+    const parsed = JSON.parse(line.slice('[alternatives] '.length));
+    assert.deepStrictEqual(Object.keys(parsed).slice(0, 2), ['kind', 'subKind']);
+    assert.deepStrictEqual([parsed.kind, parsed.subKind, parsed.shop.dropped.otherKind], ['cleanser', 'makeup_remover', 2]);
+    for (const text of [...rakutenNames, 'サブ', 'Gentle', 'クレンジングオイル', '洗顔フォーム']) assert.ok(!line.includes(text), `${text}: ${line}`);
+  } finally {
+    console.log = originalLog;
     globalThis.fetch = originalFetch;
     for (const [k, v] of Object.entries(savedEnv)) {
       if (v === undefined) delete process.env[k];

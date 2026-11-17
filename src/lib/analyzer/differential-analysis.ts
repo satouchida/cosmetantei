@@ -2,7 +2,7 @@ import { ProductIdentity } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { normalizeIngredientName } from '../utils/ingredient-name';
 import { findPairFindings, PairContext } from './pair-rules';
-import { mostCommonCategory } from './product-category';
+import { mostCommonCategory, mostCommonSubKind } from './product-category';
 import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { findSafeAlternatives } from './alternative-gate';
 import {
@@ -54,11 +54,14 @@ export function performDifferentialAnalysis(
   // 肌荒れした製品を一緒に使っていた場合の組み合わせの注意
   const pairFindings = pairFindingsFor(badProducts, 'trouble');
 
-  // あぶり出された疑わしい成分を含まない代替コスメを、肌荒れした製品に多い種類から探す（種類が分からなければ出さない）。
-  // 登録した製品（肌荒れした・使えるコスメ）は勧めない
+  // あぶり出された疑わしい成分を含まない代替コスメを、肌荒れした製品に多い種類（と、その中の下位の種類）から探す
+  // （種類が分からなければ出さない）。登録した製品（肌荒れした・使えるコスメ）は勧めない
   const category = mostCommonCategory(badProducts);
   const safeAlternatives = category
-    ? findSafeAlternatives(culprits, [...badProducts, ...safeProducts, ...otherRegistered], 3, { category })
+    ? findSafeAlternatives(culprits, [...badProducts, ...safeProducts, ...otherRegistered], 3, {
+        category,
+        subKind: mostCommonSubKind(badProducts, category),
+      })
     : [];
 
   return {

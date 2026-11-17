@@ -9,7 +9,11 @@ import {
   CATEGORY_LABELS_JA,
   categoryFromText,
   mostCommonCategory,
+  mostCommonSubKind,
   productCategory,
+  productSubKind,
+  SubKind,
+  subKindFromText,
 } from '../analyzer/product-category';
 import { findShopAlternatives, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
@@ -32,6 +36,8 @@ export interface AlternativeRequest {
   /** 検索語に使う成分（成分DBの項目だけ） */
   known: KnownIngredient[];
   category?: AlternativeCategory;
+  /** 種類の中の下位の種類（クレンジング・乳液・ハンドクリーム等）。名前・文章の語から。無ければ今までどおり */
+  subKind?: SubKind;
   /** 比較リストから作ったが、肌荒れしたコスメの種類が分からない（同数・不明）。別の種類を勧めないよう探さない */
   unknownKind?: boolean;
   /** 候補から除く製品の ID（分析した製品・比較リストに登録した製品） */
@@ -55,7 +61,8 @@ export function alternativeRequestFromText(text: string): AlternativeRequest | n
   const known = negated.length > 0 ? negated : mentioned;
   const category = categoryFromText(text);
   if (known.length === 0 && !category) return null;
-  return { avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })), known, category, excludeIds: [] };
+  const subKind = subKindFromText(category, text);
+  return { avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })), known, category, ...(subKind && { subKind }), excludeIds: [] };
 }
 
 const NEGATION = /入っていない|入ってない|入らない|含まない|含まれていない|不使用|フリー|free|なし|無し|ゼロ|抜き/;
@@ -96,10 +103,13 @@ export function alternativeRequestFromRoutine(routine: UserRoutineState | undefi
     const k = findMatchingKnownIngredient(c.nameJa) ?? findMatchingKnownIngredient(c.nameEn);
     if (k && k.riskLevel !== 'safe' && !known.some((x) => x.id === k.id)) known.push(k);
   }
+  const category = mostCommonCategory(routine.badProducts);
+  const subKind = mostCommonSubKind(routine.badProducts, category);
   return {
     avoid: diff.culprits,
     known,
-    category: mostCommonCategory(routine.badProducts),
+    category,
+    ...(subKind && { subKind }),
     // 登録した製品（肌荒れした・使えるコスメ）は勧めない
     excludeIds: registered.map((p) => p.id),
     excludeProducts: registered,
@@ -119,10 +129,12 @@ export function alternativeRequestFromProduct(product: Product): AlternativeRequ
     if (k && k.riskLevel !== 'safe' && !known.some((x) => x.id === k.id)) known.push(k);
   }
   const category = productCategory(product);
+  const subKind = productSubKind(product);
   return {
     avoid,
     known,
     category,
+    ...(subKind && { subKind }),
     ...(!category && { unknownKind: true }),
     excludeIds: [product.id],
     excludeProducts: [product],
@@ -179,6 +191,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   const done = (result: AlternativeResult, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
     logAlternatives({
       kind: req.unknownKind ? 'unknown' : (req.category ?? 'any'),
+      subKind: req.subKind ?? null,
       // 確認で避けない成分（低刺激と判定済み）は数えない
       avoid: req.avoid.filter((a) => !('riskLevel' in a) || a.riskLevel !== 'safe').length,
       terms,
@@ -194,7 +207,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   const check = () => {
     const unique: Product[] = [];
     const seen = new Set<string>();
-    for (const p of findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], limit * 4, { category: req.category })) {
+    const options = { category: req.category, subKind: req.subKind };
+    for (const p of findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], limit * 4, options)) {
       const key = productIdentityKey(p.brand, p.name);
       if (seen.has(key)) continue;
       seen.add(key);
@@ -211,6 +225,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   if (req.category) {
     const shop = await findShopAlternatives({
       category: req.category,
+      subKind: req.subKind,
       avoid: req.avoid,
       terms,
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
@@ -254,6 +269,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
 interface AlternativesLog {
   /** unknown: 種類が分からず探さなかった / any: 種類を決めずに探した */
   kind: AlternativeCategory | 'unknown' | 'any';
+  /** 下位の種類（決まった語）。無ければ null */
+  subKind: SubKind | null;
   /** 避ける成分の数 */
   avoid: number;
   /** お店の検索語に足す決まった語（依頼から決まる。お店に聞かなかったときも出す） */
@@ -288,8 +305,9 @@ export function alternativeRequest(text: string, routine: UserRoutineState | und
   if (fromText && fromText.known.length > 0) return fromText;
   const fromRoutine = alternativeRequestFromRoutine(routine);
   if (fromRoutine) {
-    const category = fromText?.category ?? fromRoutine.category;
-    return { ...fromRoutine, category, ...(!category && { unknownKind: true }) };
+    // 文章で種類を指定されたら、下位の種類も文章から（「ハンドクリームで探して」）
+    const { category, subKind } = fromText?.category ? fromText : fromRoutine;
+    return { ...fromRoutine, category, subKind, ...(!category && { unknownKind: true }) };
   }
   return fromText;
 }

@@ -1,6 +1,6 @@
 # Plan: improving the alternatives search
 
-Written 2026-11-18. Status: Paths 0, 1 and 2 in progress; Paths 3 to 8 are plans for later.
+Written 2026-11-18. Status: Paths 0 and 1 done; Path 2 in progress; Paths 3 to 8 are plans for later.
 Why these paths: [alternative-search-quality.md](alternative-search-quality.md) (the report).
 Earlier work: [alternative-recommendations.md](alternative-recommendations.md).
 
@@ -95,6 +95,36 @@ Goal: a cleansing oil gets makeup removers, a 乳液 gets 乳液, a lip balm get
 
 Done when: the tests pass, and the Path 0 run (by the owner) shows no kind that used to return
 results now returning none.
+
+Done 2026-11-17 (test 166; the owner's Path 0 run is still to do):
+
+- `product-category.ts`: `SubKind`, `subKindFromText`, `productSubKind`, `mostCommonSubKind` and
+  `subKindFit` (`same` / `unsaid` / `other`), with the table and its word order in a Japanese comment.
+  The gate takes `subKind` with `category` and returns `kind` for a sub-kind mismatch (counted as
+  `otherKind`); `findSafeAlternatives` and the shop step put `same` before `unsaid` (stable sort).
+  The analysis card, the comparison (most common sub-kind among the 肌荒れしたコスメ of that kind)
+  and the chat (sub-kind from the text when the text names the kind) all pass it.
+- Shop search: the plan's labels (no genre except 乳液 and クレンジング), plus three labels the plan
+  did not list, because the kind's search would come back almost empty after the name filter:
+  `gel` 保湿ジェル, `body_lotion` ボディローション, sunscreen `body` 日焼け止め ボディ (no genre).
+  Sub-kinds with no label (face wash, face cream, face and base sunscreens, lip colour, wash-off
+  pack, wipe-off toner) keep the kind's label and genre, as today.
+- The log line has `subKind` after `kind` (null when none).
+- Additions beyond the table: kind words オールインワン (cream, before toner and serum),
+  スキンコンディショナー (toner), モイスチャライザー (cream), メイクリムーバー (cleanser, before
+  lip) and ティントリップ (lip). A name for both face and body (顔・からだ用, フェイス&ボディ) gets
+  no face or body sub-kind.
+- Seed names that had no kind: ナチュリエ スキンコンディショナー is now toner and ラ ロッシュ ポゼ
+  … フェイスモイスチャライザー is now cream (no sub-kind). The other seven still get no kind,
+  because their names do not say it (ヒアルロン液, 薬用バーム, ピュアスキンジェリー, ボディウォッシュ,
+  ウオーター, H2O, ジェントルウォッシュ ホイップ).
+- Unchanged: for names with no sub-kind word, the gate reasons, `findSafeAlternatives`,
+  `analyzeProduct`, `performDifferentialAnalysis` and the mocked shop search give the same output
+  as before (a throwaway comparison over 400 synthetic products). Test 106 now expects
+  「シートマスク 無香料」 with no genre for a sheet mask (was 「パック 無香料」); test 164 expects
+  `subKind: null`.
+- Not done: the web research query (`buildAlternativeQuery`) still uses the kind's label; hair
+  creams still classify as cream (`face_cream` by name).
 
 ## Path 2. Rank by form and use
 
