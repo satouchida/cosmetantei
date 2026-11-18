@@ -11880,7 +11880,7 @@ test('178. Same product written in katakana and in English (Open Beauty Facts "t
   }
 });
 
-test('179. Alternatives keep the same order whatever order products were saved in; the Open Beauty Facts free-of flags give no head start, and fewer 「やや注意」 ingredients rank first (live 2026-11-18: the cica serum dropped out when two other serums were saved)', async () => {
+test('179. Alternatives keep the same order whatever order products were saved in; the Open Beauty Facts free-of flags give no head start; fewer active ingredients (retinol) rank first, then fewer 「やや注意」 ingredients (live 2026-11-18: the cica serum dropped out when two other serums were saved, then a retinol serum ranked above serums with only plant extracts)', async () => {
   const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
   const serum = (id: string, brand: string, name: string, ingredients: string[], extra: Partial<Product> = {}) =>
     // verifiedProduct は印を付けるので、印の無い製品（Web のページの製品）にする
@@ -11891,20 +11891,27 @@ test('179. Alternatives keep the same order whatever order products were saved i
     // 印で先に並ぶと順が変わるようにする
     serum('cica', 't179 Torriden', 'バランスフル CICA セラム', ['水', 'グリセリン', 'パンテノール'], { fragranceFree: true, alcoholFree: true }),
     serum('unlabel', 't179 unlabel', 'アンレーベル ラボ R エッセンスN', ['水', 'BG', 'グリセリン']),
-    // 「やや注意」の成分（フェノキシエタノール）が1つ
-    serum('nov', 't179 NOV', 'ノブ Ⅲ バリアコンセントレイト', ['水', 'グリセリン', 'フェノキシエタノール']),
+    // 「やや注意」の成分（DPG・フェノキシエタノール）が2つ
+    serum('nov', 't179 NOV', 'ノブ Ⅲ バリアコンセントレイト', ['水', 'DPG', 'フェノキシエタノール']),
+    // アクティブ成分（レチノール）が1つ。成分の数を合わせて数えると、上の製品より先に並んでしまう
+    serum('retinol', 't179 retinol', 'エッセンス レチノール', ['水', 'グリセリン', 'パルミチン酸レチノール']),
   ];
   const mine = () =>
     findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'serum' })
       .map((p) => p.id)
       .filter((id) => id.startsWith('t179_'));
-  const orders = [pool, [...pool].reverse(), [pool[3], pool[1], pool[0], pool[2]]];
+  const orders = [pool, [...pool].reverse(), [pool[3], pool[1], pool[4], pool[0], pool[2]]];
   for (const order of orders) {
     // 新しく保存した製品はメモリの一覧の先頭に入る（addProductToDynamicCache と同じ）
     COSMETICS_DATABASE.unshift(...order);
     try {
-      // 「やや注意」の成分が無いものを名前の順（印は順位に使わない）、フェノキシエタノールのある製品は最後。保存した順に関係しない
-      assert.deepStrictEqual(mine(), ['t179_obf', 't179_unlabel', 't179_cica', 't179_nov'], order.map((p) => p.id).join());
+      // 「やや注意」の成分が無いものを名前の順（印は順位に使わない）、次に「やや注意」が2つの製品、レチノールの製品は最後。
+      // 保存した順に関係しない
+      assert.deepStrictEqual(
+        mine(),
+        ['t179_obf', 't179_unlabel', 't179_cica', 't179_nov', 't179_retinol'],
+        order.map((p) => p.id).join()
+      );
     } finally {
       for (const p of order) {
         const at = COSMETICS_DATABASE.indexOf(p);

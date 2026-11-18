@@ -163,7 +163,8 @@ export function findSafeAlternatives(
       !isExcluded(product)
   );
 
-  // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの、「やや注意」の成分が少ないもの。
+  // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの、アクティブ成分（レチノール等）が
+  // 少ないもの、「やや注意」の成分が少ないもの（植物エキス6つより、レチノール1つのほうが刺激になりやすい）。
   // 同じなら名前と ID の順（保存した順・新しく保存された製品で入れ替わらない）。
   // 無香料・アルコールフリーは順位に使わない：香料・エタノールは強い刺激成分として上の確認で外してあり、製品の
   // fragranceFree・alcoholFree の印は Open Beauty Facts の製品にしか無い（印のある製品だけが先に並んでいた）。
@@ -177,13 +178,14 @@ export function findSafeAlternatives(
     product,
     subKind: sameSubKind(product),
     similarity: similarity(product),
-    caution: cautionCount(product, levels),
+    ...cautionCounts(product, levels),
   }));
   return ranked
     .sort(
       (a, b) =>
         b.subKind - a.subKind ||
         b.similarity - a.similarity ||
+        a.active - b.active ||
         a.caution - b.caution ||
         NAME_ORDER.compare(a.product.name, b.product.name) ||
         (a.product.id < b.product.id ? -1 : a.product.id > b.product.id ? 1 : 0)
@@ -192,9 +194,10 @@ export function findSafeAlternatives(
     .map((r) => r.product);
 }
 
-/** 「やや注意」「アクティブ成分」の成分の数（強い刺激成分を含む製品は確認で外してある） */
-function cautionCount(product: Product, levels: Map<string, IngredientRiskLevel>): number {
-  let count = 0;
+/** 「アクティブ成分」の数と「やや注意」の成分の数（強い刺激成分を含む製品は確認で外してある） */
+function cautionCounts(product: Product, levels: Map<string, IngredientRiskLevel>): { active: number; caution: number } {
+  let active = 0;
+  let caution = 0;
   for (const { raw } of labelIngredients(product)) {
     // 同じ名前（水・BG・グリセリン等）は多くの製品にあるので、1回の呼び出しの中で評価を使い回す
     let level = levels.get(raw);
@@ -202,7 +205,8 @@ function cautionCount(product: Product, levels: Map<string, IngredientRiskLevel>
       level = (findMatchingKnownIngredient(raw) ?? getOrGenerateIngredientExplanation(raw)).riskLevel;
       levels.set(raw, level);
     }
-    if (level === 'low_caution' || level === 'active_caution') count++;
+    if (level === 'active_caution') active++;
+    else if (level === 'low_caution') caution++;
   }
-  return count;
+  return { active, caution };
 }
