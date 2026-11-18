@@ -1,6 +1,7 @@
 import 'server-only';
 import { Product } from '../types';
 import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { withFreeOfFlags } from '../analyzer/free-of';
 import { hashedCacheKey } from '../server/cache';
 import { GeminiImage, callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 
@@ -16,9 +17,6 @@ export const MAX_LABEL_NAME_LENGTH = 100;
 export const MAX_LABEL_IMAGE_BYTES = 1_500_000;
 /** 1成分の名前の上限（製品データの検証 validation.ts と同じ） */
 const MAX_INGREDIENT_LENGTH = 200;
-
-/** エタノール（エタノールアミン類・フェノキシエタノールは除く） */
-export const ETHANOL_IN_LABEL = /(?<![ジトリモノキシ])エタノール(?!アミ)|alcohol denat|\bethanol\b/i;
 
 const LABEL_IMAGE_TYPES: readonly GeminiImage['mimeType'][] = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -151,17 +149,15 @@ export async function productFromLabel(input: LabelInput): Promise<LabelProductR
   const brand = input.brand?.trim() ?? '';
   const key = await hashedCacheKey('label', `${brand}|${name}|${input.text}`);
   return {
-    product: {
+    product: withFreeOfFlags({
       id: `label_${key.slice(6, 22)}`,
       name,
       brand,
       country: 'JP',
       category: 'other',
       ...label,
-      fragranceFree: !all.some((i) => /香料|fragrance|parfum/i.test(i)),
-      alcoholFree: !all.some((i) => ETHANOL_IN_LABEL.test(i)),
       ingredientSource: 'user_label',
       isEstimatedFromMarketplaces: false,
-    },
+    }),
   };
 }

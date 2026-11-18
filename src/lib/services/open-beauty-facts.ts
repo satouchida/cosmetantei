@@ -3,6 +3,7 @@ import { reserveSpend } from '../server/spend-cap';
 import { addProductToDynamicCache, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { LABEL_FORMAT, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { withFreeOfFlags } from '../analyzer/free-of';
 import { isGreetingOrConsultation, isNonCosmeticSearchQuery } from './query-check';
 import { isActualCosmeticProduct } from './product-filter';
 import { contactEmail, SITE_URL } from '../site';
@@ -61,7 +62,7 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
       const { ingredients } = label;
 
       const hasIngredients = ingredients.length > 0;
-      const product: Product = {
+      const product: Product = withFreeOfFlags({
         id: `obf_${barcode || Math.random().toString(36).substring(2, 9)}`,
         name,
         brand,
@@ -76,7 +77,7 @@ export async function searchOpenBeautyFacts(query: string, limit = 4): Promise<P
         amazonSearchUrl: buildAmazonAffiliateUrl(brand, name),
         isEstimatedFromMarketplaces: !hasIngredients,
         ingredientSource: hasIngredients ? 'open_beauty_facts' : undefined,
-      };
+      });
 
       if (isActualCosmeticProduct(product)) {
         addProductToDynamicCache(product);

@@ -7,6 +7,7 @@ import { runAfterResponse } from '../server/cloudflare';
 import { runWebSearch, WebSearchItem, WebSearchProvider } from '../server/web-search';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { labelProductFields } from '../analyzer/label-parser';
+import { withFreeOfFlags } from '../analyzer/free-of';
 import { isGeminiConfigured } from './gemini-client';
 import { isAcceptedBrand, judgeBrands } from './brand-check';
 import { translateEnglishLabels } from './ingredient-translate';
@@ -97,7 +98,7 @@ async function pageProductId(p: PageProduct): Promise<string> {
  */
 export async function toProduct(p: PageProduct): Promise<Product> {
   const hasIngredients = p.ingredients.length > 0;
-  return {
+  return withFreeOfFlags({
     id: await pageProductId(p),
     name: p.name,
     brand: p.brand,
@@ -116,7 +117,7 @@ export async function toProduct(p: PageProduct): Promise<Product> {
     ingredientSource: hasIngredients ? 'web_page' : undefined,
     // 長すぎる URL は持たない（製品を送り返したときの検証で、比較リスト全体が拒否されないように）
     sourceUrl: p.sourceUrl.length <= MAX_SOURCE_URL_LENGTH ? p.sourceUrl : undefined,
-  };
+  });
 }
 
 /** 一般名詞がブランド欄に入った製品を除く（語彙チェック → キャッシュ → Clef。Gemini の追加呼び出しなし） */

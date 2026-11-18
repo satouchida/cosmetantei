@@ -17,7 +17,7 @@ function obfImageUrl(raw: unknown): string | undefined {
 }
 import { researchBarcode, RESEARCH_FAIL_TTL_SECONDS, UNTRUSTED_ONLY_TTL_SECONDS } from './web-research';
 import { mayRememberFailure } from '../server/usage';
-import { ETHANOL_IN_LABEL } from './label-reader';
+import { withFreeOfFlags } from '../analyzer/free-of';
 import { contactEmail, SITE_URL } from '../site';
 
 /**
@@ -147,8 +147,6 @@ export async function fetchObfProduct(cleanCode: string): Promise<Product | null
           ingredients = ['成分情報はGoogle検索およびオンラインマーケットプレイスより補完'];
         }
 
-        // 医薬部外品の有効成分も含めて香料・エタノールの有無を見る
-        const labelled = [...(label.activeIngredientsJa ?? []), ...ingredients];
 
         const country: 'JP' | 'KR' | 'US' | 'EU' =
           cleanCode.startsWith('45') || cleanCode.startsWith('49')
@@ -157,7 +155,7 @@ export async function fetchObfProduct(cleanCode: string): Promise<Product | null
             ? 'KR'
             : 'US';
 
-        const product: Product = {
+        const product: Product = withFreeOfFlags({
           id: `obf_${cleanCode}`,
           name: productName,
           brand: brand,
@@ -171,16 +169,10 @@ export async function fetchObfProduct(cleanCode: string): Promise<Product | null
           labelFormat: LABEL_FORMAT,
           ingredients: ingredients,
           descriptionJa: `バーコード（JAN: ${cleanCode}）から取得した最新商品データです`,
-          fragranceFree: !labelled.some(
-            (i) => /香料|fragrance|parfum/i.test(i)
-          ),
-          alcoholFree: !labelled.some(
-            (i) => ETHANOL_IN_LABEL.test(i)
-          ),
           amazonSearchUrl: buildAmazonAffiliateUrl(brand, productName),
           isEstimatedFromMarketplaces: isEstimated,
           ingredientSource: isEstimated ? undefined : 'open_beauty_facts',
-        };
+        });
 
         return product;
       }

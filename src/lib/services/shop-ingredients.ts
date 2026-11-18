@@ -2,6 +2,7 @@ import 'server-only';
 import { Product } from '../types';
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { LABEL_LIMITS, labelProductFields, parseIngredientLabel } from '../analyzer/label-parser';
+import { withFreeOfFlags } from '../analyzer/free-of';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { CATEGORY_LABELS_JA, categoryFromText } from '../analyzer/product-category';
 import { SHOP_TEXT_ID_PREFIX, yahooStore } from '../product-source';
@@ -248,7 +249,7 @@ function hasWord(key: string, word: string): boolean {
 /** 楽天の商品説明から成分を読んだ製品（その返答にだけ使う。代わりの商品探しでも使う） */
 export function shopListingProduct(item: ShopItem, brandName: string, label: NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>): Product {
   const link = shopLink('rakuten', item.url);
-  return {
+  return withFreeOfFlags({
     id: `${SHOP_TEXT_ID_PREFIX}rakuten_${item.code}`.slice(0, 120),
     // 商品名は API が返したまま（楽天の規約 第10条 (7)）
     name: item.name,
@@ -262,7 +263,7 @@ export function shopListingProduct(item: ShopItem, brandName: string, label: Non
     ingredientSource: 'shop_listing',
     isEstimatedFromMarketplaces: false,
     sharedSource: false,
-  };
+  });
 }
 
 /**
@@ -415,7 +416,7 @@ export async function productFromYahooDescription(matches: ShopMatches, id?: str
     const label = await ingredientsFromCaption(item.caption);
     if (!label) continue;
     const name = withoutListingNoise(item.name);
-    return {
+    return withFreeOfFlags({
       id: yahooProductId(item),
       name,
       brand: matches.brandName,
@@ -428,7 +429,7 @@ export async function productFromYahooDescription(matches: ShopMatches, id?: str
       sourceUrl: item.url,
       ingredientSource: 'shop_yahoo',
       isEstimatedFromMarketplaces: false,
-    };
+    });
   }
   return null;
 }

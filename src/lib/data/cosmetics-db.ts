@@ -4,6 +4,7 @@ import { buildAmazonAffiliateUrl } from '../services/amazon-affiliate';
 import { cacheGetJSON, cacheGetJSONStrict, cachePutJSON } from '../server/cache';
 import { hasStaleLabel } from '../analyzer/label-parser';
 import { mayShareWebProduct } from './trusted-sites';
+import { freeOfFlags } from '../analyzer/free-of';
 
 /**
  * 【動的コスメキャッシュ】
@@ -88,8 +89,10 @@ export function addProductToDynamicCache(product: Product): Product {
   if (!isShareable(product)) return product;
   const existingIdx = RUNTIME_CACHE.findIndex((p) => isSameProduct(p, product));
 
+  // 無香料・アルコールフリーの印は全成分から付け直す（印を持たずに保存された Web のページ・お店の製品にも付く）
   const enrichedProduct: Product = {
     ...product,
+    ...freeOfFlags(product),
     amazonSearchUrl: product.amazonSearchUrl || buildAmazonAffiliateUrl(product.brand, product.name),
   };
 

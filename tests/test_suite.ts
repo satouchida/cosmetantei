@@ -11920,3 +11920,84 @@ test('179. Alternatives keep the same order whatever order products were saved i
     }
   }
 });
+
+test('180. 無香料・アルコールフリーの印 come from the full ingredient list for every source (web pages and shop listings had none, saved records too): fragrance and ethanol in any spelling clear them, phenoxyethanol and ethanolamines do not, and products without a full list get no badge (live 2026-11-18)', async () => {
+  const { freeOfFlags } = await import('../src/lib/analyzer/free-of');
+  const { toProduct } = await import('../src/lib/services/web-research');
+  const { addProductToDynamicCache } = await import('../src/lib/data/cosmetics-db');
+  const page = (id: string, ingredients: string[], extra: { activeIngredients?: string[]; isQuasiDrug?: boolean; undisclosedCount?: number } = {}) =>
+    toProduct({
+      sourceUrl: `https://example.jp/t180/${id}`,
+      brand: 't180',
+      name: `t180 ${id}`,
+      category: 'serum',
+      ingredients,
+      activeIngredients: extra.activeIngredients ?? [],
+      isQuasiDrug: extra.isQuasiDrug ?? false,
+      undisclosedCount: extra.undisclosedCount ?? 0,
+    });
+  const flags = (p: Product) => ({ fragranceFree: p.fragranceFree, alcoholFree: p.alcoholFree });
+
+  // Web のページの製品に印が付く（これまで無かった）
+  assert.deepStrictEqual(flags(await page('plain', ['水', 'BG', 'フェノキシエタノール', 'トリエタノールアミン'])), {
+    fragranceFree: true,
+    alcoholFree: true,
+  });
+  assert.deepStrictEqual(flags(await page('scented', ['水', 'エタノール', '香料'])), { fragranceFree: false, alcoholFree: false });
+  // 別の書き方（英語・変性アルコール）
+  assert.deepStrictEqual(flags(await page('inci', ['Water', 'Alcohol Denat.', 'Parfum'])), { fragranceFree: false, alcoholFree: false });
+  assert.strictEqual((await page('denat', ['水', '変性アルコール'])).alcoholFree, false);
+  // 医薬部外品の有効成分も見る
+  assert.strictEqual((await page('quasi', ['水', 'BG'], { activeIngredients: ['香料'], isQuasiDrug: true })).fragranceFree, false);
+  // 全成分の無いページ・AI の推定・成分の取れなかった製品には印を付けない
+  assert.deepStrictEqual(flags(await page('empty', [])), { fragranceFree: undefined, alcoholFree: undefined });
+  const base = verifiedProduct({ id: 't180_base', ingredients: ['水', 'BG'] });
+  assert.deepStrictEqual(freeOfFlags({ ...base, isEstimatedFromMarketplaces: true }), { fragranceFree: undefined, alcoholFree: undefined });
+  assert.deepStrictEqual(freeOfFlags({ ...base, ingredients: ['成分情報はGoogle検索およびオンラインマーケットプレイスより補完'] }), {
+    fragranceFree: undefined,
+    alcoholFree: undefined,
+  });
+
+  // 成分DBの「香料」「エタノール」の名前・別名はどれも印を外す（照合する前に名前の語で絞っても漏らさない）
+  const { KNOWN_INGREDIENTS } = await import('../src/lib/data/ingredients-db');
+  for (const [id, key] of [['fragrance', 'fragranceFree'], ['ethanol', 'alcoholFree']] as const) {
+    const entry = KNOWN_INGREDIENTS.find((i) => i.id === id);
+    assert.ok(entry, id);
+    for (const name of [entry.nameJa, entry.nameEn, ...entry.aliases]) {
+      assert.strictEqual(freeOfFlags({ ...base, ingredients: ['水', name] })[key], false, `${id}: ${name}`);
+    }
+  }
+
+  // ほかの書き方（部分一致）。高級アルコール・ベンジルアルコール・エタノールアミンはエタノールではない
+  for (const name of ['SDアルコール', 'エチルアルコール', '含水エタノール', 'Ethyl Alcohol', 'SD Alcohol 40-B']) {
+    assert.strictEqual(freeOfFlags({ ...base, ingredients: ['水', name] }).alcoholFree, false, name);
+  }
+  for (const name of ['Fragrance (Parfum)', 'ラベンダー香料', 'FLAVOR']) {
+    assert.strictEqual(freeOfFlags({ ...base, ingredients: ['水', name] }).fragranceFree, false, name);
+  }
+  for (const name of ['ベンジルアルコール', 'セテアリルアルコール', 'ステアリルアルコール', 'モノエタノールアミン', 'Cetyl Alcohol']) {
+    assert.strictEqual(freeOfFlags({ ...base, ingredients: ['水', name] }).alcoholFree, true, name);
+  }
+  // 「他 n成分」のある表示：含むことは分かるが、含まないとは言えない
+  assert.deepStrictEqual(flags(await page('hidden', ['水', 'BG'], { undisclosedCount: 2 })), { fragranceFree: undefined, alcoholFree: undefined });
+  assert.deepStrictEqual(flags(await page('hidden_scented', ['水', '香料'], { undisclosedCount: 2 })), {
+    fragranceFree: false,
+    alcoholFree: undefined,
+  });
+
+  // 印を持たずに保存された製品・違う印で保存された製品は、読み込むときに付け直す（全成分が無くなった製品は印を外す）
+  const saved = { ...base, id: 't180_saved', name: 't180 saved', ingredients: ['水', '香料'], fragranceFree: undefined, alcoholFree: undefined };
+  const wrong = { ...base, id: 't180_wrong', name: 't180 wrong', ingredients: ['水', 'エタノール'], fragranceFree: true, alcoholFree: true };
+  const estimated = { ...base, id: 't180_estimated', name: 't180 estimated', isEstimatedFromMarketplaces: true, fragranceFree: true, alcoholFree: true };
+  try {
+    assert.deepStrictEqual(flags(addProductToDynamicCache(estimated)), { fragranceFree: undefined, alcoholFree: undefined });
+    assert.deepStrictEqual(flags(addProductToDynamicCache(saved)), { fragranceFree: false, alcoholFree: true });
+    assert.deepStrictEqual(flags(addProductToDynamicCache(wrong)), { fragranceFree: true, alcoholFree: false });
+    assert.strictEqual(COSMETICS_DATABASE.find((p) => p.id === 't180_saved')?.fragranceFree, false);
+  } finally {
+    for (const id of ['t180_saved', 't180_wrong', 't180_estimated']) {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+  }
+});
