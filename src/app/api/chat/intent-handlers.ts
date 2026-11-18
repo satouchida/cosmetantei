@@ -8,7 +8,7 @@ import {
   summarizeProductResults,
 } from '@/lib/services/chat-replies';
 import { alternativeButtonLabel, classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
-import { alternativeRequest, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
+import { alternativeQuickReplies, alternativeRequest, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
 import { toPriceSearchQuery } from '@/lib/services/price-service';
 import { getClientIp } from '@/lib/server/rate-limit';
 import { currentSpendLimit } from '@/lib/server/usage';
@@ -82,11 +82,11 @@ export async function findAlternativeReply({ gate, userText, routine }: IntentCo
       quickReplies: ['🧴 肌荒れしたコスメを入力する', '🔍 商品名で検索する'],
     });
   }
-  const { products, credits } = await findAlternatives(req);
+  const { products, credits, shopCheck } = await findAlternatives(req);
   return NextResponse.json({
-    reply: summarizeAlternatives(req, products),
+    reply: summarizeAlternatives(req, products, shopCheck),
     ...(products.length > 0 && { productSuggestions: products, suggestionKind: 'alternatives', alternativeCredits: credits }),
-    quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
+    quickReplies: alternativeQuickReplies(products, shopCheck),
   });
 }
 

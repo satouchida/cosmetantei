@@ -7,7 +7,7 @@ import { hasVerifiedIngredients } from '@/lib/analyzer/alternative-gate';
 import { checkCurrentUse, performDifferentialAnalysis } from '@/lib/analyzer/differential-analysis';
 import { Product } from '@/lib/types';
 import { explainCulprits, summarizeProductAnalysis, summarizeProductResults } from '@/lib/services/chat-replies';
-import { alternativeRequestFromProduct, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
+import { alternativeQuickReplies, alternativeRequestFromProduct, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
 import { productSearchQuery } from '@/lib/services/page-search';
 import { getClientIp } from '@/lib/server/rate-limit';
 import { resolveClientProduct } from '@/lib/server/client-products';
@@ -226,11 +226,11 @@ export async function findAlternativesReply({ action, selectedProduct, sentProdu
   if (!(action === 'find_alternatives' && selectedProduct)) return null;
   // サーバーが持っていない製品（送られた内容のまま。入力した成分表示など）は、有料の調べものをしない
   const req = { ...alternativeRequestFromProduct(selectedProduct), allowPaidLookups: selectedProduct !== sentProduct };
-  const { products, credits } = await findAlternatives(req);
+  const { products, credits, shopCheck } = await findAlternatives(req);
   return NextResponse.json({
-    reply: summarizeAlternatives(req, products),
+    reply: summarizeAlternatives(req, products, shopCheck),
     ...(products.length > 0 && { productSuggestions: products, suggestionKind: 'alternatives', alternativeCredits: credits }),
-    quickReplies: ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'],
+    quickReplies: alternativeQuickReplies(products, shopCheck),
   });
 }
 

@@ -10239,7 +10239,8 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
     // 返す製品は今までどおり（ログの数はその外）
     assert.deepStrictEqual(result.products.map((p) => p.id), ['shoptext_rakuten_lg:7', 'shoptext_rakuten_lg:9', 'shoptext_rakuten_lg:10']);
     assert.deepStrictEqual(result.credits, ['rakuten']);
-    assert.deepStrictEqual(Object.keys(result).sort(), ['credits', 'products', 'researched']);
+    // shopCheck はお店で確かめた数の要約（テスト 177）
+    assert.deepStrictEqual(Object.keys(result).sort(), ['credits', 'products', 'researched', 'shopCheck']);
     assert.strictEqual(lines().length, 1, 'One line per search');
     assert.deepStrictEqual(lines()[0], {
       kind: 'toner',
@@ -11635,6 +11636,141 @@ test('176. Alternatives, Rakuten by JAN code: a same-JAN listing is used when th
     assert.deepStrictEqual([d.counts.paidLookups, d.counts.dropped.noList, d.counts.janToRakuten], [2, 1, janCounts(2, 0, 0)]);
     assertCountsAddUp(d.counts, 'D');
   } finally {
+    shops.restore();
+    for (const id of added) {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    resetSpendCap();
+  }
+});
+
+test('177. Alternatives, fewer than 3 shown: the reply says how many shop listings were checked, how many full ingredient lists could be read and how many had an avoided or irritating ingredient (counts only), then points to the label input, which comes first in the quick replies; nothing when 3 are shown, the shops were not asked or nothing was checked (alternative-search-improvements.md Path 8)', async () => {
+  const { findAlternatives, alternativeRequestFromText, summarizeAlternatives, shopCheckSummary, explainsShortfall, alternativeQuickReplies } = await import(
+    '../src/lib/services/alternatives-service'
+  );
+  const { getQuickReplyAction } = await import('../src/components/chat/quick-replies');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const req = alternativeRequestFromText('香料が入っていない化粧水')!;
+  const shop = (i: number) => verifiedProduct({ id: `t177_${i}`, brand: `T177ブランド${i}`, name: `T177 化粧水 ${i}号`, category: 'toner' });
+  const first = '「香料」を含まない化粧水は、全成分を確認できた商品の中からは見つかりませんでした。';
+  const found = (n: number) => `「香料」を含まない化粧水を${n}件見つけました。全成分を確認でき、これらの成分や強い刺激になりやすい成分が入っていない商品だけを表示しています。`;
+  const nextStep = '気になる商品があれば、「📝 成分表示を入力する」からパッケージの全成分表示を入力すると、原因候補の成分が入っていないかを確かめられます。';
+  const choose = '商品を選ぶときは、パッケージの全成分表示に「香料」が無いかをご確認ください。';
+  const tryLittle = '肌に合うかは人によって違います。初めて使うときは少量から試してください。';
+
+  // A. 0件：最初の文の後、「商品を選ぶときは…」の前。避けた・刺激の成分で外れた数は、1件以上のときだけ
+  assert.strictEqual(
+    summarizeAlternatives(req, [], { checked: 30, readable: 4, rejected: 2 }),
+    [first, 'お店の商品30件を確かめましたが、全成分表示を読めたのは4件でした。そのうち2件は、避けたい成分か刺激になりやすい成分を含んでいました。', nextStep, choose].join('\n\n')
+  );
+  assert.strictEqual(
+    summarizeAlternatives(req, [], { checked: 12, readable: 0, rejected: 0 }),
+    [first, 'お店の商品12件を確かめましたが、全成分表示を読めたのは0件でした。', nextStep, choose].join('\n\n')
+  );
+  // 1件：「…件見つけました。…」の後、「肌に合うかは…」の前
+  assert.strictEqual(
+    summarizeAlternatives(req, [shop(1)], { checked: 20, readable: 3, rejected: 0 }),
+    [found(1), 'お店の商品20件を確かめましたが、全成分表示を読めたのは3件でした。', nextStep, tryLittle].join('\n\n')
+  );
+  // 2件：全部読めたときは「全成分表示を確かめました」
+  assert.strictEqual(
+    summarizeAlternatives(req, [shop(1), shop(2)], { checked: 5, readable: 5, rejected: 3 }),
+    [found(2), 'お店の商品5件の全成分表示を確かめました。そのうち3件は、避けたい成分か刺激になりやすい成分を含んでいました。', nextStep, tryLittle].join('\n\n')
+  );
+  assert.strictEqual(
+    summarizeAlternatives(req, [shop(1), shop(2)], { checked: 7, readable: 7, rejected: 0 }),
+    [found(2), 'お店の商品7件の全成分表示を確かめました。', nextStep, tryLittle].join('\n\n')
+  );
+  // 書かない：3件そろった・お店に聞かなかった（null・渡さない）・確かめた候補が無い・種類が分からない
+  const three = [shop(1), shop(2), shop(3)];
+  assert.strictEqual(summarizeAlternatives(req, three, { checked: 30, readable: 4, rejected: 1 }), [found(3), tryLittle].join('\n\n'));
+  for (const products of [[], [shop(1)], [shop(1), shop(2)]]) {
+    const plain = summarizeAlternatives(req, products);
+    assert.ok(!plain.includes('お店の商品') && !plain.includes(nextStep), 'No third argument: unchanged');
+    assert.strictEqual(summarizeAlternatives(req, products, null), plain);
+    assert.strictEqual(summarizeAlternatives(req, products, { checked: 0, readable: 0, rejected: 0 }), plain);
+  }
+  const unknown = { ...req, unknownKind: true };
+  assert.strictEqual(summarizeAlternatives(unknown, [], { checked: 30, readable: 4, rejected: 2 }), summarizeAlternatives(unknown, []));
+  // 数だけ：表示する商品の名前・ブランドは、理由の文に入らない（「…件見つけました」の段落にも無い）
+  const two = summarizeAlternatives(req, [shop(1), shop(2)], { checked: 5, readable: 2, rejected: 1 });
+  for (const text of ['T177', 'ブランド']) assert.ok(!two.includes(text), `The reply contains "${text}"`);
+
+  // B. ボタン：理由を書いたときだけ、成分表示の入力を先に（ほかは今までどおり）。ブラウザは成分表示の入力を開く
+  const usual = ['🔍 別のコスメを調べる', '📸 バーコードをスキャンする'];
+  const check = { checked: 9, readable: 2, rejected: 1 };
+  assert.deepStrictEqual(alternativeQuickReplies([], check), ['📝 成分表示を入力する', ...usual]);
+  assert.deepStrictEqual(alternativeQuickReplies([shop(1), shop(2)], check), ['📝 成分表示を入力する', ...usual]);
+  assert.deepStrictEqual(alternativeQuickReplies(three, check), usual);
+  assert.deepStrictEqual(alternativeQuickReplies([shop(1)], null), usual);
+  assert.deepStrictEqual(alternativeQuickReplies([], { checked: 0, readable: 0, rejected: 0 }), usual);
+  assert.deepStrictEqual([explainsShortfall(2, check), explainsShortfall(3, check), explainsShortfall(0, null), explainsShortfall(0, undefined)], [true, false, false, false]);
+  assert.strictEqual(getQuickReplyAction('📝 成分表示を入力する').kind, 'label_input');
+
+  // C. findAlternatives：shopCheck はお店の数（ログの shop）から作る。読めない2件・香料1件・エタノール1件・使える2件
+  const noList = '説明です。成分はパッケージをご覧ください。';
+  const state: Parameters<typeof mockShops>[0] = {
+    rakuten: [
+      { name: 'ラク177A号 化粧水', caption: noList },
+      { name: 'ラク177B号 化粧水', caption: readableCaption(1) },
+      { name: 'ラク177C号 化粧水', caption: readableCaption(2, '香料') },
+      { name: 'ラク177D号 化粧水', caption: noList },
+      { name: 'ラク177E号 化粧水', caption: readableCaption(4, 'エタノール') },
+      { name: 'ラク177F号 化粧水', caption: readableCaption(5) },
+    ],
+    yahoo: [],
+  };
+  const fragrance = findMatchingKnownIngredient('香料')!;
+  const allSaved = COSMETICS_DATABASE.map((p) => p.id);
+  const added: string[] = [];
+  const shops = mockShops(state);
+  const originalLog = console.log;
+  const logs: string[] = [];
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  const lastShopLog = () => JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length)).shop;
+  try {
+    resetSpendCap();
+    const toner = { avoid: [{ nameJa: '香料' }], known: [fragrance], category: 'toner' as const, excludeIds: allSaved };
+    const result = await findAlternatives(toner);
+    assert.deepStrictEqual(result.products.map((p) => p.id), ['shoptext_rakuten_ms:1', 'shoptext_rakuten_ms:5']);
+    const counts = lastShopLog();
+    assert.deepStrictEqual(result.shopCheck, shopCheckSummary(counts));
+    assert.deepStrictEqual(result.shopCheck, { checked: counts.checked, readable: counts.checked - counts.dropped.noList, rejected: counts.dropped.suspect + counts.dropped.irritant + counts.dropped.standard });
+    assert.deepStrictEqual(result.shopCheck, { checked: 6, readable: 4, rejected: 2 });
+    assert.deepStrictEqual([counts.dropped.suspect, counts.dropped.irritant, counts.dropped.noList], [1, 1, 2]);
+    const reply = summarizeAlternatives({ ...req, ...toner }, result.products, result.shopCheck);
+    assert.ok(reply.includes('お店の商品6件を確かめましたが、全成分表示を読めたのは4件でした。そのうち2件は、避けたい成分か刺激になりやすい成分を含んでいました。'), reply);
+    for (const item of state.rakuten) assert.ok(!reply.includes(item.name.split(' ')[0]), `The reply contains "${item.name}"`);
+
+    // 種類が分からない・種類が無い（お店に聞かない）・保存済みの製品だけで足りた：null
+    assert.strictEqual((await findAlternatives({ ...toner, unknownKind: true })).shopCheck, null);
+    assert.strictEqual(lastShopLog(), null);
+    const noKind = await findAlternatives({ avoid: [{ nameJa: '香料' }], known: [fragrance], excludeIds: allSaved });
+    assert.strictEqual(noKind.shopCheck, null);
+    assert.strictEqual(lastShopLog(), null);
+    for (const i of [1, 2, 3]) {
+      const p = shop(i);
+      addProductToDynamicCache({ ...p, ingredients: ['水', 'BG', 'グリセリン', ['ヒアルロン酸Na', 'トレハロース', 'セラミドNP'][i - 1]] });
+      added.push(p.id);
+    }
+    const saved = await findAlternatives(toner);
+    assert.deepStrictEqual(saved.products.map((p) => p.id).sort(), ['t177_1', 't177_2', 't177_3']);
+    assert.strictEqual(saved.shopCheck, null);
+    assert.strictEqual(lastShopLog(), null);
+    for (const id of added.splice(0)) {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+
+    // お店のキーが無い：お店には聞いた（null ではない）が、確かめた候補は0件なので理由は書かない
+    for (const k of ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID']) delete process.env[k];
+    const noShops = await findAlternatives(toner);
+    assert.deepStrictEqual(noShops.shopCheck, { checked: 0, readable: 0, rejected: 0 });
+    assert.ok(!summarizeAlternatives({ ...req, ...toner }, noShops.products, noShops.shopCheck).includes('お店の商品'));
+    assert.deepStrictEqual(alternativeQuickReplies(noShops.products, noShops.shopCheck), usual);
+  } finally {
+    console.log = originalLog;
     shops.restore();
     for (const id of added) {
       const at = COSMETICS_DATABASE.findIndex((p) => p.id === id);

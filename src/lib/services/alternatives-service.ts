@@ -213,6 +213,33 @@ export interface AlternativeResult {
   researched: boolean;
   /** お店の商品を出すときに表示するクレジット */
   credits: PriceApiCredit[];
+  /** お店で確かめた数の要約（返答で、少ししか出せなかった理由を言うため）。お店に聞かなかったときは null（ログの shop と同じ） */
+  shopCheck: ShopCheckSummary | null;
+}
+
+/**
+ * お店で確かめた数の要約（docs/plans/alternative-search-improvements.md「Path 8」）。数だけで、商品名・ブランド・JAN コード・
+ * お店の文は入れない。ShopSearchCounts から作る（新しい呼び出しは無い）
+ */
+export interface ShopCheckSummary {
+  /** 成分を確かめに進んだ候補の数（counts.checked） */
+  checked: number;
+  /**
+   * そのうち、全成分表示を読めた数（checked − dropped.noList）。noList は確かめた後にだけ数え、checked は確かめた後に落とした数・
+   * shown・notShown の合計なので、これは noList 以外で確かめた後に落とした数・shown・notShown の合計になる。
+   * 見つけた製品と同じ JAN コードの出品（duplicate。その出品の説明は読まない）も入る（同じ製品の全成分は読めている）
+   */
+  readable: number;
+  /**
+   * 読めた一覧に、避ける成分（suspect）・強い刺激成分（irritant）・化粧品基準でこの種類に配合できない成分（standard）があった数。
+   * unrated（評価できた成分が少ないだけ）・duplicate・excluded・otherKind は成分で外したのではないので数えない
+   */
+  rejected: number;
+}
+
+export function shopCheckSummary(counts: ShopSearchCounts): ShopCheckSummary {
+  const { noList, suspect, irritant, standard } = counts.dropped;
+  return { checked: counts.checked, readable: counts.checked - noList, rejected: suspect + irritant + standard };
 }
 
 /**
@@ -225,7 +252,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   const terms = shopWordsFor(req);
   let saved = 0;
   let shopLog: AlternativesLog['shop'] = null;
-  const done = (result: AlternativeResult, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
+  // shopCheck はログの shop と同じときに null（お店に聞かなかった）
+  const done = (result: Omit<AlternativeResult, 'shopCheck'>, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
     logAlternatives({
       kind: req.unknownKind ? 'unknown' : (req.category ?? 'any'),
       subKind: req.subKind ?? null,
@@ -237,7 +265,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       shown: result.products.length,
       shop: shopLog,
     });
-    return result;
+    return { ...result, shopCheck: shopLog && shopCheckSummary(shopLog) };
   };
   if (req.unknownKind) return done({ products: [], researched: false, credits: [] }, 'none');
   // 同じ製品がブランド表記違いで重複して登録されていることがあるため、多めに取って1件にまとめる
@@ -350,17 +378,50 @@ export function alternativeRequest(text: string, routine: UserRoutineState | und
   return fromText;
 }
 
-/** 代わりの商品の返答（定型文。Gemini は使わない） */
-export function summarizeAlternatives(req: AlternativeRequest, products: Product[]): string {
+/** 成分表示の入力を開くボタン（ブラウザ側で処理する。quick-replies.ts） */
+const LABEL_INPUT_REPLY = '📝 成分表示を入力する';
+
+/**
+ * 少ししか出せなかった理由（お店で確かめた数）を返答に書くか。limit 件そろった・お店に聞かなかった・確かめた候補が無いときは書かない
+ * （種類が分からず探さなかったときは、お店に聞かないので shopCheck は null）
+ */
+export function explainsShortfall(shown: number, shopCheck: ShopCheckSummary | null | undefined): shopCheck is ShopCheckSummary {
+  return shown < DEFAULT_LIMIT && !!shopCheck && shopCheck.checked > 0;
+}
+
+/** 少ししか出せなかった理由と、次にできること（数だけ。商品名やお店の文は書かない。どの商品も安全とは言わない） */
+function shortfallParagraphs({ checked, readable, rejected }: ShopCheckSummary): string[] {
+  const read =
+    readable === checked
+      ? `お店の商品${checked}件の全成分表示を確かめました。`
+      : `お店の商品${checked}件を確かめましたが、全成分表示を読めたのは${readable}件でした。`;
+  return [
+    `${read}${rejected > 0 ? `そのうち${rejected}件は、避けたい成分か刺激になりやすい成分を含んでいました。` : ''}`,
+    `気になる商品があれば、「${LABEL_INPUT_REPLY}」からパッケージの全成分表示を入力すると、原因候補の成分が入っていないかを確かめられます。`,
+  ];
+}
+
+/** 代わりの商品の返答のボタン。少ししか出せなかった理由を書いたときは、成分表示の入力を先に（気になる商品を確かめられる） */
+export function alternativeQuickReplies(products: readonly Product[], shopCheck: ShopCheckSummary | null | undefined): string[] {
+  return [...(explainsShortfall(products.length, shopCheck) ? [LABEL_INPUT_REPLY] : []), '🔍 別のコスメを調べる', '📸 バーコードをスキャンする'];
+}
+
+/**
+ * 代わりの商品の返答（定型文。Gemini は使わない）。shopCheck があり、limit 件に足りないときは、お店で確かめた数で理由を言う
+ * （docs/plans/alternative-search-improvements.md「Path 8」）
+ */
+export function summarizeAlternatives(req: AlternativeRequest, products: Product[], shopCheck?: ShopCheckSummary | null): string {
   const names = avoidedNames(req);
   if (req.unknownKind) {
     return '肌荒れしたコスメの種類が分からないため、代わりの商品を探せませんでした。「化粧水で代わりを探して」のように、種類を添えてお送りください。';
   }
   const kind = req.category ? CATEGORY_LABELS_JA[req.category] : 'コスメ';
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
+  const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck) : [];
   if (products.length === 0) {
     return [
       `${subject}は、全成分を確認できた商品の中からは見つかりませんでした。`,
+      ...shortfall,
       names.length > 0
         ? `商品を選ぶときは、パッケージの全成分表示に「${names.join('」「')}」が無いかをご確認ください。`
         : '商品を選ぶときは、パッケージの全成分表示をご確認ください。',
@@ -368,6 +429,7 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   }
   return [
     `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
+    ...shortfall,
     '肌に合うかは人によって違います。初めて使うときは少量から試してください。',
   ].join('\n\n');
 }

@@ -675,3 +675,14 @@ current text had.
 - No new call; the counts come back with the result.
 - Tests: the sentence for zero, one and two results; none when 3 are shown.
 - Cost: small. Do it together with whichever path lands first after Path 0.
+
+Done 2026-11-18 (test 177): `findAlternatives` returns `shopCheck` (`checked`; `readable` = `checked` −
+`noList`; `rejected` = `suspect` + `irritant` + `standard`), null exactly when the log's `shop` is null.
+When fewer than 3 are shown and `checked` > 0, the reply adds 「お店の商品N件を確かめましたが、全成分表示を
+読めたのはM件でした。」 (or 「お店の商品N件の全成分表示を確かめました。」 when all were read), 「そのうちK件は、
+避けたい成分か刺激になりやすい成分を含んでいました。」 when K > 0, and the next step 「気になる商品があれば、
+「📝 成分表示を入力する」から…」; that button then comes first in the quick replies. Counts and fixed text
+only; no new call or log field. `readable` also counts a listing dropped as `duplicate` by JAN code
+without reading its own caption (that product's list was read through the other listing). Not seen in
+the browser: on localhost the 💡 request is refused by the spend limit before any search (検索が一時的に
+使えません; localhost stays local by the owner's choice), so the reply text is covered by test 177 only.
