@@ -683,6 +683,9 @@ When fewer than 3 are shown and `checked` > 0, the reply adds 「お店の商品
 避けたい成分か刺激になりやすい成分を含んでいました。」 when K > 0, and the next step 「気になる商品があれば、
 「📝 成分表示を入力する」から…」; that button then comes first in the quick replies. Counts and fixed text
 only; no new call or log field. `readable` also counts a listing dropped as `duplicate` by JAN code
-without reading its own caption (that product's list was read through the other listing). Not seen in
-the browser: on localhost the 💡 request is refused by the spend limit before any search (検索が一時的に
-使えません; localhost stays local by the owner's choice), so the reply text is covered by test 177 only.
+without reading its own caption (that product's list was read through the other listing). On localhost
+the 💡 request is refused by the spend limit before any search (検索が一時的に使えません; localhost stays
+local by the owner's choice), so it was checked live after deploying ad9d76c: 「フェノキシエタノールが
+入っていない日焼け止めを探して」 gave 0 shown and 「お店の商品55件を確かめましたが、全成分表示を読めたのは
+11件でした。そのうち7件は…」, with 成分表示を入力する as the first button, which opens the label input. Serum
+requests (💡 after メラノCC, and without フェノキシエタノール) showed 3 and no added sentence, as intended.
