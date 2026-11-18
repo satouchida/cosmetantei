@@ -394,6 +394,36 @@ the difference. Now, still in step 2b only:
 - In the brand check, a non-maker brand key of two characters or fewer in Japanese must start a token
   (ペア is not found in リペア). `textHasBrand` is unchanged for its other callers.
 
+### 2026-11-18, fifth run, with the relaxed name check (commits `d63b7e7`, `ea497a3`)
+
+Same 30 cases, limit 3, paid lookups off, run by the owner on the local code. 48 of 90 shown.
+
+| Yahoo! items looked up on Rakuten | Fourth run | Fifth run |
+|---|---|---|
+| tried | 55 | 64 |
+| no listing with the same JAN code | 25 | 27 |
+| same JAN code, but a set | 0 | 1 |
+| same JAN code, but the names do not agree | **17** | **10** |
+| same JAN code, but different variant words | 3 | 8 |
+| same JAN code, but no caption | 0 | 0 |
+| same JAN code, but no readable list | 6 | 10 |
+| used | 4 | **8** |
+| Shown (of 90) | 46 | 48 |
+
+What it shows:
+
+- **The name check is no longer the main loss:** 10 of 37 same-JAN listings (27%), down from 17 of 30
+  (57%). Used listings doubled, 4 → 8.
+- **The version and number words do their job:** 8 items are now held back as a different variant
+  (up from 3). These are pairs the relaxed word comparison would otherwise have let through.
+- **The next limit is the caption:** 10 same-JAN listings pass the names but have no readable list.
+- **Shown moved by only +2** (46 → 48), inside the 44 to 48 noise of the last four runs. A used
+  listing is a candidate whose list was read, not a shown item: it still has to pass the irritant
+  and duplicate checks (serum with フェノキシエタノール used 1 and showed 0). Rakuten results also
+  change between runs (tried 55 vs 64 for the same cases), so the per-case gain is not separable
+  from that noise with 30 cases.
+- The calls per press are unchanged: up to 3 Rakuten calls in step 2b.
+
 ### 2026-11-18, second run, after the free-sources-first change (commits `81d1891`, `ea1f829`)
 
 Same 30 cases, limit 3, paid lookups off, run by the owner on the local code.
