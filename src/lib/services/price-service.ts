@@ -5,6 +5,7 @@ import { rakutenOffers, ShopOfferCandidate, yahooOffers } from './shop-apis';
 import { ShopId, shopLink, shopOfUrl, SHOPS } from './shops';
 import { toProductSearchQuery } from './page-search';
 import { isPlainLabelText } from '../utils/safe-text';
+import { NOT_SINGLE_ITEM } from '../search/listing-name';
 
 /**
  * 販売価格の確認（T4）。手順: docs/plans/gemini-role-redesign.md「Phases 3 and 4」、docs/plans/shop-prices.md
@@ -24,9 +25,6 @@ const MAX_OFFERS_PER_MARKETPLACE = 2;
 const MAX_OFFERS_PER_PAGE = 3;
 const MAX_SHOP_LENGTH = 60;
 const MAX_PRODUCT_NAME_LENGTH = 150;
-/** 商品名にある、まとめ売り・中古・ふるさと納税の返礼品など、1個の店頭の価格ではないもの */
-export const NOT_SINGLE_ITEM =
-  /\d+\s*(?:個|本|点|箱|袋|パック)\s*(?:セット|組|パック)|[x×]\s*\d+\s*(?:個|本|点|箱|袋|セット)|まとめ買い|まとめ売り|セット品|福袋|中古|訳あり|サンプル|試供品|ふるさと納税|返礼品/i;
 
 /** 価格を尋ねる言い回し。商品名の前後から取り除いてから toProductSearchQuery に渡す */
 const PRICE_WORDS =

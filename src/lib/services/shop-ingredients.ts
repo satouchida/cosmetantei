@@ -9,10 +9,9 @@ import { SHOP_TEXT_ID_PREFIX, yahooStore } from '../product-source';
 import { searchKey } from '../search/product-match';
 import { isPlainLabelText } from '../utils/safe-text';
 import { buildBrandIndex, IndexedBrand, resolveBrand, textHasBrand } from './brand-suggest';
-import { NOT_SINGLE_ITEM } from './price-service';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
-import { withoutListingNoise } from '../search/listing-name';
+import { NOT_SINGLE_ITEM, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**

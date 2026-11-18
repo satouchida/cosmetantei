@@ -7609,7 +7609,7 @@ test('124. Second live review: no ingredient-less candidates from a shop card, h
   const { searchCosmeticsLive } = await import('../src/lib/services/live-cosmetics-service');
   const { summarizeProductAnalysis } = await import('../src/lib/services/chat-replies');
   const { analyzeProduct } = await import('../src/lib/analyzer/ingredient-analyzer');
-  const { NOT_SINGLE_ITEM } = await import('../src/lib/services/price-service');
+  const { NOT_SINGLE_ITEM } = await import('../src/lib/search/listing-name');
   const { productLabel } = await import('../src/lib/display-brand');
   const { hasProhibitedClaim } = await import('../src/lib/wording');
   const { noIngredientsLotion } = await import('../src/lib/dev/gallery-fixtures');
@@ -11128,7 +11128,7 @@ test('170. Alternatives: candidates with a free ingredient source are checked fi
 
 test('171. Sheet masks: a pack of sheets of one mask is one item for the sheet sub-kind; sets, multi-buys and assortments are not; other kinds keep NOT_SINGLE_ITEM (alternative-search-improvements.md, 2026-11-18 next step 3)', async () => {
   const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
-  const { NOT_SINGLE_ITEM } = await import('../src/lib/services/price-service');
+  const { NOT_SINGLE_ITEM } = await import('../src/lib/search/listing-name');
   const { resetSpendCap } = await import('../src/lib/server/spend-cap');
   const kept = [
     'マスクA シートマスク 7枚入り',
@@ -12048,6 +12048,66 @@ test('181. Same product with and without the 「販売名：」 label (live 2026
     assert.ok(!withRegistered.products.some((x) => x.id === 't181_imju' || x.id === 't181_official'), withRegistered.products.map((x) => x.id).join());
   } finally {
     for (const x of saved) {
+      const at = COSMETICS_DATABASE.findIndex((y) => y.id === x.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    resetSpendCap();
+  }
+});
+
+test('182. Set listings (「6個セット」, 「×3本」, まとめ買い) saved from shop pages are not alternatives, as for shop listings (a sheet-mask box counted by bags is still one item); a leading 株式会社 in the brand does not stop the same product matching (live 2026-11-19: m-kirei.com 「株式会社ちふれ化粧品 / ちふれ 保湿化粧水 とてもしっとりタイプ 6個セット …」 shown next to the official record)', async () => {
+  const { isSameProduct, registeredMatcher } = await import('../src/lib/search/product-identity');
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  const { findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+
+  // A. ブランドの前の会社の種類は比べない
+  const official = { id: 'official', brand: 'ちふれ・CHIFURE', name: '保湿化粧水 とてもしっとりタイプ' };
+  for (const brand of ['株式会社ちふれ化粧品', '株式会社 ちふれ化粧品', '(株)ちふれ化粧品', '㈱ちふれ化粧品', '有限会社ちふれ']) {
+    const shop = { id: 'shop', brand, name: 'ちふれ 保湿化粧水 とてもしっとりタイプ' };
+    assert.ok(isSameProduct(shop, official) && isSameProduct(official, shop), brand);
+    assert.ok(registeredMatcher([shop])(official) && registeredMatcher([official])(shop), `registered: ${brand}`);
+  }
+  // 会社の種類だけが同じ、別のブランド。1文字の「有」はブランドの一部
+  assert.ok(!isSameProduct({ id: 'a', brand: '株式会社ちふれ化粧品', name: '保湿化粧水' }, { id: 'b', brand: '株式会社コーセー', name: '保湿化粧水' }));
+  // （「有」を前から外すと「有田焼」が「田焼」と同じブランドになる）
+  assert.ok(!isSameProduct({ id: 'a', brand: '有田焼', name: '保湿化粧水' }, { id: 'b', brand: '田焼', name: '保湿化粧水' }));
+
+  // B. 保存したセット・まとめ売りは勧めない（1個の製品は勧める）
+  const allSaved = COSMETICS_DATABASE.map((x) => x.id);
+  const fragrance = findMatchingKnownIngredient('香料')!;
+  const toner = (id: string, brand: string, name: string, extra: string) =>
+    verifiedProduct({ id, brand, name, category: 'toner', ingredients: ['水', 'BG', 'グリセリン', extra] });
+  const saved = [
+    toner('t182_official', 'ちふれ・CHIFURE', '保湿化粧水 とてもしっとりタイプ', 'ヒアルロン酸Na'),
+    toner('t182_single', 'ちふれ', 'ちふれ 化粧水 さっぱりタイプ', 'トレハロース'),
+    toner('t182_single2', 'ちふれ', 'ちふれ 化粧水 ノーマルタイプ', 'セラミドNP'),
+    toner('t182_set', '株式会社ちふれ化粧品', 'ちふれ 保湿化粧水 とてもしっとりタイプ 6個セット うるおい 保湿 乾燥 ノンアルコール 無香料 無着色 chifure 正規品 ギフト可', 'ヒアルロン酸Na'),
+    toner('t182_times', 'ちふれ', 'ちふれ 美白化粧水 W ×3本', 'アルブチン'),
+    toner('t182_bulk', 'ちふれ', 'ちふれ アクネケア 化粧水 まとめ買い', 'グリチルリチン酸2K'),
+  ];
+  const sheetMasks = [
+    verifiedProduct({ id: 't182_sheet_box', brand: 'ルルルン', name: 'ルルルン シートマスク 1枚×5袋', category: 'mask', ingredients: ['水', 'BG', 'グリセリン', 'パンテノール'] }),
+    verifiedProduct({ id: 't182_sheet_set', brand: 'ルルルン', name: 'ルルルン シートマスク 7枚入り×3袋', category: 'mask', ingredients: ['水', 'BG', 'グリセリン', 'セラミドNP'] }),
+  ];
+  try {
+    resetSpendCap();
+    for (const x of [...saved, ...sheetMasks]) addProductToDynamicCache(x);
+    // 保存した製品だけを、上限より多く見る（セットが上限で切られて見えないだけにならないように。
+    // findAlternatives は3件に足りないとお店・Web に問い合わせるので使わない）
+    const avoid = [{ nameJa: '香料' }];
+    const ids = findSafeAlternatives(avoid, allSaved, 6, { category: 'toner' }).map((x) => x.id);
+    assert.deepStrictEqual([...ids].sort(), ['t182_official', 't182_single', 't182_single2'], ids.join());
+
+    const sheetIds = findSafeAlternatives(avoid, allSaved, 6, { category: 'mask', subKind: 'sheet' }).map((x) => x.id);
+    assert.ok(sheetIds.includes('t182_sheet_box'), sheetIds.join());
+    assert.ok(!sheetIds.includes('t182_sheet_set'), sheetIds.join());
+
+    // findAlternatives でも、セットの製品は出ない（保存した3件で足りる）
+    const shown = (await findAlternatives({ avoid, known: [fragrance], category: 'toner', excludeIds: allSaved })).products.map((x) => x.id);
+    assert.deepStrictEqual([...shown].sort(), ['t182_official', 't182_single', 't182_single2'], shown.join());
+  } finally {
+    for (const x of [...saved, ...sheetMasks]) {
       const at = COSMETICS_DATABASE.findIndex((y) => y.id === x.id);
       if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
     }

@@ -2,11 +2,10 @@ import 'server-only';
 import { Product, PriceApiCredit, SHOP_ID_PREFIX } from '../types';
 import { IndexedBrand, textHasBrand } from './brand-suggest';
 import { isActualCosmeticProduct } from './product-filter';
-import { NOT_SINGLE_ITEM } from './price-service';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { shopLink } from './shops';
 import { searchKey } from '../search/product-match';
-import { withoutListingNoise } from '../search/listing-name';
+import { NOT_SINGLE_ITEM, withoutListingNoise } from '../search/listing-name';
 import { productSearchQuery } from './page-search';
 
 /**

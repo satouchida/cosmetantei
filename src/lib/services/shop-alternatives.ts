@@ -7,11 +7,10 @@ import { bestFormSimilarity, FormProfile, formFromText, formProfile, formSimilar
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
-import { NOT_SINGLE_ITEM } from './price-service';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
-import { withoutListingNoise } from '../search/listing-name';
+import { notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -275,25 +274,6 @@ const CATEGORY_KEYS = Object.values(CATEGORY_SYNONYMS)
   .map(searchKey)
   .filter((w) => w.length > 0)
   .sort((a, b) => b.length - a.length);
-/**
- * シートマスクは枚数で売る。「7枚入り」「30枚」は NOT_SINGLE_ITEM に当たらない（枚を数えない）が、個包装を袋で数えた
- * 「1枚×5袋」「(1枚入)×10個」は「×数 個・袋・箱」に当たる。同じマスク1箱なので、シートマスクを探すときだけこの部分を外して見る
- * （「7枚入り×3袋」は3袋のまとめ買いなので外さない。「2個セット」「まとめ買い」「福袋」は残りに当たる）
- */
-const ONE_SHEET_PACK = /(?<!\d)1\s*枚(?:入り?)?\)?\s*[x×]\s*\d+\s*(?:個|袋|箱|包)?/gi;
-/**
- * 違うマスクの詰め合わせ（NOT_SINGLE_ITEM に無い）。1つの成分表示で確かめられないので、シートマスクでは外す。
- * 「3種のセラミド」は成分の言い方なので、「種」の後にセット・各などが続くときだけ。「3セット」のような数だけのまとめ買いも
- * ここで外す（「1枚×5袋 3セット」は、袋の部分を外すと NOT_SINGLE_ITEM に当たらなくなる）
- */
-const SHEET_ASSORTMENT = /\d+\s*種類?\s*(?:セット|アソート|各|[x×])|アソート|詰め?合わ?せ|よりどり|選べる|(?<![x×]\s*)\d+\s*セット/i;
-
-/** 1個の商品でない（セット・まとめ売り・中古・試供品など）。シートマスクを探すときだけ、袋で数えた1箱を1個とする */
-function notSingleItem(name: string, sheet: boolean): boolean {
-  if (!sheet) return NOT_SINGLE_ITEM.test(name);
-  return NOT_SINGLE_ITEM.test(name.replace(ONE_SHEET_PACK, ' ')) || SHEET_ASSORTMENT.test(name);
-}
-
 /** 調べる製品の時間の上限（JAN コードでの調べもの。超えたら、その製品は使わない） */
 const LOOKUP_DEADLINE_MS = 15_000;
 

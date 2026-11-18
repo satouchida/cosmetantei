@@ -8,6 +8,11 @@ import { listedBrandKeys } from './product-match';
 
 /** ブランド表記の会社名部分（「ちふれ化粧品」「〇〇株式会社」等） */
 const COMPANY_SUFFIX = /(株式会社|化粧品|コスメティックス?|cosmetics?|inc|co|ltd)$/;
+/**
+ * 前に付く会社の種類（「株式会社ちふれ化粧品」）。「(株)〇〇」「㈱〇〇」は括弧で語が分かれ、1文字の「株」は語として数えない
+ * （1文字の「株」「有」を前から外すと、「有田」のようなブランドが変わる）
+ */
+const COMPANY_PREFIX = /^(株式会社|有限会社|合同会社)(?=.)/;
 
 const compact = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[\s・･.,、。()（）\[\]【】'"’-]/g, '');
 
@@ -17,7 +22,7 @@ function brandTokens(brand: string): string[] {
     .normalize('NFKC')
     .toLowerCase()
     .split(/[\s・･/()（）,、]+/)
-    .map((t) => compact(t).replace(COMPANY_SUFFIX, ''))
+    .map((t) => compact(t).replace(COMPANY_PREFIX, '').replace(COMPANY_SUFFIX, ''))
     .filter((t) => t.length >= 2);
 }
 

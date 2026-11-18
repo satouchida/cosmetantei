@@ -1,5 +1,6 @@
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { isSellerTextProduct } from '../product-source';
+import { notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
@@ -155,10 +156,13 @@ export function findSafeAlternatives(
   const passes = alternativeGate(avoidCulprits);
   const excludedIds = new Set(excluded.filter((e): e is string => typeof e === 'string'));
   const isExcluded = registeredMatcher(excluded.filter((e): e is ProductIdentity => typeof e !== 'string'));
-  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索
+  const sheet = options.category === 'mask' && options.subKind === 'sheet';
+  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索。お店のページから保存した
+  // セット・まとめ売り（「6個セット」）は1個の商品ではないので勧めない（お店の候補と同じ決まり）
   const safeItems = COSMETICS_DATABASE.filter(
     (product) =>
       !excludedIds.has(product.id) &&
+      !notSingleItem(withoutListingNoise(product.name), sheet) &&
       passes(product, { category: options.category, subKind: options.subKind }) &&
       !isExcluded(product)
   );
