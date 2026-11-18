@@ -95,7 +95,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                     <span className={badge('neutral')}>無香料</span>
                   )}
                   {p.alcoholFree && (
-                    <span className={badge('neutral')}>ノンアルコール</span>
+                    <span className={badge('neutral')}>アルコールフリー</span>
                   )}
                 </div>
               </div>
