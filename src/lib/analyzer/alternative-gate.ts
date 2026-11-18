@@ -5,9 +5,8 @@ import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredie
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
 import { productCategory, SubKind, subKindFit, subKindFromText } from './product-category';
-import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';
-import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
-import { AnalyzedIngredient, CulpritIngredient, Product } from '../types';
+import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
+import { AnalyzedIngredient, CulpritIngredient, IngredientRiskLevel, Product } from '../types';
 
 /**
  * おすすめ代替品として提示してよい製品か
@@ -133,6 +132,9 @@ export function alternativeGateReason(
   };
 }
 
+/** 代わりの商品の名前の順（並べ替えのたびに作らない） */
+const NAME_ORDER = new Intl.Collator('ja');
+
 /** 候補の下位の種類（探している種類の中で、名前から） */
 function candidateSubKind(product: Pick<Product, 'name'>, category: Product['category']): SubKind | undefined {
   return category === 'other' ? undefined : subKindFromText(category, product.name);
@@ -161,17 +163,46 @@ export function findSafeAlternatives(
       !isExcluded(product)
   );
 
-  // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの。その中で無香料・アルコールフリーを
-  // 優先する。医薬部外品であることは有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
+  // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの、「やや注意」の成分が少ないもの。
+  // 同じなら名前と ID の順（保存した順・新しく保存された製品で入れ替わらない）。
+  // 無香料・アルコールフリーは順位に使わない：香料・エタノールは強い刺激成分として上の確認で外してあり、製品の
+  // fragranceFree・alcoholFree の印は Open Beauty Facts の製品にしか無い（印のある製品だけが先に並んでいた）。
+  // 医薬部外品であることは有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
   const { category, profile } = options;
   const sameSubKind = (p: Product) => (category && subKindFit(options.subKind, candidateSubKind(p, category), category) === 'same' ? 1 : 0);
   const similarity = (p: Product) =>
     hasFormProfile(profile) ? formSimilarity(profile, formProfile(p.name, category === 'other' ? undefined : category)) : 0;
-  return safeItems
-    .sort((a, b) => {
-      const scoreA = (a.fragranceFree ? 2 : 0) + (a.alcoholFree ? 2 : 0);
-      const scoreB = (b.fragranceFree ? 2 : 0) + (b.alcoholFree ? 2 : 0);
-      return sameSubKind(b) - sameSubKind(a) || similarity(b) - similarity(a) || scoreB - scoreA;
-    })
-    .slice(0, limit);
+  const levels = new Map<string, IngredientRiskLevel>();
+  const ranked = safeItems.map((product) => ({
+    product,
+    subKind: sameSubKind(product),
+    similarity: similarity(product),
+    caution: cautionCount(product, levels),
+  }));
+  return ranked
+    .sort(
+      (a, b) =>
+        b.subKind - a.subKind ||
+        b.similarity - a.similarity ||
+        a.caution - b.caution ||
+        NAME_ORDER.compare(a.product.name, b.product.name) ||
+        (a.product.id < b.product.id ? -1 : a.product.id > b.product.id ? 1 : 0)
+    )
+    .slice(0, limit)
+    .map((r) => r.product);
+}
+
+/** 「やや注意」「アクティブ成分」の成分の数（強い刺激成分を含む製品は確認で外してある） */
+function cautionCount(product: Product, levels: Map<string, IngredientRiskLevel>): number {
+  let count = 0;
+  for (const { raw } of labelIngredients(product)) {
+    // 同じ名前（水・BG・グリセリン等）は多くの製品にあるので、1回の呼び出しの中で評価を使い回す
+    let level = levels.get(raw);
+    if (level === undefined) {
+      level = (findMatchingKnownIngredient(raw) ?? getOrGenerateIngredientExplanation(raw)).riskLevel;
+      levels.set(raw, level);
+    }
+    if (level === 'low_caution' || level === 'active_caution') count++;
+  }
+  return count;
 }

@@ -9688,6 +9688,9 @@ test('157. Alternatives never suggest a registered product (problem, usable or c
   const lip = (id: string, name: string) =>
     verifiedProduct({ id, brand: '資生堂', name, category: 'lip', ingredients: ['ワセリン', 'グリセリン'] });
   const saved = [lip('reg_more_lip_db', 'モアリップN'), lip('reg_other_lip_db', 'ほかのリップ')];
+  // ほかのテストが保存したリップは、この間だけ外す（代わりの商品は名前の順で3件。除いたかどうかだけを見る）
+  const otherLips = COSMETICS_DATABASE.filter((x) => x.category === 'lip');
+  for (const p of otherLips) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.indexOf(p), 1);
   COSMETICS_DATABASE.unshift(...saved);
   try {
     const bad = verifiedProduct({ id: 'reg_bad', brand: 'KATE', name: 'リップモンスター', category: 'lip', ingredients: ['ワセリン', '香料'] });
@@ -9697,7 +9700,7 @@ test('157. Alternatives never suggest a registered product (problem, usable or c
 
     const diff = performDifferentialAnalysis([bad], [usable]);
     assert.ok(!ids(diff.safeAlternatives).includes('reg_more_lip_db'), 'A usable product is not suggested back');
-    assert.ok(ids(diff.safeAlternatives).includes('reg_other_lip_db'));
+    assert.ok(ids(diff.safeAlternatives).includes('reg_other_lip_db'), ids(diff.safeAlternatives).join());
     // 今使っているコスメも除く
     const current = lip('reg_other_lip_client', 'ほかのリップ');
     assert.ok(!ids(performDifferentialAnalysis([bad], [usable], [current]).safeAlternatives).includes('reg_other_lip_db'));
@@ -9713,7 +9716,11 @@ test('157. Alternatives never suggest a registered product (problem, usable or c
     const found = ids(findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], 50, { category: 'lip' }));
     assert.ok(!found.includes('reg_more_lip_db') && !found.includes('reg_other_lip_db'));
   } finally {
-    for (const p of saved) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.findIndex((x) => x.id === p.id), 1);
+    for (const p of saved) {
+      const at = COSMETICS_DATABASE.findIndex((x) => x.id === p.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    COSMETICS_DATABASE.push(...otherLips);
   }
 });
 
@@ -10506,10 +10513,11 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
   const saved = (id: string, name: string, category: Product['category'], extra: Partial<Product> = {}) =>
     verifiedProduct({ id: `sub_${id}`, brand: `サブ${id}`, name, category, ingredients: ['水', 'BG', 'グリセリン'], ...extra });
   const pool = [
-    saved('cream_plain', 'サブ デイリーケア', 'cream', { fragranceFree: true, alcoholFree: true }),
+    saved('cream_plain', 'サブ デイリーケア', 'cream'),
     saved('cream_hand', 'サブ ハンドクリーム', 'cream'),
-    saved('cream_milk', 'サブ 乳液', 'cream', { fragranceFree: false, alcoholFree: false }),
-    saved('cream_face', 'サブ フェイスクリーム', 'cream', { fragranceFree: false, alcoholFree: false }),
+    saved('cream_milk', 'サブ 乳液', 'cream'),
+    // 「やや注意」の成分（フェノキシエタノール）が1つ
+    saved('cream_face', 'サブ フェイスクリーム', 'cream', { ingredients: ['水', 'BG', 'グリセリン', 'フェノキシエタノール'] }),
     saved('remover_oil', 'サブ クレンジングオイル', 'cleanser'),
     saved('wash_foam', 'サブ 洗顔フォーム', 'cleanser'),
     saved('cleanser_plain', 'サブ Gentle Cleanser', 'cleanser'),
@@ -10519,10 +10527,10 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
     const mine = (ps: Product[]) => ps.map((p) => p.id).filter((id) => id.startsWith('sub_'));
     const why = alternativeGateReason([{ nameJa: '香料' }]);
     const byId = (id: string) => pool.find((p) => p.id === `sub_${id}`)!;
-    // 乳液を探す：乳液が先（無香料・アルコールフリーの点数より先）、名前で分からないものが後。ハンド・顔のクリームは外す
+    // 乳液を探す：乳液が先、名前で分からないものが後。ハンド・顔のクリームは外す
     assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cream', subKind: 'milk' })), ['sub_cream_milk', 'sub_cream_plain']);
     assert.strictEqual(why(byId('cream_face'), { category: 'cream', subKind: 'milk' }), 'kind');
-    // 下位の種類が無い：ハンドクリームだけ外し、ほかは今までどおりの順（無香料・アルコールフリーが先）
+    // 下位の種類が無い：ハンドクリームだけ外す。「やや注意」の成分が少ないものが先、同じなら名前の順
     assert.deepStrictEqual(mine(findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'cream' })), ['sub_cream_plain', 'sub_cream_milk', 'sub_cream_face']);
     assert.strictEqual(why(byId('cream_hand'), { category: 'cream' }), 'kind');
     // ハンドクリーム（同じものだけ）
@@ -11869,5 +11877,39 @@ test('178. Same product written in katakana and in English (Open Beauty Facts "t
       if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
     }
     resetSpendCap();
+  }
+});
+
+test('179. Alternatives keep the same order whatever order products were saved in; the Open Beauty Facts free-of flags give no head start, and fewer 「やや注意」 ingredients rank first (live 2026-11-18: the cica serum dropped out when two other serums were saved)', async () => {
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  const serum = (id: string, brand: string, name: string, ingredients: string[], extra: Partial<Product> = {}) =>
+    // verifiedProduct は印を付けるので、印の無い製品（Web のページの製品）にする
+    verifiedProduct({ id: `t179_${id}`, brand, name, category: 'serum', ingredients, fragranceFree: undefined, alcoholFree: undefined, ...extra });
+  const pool = [
+    serum('obf', 't179 torriden', 'torriden dive in serum', ['Water', 'Glycerin', 'Panthenol']),
+    // 無香料・アルコールフリーの印（本番では Open Beauty Facts の製品だけにある）。名前の順では最後の製品に付けて、
+    // 印で先に並ぶと順が変わるようにする
+    serum('cica', 't179 Torriden', 'バランスフル CICA セラム', ['水', 'グリセリン', 'パンテノール'], { fragranceFree: true, alcoholFree: true }),
+    serum('unlabel', 't179 unlabel', 'アンレーベル ラボ R エッセンスN', ['水', 'BG', 'グリセリン']),
+    // 「やや注意」の成分（フェノキシエタノール）が1つ
+    serum('nov', 't179 NOV', 'ノブ Ⅲ バリアコンセントレイト', ['水', 'グリセリン', 'フェノキシエタノール']),
+  ];
+  const mine = () =>
+    findSafeAlternatives([{ nameJa: '香料' }], [], 1000, { category: 'serum' })
+      .map((p) => p.id)
+      .filter((id) => id.startsWith('t179_'));
+  const orders = [pool, [...pool].reverse(), [pool[3], pool[1], pool[0], pool[2]]];
+  for (const order of orders) {
+    // 新しく保存した製品はメモリの一覧の先頭に入る（addProductToDynamicCache と同じ）
+    COSMETICS_DATABASE.unshift(...order);
+    try {
+      // 「やや注意」の成分が無いものを名前の順（印は順位に使わない）、フェノキシエタノールのある製品は最後。保存した順に関係しない
+      assert.deepStrictEqual(mine(), ['t179_obf', 't179_unlabel', 't179_cica', 't179_nov'], order.map((p) => p.id).join());
+    } finally {
+      for (const p of order) {
+        const at = COSMETICS_DATABASE.indexOf(p);
+        if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+      }
+    }
   }
 });
