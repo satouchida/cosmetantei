@@ -11779,3 +11779,85 @@ test('177. Alternatives, fewer than 3 shown: the reply says how many shop listin
     resetSpendCap();
   }
 });
+
+test('178. Same product written in katakana and in English (Open Beauty Facts "torriden dive in serum" and the brand site\'s 「ダイブイン セラム」): one alternative, and a registered product excludes its other spelling; same-script names, other brands, short and kanji names are not merged (live check 2026-11-18)', async () => {
+  const { isSameProduct, registeredMatcher } = await import('../src/lib/search/product-identity');
+  const { findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const p = (id: string, brand: string, name: string) => ({ id, brand, name });
+
+  // A. 同じ製品：片方だけにカタカナがあり、同じブランドで、ブランドを除いた名前の子音が同じ
+  type Named = ReturnType<typeof p> & { ingredients?: string[] };
+  const same: [Named, Named][] = [
+    [p('a', 'torriden', 'torriden dive in serum'), p('b', 'Torriden', 'ダイブイン セラム')],
+    [p('a', 'Torriden', 'トリデン ダイブイン セラム'), p('b', 'torriden', 'dive in serum')],
+    [p('a', 'Torriden', 'バランスフル CICA セラム'), p('b', 'torriden', 'balanceful cica serum')],
+    [p('a', 'Torriden', 'ダイブイン クレンジングフォーム'), p('b', 'torriden', 'dive in cleansing foam')],
+    // -tion はシ、p の前の m はン、容量は比べない、ブランドは語ごとに除く（Dr.・soft の中の of）
+    [p('a', 'Torriden', 'ダイブイン ローション'), p('b', 'torriden', 'dive in lotion')],
+    [p('a', 'Torriden', 'ダイブイン シャンプー'), p('b', 'torriden', 'dive in shampoo')],
+    [p('a', 'Torriden', 'ダイブイン セラム'), p('b', 'torriden', 'dive in serum 50ml')],
+    [p('a', 'Dr.Althea', 'ダルシア ビタ セラム'), p('b', 'Dr.Althea', 'dr.althea dalsia vita serum')],
+    [p('a', 'Beauty of Joseon', 'ソフト セラム'), p('b', 'beauty of joseon', 'soft serum')],
+  ];
+  // 別の製品・比べない名前
+  const different: [Named, Named][] = [
+    [p('a', 'Torriden', 'ダイブイン セラム'), p('b', 'torriden', 'balanceful cica serum')],
+    [p('a', 'Torriden', 'ダイブイン セラム'), p('b', 'torriden', 'dive in cream')],
+    // 別のブランド
+    [p('a', 'Torriden', 'ダイブイン セラム'), p('b', 'isntree', 'dive in serum')],
+    // 同じ書き方どうし（英字の母音だけ違う）は、今までどおり名前のキーで比べる
+    [p('a', 'x', 'hydra serum'), p('b', 'x', 'hydro serum')],
+    // 短すぎる名前・漢字のある名前は比べない
+    [p('a', 'Torriden', 'セラム'), p('b', 'torriden', 'serum')],
+    [p('a', '肌ラボ', '極潤 ヒアルロン液'), p('b', 'hada labo', 'gokujyun hyaluronic lotion')],
+    // 英字の名前の中黒は、カタカナとして数えない（同じ書き方どうし）
+    [p('a', 'torriden', 'dive・in serum'), p('b', 'torriden', 'dive in cream')],
+  ];
+  // 母音だけ違う名前（moist と「ミスト」）は、全成分が食い違えば別の製品。全成分が無ければ名前だけで決める
+  const moist = { ...p('a', 'Torriden', 'ミスト セラム'), ingredients: ['水', 'BG', 'グリセリン', 'ナイアシンアミド', 'アスコルビン酸', 'トコフェロール'] };
+  const mist = { ...p('b', 'torriden', 'moist serum'), ingredients: ['Water', 'Glycerin', 'Ceramide NP', 'Squalane', 'Panthenol', 'Allantoin'] };
+  different.push([moist, mist]);
+  assert.ok(isSameProduct(p('a', 'Torriden', 'ミスト セラム'), p('b', 'torriden', 'moist serum')));
+  // 実際の2件（Open Beauty Facts の英語の全成分と、公式サイトの日本語の全成分。2026-11-18 の本番）は同じ製品
+  same.push([
+    { ...p('obf', 'torriden', 'torriden dive in serum'), ingredients: ['Ingredients(50mL & 20mL) Water', 'Butylene Glycol', 'Glycerin', 'Dipropylene Glycol', '1,2-Hexanediol', 'Polyglyceryl-10 Laurate', 'Propanediol', 'Panthenol', 'Carbomer', 'Allantoin', 'Betaine', 'Tromethamine', 'Sodium Hyaluronate', 'Ethylhexylglycerin', 'Hydrolyzed Hyaluron - ic Acid', 'Xanthan Gum', 'Glyceryl Acrylate/Acrylic Acid Copolymer', 'Malachite Extract', 'Pentylene Glycol', 'PVM/MA Copolymer', 'Sodium Acetylated Hyaluronate', 'Sodium Hyaluro - nate Crosspolymer', 'Hydrolyzed Sodium Hyaluronate', 'Cholesterol', 'Madecassic Acid', 'Madecassoside', 'Trehalose', 'Ceramide NP', 'Beta-Glucan', 'Hamamelis Virginiana Leaf Extract', 'Paeonia Suffruticosa Root Extract', 'Portulaca Oleracea Extract', 'Scutellaria Baicalensis Root Extract'] },
+    { ...p('web', 'Torriden', 'ダイブイン セラム'), ingredients: ['水', 'BG', 'グリセリン', 'DPG', '1,2-ヘキサンジオール', 'エチルヘキシルグリセリン', 'ヒアルロン酸Na', 'ベタイン', '加水分解ヒアルロン酸', 'トロメタミン', 'アラントイン', 'パンテノール', 'カルボマー', 'ラウリン酸ポリグリセリル-10', '孔雀石抽出物', 'プロパンジオール', 'ペンチレングリコール', '(アクリル酸グリセリル/アクリル酸)コポリマー', '(メチルビニルエーテル/マレイン酸)コポリマー', 'ヒアルロン酸クロスポリマーNa', '加水分解ヒアルロン酸Na', 'アセチルヒアルロン酸Na', 'マデカシン酸', 'コレステロール', 'トレハロース', 'スベリヒユエキス', 'セラミドNP', 'キサンタンガム', 'オウゴン根エキス', 'マデカッソシド', 'ボタンエキス', 'β-グルカン', 'ハマメリス葉エキス'] },
+  ]);
+  for (const [a, b] of same) {
+    assert.ok(isSameProduct(a, b) && isSameProduct(b, a), `${a.name} / ${b.name}`);
+    assert.ok(registeredMatcher([a])(b) && registeredMatcher([b])(a), `registered: ${a.name} / ${b.name}`);
+  }
+  for (const [a, b] of different) {
+    assert.ok(!isSameProduct(a, b) && !isSameProduct(b, a), `${a.name} / ${b.name}`);
+    assert.ok(!registeredMatcher([a])(b) && !registeredMatcher([b])(a), `registered: ${a.name} / ${b.name}`);
+  }
+
+  // B. findAlternatives：保存済みの同じ製品（カタカナと英字）は1件。登録した製品は、もう片方の書き方でも出さない
+  const allSaved = COSMETICS_DATABASE.map((x) => x.id);
+  const fragrance = findMatchingKnownIngredient('香料')!;
+  // 追加した製品は保存済みの製品の先頭に入る。同じ製品の2つを最後に足して、先頭の3件に両方が来るようにする
+  const saved = [
+    verifiedProduct({ id: 't178_cica', brand: 'Torriden', name: 'バランスフル CICA トナー', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'パンテノール'] }),
+    verifiedProduct({ id: 't178_solid', brand: 'Torriden', name: 'ソリッドイン セラミド トナー', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'セラミドNP'] }),
+    verifiedProduct({ id: 't178_kana', brand: 'Torriden', name: 'ダイブイン トナー', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'ヒアルロン酸Na'] }),
+    verifiedProduct({ id: 't178_latin', brand: 'torriden', name: 'torriden dive in toner', category: 'toner', ingredients: ['Water', 'Butylene Glycol', 'Glycerin', 'Sodium Hyaluronate'] }),
+  ];
+  try {
+    resetSpendCap();
+    for (const x of saved) addProductToDynamicCache(x);
+    const toner = { avoid: [{ nameJa: '香料' }], known: [fragrance], category: 'toner' as const, excludeIds: allSaved };
+    const ids = (await findAlternatives(toner)).products.map((x) => x.id);
+    assert.strictEqual(ids.length, 3, ids.join());
+    assert.strictEqual(ids.filter((id) => id === 't178_kana' || id === 't178_latin').length, 1, ids.join());
+    const registered = saved[2];
+    const withRegistered = await findAlternatives({ ...toner, excludeIds: [...allSaved, registered.id], excludeProducts: [registered] });
+    assert.ok(!withRegistered.products.some((x) => x.id === 't178_kana' || x.id === 't178_latin'), withRegistered.products.map((x) => x.id).join());
+  } finally {
+    for (const x of saved) {
+      const at = COSMETICS_DATABASE.findIndex((y) => y.id === x.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    resetSpendCap();
+  }
+});

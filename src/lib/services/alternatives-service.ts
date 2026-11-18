@@ -19,7 +19,7 @@ import { FormProfile, formProfile, mostCommonForm } from '../analyzer/product-fo
 import { findShopAlternatives, shopFormWord, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
-import { productIdentityKey, ProductIdentity, registeredMatcher } from '../search/product-identity';
+import { isSameProduct, productIdentityKey, ProductIdentity, registeredMatcher } from '../search/product-identity';
 
 /**
  * 原因成分を含まない代わりの商品探し（T3）。手順: docs/plans/gemini-role-redesign.md「Phases 3 and 4」
@@ -268,14 +268,14 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     return { ...result, shopCheck: shopLog && shopCheckSummary(shopLog) };
   };
   if (req.unknownKind) return done({ products: [], researched: false, credits: [] }, 'none');
-  // 同じ製品がブランド表記違いで重複して登録されていることがあるため、多めに取って1件にまとめる
+  // 同じ製品がブランド表記違い・カタカナと英字の書き分けで重複して登録されていることがあるため、多めに取って1件にまとめる
   const check = () => {
     const unique: Product[] = [];
     const seen = new Set<string>();
     const options = { category: req.category, subKind: req.subKind, profile: req.profile };
     for (const p of findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], limit * 4, options)) {
       const key = productIdentityKey(p.brand, p.name);
-      if (seen.has(key)) continue;
+      if (seen.has(key) || unique.some((u) => isSameProduct(u, p))) continue;
       seen.add(key);
       unique.push(p);
     }
@@ -312,7 +312,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
   const checked = check();
   const keys = new Set(checked.map((p) => productIdentityKey(p.brand, p.name)));
-  const extra = shopProducts.filter((p) => !checked.some((c) => c.id === p.id) && !keys.has(productIdentityKey(p.brand, p.name)));
+  const extra = shopProducts.filter((p) => !keys.has(productIdentityKey(p.brand, p.name)) && !checked.some((c) => isSameProduct(c, p)));
   const products = [...checked, ...extra].slice(0, limit);
   const fromShop = products.some((p) => extra.includes(p));
   // 答えたのは、表示した製品を足した最後の段（Web で保存された製品 → お店 → もとから保存済み）
