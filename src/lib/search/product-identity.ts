@@ -22,12 +22,19 @@ function brandTokens(brand: string): string[] {
 }
 
 /**
+ * 版の違いを示すだけの語（「NEW ダイブイン セラム」の NEW、「リニューアル」）。単独の語のときだけ。
+ * 成分が少し変わっても、利用者には同じ製品なので1つにまとめる
+ */
+const EDITION_WORD = /(?<=^|[\s・()（）[\]【】])(new|renewal|リニューアル)(?=$|[\s・()（）[\]【】])/gi;
+const withoutEditionWords = (name: string) => name.normalize('NFKC').replace(EDITION_WORD, ' ');
+
+/**
  * ページごとに表記が違う同じ製品を同一視するためのキー
  * 例: 「ちふれ・CHIFURE / 美白化粧水 Ｗ」と「ちふれ化粧品 / ちふれ美白化粧水 W」は同じキーになる
  */
 export function productIdentityKey(brand: string, name: string): string {
   // 容量（150ml・つめかえ用の 130ml 等）は成分が同じなので区別しない
-  let key = compact(name).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
+  let key = compact(withoutEditionWords(name)).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
   for (const token of brandTokens(brand)) key = key.split(token).join('');
   return key || compact(name);
 }
@@ -118,8 +125,7 @@ function soundSkeleton(text: string): string | null {
 function nameSound(brand: string, name: string): string | null {
   const tokens = brandTokens(brand);
   // ブランドは語ごとに除く（「Beauty of Joseon」の of で、soft の中を除かない。「dr.althea」は compact で比べる）
-  const rest = name
-    .normalize('NFKC')
+  const rest = withoutEditionWords(name)
     .toLowerCase()
     .replace(SIZE, ' ')
     .split(/\s+/)

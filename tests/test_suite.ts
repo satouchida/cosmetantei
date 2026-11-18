@@ -11820,10 +11820,20 @@ test('178. Same product written in katakana and in English (Open Beauty Facts "t
   different.push([moist, mist]);
   assert.ok(isSameProduct(p('a', 'Torriden', 'ミスト セラム'), p('b', 'torriden', 'moist serum')));
   // 実際の2件（Open Beauty Facts の英語の全成分と、公式サイトの日本語の全成分。2026-11-18 の本番）は同じ製品
+  const obf = { ...p('obf', 'torriden', 'torriden dive in serum'), ingredients: ['Ingredients(50mL & 20mL) Water', 'Butylene Glycol', 'Glycerin', 'Dipropylene Glycol', '1,2-Hexanediol', 'Polyglyceryl-10 Laurate', 'Propanediol', 'Panthenol', 'Carbomer', 'Allantoin', 'Betaine', 'Tromethamine', 'Sodium Hyaluronate', 'Ethylhexylglycerin', 'Hydrolyzed Hyaluron - ic Acid', 'Xanthan Gum', 'Glyceryl Acrylate/Acrylic Acid Copolymer', 'Malachite Extract', 'Pentylene Glycol', 'PVM/MA Copolymer', 'Sodium Acetylated Hyaluronate', 'Sodium Hyaluro - nate Crosspolymer', 'Hydrolyzed Sodium Hyaluronate', 'Cholesterol', 'Madecassic Acid', 'Madecassoside', 'Trehalose', 'Ceramide NP', 'Beta-Glucan', 'Hamamelis Virginiana Leaf Extract', 'Paeonia Suffruticosa Root Extract', 'Portulaca Oleracea Extract', 'Scutellaria Baicalensis Root Extract'] };
   same.push([
-    { ...p('obf', 'torriden', 'torriden dive in serum'), ingredients: ['Ingredients(50mL & 20mL) Water', 'Butylene Glycol', 'Glycerin', 'Dipropylene Glycol', '1,2-Hexanediol', 'Polyglyceryl-10 Laurate', 'Propanediol', 'Panthenol', 'Carbomer', 'Allantoin', 'Betaine', 'Tromethamine', 'Sodium Hyaluronate', 'Ethylhexylglycerin', 'Hydrolyzed Hyaluron - ic Acid', 'Xanthan Gum', 'Glyceryl Acrylate/Acrylic Acid Copolymer', 'Malachite Extract', 'Pentylene Glycol', 'PVM/MA Copolymer', 'Sodium Acetylated Hyaluronate', 'Sodium Hyaluro - nate Crosspolymer', 'Hydrolyzed Sodium Hyaluronate', 'Cholesterol', 'Madecassic Acid', 'Madecassoside', 'Trehalose', 'Ceramide NP', 'Beta-Glucan', 'Hamamelis Virginiana Leaf Extract', 'Paeonia Suffruticosa Root Extract', 'Portulaca Oleracea Extract', 'Scutellaria Baicalensis Root Extract'] },
+    obf,
     { ...p('web', 'Torriden', 'ダイブイン セラム'), ingredients: ['水', 'BG', 'グリセリン', 'DPG', '1,2-ヘキサンジオール', 'エチルヘキシルグリセリン', 'ヒアルロン酸Na', 'ベタイン', '加水分解ヒアルロン酸', 'トロメタミン', 'アラントイン', 'パンテノール', 'カルボマー', 'ラウリン酸ポリグリセリル-10', '孔雀石抽出物', 'プロパンジオール', 'ペンチレングリコール', '(アクリル酸グリセリル/アクリル酸)コポリマー', '(メチルビニルエーテル/マレイン酸)コポリマー', 'ヒアルロン酸クロスポリマーNa', '加水分解ヒアルロン酸Na', 'アセチルヒアルロン酸Na', 'マデカシン酸', 'コレステロール', 'トレハロース', 'スベリヒユエキス', 'セラミドNP', 'キサンタンガム', 'オウゴン根エキス', 'マデカッソシド', 'ボタンエキス', 'β-グルカン', 'ハマメリス葉エキス'] },
   ]);
+  // 版の違いを示すだけの語（NEW・リニューアル）は比べない。本番の「NEW ダイブイン セラム」は成分が3つ増えた同じ製品
+  same.push([
+    obf,
+    { ...p('web_new', 'Torriden', 'NEW ダイブイン セラム'), ingredients: ['水', 'BG', 'グリセリン', 'DPG', '1,2-ヘキサンジオール', 'ラウリン酸ポリグリセリル-10', 'プロパンジオール', 'パンテノール', 'カルボマー', '加水分解ヒアルロン酸', 'アラントイン', 'ベタイン', 'トロメタミン', 'ヒアルロン酸Na', 'エチルヘキシルグリセリン', 'キサンタンガム', '(アクリル酸グリセリル/アクリル酸)コポリマー', '孔雀石抽出物', 'ペンチレングリコール', '(メチルビニルエーテル/マレイン酸)コポリマー', 'アセチルヒアルロン酸Na', 'ヒアルロン酸クロスポリマーNa', '加水分解ヒアルロン酸Na', '2,3-ブタンジオール', 'エクトイン', 'ウラルカンゾウエキス', 'セラミドNP', 'コレステロール', 'マデカシン酸', 'マデカッソシド', 'トレハロース', 'ボタンエキス', 'スベリヒユエキス', 'オウゴン根エキス', 'β-グルカン', 'ハマメリス葉エキス'] },
+  ]);
+  same.push([p('a', 'Torriden', 'NEW ダイブイン セラム'), p('b', 'Torriden', 'ダイブイン セラム')]);
+  same.push([p('a', 'Torriden', '【リニューアル】ダイブイン セラム'), p('b', 'torriden', 'dive in serum')]);
+  // 語の一部の new は除かない
+  different.push([p('a', 'Torriden', 'newtral serum'), p('b', 'Torriden', 'tral serum')]);
   for (const [a, b] of same) {
     assert.ok(isSameProduct(a, b) && isSameProduct(b, a), `${a.name} / ${b.name}`);
     assert.ok(registeredMatcher([a])(b) && registeredMatcher([b])(a), `registered: ${a.name} / ${b.name}`);
