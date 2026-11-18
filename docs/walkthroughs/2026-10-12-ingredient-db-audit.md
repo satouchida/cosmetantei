@@ -86,3 +86,9 @@ words were removed.
 - **Abstract-level checks:** the PubMed sources were checked from abstracts only.
 - **甘草エキス** has no entry of its own (see the alias change above).
 - **Not audited:** the rule-based explanations in `dynamic-ingredient-service.ts` (see the plan).
+
+## 2026-11-19: katakana fragrance aliases
+
+| Entry | Change | Reason | Source |
+|---|---|---|---|
+| `fragrance` | added the aliases フレグランス and パルファム | imported products and shop listings write the EU label names Parfum and Fragrance in katakana. Those labels got the 無香料 badge and their fragrance was not flagged | EU 1223/2009 Art. 19(1)(g) (perfume compositions are labelled "parfum") |

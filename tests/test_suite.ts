@@ -11972,7 +11972,7 @@ test('180. 無香料・アルコールフリーの印 come from the full ingredi
   for (const name of ['SDアルコール', 'エチルアルコール', '含水エタノール', 'Ethyl Alcohol', 'SD Alcohol 40-B']) {
     assert.strictEqual(freeOfFlags({ ...base, ingredients: ['水', name] }).alcoholFree, false, name);
   }
-  for (const name of ['Fragrance (Parfum)', 'ラベンダー香料', 'FLAVOR']) {
+  for (const name of ['Fragrance (Parfum)', 'ラベンダー香料', 'FLAVOR', 'フレグランス（パルファム）', 'ローズフレグランス', 'ﾊﾟﾙﾌｧﾑ']) {
     assert.strictEqual(freeOfFlags({ ...base, ingredients: ['水', name] }).fragranceFree, false, name);
   }
   for (const name of ['ベンジルアルコール', 'セテアリルアルコール', 'ステアリルアルコール', 'モノエタノールアミン', 'Cetyl Alcohol']) {

@@ -8,6 +8,8 @@ import { KnownIngredient, ReferenceLink } from '../types';
 const REVIEWED = '2026-10-12';
 /** お店の商品の成分表示に多い成分を足した日（紫外線吸収剤・散乱剤 等。docs/plans/alternative-recommendations.md） */
 const REVIEWED_2026_10_18 = '2026-10-18';
+/** 香料の別名にカタカナの「フレグランス」「パルファム」を足した日 */
+const REVIEWED_2026_11_19 = '2026-11-19';
 
 const UV_ABSORBER_ADVICE =
   '肌が敏感な時期は刺激を感じることがあります。日焼け止めで赤みやかゆみが出たことがある場合は、紫外線吸収剤を使わない「ノンケミカル」の製品と比べてみてください。';
@@ -248,13 +250,14 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     id: 'fragrance',
     nameJa: '香料',
     nameEn: 'Fragrance / Parfum',
-    aliases: ['香料', 'parfum', 'fragrance', 'flavor'],
+    // フレグランス・パルファム：輸入品やお店の説明で、EU の表示名 Parfum・Fragrance をカタカナにした書き方
+    aliases: ['香料', 'parfum', 'fragrance', 'flavor', 'フレグランス', 'パルファム'],
     category: 'fragrance',
     riskLevel: 'high_irritant',
     reasonJa: '多数の香り成分の混合物で、化粧品による接触アレルギーの代表的な原因です。表示は「香料」の一語でも、中身の成分はわかりません。',
     sensitiveSkinAdviceJa: '香料でかぶれた経験がある場合は、「無香料」と表示された製品が選択肢になります。',
-    sources: [REF.acdsAllergenOfTheYear, REF.euFragranceAllergens2023],
-    reviewedAt: REVIEWED,
+    sources: [REF.acdsAllergenOfTheYear, REF.euFragranceAllergens2023, REF.euCosmetics],
+    reviewedAt: REVIEWED_2026_11_19,
   },
   {
     id: 'limonene',

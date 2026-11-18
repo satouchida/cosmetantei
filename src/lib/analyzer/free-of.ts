@@ -37,7 +37,7 @@ export function freeOfFlags(product: Product): FreeOfFlags {
  * src/lib/data/ingredients-db.ts）。これを含まない名前は照合しない（照合は1成分ずつ重く、保存した製品 300 件を
  * 読み込むたびにすべての成分を照合すると 1 秒近くかかる）
  */
-const MAY_BE_FRAGRANCE_OR_ETHANOL = /香料|fragrance|parfum|flavor|エタノール|アルコール|alcohol|ethanol/;
+const MAY_BE_FRAGRANCE_OR_ETHANOL = /香料|fragrance|parfum|flavor|フレグランス|パルファム|エタノール|アルコール|alcohol|ethanol/;
 
 /** 製品に印を付け直す */
 export function withFreeOfFlags(product: Product): Product {
