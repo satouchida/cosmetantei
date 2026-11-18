@@ -25,12 +25,24 @@ const ONE_SHEET_PACK = /(?<!\d)1\s*枚(?:入り?)?\)?\s*[x×]\s*\d+\s*(?:個|袋
 const SHEET_ASSORTMENT = /\d+\s*種類?\s*(?:セット|アソート|各|[x×])|アソート|詰め?合わ?せ|よりどり|選べる|(?<![x×]\s*)\d+\s*セット/i;
 
 /**
+ * 1個の商品に付く特典・売り方の案内。売っているのは1個なので、セットかどうかを見る前に外す
+ * - 特典：「【サンプル付き】」「サンプル2包付き」「【選べるおまけ付き】」
+ * - まとめて買うと得になる案内：「【まとめ買いでポイント5倍】」「まとめ買い割対象」「【2セット購入で10%OFF】」
+ * - お店の催しの対象外：「【福袋対象外】」
+ * 「サンプル」「まとめ買い」だけ、「まとめ買いでお得 12本」のようにまとめ売りを言うものは外さない
+ */
+const SINGLE_ITEM_NOTE =
+  /(?:選べる\s*)?(?:サンプル|試供品|おまけ|ノベルティ|ミニサイズ)\s*(?:\d+\s*(?:包|個|本|枚|点)\s*)?(?:付き?|つき|プレゼント|進呈|同梱)|まとめ買い\s*(?:で\s*(?:ポイント|送料|クーポン|\d+\s*%|\d+\s*円)|割引?(?:\s*対象)?|クーポン)|福袋\s*対象外|\d+\s*(?:個|本|点|セット)\s*(?:以上\s*)?(?:購入|お買い上げ)\s*で/g;
+
+/**
  * 1個の商品でない（セット・まとめ売り・中古・試供品など）。シートマスクを探すときだけ、袋で数えた1箱を1個とする。
- * name は withoutListingNoise を通した名前（お店の候補と、保存した製品の代わりの商品で同じ決まりを使う）
+ * name はお店の商品名そのもの。【】の中も見る（「【まとめ買い】」「【2個セット】」。withoutListingNoise を通すと消える）。
+ * 成分は1個と同じだが、表示する価格・販売ページはまとめ売りのもの。価格・お店の候補・保存した製品の代わりの商品で同じ決まりを使う
  */
 export function notSingleItem(name: string, sheet: boolean): boolean {
-  if (!sheet) return NOT_SINGLE_ITEM.test(name);
-  return NOT_SINGLE_ITEM.test(name.replace(ONE_SHEET_PACK, ' ')) || SHEET_ASSORTMENT.test(name);
+  const n = name.normalize('NFKC').replace(SINGLE_ITEM_NOTE, ' ');
+  if (!sheet) return NOT_SINGLE_ITEM.test(n);
+  return NOT_SINGLE_ITEM.test(n.replace(ONE_SHEET_PACK, ' ')) || SHEET_ASSORTMENT.test(n);
 }
 
 /** 表示で外す飾り（色番号の［01］などは商品の名前の一部なので残す） */

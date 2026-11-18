@@ -549,7 +549,7 @@ export function sameJanListing(yahooItem: ShopItem, listing: ShopItem, brands: I
  * どの理由も単なる条件なので、順番を変えても使う出品は変わらない（数えるために、最初に外れた理由を返す）
  */
 function listingMiss(yahooItem: ShopItem, listing: ShopItem, sheet: boolean, brands: IndexedBrand[]): Exclude<JanMissReason, 'noList'> | null {
-  if (notSingleItem(withoutListingNoise(listing.name), sheet)) return 'set';
+  if (notSingleItem(listing.name, sheet)) return 'set';
   if (!sameJanListing(yahooItem, listing, brands)) return 'name';
   if (variantMarks(listing.name) !== variantMarks(yahooItem.name)) return 'variant';
   if (!listing.caption) return 'noCaption';
@@ -628,7 +628,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       if (!item) continue;
       const name = withoutListingNoise(item.name);
       const jan = normalJan(item.janCode);
-      if (notSingleItem(name, sheet)) {
+      if (notSingleItem(item.name, sheet)) {
         drop('notSingle', item);
         continue;
       }

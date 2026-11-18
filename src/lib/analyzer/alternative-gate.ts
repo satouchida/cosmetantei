@@ -1,6 +1,6 @@
 import { COSMETICS_DATABASE, isVerifiedSource } from '../data/cosmetics-db';
 import { isSellerTextProduct } from '../product-source';
-import { notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { notSingleItem } from '../search/listing-name';
 import { ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
@@ -162,7 +162,7 @@ export function findSafeAlternatives(
   const safeItems = COSMETICS_DATABASE.filter(
     (product) =>
       !excludedIds.has(product.id) &&
-      !notSingleItem(withoutListingNoise(product.name), sheet) &&
+      !notSingleItem(product.name, sheet) &&
       passes(product, { category: options.category, subKind: options.subKind }) &&
       !isExcluded(product)
   );

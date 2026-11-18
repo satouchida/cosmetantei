@@ -5,7 +5,7 @@ import { isActualCosmeticProduct } from './product-filter';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { shopLink } from './shops';
 import { searchKey } from '../search/product-match';
-import { NOT_SINGLE_ITEM, withoutListingNoise } from '../search/listing-name';
+import { notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { productSearchQuery } from './page-search';
 
 /**
@@ -73,7 +73,7 @@ export async function brandLineup(brand: IndexedBrand): Promise<BrandLineup> {
     let used = false;
     for (const item of items) {
       if (products.length >= MAX_LINEUP) break;
-      if (!itemIsOfBrand(item, brand) || NOT_SINGLE_ITEM.test(item.name)) continue;
+      if (!itemIsOfBrand(item, brand) || notSingleItem(item.name, false)) continue;
       const nameKey = searchKey(item.name);
       if (seenName.has(nameKey) || (item.janCode && seenJan.has(item.janCode))) continue;
       const product = toProduct(item, brand);

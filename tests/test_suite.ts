@@ -12114,3 +12114,101 @@ test('182. Set listings (「6個セット」, 「×3本」, まとめ買い) sav
     resetSpendCap();
   }
 });
+
+test('183. Set check reads the whole listing name, 【】 included (「【まとめ買い】」「【2個セット】」 are sets: the shown price and sales page are for several), while notes on a single item (「【サンプル付き】」「おまけ付き」「【まとめ買いでポイント5倍】」) are not; one rule for prices, shop listings and saved alternatives', async () => {
+  const { notSingleItem } = await import('../src/lib/search/listing-name');
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  for (const name of [
+    '【まとめ買い】ちふれ 化粧水',
+    '【2個セット】ちふれ 化粧水',
+    '［3本セット］ちふれ 化粧水',
+    '【中古】ちふれ 化粧水',
+    '【ふるさと納税】花王 キュレル 潤浸保湿 乳液 120ml',
+    'ちふれ 化粧水 まとめ買い',
+    'ちふれ 化粧水 サンプル',
+    '【サンプル付き】ちふれ 化粧水 2個セット',
+    'ちふれ 化粧水 まとめ買いでお得 12本',
+    '【まとめ買い対象】ちふれ 化粧水',
+  ]) {
+    assert.ok(notSingleItem(name, false), name);
+  }
+  for (const name of [
+    'ちふれ 化粧水',
+    '【送料無料】ちふれ 化粧水 180ml',
+    '【公式】ちふれ 化粧水',
+    '【サンプル付き】ちふれ 化粧水',
+    '【試供品付】ちふれ 化粧水',
+    'ちふれ 化粧水 おまけ付き',
+    '【まとめ買いでポイント5倍】ちふれ 化粧水',
+    '【まとめ買い割対象】ちふれ 化粧水',
+    'ちふれ 化粧水 [01]',
+    '【福袋対象外】ちふれ 化粧水',
+    '【2個以上で送料無料】ちふれ 化粧水',
+    '【3個までメール便】ちふれ 化粧水',
+    '【セット割】ちふれ 化粧水',
+    'ちふれ 化粧水 サンプル2包付き',
+  ]) {
+    assert.ok(!notSingleItem(name, false), name);
+  }
+  // シートマスク：袋で数えた1箱は1個、【】の中の詰め合わせ・まとめ買いは1個ではない
+  assert.ok(!notSingleItem('【公式】ルルルン シートマスク 1枚×5袋', true));
+  assert.ok(notSingleItem('【まとめ買い】ルルルン シートマスク 7枚入り', true));
+  assert.ok(notSingleItem('【3種セット】ルルルン シートマスク 7枚入り', true));
+  assert.ok(!notSingleItem('【2セット購入で10%OFF】ルルルン シートマスク 7枚入り', true));
+  assert.ok(!notSingleItem('【選べるおまけ付き】ルルルン シートマスク 7枚入り', true));
+
+  // 保存した製品の代わりの商品でも同じ
+  const allSaved = COSMETICS_DATABASE.map((x) => x.id);
+  const saved = [
+    verifiedProduct({ id: 't183_single', brand: 'ちふれ', name: '【サンプル付き】ちふれ 化粧水 しっとり', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'トレハロース'] }),
+    verifiedProduct({ id: 't183_bulk', brand: 'ちふれ', name: '【まとめ買い】ちふれ アクネケア 化粧水', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'グリチルリチン酸2K'] }),
+  ];
+  try {
+    for (const x of saved) addProductToDynamicCache(x);
+    const ids = findSafeAlternatives([{ nameJa: '香料' }], allSaved, 6, { category: 'toner' }).map((x) => x.id);
+    assert.deepStrictEqual(ids, ['t183_single'], ids.join());
+  } finally {
+    for (const x of saved) {
+      const at = COSMETICS_DATABASE.findIndex((y) => y.id === x.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+  }
+
+  // お店の候補でも同じ（【まとめ買い】の出品は確かめる前に外す。【サンプル付き】は1個として確かめる）
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const caption = (extra: string) => `説明です。<br>【全成分】<br>水、BG、グリセリン、ベタイン、スクワラン、ペンチレングリコール、${extra}、フェノキシエタノール<br>【使用方法】適量`;
+  const listings = [
+    ['【まとめ買い】カタチA 化粧水', 'セラミドNP'],
+    ['【サンプル付き】カタチB 化粧水', 'ヒアルロン酸Na'],
+    ['カタチC 化粧水', 'トレハロース'],
+  ];
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'YAHOO_CLIENT_ID', 'RAKUTEN_AFFILIATE_ID'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'openapi.rakuten.co.jp') {
+      return Response.json({ items: listings.map(([itemName, extra], i) => ({ itemName, itemCode: `t183:${i}`, itemUrl: `https://item.rakuten.co.jp/t183/${i}/`, availability: 1, itemCaption: caption(extra) })) });
+    }
+    if (url.hostname === 'shopping.yahooapis.jp') return Response.json({ hits: [] });
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    delete process.env.RAKUTEN_AFFILIATE_ID;
+    resetSpendCap();
+    const shop = await findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 3, allowPaidLookups: false });
+    assert.deepStrictEqual(shop.products.map((p) => p.id), ['shoptext_rakuten_t183:1', 'shoptext_rakuten_t183:2']);
+    assert.strictEqual(shop.counts.dropped.notSingle, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetSpendCap();
+  }
+});

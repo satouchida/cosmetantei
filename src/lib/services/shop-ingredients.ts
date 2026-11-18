@@ -11,7 +11,7 @@ import { isPlainLabelText } from '../utils/safe-text';
 import { buildBrandIndex, IndexedBrand, resolveBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
-import { NOT_SINGLE_ITEM, withoutListingNoise } from '../search/listing-name';
+import { notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -233,7 +233,7 @@ export async function ingredientsFromCaption(caption: string): Promise<ReturnTyp
 /** お店の商品名が、探している製品か（ブランドが合い、入力の残りの語がすべて名前にある。セット・詰め替えは除く） */
 function itemMatches(item: ShopItem, brand: IndexedBrand, words: string[]): boolean {
   const name = withoutListingNoise(item.name);
-  if (NOT_SINGLE_ITEM.test(name)) return false;
+  if (notSingleItem(item.name, false)) return false;
   if (!item.brands.some((b) => textHasBrand(b, brand)) && !textHasBrand(item.name, brand)) return false;
   const key = searchKey(name);
   return words.every((w) => hasWord(key, w));

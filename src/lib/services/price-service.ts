@@ -5,7 +5,7 @@ import { rakutenOffers, ShopOfferCandidate, yahooOffers } from './shop-apis';
 import { ShopId, shopLink, shopOfUrl, SHOPS } from './shops';
 import { toProductSearchQuery } from './page-search';
 import { isPlainLabelText } from '../utils/safe-text';
-import { NOT_SINGLE_ITEM } from '../search/listing-name';
+import { notSingleItem } from '../search/listing-name';
 
 /**
  * 販売価格の確認（T4）。手順: docs/plans/gemini-role-redesign.md「Phases 3 and 4」、docs/plans/shop-prices.md
@@ -120,7 +120,7 @@ export async function researchPrices(productQuery: string): Promise<PriceResult>
       if (!name) continue;
       // API の文で、リンク・書式・見えない文字を表示に入れさせない
       if (!isPlainLabelText(name) || (c.shop && !isPlainLabelText(c.shop))) continue;
-      if (NOT_SINGLE_ITEM.test(name.normalize('NFKC'))) continue;
+      if (notSingleItem(name, false)) continue;
       if (!offerMatchesQuery(c.brand, name, productQuery)) continue;
       // API の商品名は宣伝文句で長いことがある。確かめたあとで表示用に短くする
       if (name.length > MAX_PRODUCT_NAME_LENGTH) name = `${name.slice(0, MAX_PRODUCT_NAME_LENGTH - 1)}…`;
