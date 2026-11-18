@@ -12001,3 +12001,56 @@ test('180. 無香料・アルコールフリーの印 come from the full ingredi
     }
   }
 });
+
+test('181. Same product with and without the 「販売名：」 label (live 2026-11-19: naturie-net.jp writes 「ハトムギ化粧水（販売名：ナチュリエ スキンコンディショナー R）」, imju.jp 「ハトムギ化粧水（ナチュリエ スキンコンディショナーR）」): one alternative, and a registered product excludes the other; other products of the line stay separate', async () => {
+  const { isSameProduct, registeredMatcher } = await import('../src/lib/search/product-identity');
+  const { findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const p = (id: string, name: string, brand = 'ナチュリエ') => ({ id, brand, name });
+  const imju = p('a', 'ナチュリエ ハトムギ化粧水（ナチュリエ スキンコンディショナーR）');
+  const same = [
+    p('b', 'ナチュリエ ハトムギ化粧水（販売名：ナチュリエ スキンコンディショナー R）'),
+    p('c', 'ナチュリエ ハトムギ化粧水（販売名:ナチュリエ スキンコンディショナーR）'),
+    p('d', 'ナチュリエ ハトムギ化粧水 販売名 ナチュリエ スキンコンディショナーR'),
+  ];
+  for (const b of same) {
+    assert.ok(isSameProduct(imju, b) && isSameProduct(b, imju), b.name);
+    assert.ok(registeredMatcher([imju])(b) && registeredMatcher([b])(imju), `registered: ${b.name}`);
+  }
+  const different = [
+    p('e', 'ナチュリエ ハトムギ保湿ジェル（販売名：ナチュリエ スキンコンディショナージェル）'),
+    p('f', 'ナチュリエ ハトムギ化粧水（販売名：ナチュリエ スキンコンディショナーR）', 'ちふれ'),
+  ];
+  for (const b of different) {
+    assert.ok(!isSameProduct(imju, b) && !registeredMatcher([imju])(b), `${b.brand} ${b.name}`);
+  }
+
+  // findAlternatives：保存済みの2件（同じ全成分）は1件。登録した製品は、もう片方の書き方でも出さない
+  const allSaved = COSMETICS_DATABASE.map((x) => x.id);
+  const fragrance = findMatchingKnownIngredient('香料')!;
+  const ingredients = ['水', 'DPG', 'BG', 'グリセリン', 'ハトムギ種子エキス'];
+  const saved = [
+    verifiedProduct({ id: 't181_other1', brand: 'ナチュリエ', name: 'ナチュリエ ハトムギ化粧水 ミルク', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'スクワラン'] }),
+    verifiedProduct({ id: 't181_other2', brand: 'ちふれ', name: 'ちふれ 化粧水 しっとり', category: 'toner', ingredients: ['水', 'BG', 'グリセリン'] }),
+    verifiedProduct({ id: 't181_imju', brand: 'ナチュリエ', name: imju.name, category: 'toner', ingredients }),
+    verifiedProduct({ id: 't181_official', brand: 'ナチュリエ', name: same[0].name, category: 'toner', ingredients }),
+  ];
+  try {
+    resetSpendCap();
+    for (const x of saved) addProductToDynamicCache(x);
+    const toner = { avoid: [{ nameJa: '香料' }], known: [fragrance], category: 'toner' as const, excludeIds: allSaved };
+    // 4件まで出す（3件だと、同じ製品の2件目が上限で切られ、まとめなくても1件に見える）。保存した4件のうち3件
+    const ids = (await findAlternatives(toner, 4)).products.map((x) => x.id);
+    assert.strictEqual(ids.length, 3, ids.join());
+    assert.strictEqual(ids.filter((id) => id === 't181_imju' || id === 't181_official').length, 1, ids.join());
+    const registered = saved[2];
+    const withRegistered = await findAlternatives({ ...toner, excludeIds: [...allSaved, registered.id], excludeProducts: [registered] });
+    assert.ok(!withRegistered.products.some((x) => x.id === 't181_imju' || x.id === 't181_official'), withRegistered.products.map((x) => x.id).join());
+  } finally {
+    for (const x of saved) {
+      const at = COSMETICS_DATABASE.findIndex((y) => y.id === x.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    resetSpendCap();
+  }
+});

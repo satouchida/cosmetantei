@@ -26,7 +26,12 @@ function brandTokens(brand: string): string[] {
  * 成分が少し変わっても、利用者には同じ製品なので1つにまとめる
  */
 const EDITION_WORD = /(?<=^|[\s・()（）[\]【】])(new|renewal|リニューアル)(?=$|[\s・()（）[\]【】])/gi;
-const withoutEditionWords = (name: string) => name.normalize('NFKC').replace(EDITION_WORD, ' ');
+/**
+ * 届け出た名前の前に付く見出し（「ハトムギ化粧水（販売名：ナチュリエ スキンコンディショナー R）」）。
+ * 公式サイトは付け、お店は付けないことが多い。製品の名前の一部ではない（NFKC で「：」は「:」になる）
+ */
+const SALES_NAME_LABEL = /販売名\s*:?/g;
+const withoutNonNameWords = (name: string) => name.normalize('NFKC').replace(EDITION_WORD, ' ').replace(SALES_NAME_LABEL, ' ');
 
 /**
  * ページごとに表記が違う同じ製品を同一視するためのキー
@@ -34,7 +39,7 @@ const withoutEditionWords = (name: string) => name.normalize('NFKC').replace(EDI
  */
 export function productIdentityKey(brand: string, name: string): string {
   // 容量（150ml・つめかえ用の 130ml 等）は成分が同じなので区別しない
-  let key = compact(withoutEditionWords(name)).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
+  let key = compact(withoutNonNameWords(name)).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
   for (const token of brandTokens(brand)) key = key.split(token).join('');
   return key || compact(name);
 }
@@ -125,7 +130,7 @@ function soundSkeleton(text: string): string | null {
 function nameSound(brand: string, name: string): string | null {
   const tokens = brandTokens(brand);
   // ブランドは語ごとに除く（「Beauty of Joseon」の of で、soft の中を除かない。「dr.althea」は compact で比べる）
-  const rest = withoutEditionWords(name)
+  const rest = withoutNonNameWords(name)
     .toLowerCase()
     .replace(SIZE, ' ')
     .split(/\s+/)
