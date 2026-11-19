@@ -1,11 +1,11 @@
 import 'server-only';
-import { PriceApiCredit, PriceOffer, PriceResult } from '../types';
+import { ListingVariant, PriceApiCredit, PriceOffer, PriceResult } from '../types';
 import { buildAmazonAffiliateUrl } from './amazon-affiliate';
 import { rakutenOffers, ShopOfferCandidate, yahooOffers } from './shop-apis';
 import { ShopId, shopLink, shopOfUrl, SHOPS } from './shops';
 import { toProductSearchQuery } from './page-search';
 import { isPlainLabelText } from '../utils/safe-text';
-import { notSingleItem } from '../search/listing-name';
+import { listingVariant, notSingleItem, variantLabel } from '../search/listing-name';
 
 /**
  * 販売価格の確認（T4）。手順: docs/plans/gemini-role-redesign.md「Phases 3 and 4」、docs/plans/shop-prices.md
@@ -19,8 +19,10 @@ import { notSingleItem } from '../search/listing-name';
 const MIN_PRICE_YEN = 100;
 const MAX_PRICE_YEN = 100_000;
 const MAX_OFFERS = 6;
-/** 1つのお店の結果だけで埋まらないように */
+/** 1つのお店の結果だけで埋まらないように（種類ごと） */
 const MAX_OFFERS_PER_MARKETPLACE = 2;
+/** 出す種類（本体の容量違い・詰替用）の数。多ければ、出品の多い種類 */
+const MAX_VARIANTS = 3;
 /** 同じ商品ページの結果はこの数まで */
 const MAX_OFFERS_PER_PAGE = 3;
 const MAX_SHOP_LENGTH = 60;
@@ -105,7 +107,7 @@ export async function researchPrices(productQuery: string): Promise<PriceResult>
   // 一方のお店を調べられなかったときは、見つからなくても「どちらにも無い」とは言わない
   const someFailed = outcomes.some((o) => o.offers === null);
 
-  const offers: (PriceOffer & { credit?: PriceApiCredit })[] = [];
+  const offers: Candidate[] = [];
   const perPage = new Map<string, number>();
   const seen = new Set<string>();
   for (const { offers: candidates, credit } of outcomes) {
@@ -122,6 +124,7 @@ export async function researchPrices(productQuery: string): Promise<PriceResult>
       if (!isPlainLabelText(name) || (c.shop && !isPlainLabelText(c.shop))) continue;
       if (notSingleItem(name, false)) continue;
       if (!offerMatchesQuery(c.brand, name, productQuery)) continue;
+      const variant = listingVariant(name);
       // API の商品名は宣伝文句で長いことがある。確かめたあとで表示用に短くする
       if (name.length > MAX_PRODUCT_NAME_LENGTH) name = `${name.slice(0, MAX_PRODUCT_NAME_LENGTH - 1)}…`;
       const count = perPage.get(c.sourceUrl) ?? 0;
@@ -141,23 +144,70 @@ export async function researchPrices(productQuery: string): Promise<PriceResult>
         taxIncluded: c.taxIncluded,
         sourceUrl: c.sourceUrl,
         ...shopLink(c.shopId, c.sourceUrl),
+        variant,
         credit,
       });
     }
   }
 
   offers.sort((a, b) => comparablePrice(a) - comparablePrice(b));
-  const perMarketplace = new Map<string, number>();
-  for (const { credit, ...offer } of offers) {
-    const n = perMarketplace.get(offer.marketplace) ?? 0;
-    if (n >= MAX_OFFERS_PER_MARKETPLACE) continue;
-    perMarketplace.set(offer.marketplace, n + 1);
+  for (const { credit, ...offer } of pickByVariant(offers)) {
     result.offers.push(offer);
     if (credit && !result.credits.includes(credit)) result.credits.push(credit);
-    if (result.offers.length >= MAX_OFFERS) break;
   }
   if (result.offers.length === 0 && someFailed) result.status = 'unavailable';
   return result;
+}
+
+/** 確かめた出品（種類は必ずある） */
+type Candidate = PriceOffer & { credit?: PriceApiCredit; variant: ListingVariant };
+
+/**
+ * 出す出品を選ぶ。本体・詰替用・容量の違いは同じ製品（成分が同じ）なので一緒に出すが、安い詰替用だけで埋まって本体の価格が
+ * 出なくならないように、種類ごとに安い順で1件ずつ順番に取る（最大 MAX_OFFERS 件。1つのモールは種類ごとに
+ * MAX_OFFERS_PER_MARKETPLACE 件まで）。並びは本体が先、種類ごとに安い順。offers は安い順であること
+ */
+function pickByVariant(offers: Candidate[]): (PriceOffer & { credit?: PriceApiCredit })[] {
+  // 容量の書かれていない出品は、同じ本体・詰替用で容量が1つだけなら、その容量とみなす
+  const sizes = (refill: boolean) => new Set(offers.flatMap((o) => (o.variant.refill === refill && o.variant.size ? [o.variant.size] : [])));
+  const groups = new Map<string, Candidate[]>();
+  for (const offer of offers) {
+    const known = sizes(offer.variant.refill);
+    const variant = offer.variant.size || known.size !== 1 ? offer.variant : { ...offer.variant, size: [...known][0] };
+    const key = variantLabel(variant);
+    groups.set(key, [...(groups.get(key) ?? []), { ...offer, variant }]);
+  }
+  // 出品の多い種類から MAX_VARIANTS まで。ただし本体と詰替用は、あれば1つずつ必ず残す（詰替用の容量違いだけで埋めない）
+  const bySize = [...groups.values()].sort((a, b) => b.length - a.length);
+  const keep = new Set<Candidate[]>();
+  for (const refill of [false, true]) {
+    const largest = bySize.find((g) => g[0].variant.refill === refill);
+    if (largest) keep.add(largest);
+  }
+  for (const g of bySize) if (keep.size < MAX_VARIANTS) keep.add(g);
+  const chosen = bySize
+    .filter((g) => keep.has(g))
+    .sort((a, b) => Number(a[0].variant.refill) - Number(b[0].variant.refill) || comparablePrice(a[0]) - comparablePrice(b[0]));
+
+  const picked = chosen.map((): Candidate[] => []);
+  const next = chosen.map(() => 0);
+  let total = 0;
+  for (let progress = true; progress && total < MAX_OFFERS; ) {
+    progress = false;
+    for (let g = 0; g < chosen.length && total < MAX_OFFERS; g++) {
+      while (next[g] < chosen[g].length) {
+        const offer = chosen[g][next[g]++];
+        if (picked[g].filter((p) => p.marketplace === offer.marketplace).length >= MAX_OFFERS_PER_MARKETPLACE) continue;
+        picked[g].push(offer);
+        total++;
+        progress = true;
+        break;
+      }
+    }
+  }
+  // 本体だけで容量も1つなら、種類は書かない（「本体」とだけ出しても分からない）。詰替用だけなら書く
+  const labelled = chosen.length > 1 || chosen.some((g) => g[0].variant.refill);
+  return picked.flat().map((o) => (labelled ? o : { ...o, variant: undefined }));
 }
 
 /** 「楽天市場の〇〇ストア」。店の名前がモールの名前と同じなら1回だけ */
@@ -182,9 +232,25 @@ export function summarizePriceResult(result: PriceResult): string {
     hour: '2-digit',
     minute: '2-digit',
   });
-  const tax = cheapest.taxIncluded === true ? '（税込）' : cheapest.taxIncluded === false ? '（税抜）' : '';
-  return [
-    `「${q}」の販売価格を${result.offers.length}件確認しました（${time}時点）。今回確認できた中では、${sellerLabel(cheapest)}の「${cheapest.productName}」が最も安く、${cheapest.priceYen.toLocaleString('ja-JP')}円${tax}です。`,
-    '容量や送料はお店によって違います。価格や在庫は変わることがあるため、購入前に販売ページでご確認ください。',
-  ].join('\n\n');
+  const found = `「${q}」の販売価格を${result.offers.length}件確認しました（${time}時点）。`;
+  const note = '容量や送料はお店によって違います。価格や在庫は変わることがあるため、購入前に販売ページでご確認ください。';
+  // 本体・詰替用などの種類ごとに、いちばん安い出品（offers は種類ごとに安い順）
+  const cheapestPerVariant = new Map<string, PriceOffer>();
+  for (const offer of result.offers) {
+    const label = offer.variant ? variantLabel(offer.variant) : '';
+    if (!cheapestPerVariant.has(label)) cheapestPerVariant.set(label, offer);
+  }
+  if (cheapestPerVariant.size > 1) {
+    const each = [...cheapestPerVariant].map(([label, offer]) => `${label}は${sellerLabel(offer)}の${yenText(offer)}`);
+    return [`${found}今回確認できた中で最も安いのは、${each.join('、')}です。`, note].join('\n\n');
+  }
+  const label = cheapest.variant ? variantLabel(cheapest.variant) : undefined;
+  return [`${found}今回確認できた中では、${sellerLabel(cheapest)}の「${cheapest.productName}」が最も安く、${yenText(cheapest, label)}です。`, note].join('\n\n');
+}
+
+/** 「770円（税込）」「638円（税込・詰替用 150mL）」 */
+function yenText(offer: PriceOffer, label?: string): string {
+  const tax = offer.taxIncluded === true ? '税込' : offer.taxIncluded === false ? '税抜' : undefined;
+  const notes = [tax, label].filter(Boolean);
+  return `${offer.priceYen.toLocaleString('ja-JP')}円${notes.length ? `（${notes.join('・')}）` : ''}`;
 }

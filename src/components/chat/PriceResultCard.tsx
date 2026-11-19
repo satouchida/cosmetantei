@@ -5,6 +5,7 @@ import { ApiCredits } from '../ui/ApiCredits';
 import { PriceResult } from '@/lib/types';
 import { ExternalLink, Tag } from 'lucide-react';
 import { badge, buttonPrimary, buttonSecondaryCompact, card, innerCard } from '../ui/design';
+import { variantLabel } from '@/lib/search/listing-name';
 
 interface PriceResultCardProps {
   result: PriceResult;
@@ -68,6 +69,8 @@ export const PriceResultCard: React.FC<PriceResultCardProps> = ({ result }) => {
                     <span className="ml-1 text-xs font-normal text-ink-muted">
                       {offer.taxIncluded === true ? '税込' : offer.taxIncluded === false ? '税抜' : '税表示なし'}
                     </span>
+                    {/* 本体・詰替用と容量（成分が同じなので同じ製品の価格として並べる） */}
+                    {offer.variant && <span className={`ml-1.5 align-middle font-normal ${badge('neutral')}`}>{variantLabel(offer.variant)}</span>}
                   </div>
                   <div className="text-xs text-ink truncate">{offer.productName}</div>
                   <div className="text-xs text-ink-muted truncate">

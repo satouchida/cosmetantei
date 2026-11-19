@@ -7,7 +7,7 @@ import { AlertTriangle, ShieldCheck, Search, ExternalLink } from 'lucide-react';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { getDisplayBrand } from '@/lib/display-brand';
-import { displayListingName } from '@/lib/search/listing-name';
+import { displayListingName, shopPriceVariantLabel } from '@/lib/search/listing-name';
 import { productSourceInfo } from '@/lib/product-source';
 import { quasiDrugActives } from '@/lib/quasi-drug';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
@@ -123,6 +123,9 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                             .filter(Boolean)
                             .join('・')}）
                         </span>
+                        {shopPriceVariantLabel(p.shopPrice.variant) && (
+                          <span className={`ml-1.5 align-middle font-normal ${badge('neutral')}`}>{shopPriceVariantLabel(p.shopPrice.variant)}</span>
+                        )}
                       </p>
                     )}
                   </div>

@@ -211,7 +211,8 @@ export function shopProduct(i: number, opts: { longName?: boolean; sponsored?: b
     category: 'toner',
     ingredients: [],
     imageUrl: undefined,
-    shopPrice: { yen: i === 9 ? 1_234_567 : 990 + i * 490, taxIncluded: i % 3 === 0 ? false : true },
+    // 価格の横の種類（listingVariant で商品名から読むもの）。長い名前は詰替用、短い名前は本体
+    shopPrice: { yen: i === 9 ? 1_234_567 : 990 + i * 490, taxIncluded: i % 3 === 0 ? false : true, variant: { refill: !!opts.longName, size: '400mL' } },
     shopLink: { href: `https://example.com/item/${i}`, sponsored: opts.sponsored ?? true },
   };
 }
@@ -253,6 +254,7 @@ export const priceOk: PriceResult = {
       sourceUrl: 'https://example.com/rakuten/1',
       href: 'https://example.com/rakuten/1',
       sponsored: true,
+      variant: { refill: false, size: '150mL' },
     },
     {
       shop: 'LOHACO',
@@ -263,6 +265,18 @@ export const priceOk: PriceResult = {
       sourceUrl: 'https://example.com/yahoo/1',
       href: 'https://example.com/yahoo/1',
       sponsored: true,
+      variant: { refill: false, size: '150mL' },
+    },
+    {
+      shop: '楽天24',
+      marketplace: '楽天市場',
+      productName: 'キュレル 潤浸保湿 泡洗顔料 つめかえ用 130mL',
+      priceYen: 1_078,
+      taxIncluded: true,
+      sourceUrl: 'https://example.com/rakuten/3',
+      href: 'https://example.com/rakuten/3',
+      sponsored: true,
+      variant: { refill: true, size: '130mL' },
     },
     {
       shop: 'Store',

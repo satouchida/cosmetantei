@@ -98,8 +98,8 @@ export interface Product {
   ingredientSource?: IngredientSource;
   /** 製品情報・成分表示の出典ページ（ingredientSource が web_page のとき） */
   sourceUrl?: string;
-  /** お店の商品検索の製品の価格（API が返したまま。保存しない） */
-  shopPrice?: { yen: number; taxIncluded: boolean | null };
+  /** お店の商品検索の製品の価格（API が返したまま。保存しない）。variant: その価格の商品の本体・詰替用と容量 */
+  shopPrice?: { yen: number; taxIncluded: boolean | null; variant?: ListingVariant };
   /** お店の商品検索の製品の商品ページ。アフィリエイト ID が設定されていればアフィリエイトリンク（sponsored） */
   shopLink?: { href: string; sponsored: boolean };
   /**
@@ -220,6 +220,19 @@ export interface PriceOffer {
   href: string;
   /** href がアフィリエイトリンクか（PR 表示・rel="sponsored"） */
   sponsored: boolean;
+  /**
+   * 本体・詰替用と容量（成分は同じなので同じ製品の価格として出し、どれの価格かを価格の横に書く）。
+   * 本体だけで容量も1つの結果には付けない。前の返答の価格には無い
+   */
+  variant?: ListingVariant;
+}
+
+/** お店の商品の、同じ製品の中の種類（商品名から読む。src/lib/search/listing-name.ts） */
+export interface ListingVariant {
+  /** 詰替用・つけかえ用・レフィル */
+  refill: boolean;
+  /** 容量（「180mL」「50g」）。商品名に1つだけ書かれているとき */
+  size?: string;
 }
 
 /** 価格の取得に使った API（API の利用規約で、表示にクレジットが必要） */

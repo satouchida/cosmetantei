@@ -5,7 +5,7 @@ import { isActualCosmeticProduct } from './product-filter';
 import { rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { shopLink } from './shops';
 import { searchKey } from '../search/product-match';
-import { notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { listingVariant, notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { productSearchQuery } from './page-search';
 
 /**
@@ -39,7 +39,7 @@ function toProduct(item: ShopItem, brand: IndexedBrand): Product {
     ...(item.janCode && { barcode: item.janCode }),
     // 候補には写真と価格を出し、商品名（【公式】・送料無料などが付く）は出さない。お店の名前も出さない
     ...(item.imageUrl && { imageUrl: item.imageUrl }),
-    ...(item.priceYen && { shopPrice: { yen: item.priceYen, taxIncluded: item.taxIncluded } }),
+    ...(item.priceYen && { shopPrice: { yen: item.priceYen, taxIncluded: item.taxIncluded, variant: listingVariant(item.name) } }),
     ...linkOf(item),
     ingredients: [],
     isEstimatedFromMarketplaces: true,

@@ -10,7 +10,7 @@ import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
-import { notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { listingVariant, notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -260,7 +260,7 @@ function withShopInfo(product: Product, item: ShopItem): Product {
   return {
     ...product,
     ...(!product.imageUrl && item.imageUrl && { imageUrl: item.imageUrl }),
-    ...(item.priceYen && { shopPrice: { yen: item.priceYen, taxIncluded: item.taxIncluded } }),
+    ...(item.priceYen && { shopPrice: { yen: item.priceYen, taxIncluded: item.taxIncluded, variant: listingVariant(item.name) } }),
     // 楽天の商品ページへのリンクは、楽天アフィリエイトのリンクのときだけ
     ...((item.shopId !== 'rakuten' || link.sponsored) && { shopLink: link }),
   };

@@ -3,7 +3,7 @@
 import React from 'react';
 import { ExternalLink, Package } from 'lucide-react';
 import { Product } from '@/lib/types';
-import { displayListingName } from '@/lib/search/listing-name';
+import { displayListingName, shopPriceVariantLabel } from '@/lib/search/listing-name';
 import { badge } from '../ui/design';
 
 interface ShopProductSummaryProps {
@@ -68,6 +68,9 @@ export const ShopProductSummary: React.FC<ShopProductSummaryProps> = ({ product 
           <div className="text-sm font-semibold text-ink mt-1">
             {formatYen(product.shopPrice.yen)}
             {product.shopPrice.taxIncluded === false && <span className="text-xs font-normal text-ink-muted">（税別）</span>}
+            {shopPriceVariantLabel(product.shopPrice.variant) && (
+              <span className={`ml-1.5 align-middle font-normal ${badge('neutral')}`}>{shopPriceVariantLabel(product.shopPrice.variant)}</span>
+            )}
           </div>
         )}
         <div className="mt-0.5 text-xs text-ink-muted">成分は選ぶと調べます</div>

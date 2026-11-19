@@ -4426,11 +4426,12 @@ test('83. Shop lineups: Rakuten and Yahoo! item search by brand name, not stored
     assert.deepStrictEqual(
       lineup.products.map((p) => [p.imageUrl, p.shopPrice, p.descriptionJa]),
       [
-        [undefined, { yen: 2420, taxIncluded: true }, undefined],
-        ['https://item-shopping.c.yimg.jp/i/g/store_3', { yen: 980, taxIncluded: false }, undefined],
+        // 価格の横に書く種類（本体・詰替用と容量。商品名から）
+        [undefined, { yen: 2420, taxIncluded: true, variant: { refill: false, size: '40g' } }, undefined],
+        ['https://item-shopping.c.yimg.jp/i/g/store_3', { yen: 980, taxIncluded: false, variant: { refill: false, size: '40g' } }, undefined],
         [undefined, undefined, undefined],
-        ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/1.jpg?_ex=128x128', { yen: 1980, taxIncluded: true }, undefined],
-        ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/5.jpg', { yen: 1800, taxIncluded: false }, undefined],
+        ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/1.jpg?_ex=128x128', { yen: 1980, taxIncluded: true, variant: { refill: false, size: '150mL' } }, undefined],
+        ['https://thumbnail.image.rakuten.co.jp/@0_mall/kao/cabinet/5.jpg', { yen: 1800, taxIncluded: false, variant: { refill: false, size: '150mL' } }, undefined],
         [undefined, undefined, undefined],
       ]
     );
@@ -6563,7 +6564,7 @@ test('106. Alternatives from the shops: fixed search words and genre, ingredient
     const fromCaption = result.products.find((p) => p.id === 'shoptext_rakuten_r:5')!;
     assert.strictEqual(fromCaption.name, '【公式】ハダヤサシ 化粧水 無香料 200ml', 'Rakuten names are not altered');
     assert.ok(fromCaption.shopLink?.sponsored && fromCaption.shopLink.href.startsWith('https://hb.afl.rakuten.co.jp/'), 'Rakuten links only through the affiliate');
-    assert.deepStrictEqual(fromCaption.shopPrice, { yen: 1980, taxIncluded: true });
+    assert.deepStrictEqual(fromCaption.shopPrice, { yen: 1980, taxIncluded: true, variant: { refill: false, size: '200mL' } });
     const fromJan = result.products.find((p) => p.id === 'obf_4901301777777')!;
     assert.strictEqual(fromJan.sharedSource, undefined, 'A saved, checked product is not marked as another site');
     assert.deepStrictEqual(result.credits.sort(), ['rakuten', 'yahoo']);
@@ -11252,7 +11253,7 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     assert.strictEqual(shown.name, '【公式】ヤフA0号 化粧水 しっとり 150ml');
     assert.strictEqual(shown.ingredientSource, 'shop_listing');
     assert.ok(shown.shopLink?.sponsored && shown.shopLink.href.startsWith('https://hb.afl.rakuten.co.jp/') && shown.shopLink.href.includes(encodeURIComponent(`https://item.rakuten.co.jp/msj/${j0}-1/`)), JSON.stringify(shown.shopLink));
-    assert.deepStrictEqual(shown.shopPrice, { yen: 1480, taxIncluded: true });
+    assert.deepStrictEqual(shown.shopPrice, { yen: 1480, taxIncluded: true, variant: { refill: false, size: '150mL' } });
     assert.strictEqual(shown.imageUrl, `https://thumbnail.image.rakuten.co.jp/@0_mall/msj/${j0}-1.jpg`);
     assert.deepStrictEqual(a.credits, ['rakuten']);
     // 楽天を呼んだ順：種類の検索、そして Yahoo! の関連順に3件まで（4件目の j3 は呼ばない）
@@ -12210,5 +12211,128 @@ test('183. Set check reads the whole listing name, 【】 included (「【まと
       else process.env[k] = v;
     }
     resetSpendCap();
+  }
+});
+
+test('184. Bottle and refill (and sizes) are versions of one product: each price offer says which (本体 180mL, 詰替用 150mL), the cheaper refills no longer take every slot, the reply names the cheapest of each version, a 本体+詰替 bundle is not one item; shop-listing prices carry the version too (live 2026-11-19: ちふれ 保湿化粧水 とてもしっとりタイプ showed only 150mL refills)', async () => {
+  const { listingVariant, variantLabel, shopPriceVariantLabel, notSingleItem } = await import('../src/lib/search/listing-name');
+  const { researchPrices, summarizePriceResult } = await import('../src/lib/services/price-service');
+
+  // A. 商品名から（本番の楽天・Yahoo! の商品名）
+  const names: [string, boolean, string | undefined][] = [
+    ['ちふれ 保湿化粧水 とてもしっとりタイプ 詰替用(150ml)【ちふれ】[無香料 無着色 ノンアルコール]', true, '150mL'],
+    ['「ポイント15倍 11月20〜21日」ちふれ 保湿化粧水 とてもしっとりタイプ 詰替え/とてもしっとり/無香料 150mL 化粧水 アットコスメ _26Nov', true, '150mL'],
+    ['ちふれ 保湿化粧水 とてもしっとりタイプ 詰め替え用 CHIFURE 150ml | 化粧水 詰替 保湿 高保湿 スキンケア 無香料', true, '150mL'],
+    ['ちふれ化粧品　保湿化粧水 とてもしっとりタイプ 180mL', false, '180mL'],
+    ['ちふれ　保湿化粧水　とてもしっとりタイプ　【180mL】(ちふれ)', false, '180mL'],
+    ['キュレル 潤浸保湿 泡洗顔料 つめかえ用 130ml', true, '130mL'],
+    ['エリクシール リフトモイスト レフィル 50g', true, '50g'],
+    ['ちふれ 化粧水 詰替用（本体別売り）', true, undefined],
+    // 容量が2つ書かれていれば分からない
+    ['ちふれ 化粧水 180ml 詰替150ml', true, undefined],
+    ['ちふれ 口紅 549', false, undefined],
+    // 数字の区切りの「,」、リットル、「30gx2」
+    ['ヘアシャンプー 1,000mL', false, '1000mL'],
+    ['ボディソープ 本体 1L', false, '1L'],
+    ['フェイスパウダー 30gx2', false, '30g'],
+    // 本体の名前で詰替用に触れるだけなら本体。「つけ替え」も詰替用
+    ['ちふれ 化粧水 本体 180mL (詰替用は別売り)', false, '180mL'],
+    ['詰め替え可能ボトル 300ml', false, '300mL'],
+    ['ちふれ 化粧水 詰替対応 本体 180mL', false, '180mL'],
+    ['ちふれ 化粧水 つけ替え用 150ml', true, '150mL'],
+  ];
+  for (const [name, refill, size] of names) {
+    assert.deepStrictEqual(listingVariant(name), size ? { refill, size } : { refill }, name);
+  }
+  assert.strictEqual(variantLabel({ refill: false, size: '180mL' }), '本体 180mL');
+  assert.strictEqual(variantLabel({ refill: true }), '詰替用');
+  // お店の商品1つの価格の横には、詰替用か容量が分かるときだけ
+  assert.strictEqual(shopPriceVariantLabel({ refill: false, size: '180mL' }), '本体 180mL');
+  assert.strictEqual(shopPriceVariantLabel({ refill: true, size: '150mL' }), '詰替用 150mL');
+  assert.strictEqual(shopPriceVariantLabel({ refill: false }), undefined);
+  assert.strictEqual(shopPriceVariantLabel(undefined), undefined);
+  // 本体と詰替用を一緒に売るものは1個ではない。「本体別売り」の詰替用は1個
+  for (const name of ['ちふれ 化粧水 本体+詰替用', 'ちふれ 化粧水 本体＋つめかえ用', 'ちふれ 化粧水 詰替用&本体', 'ちふれ 化粧水 本体と詰め替え用']) {
+    assert.ok(notSingleItem(name, false), name);
+  }
+  assert.ok(!notSingleItem('ちふれ 化粧水 詰替用（本体別売り）', false));
+
+  // B. 価格：本体と詰替用を両方出す
+  const q = 'ちふれ 保湿化粧水 とてもしっとりタイプ';
+  const rakuten = (shop: string, name: string, price: number, i: number) => ({ itemName: `${q} ${name}`, itemPrice: price, itemUrl: `https://item.rakuten.co.jp/${shop}/t184-${i}/`, shopName: shop, taxFlag: 0, availability: 1 });
+  const yahoo = (shop: string, name: string, price: number, i: number) => ({ name: `${q} ${name}`, price, url: `https://store.shopping.yahoo.co.jp/${shop}/t184-${i}.html`, inStock: true, condition: 'new', seller: { name: shop }, brand: { name: 'ちふれ' }, priceLabel: { taxable: true } });
+  const both = {
+    rakuten: [
+      rakuten('rakuten24', '詰替用(150ml)', 638, 1),
+      rakuten('cosme', '詰替え 150mL', 638, 2),
+      rakuten('matsukiyo', '180mL', 770, 3),
+      rakuten('cosme', '本体', 770, 4),
+      rakuten('drug', '本体+詰替用', 1300, 5),
+      // 本体の楽天の3件目（同じ種類の同じモールは2件まで）
+      rakuten('shop3', '180mL', 760, 6),
+    ],
+    yahoo: [yahoo('cosmey', '詰替え 150mL', 638, 1), yahoo('beisia', '詰め替え用 150ml', 640, 2), yahoo('kojima', '180mL', 770, 3), yahoo('kokumin', '【180mL】', 772, 4)],
+  };
+  let current: { rakuten: unknown[]; yahoo: unknown[] } = both;
+  const SHOP_ENV = ['RAKUTEN_APPLICATION_ID', 'RAKUTEN_ACCESS_KEY', 'RAKUTEN_AFFILIATE_ID', 'YAHOO_CLIENT_ID', 'YAHOO_AFFILIATE_LINK_TEMPLATE'];
+  const savedEnv = Object.fromEntries(SHOP_ENV.map((k) => [k, process.env[k]]));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'openapi.rakuten.co.jp') return Response.json({ items: current.rakuten });
+    if (url.hostname === 'shopping.yahooapis.jp') return Response.json({ hits: current.yahoo });
+    return new Response('offline in tests', { status: 503 });
+  }) as typeof fetch;
+  try {
+    for (const k of ['RAKUTEN_AFFILIATE_ID', 'YAHOO_AFFILIATE_LINK_TEMPLATE']) delete process.env[k];
+    process.env.RAKUTEN_APPLICATION_ID = 'test-rakuten-app';
+    process.env.RAKUTEN_ACCESS_KEY = 'test-rakuten-secret';
+    process.env.YAHOO_CLIENT_ID = 'test-yahoo-client';
+    const shown = (r: Awaited<ReturnType<typeof researchPrices>>) => r.offers.map((o) => [o.shop, o.priceYen, o.variant ? variantLabel(o.variant) : null]);
+
+    const result = await researchPrices(q);
+    // 本体が先、種類ごとに安い順。容量の無い「本体」は、本体の容量（180mL）。セットは出ない。
+    // 本体の楽天は2件まで（cosme の本体は、楽天の3件目なので出ない）
+    assert.deepStrictEqual(shown(result), [
+      ['shop3', 760, '本体 180mL'],
+      ['matsukiyo', 770, '本体 180mL'],
+      ['kojima', 770, '本体 180mL'],
+      ['楽天24', 638, '詰替用 150mL'],
+      ['cosme', 638, '詰替用 150mL'],
+      ['cosmey', 638, '詰替用 150mL'],
+    ]);
+    const reply = summarizePriceResult(result);
+    assert.ok(reply.includes('最も安いのは、本体 180mLは楽天市場のshop3の760円（税込）、詰替用 150mLは楽天市場の楽天24の638円（税込）です。'), reply);
+
+    // C. 本体だけ（容量も1つ）なら、種類は書かない（今までどおり）
+    current = { rakuten: [rakuten('matsukiyo', '180mL', 770, 3)], yahoo: [yahoo('kojima', '180mL', 780, 3)] };
+    const bottles = await researchPrices(q);
+    assert.deepStrictEqual(shown(bottles), [['matsukiyo', 770, null], ['kojima', 780, null]]);
+    assert.ok(summarizePriceResult(bottles).includes('が最も安く、770円（税込）です。'), summarizePriceResult(bottles));
+
+    // E. 詰替用の容量違いが本体より多くても、本体は残す（種類は3つまで）
+    current = {
+      rakuten: [
+        rakuten('a', '詰替用 150ml', 600, 11), rakuten('b', '詰替用 150ml', 610, 12), rakuten('c', '詰替用 120ml', 500, 13),
+        rakuten('d', '詰替用 120ml', 510, 14), rakuten('e', '詰替用 200ml', 800, 15), rakuten('f', '詰替用 200ml', 810, 16),
+        rakuten('g', '詰替用 150ml', 620, 17), rakuten('h', '180mL', 770, 18),
+      ],
+      yahoo: [],
+    };
+    const fewBottles = await researchPrices(q);
+    const labels = [...new Set(fewBottles.offers.map((o) => variantLabel(o.variant!)))];
+    assert.deepStrictEqual(labels, ['本体 180mL', '詰替用 120mL', '詰替用 150mL'], labels.join());
+
+    // D. 詰替用だけなら書く
+    current = { rakuten: [rakuten('rakuten24', '詰替用(150ml)', 638, 1)], yahoo: [] };
+    const refills = await researchPrices(q);
+    assert.deepStrictEqual(shown(refills), [['楽天24', 638, '詰替用 150mL']]);
+    assert.ok(summarizePriceResult(refills).includes('638円（税込・詰替用 150mL）です。'), summarizePriceResult(refills));
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
 });

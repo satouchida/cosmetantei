@@ -1,3 +1,5 @@
+import type { ListingVariant } from '../types';
+
 /** お店の商品名に付く、商品の名前ではない語（検索語を作るときだけ外す。表示する名前は変えない） */
 const LISTING_NOISE =
   /【[^】]*】|［[^］]*］|\[[^\]]*\]|＜[^＞]*＞|<[^>]*>|★|☆|送料無料|公式(?:ショップ|ストア)?|正規品|あす楽|期間限定|ポイント\s*\d+\s*倍|\d+\s*%\s*OFF/gi;
@@ -7,9 +9,42 @@ export function withoutListingNoise(name: string): string {
   return name.normalize('NFKC').replace(LISTING_NOISE, ' ').replace(/\s+/g, ' ').trim();
 }
 
-/** 商品名にある、まとめ売り・中古・ふるさと納税の返礼品など、1個の店頭の価格ではないもの */
+/**
+ * 商品名にある、まとめ売り・中古・ふるさと納税の返礼品など、1個の店頭の価格ではないもの。
+ * 本体と詰替用を一緒に売るもの（「本体+詰替用」）も1個ではない（「詰替用（本体別売り）」は詰替用1個）
+ */
 export const NOT_SINGLE_ITEM =
-  /\d+\s*(?:個|本|点|箱|袋|パック)\s*(?:セット|組|パック)|[x×]\s*\d+\s*(?:個|本|点|箱|袋|セット)|まとめ買い|まとめ売り|セット品|福袋|中古|訳あり|サンプル|試供品|ふるさと納税|返礼品/i;
+  /\d+\s*(?:個|本|点|箱|袋|パック)\s*(?:セット|組|パック)|[x×]\s*\d+\s*(?:個|本|点|箱|袋|セット)|まとめ買い|まとめ売り|セット品|福袋|中古|訳あり|サンプル|試供品|ふるさと納税|返礼品|本体\s*[+&と]\s*(?:詰|つめ|付け?替|つけかえ|レフィル|リフィル)|(?:詰め?替え?用?|つめかえ用?|レフィル|リフィル)\s*[+&]\s*本体/i;
+
+/** 詰替用の商品名（「詰替用」「詰め替え」「つめかえ用」「付け替え」「レフィル」） */
+const REFILL_WORD = /詰め?替え?|詰めかえ|つめ替え|つめかえ|付け?替え?|つけ替え|つけかえ|レフィル|リフィル|refill/i;
+/** 本体の商品名で詰替用に触れる言い方（「詰替用は別売り」「詰め替え可能」「詰替対応」）。詰替用そのものではない */
+const REFILL_MENTION = /(?:詰め?替え?|詰めかえ|つめ替え|つめかえ|レフィル|リフィル)\s*(?:用\s*)?(?:は\s*)?(?:別売り?|可能|対応|あり)/gi;
+/** 商品名の容量（「180mL」「【180mL】」「(150ml)」「50g」「1L」「30gx2」）。数字の区切りの「,」は先に外す */
+const SIZE_IN_NAME = /(\d+(?:\.\d+)?)\s*(ml|g|l)(?![a-wyz])/gi;
+
+/**
+ * お店の商品名から、同じ製品の中の種類（本体・詰替用と容量）を読む。成分は同じなので製品は分けず、価格の横に書く。
+ * 容量は1つだけ書かれているときだけ（「180ml 詰替150ml」は分からない）
+ */
+export function listingVariant(name: string): ListingVariant {
+  const n = name.normalize('NFKC').replace(/(?<=\d),(?=\d{3}(?!\d))/g, '');
+  const unit = (u: string) => ({ ml: 'mL', g: 'g', l: 'L' })[u.toLowerCase() as 'ml' | 'g' | 'l'];
+  const sizes = new Set([...n.matchAll(SIZE_IN_NAME)].map((m) => `${Number(m[1])}${unit(m[2])}`));
+  return { refill: REFILL_WORD.test(n.replace(REFILL_MENTION, ' ')), ...(sizes.size === 1 && { size: [...sizes][0] }) };
+}
+
+/** 種類の表示（「本体 180mL」「詰替用 150mL」「詰替用」） */
+export function variantLabel(variant: ListingVariant): string {
+  return [variant.refill ? '詰替用' : '本体', variant.size].filter(Boolean).join(' ');
+}
+
+/**
+ * お店の商品1つの価格の横に書く種類。詰替用か、容量が分かるときだけ（「本体」とだけ書いても分からない）
+ */
+export function shopPriceVariantLabel(variant: ListingVariant | undefined): string | undefined {
+  return variant && (variant.refill || variant.size) ? variantLabel(variant) : undefined;
+}
 
 /**
  * シートマスクは枚数で売る。「7枚入り」「30枚」は NOT_SINGLE_ITEM に当たらない（枚を数えない）が、個包装を袋で数えた
