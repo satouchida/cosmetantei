@@ -27,6 +27,26 @@ export function makerInListingName(name: string): string {
   return m && !GENERIC_MAKER_WORD.test(m[1]) ? first : '';
 }
 
+/** 【】の中の語。かっこの後ろは別の書き方（「【アベンヌ(Avene)】」→「アベンヌ」） */
+const NAME_TAG = /【([^】]*)】/g;
+/** 【】に書かれてもブランドではない語（品質・売り方・容量） */
+const NOT_A_BRAND_WORD =
+  /^(?:医薬部外品|薬用|国内正規品|正規品|無添加|新商品|新発売|限定|大容量|詰め?替え?用?|つめかえ用?|本体|\d+(?:\.\d+)?\s*(?:ml|g|l|kg|枚|個|本))$/i;
+
+/**
+ * 商品名の最初の語が、【】の中にもう一度書かれていればそれ（「麗白 ハトムギ ボディミルク(400ml)【麗白】」→「麗白」）。
+ * 楽天の商品にはブランドの欄が無いので、一覧に無いブランドのとき、お店の商品のブランド名に使う。無ければ ''
+ */
+export function brandTagInListingName(name: string): string {
+  const n = name.normalize('NFKC');
+  const first = withoutListingNoise(n).split(' ')[0] ?? '';
+  if (first.length < 2 || NOT_A_BRAND_WORD.test(first)) return '';
+  for (const [, tag] of n.matchAll(NAME_TAG)) {
+    if (tag.split('(')[0].trim().toLowerCase() === first.toLowerCase()) return first;
+  }
+  return '';
+}
+
 /**
  * 商品名にある、まとめ売り・中古・ふるさと納税の返礼品など、1個の店頭の価格ではないもの。
  * 本体と詰替用を一緒に売るもの（「本体+詰替用」）も1個ではない（「詰替用（本体別売り）」は詰替用1個）
@@ -98,16 +118,23 @@ export function notSingleItem(name: string, sheet: boolean): boolean {
   return NOT_SINGLE_ITEM.test(n.replace(ONE_SHEET_PACK, ' ')) || SHEET_ASSORTMENT.test(n);
 }
 
-/** 表示で外す飾り（色番号の［01］などは商品の名前の一部なので残す。＼／で囲んだ売り文句も外す） */
+/**
+ * 表示で外す飾り（色番号の［01］などは商品の名前の一部なので残す。＼／で囲んだ売り文句も外す）。
+ * かっこの中の JAN コード（「( 4901730160032 )」「(JAN:49012345)」。8桁は「JAN」と書いたときだけ）と、1語の「本体」も外す
+ * （本体・詰替用と容量は価格の横に書く）
+ */
 const DISPLAY_NOISE =
-  /【[^】]*】|＜[^＞]*＞|<[^>]*>|[\\＼][^\\＼/／]{1,20}[/／]|★|☆|送料無料|公式(?:ショップ|ストア)?|正規品|あす楽|期間限定|(?:ポイント|(?<![a-z])P)\s*\d+\s*倍|\d+\s*%\s*OFF/gi;
+  /【[^】]*】|＜[^＞]*＞|<[^>]*>|[\\＼][^\\＼/／]{1,20}[/／]|★|☆|送料無料|公式(?:ショップ|ストア)?|正規品|あす楽|期間限定|(?:ポイント|(?<![a-z])P)\s*\d+\s*倍|\d+\s*%\s*OFF|\(\s*(?:JAN(?:コード)?\s*:?\s*\d{8,14}|\d{13})\s*\)/gi;
+/** 1語の「本体」（ほかの飾りを外した後に見る。「本体【公式】」でも外す） */
+const DISPLAY_BODY_WORD = /(?<=^|\s)本体(?=\s|$)/g;
 
 /**
  * お店の商品名を表示する形にする：飾り（【公式】・送料無料など）と、先頭のブランド名（上の行に出すので）を外す。
  * 何も残らなければ元の名前
  */
 export function displayListingName(name: string, brand = ''): string {
-  let s = name.normalize('NFKC').replace(DISPLAY_NOISE, ' ').replace(/\s+/g, ' ').trim();
+  const clean = (t: string, noise: RegExp) => t.replace(noise, ' ').replace(/\s+/g, ' ').trim();
+  let s = clean(clean(name.normalize('NFKC'), DISPLAY_NOISE), DISPLAY_BODY_WORD);
   // 「ちふれ・CHIFURE」のように書き方が複数あるブランドは、最初の書き方
   const b = brand.normalize('NFKC').split(/[・/／]/)[0].trim();
   // ブランド名の後に区切り（空白・／など）があるときだけ（「セザンヌ化粧品」の「セザンヌ」・型番「ABC-123」は外さない）。

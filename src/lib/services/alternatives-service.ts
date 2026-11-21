@@ -15,7 +15,7 @@ import {
   SubKind,
   subKindFromText,
 } from '../analyzer/product-category';
-import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm } from '../analyzer/product-form';
+import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm, ProductForm } from '../analyzer/product-form';
 import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
@@ -444,6 +444,20 @@ export function alternativeQuickReplies(products: readonly Product[], shopCheck:
   return [...(explainsShortfall(products.length, shopCheck) ? [LABEL_INPUT_REPLY] : []), '🔍 別のコスメを調べる', '📸 バーコードをスキャンする'];
 }
 
+/** からだ用のクリームの形ごとの名前（「ボディミルク」「ボディジェル」。お店でもこの名前で売っている） */
+const BODY_FORM_NAMES: Partial<Record<ProductForm, string>> = {
+  milk: 'ボディミルク',
+  gel: 'ボディジェル',
+  oil: 'ボディオイル',
+  balm: 'ボディバーム',
+  cream: 'ボディクリーム',
+};
+
+/** 返答で言う、探した物の名前。からだ用のクリームは頼まれた形の名前（形が無ければ kindLabel） */
+function requestedKindLabel(category: AlternativeCategory, subKind: SubKind | undefined, form: ProductForm | undefined): string {
+  return (category === 'cream' && subKind === 'body' && form && BODY_FORM_NAMES[form]) || kindLabel(category, subKind);
+}
+
 /**
  * 代わりの商品の返答（定型文。Gemini は使わない）。shopCheck があり、limit 件に足りないときは、お店で確かめた数で理由を言う
  * （docs/plans/alternative-search-improvements.md「Path 8」）
@@ -453,7 +467,13 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   if (req.unknownKind) {
     return '肌荒れしたコスメの種類が分からないため、代わりの商品を探せませんでした。「化粧水で代わりを探して」のように、種類を添えてお送りください。';
   }
-  const kind = req.category ? kindLabel(req.category, req.subKind) : 'コスメ';
+  const form = req.profile?.form;
+  const hasForm = (p: Product) => formProfile(p.name, req.category).form === form;
+  const formShown = !!form && products.some(hasForm);
+  // 出した物がすべて頼まれた形（または何も無かった）ときは、頼まれた名前で言う（「ボディミルク」を「ボディクリーム」と言わない。
+  // 一部だけなら、ほかの形も入っているので種類の名前）
+  const allOfForm = !!form && products.every(hasForm);
+  const kind = req.category ? requestedKindLabel(req.category, req.subKind, allOfForm ? form : undefined) : 'コスメ';
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
   const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck) : [];
   if (products.length === 0) {
@@ -467,9 +487,8 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   }
   // 形（オイル・ジェル等）は並べ替えにだけ使い、候補を外さない。頼まれた形が1つも無ければ、そう言う
   // （「乳液」のように名前が頼まれた形を言う物は、その名前の物を出しているので言わない）
-  const form = req.profile?.form;
   const otherForms =
-    form && formFromText(kind) !== form && !products.some((p) => formProfile(p.name, req.category).form === form)
+    form && formFromText(kind) !== form && !formShown
       ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
       : [];
   return [

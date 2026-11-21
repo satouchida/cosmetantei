@@ -10,7 +10,7 @@ import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
-import { listingVariant, makerInListingName, notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { brandTagInListingName, listingVariant, makerInListingName, notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -241,12 +241,14 @@ const GATE_DROP: Record<Exclude<AlternativeGateReason, 'ok'>, ShopDropReason> = 
 };
 
 /**
- * お店の商品のブランド名。Yahoo! はブランドの欄。楽天は商品名の先頭の「〇〇化粧品」（一覧のブランドならその名前）、
- * 無ければ商品名にある一覧のブランド（先頭の会社名のほうが、後ろの「〇〇対応」などの語より確か）
+ * お店の商品のブランド名。Yahoo! はブランドの欄。楽天は商品名の先頭の「〇〇化粧品」か、【】の中にも書いた先頭の語
+ * （一覧のブランドならその名前。種類の語「【化粧水】」は除く）、無ければ商品名にある一覧のブランド
+ * （先頭の会社名のほうが、後ろの「〇〇対応」などの語より確か）
  */
 export function brandOf(item: ShopItem, brands: IndexedBrand[]): string {
   if (item.brands[0]) return item.brands[0];
-  const maker = makerInListingName(item.name);
+  const tagged = brandTagInListingName(item.name);
+  const maker = makerInListingName(item.name) || (tagged && !categoryFromText(tagged) ? tagged : '');
   const listed = (text: string) => brands.find((b) => textHasBrand(text, b))?.entry.name;
   return maker ? (listed(maker) ?? maker) : (listed(item.name) ?? '');
 }

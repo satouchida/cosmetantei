@@ -12478,3 +12478,60 @@ test('187. A typed alternatives request (「タール色素を含まないリッ
     COSMETICS_DATABASE.push(...otherLips);
   }
 });
+
+test('188. Shop listings without a brand field take a leading word repeated in 【】 as the brand (not a kind word), so the shown name drops it; the shown name drops a bracketed JAN code and a lone 「本体」; a body cream request names the asked-for form (ボディミルク) (live 2026-11-21: 「ダイアンボタニカル ボディミルク…」 kept the brand, a reply said ボディクリーム for ボディミルク)', async () => {
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { buildBrandIndex } = await import('../src/lib/services/brand-suggest');
+  const { brandOf } = await import('../src/lib/services/shop-alternatives');
+  const { brandTagInListingName, displayListingName } = await import('../src/lib/search/listing-name');
+  const { alternativeRequestFromText, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+
+  // ブランド：先頭の語が【】の中にもある
+  const item = (name: string) => ({ shopId: 'rakuten' as const, code: 't188', name, brands: [], url: 'https://item.rakuten.co.jp/x/t188/', taxIncluded: true });
+  const brands = buildBrandIndex(COSMETICS_DATABASE);
+  const diane = 'ダイアンボタニカル ボディミルク 無香料 詰め替え(400ml)【ダイアンボタニカル】';
+  assert.strictEqual(brandOf(item(diane), brands), 'ダイアンボタニカル');
+  assert.strictEqual(brandOf(item('麗白 ハトムギ ボディミルク 無香料タイプ(400ml)【麗白】'), brands), '麗白');
+  // 【】の中の英字表記は別の書き方。一覧のブランドなら一覧の名前
+  assert.strictEqual(brandTagInListingName('アベンヌ 薬用リップケア モイスト(4g)【アベンヌ(Avene)】'), 'アベンヌ');
+  assert.strictEqual(brandOf(item('アベンヌ 薬用リップケア モイスト(4g)【アベンヌ(Avene)】'), brands), 'アベンヌ');
+  // 【】に無い先頭の語・種類の語はブランドにしない
+  assert.strictEqual(brandTagInListingName('しっとり ボディミルク【無香料】'), '');
+  assert.strictEqual(brandOf(item('リップクリーム 無香料【リップクリーム】'), brands), '');
+  // 品質・容量の語は【】にあってもブランドにしない
+  assert.strictEqual(brandTagInListingName('医薬部外品 薬用 ボディミルク【医薬部外品】'), '');
+  assert.strictEqual(brandTagInListingName('300ml ボディミルク【300ml】'), '');
+  // 「〇〇化粧品」の会社名は今までどおり先
+  assert.strictEqual(brandOf(item('ベルマン化粧品 クレンジングジェル【ベルマン】'), brands), 'ベルマン化粧品');
+
+  // 表示する名前：ブランドを外す。かっこの中の JAN コードと1語の「本体」も外す（価格の横に「本体 250mL」と書く）
+  assert.strictEqual(displayListingName(diane, 'ダイアンボタニカル'), 'ボディミルク 無香料 詰め替え(400ml)');
+  assert.strictEqual(
+    displayListingName('ニュートロジーナ　ノルウェーフォーミュラ　　ディープモイスチャー　ボディミルク 250ml 本体　無香料（ 乾燥肌用ボディミルク ）( 4901730160032 )', 'ニュートロジーナ'),
+    'ノルウェーフォーミュラ ディープモイスチャー ボディミルク 250ml 無香料( 乾燥肌用ボディミルク )'
+  );
+  assert.strictEqual(displayListingName('やさしい ローション (JAN:4901234567894) 200ml', ''), 'やさしい ローション 200ml');
+  assert.strictEqual(displayListingName('やさしい ローション (JAN:49012345)', ''), 'やさしい ローション');
+  // ほかの飾りと並んだ「本体」も外す
+  assert.strictEqual(displayListingName('やさしい ボディミルク 本体【公式】', ''), 'やさしい ボディミルク');
+  // 語の一部の「本体」・数字だけでないかっこ・「JAN」と書いていない8桁は残す
+  assert.strictEqual(displayListingName('本体用 ボトル (2024年限定)', ''), '本体用 ボトル (2024年限定)');
+  assert.strictEqual(displayListingName('やさしい ローション (20240101)', ''), 'やさしい ローション (20240101)');
+
+  // 返答の名前：ボディミルクを頼んだら、ミルクの物を出せたときは「ボディミルク」
+  const req = alternativeRequestFromText('香料が入っていないボディミルクを探して')!;
+  assert.deepStrictEqual([req.category, req.subKind, req.profile?.form], ['cream', 'body', 'milk']);
+  const product = (name: string) => verifiedProduct({ id: `t188_${name}`, name, category: 'cream' });
+  assert.ok(summarizeAlternatives(req, [product('やさしい ボディミルク')]).startsWith('「香料」を含まないボディミルクを1件'));
+  // ミルクの物が無ければ、ボディクリームとして出し、そう言う
+  const creamsOnly = summarizeAlternatives(req, [product('やさしい ボディクリーム')]);
+  assert.ok(creamsOnly.startsWith('「香料」を含まないボディクリームを1件'), creamsOnly);
+  assert.ok(creamsOnly.includes('ミルクタイプは見つからなかったため、ほかのタイプのボディクリームを表示しています。'), creamsOnly);
+  // ミルクとクリームが混ざっていれば、種類の名前（ミルクは出せたので「見つからなかった」とは言わない）
+  const mixed = summarizeAlternatives(req, [product('やさしい ボディミルク'), product('やさしい ボディクリーム')]);
+  assert.ok(mixed.startsWith('「香料」を含まないボディクリームを2件') && !mixed.includes('タイプは見つからなかった'), mixed);
+  // 見つからないときは頼まれた名前
+  assert.ok(summarizeAlternatives(req, []).startsWith('「香料」を含まないボディミルクは'));
+  // 形を言わない頼み方は今までどおり
+  assert.ok(summarizeAlternatives(alternativeRequestFromText('香料が入っていないボディクリームを探して')!, [product('やさしい ボディクリーム')]).startsWith('「香料」を含まないボディクリームを'));
+});
