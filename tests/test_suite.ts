@@ -12379,3 +12379,53 @@ test('185. Alternatives name what was asked for, not the top-level kind: the rep
   assert.ok(gelMilk.includes('ジェルタイプは見つからなかったため、ほかのタイプの乳液を表示しています。'), gelMilk);
   assert.ok(summarizeAlternatives(req('香料が入っていないボディソープを探して'), [product('やさしい ボディソープ', 'cleanser')]).startsWith('「香料」を含まないボディソープを'));
 });
+
+test('186. A two-letter katakana brand only counts when it stands alone in a word: 「ダヴ」 (key ダブ) is not in 「ダブル洗顔不要」 or 「ダブルリペア」, 「ペア」 not in 「リペア」, 「SHIRO」 not in 「シロップ」; a listing with no listed brand takes a leading 「〇〇化粧品」 maker; 「＼P10倍／」 sale banners are not part of the name (live 2026-11-21: a ベルマン化粧品 cleansing gel was shown as ダヴ)', async () => {
+  const { SEED_INDEX, buildBrandIndex, textHasBrand } = await import('../src/lib/services/brand-suggest');
+  const { brandOf } = await import('../src/lib/services/shop-alternatives');
+  const { displayListingName, makerInListingName, withoutListingNoise } = await import('../src/lib/search/listing-name');
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const brand = (name: string) => SEED_INDEX.find((b) => b.entry.name === name)!;
+  const listing = '＼P10倍／【正規取扱品】ベルマン化粧品 ノンルースクイッククレンジング メイク落とし ゲル化粧品 無添加 無鉱物油 無香料 ノンパラベン オーガニック 保存料不使用 ダブル洗顔不要 ジェル ポンプ 化粧落とし 洗顔料';
+
+  // カタカナ2文字のキーは、前後がカタカナでないときだけ
+  const cases: [string, string, boolean][] = [
+    [listing, 'ダヴ', false],
+    ['ラ ロッシュ ポゼ トレリアン ダブルリペア フェイスモイスチャライザー', 'ダヴ', false],
+    ['リペア 薬用 アクネ クリーム', 'ペア', false],
+    ['ハチミツシロップ 美容液', 'SHIRO', false],
+    ['ダヴ ボディウォッシュ', 'ダヴ', true],
+    ['ダヴ(Dove) ボディウォッシュ', 'ダヴ', true],
+    ['Dove ボディウォッシュ', 'ダヴ', true],
+    ['ユニリーバ ダヴ', 'ダヴ', true],
+    ['ペア アクネクリーム', 'ペア', true],
+    ['ノブ ACアクティブ', 'ノブ', true],
+    // ひらがな・かっこ・ハイフンは区切り（searchKey はひらがなをカタカナにし、かっこを消すので、続いたことにしない）
+    ['ダヴの石鹸', 'ダヴ', true],
+    ['ダヴで洗顔', 'ダヴ', true],
+    ['ダヴ(ユニリーバ)', 'ダヴ', true],
+    ['【ダヴ】ダブルモイスト', 'ダヴ', true],
+    ['ペア-アクネ', 'ペア', true],
+    ['ダブー', 'ダヴ', false],
+  ];
+  for (const [text, name, expected] of cases) assert.strictEqual(textHasBrand(text, brand(name)), expected, `${name} in ${text}`);
+  // 製品の brand 欄も同じ照らし方（「ダヴ（ユニリーバ）」は一覧のダヴなので、新しいブランドとして足さない）
+  const seeded = buildBrandIndex([verifiedProduct({ id: 't186_dove', brand: 'ダヴ（ユニリーバ）' })]);
+  assert.strictEqual(seeded.length, SEED_INDEX.length, seeded.slice(SEED_INDEX.length).map((b) => b.entry.name).join(','));
+
+  // お店の商品のブランド：一覧に無ければ先頭の「〇〇化粧品」（「ゲル化粧品」「オーガニック化粧品」は会社名ではない）
+  const item = { shopId: 'rakuten' as const, code: 't186', name: listing, brands: [], url: 'https://item.rakuten.co.jp/x/t186/', taxIncluded: true };
+  const brands = buildBrandIndex(COSMETICS_DATABASE);
+  assert.strictEqual(brandOf(item, brands), 'ベルマン化粧品');
+  // 先頭の会社名が、後ろにある一覧のブランドより先（一覧のブランドならその名前）
+  assert.strictEqual(brandOf({ ...item, name: 'ベルマン化粧品 クレンジング ニベア 対応' }, brands), 'ベルマン化粧品');
+  assert.strictEqual(brandOf({ ...item, name: 'ちふれ化粧品 化粧水 ノーマルタイプ' }, brands), 'ちふれ');
+  assert.strictEqual(makerInListingName('ノンケミカル化粧品 クレンジング'), '');
+  assert.strictEqual(makerInListingName('オーガニック化粧品 化粧水'), '');
+  assert.strictEqual(makerInListingName('ゲル化粧品 クレンジング'), '');
+  assert.strictEqual(makerInListingName('ノンルースクイッククレンジング ベルマン化粧品'), '', 'only the first word');
+
+  // 売り文句（＼…／・P10倍）は名前ではない
+  assert.strictEqual(displayListingName('＼P10倍／【正規取扱品】ベルマン化粧品 ノンルースクイッククレンジング メイク落とし', 'ベルマン化粧品'), 'ノンルースクイッククレンジング メイク落とし');
+  assert.strictEqual(withoutListingNoise('＼最大20%OFF／ キュレル 化粧水 P5倍 SPF50'), 'キュレル 化粧水 SPF50');
+});

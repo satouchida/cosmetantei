@@ -40,6 +40,23 @@ interface BrandField {
   key: string;
   /** 空白・カンマ等で区切った語のキー */
   words: string[];
+  /** 2文字のカタカナのキーを探す語のキー（ひらがな・かっこ・ハイフンでも区切る。KANA_WORD_BREAK） */
+  kanaWords: string[];
+}
+
+/**
+ * 2文字のカタカナのキーを探す語の区切り。searchKey はひらがなをカタカナにし、かっこ・ハイフンを消すので、先に切っておく
+ * （「ダヴの石鹸」「ダヴ（ユニリーバ）」「ペア-アクネ」で、ブランドの後ろにカタカナが続いたことにしない）
+ */
+const KANA_WORD_BREAK = /[\s,，、/／・()[\]【】「」『』<>〈〉《》\-‐−–—_.。:|!?\u3041-\u3096]+/;
+
+/** brand 欄・お店の商品名を照らす形にする */
+function toField(text: string): BrandField {
+  return {
+    key: searchKey(text),
+    words: text.split(/[\s\u3000,，、/／・]+/).map(searchKey).filter(Boolean),
+    kanaWords: text.normalize('NFKC').split(KANA_WORD_BREAK).map(searchKey).filter(Boolean),
+  };
 }
 
 /** 製品ごとに1回だけ作る（製品が差し替わればオブジェクトが変わるので作り直す） */
@@ -48,20 +65,35 @@ const brandFieldCache = new WeakMap<Product, BrandField>();
 function brandField(p: Product): BrandField {
   let field = brandFieldCache.get(p);
   if (!field) {
-    const brand = p.brand ?? '';
-    field = { key: searchKey(brand), words: brand.split(/[\s　,，、/／・]+/).map(searchKey).filter(Boolean) };
+    field = toField(p.brand ?? '');
     brandFieldCache.set(p, field);
   }
   return field;
 }
 
+/** カタカナ（長音の「ー」を含む）。ひらがなは kanaWords を作るときに区切りにしている */
+const KATAKANA = /[ァ-ヺー]/;
+const isShortKatakana = (k: string) => k.length === 2 && /^[ァ-ヺー]+$/.test(k);
+
+/**
+ * 語の中に、前後がカタカナでない形でこのキーがあるか（2文字のカタカナのブランドが、ほかのカタカナの語の一部に当たらないように：
+ * 「ダヴ」（キーは「ダブ」）が「ダブル洗顔」、「ペア」が「リペア」、「シロ」が「シロップ」に当たらない）
+ */
+function wordHasKatakanaKey(word: string, k: string): boolean {
+  for (let i = word.indexOf(k); i >= 0; i = word.indexOf(k, i + 1)) {
+    if (!KATAKANA.test(word[i - 1] ?? '') && !KATAKANA.test(word[i + k.length] ?? '')) return true;
+  }
+  return false;
+}
+
 /**
  * brand 欄にこのキーがあるか。
  * 英字のキーは語の単位で（続く語をつなげてもよい）：「est」が「Estée Lauder」、「pair」が「Repair」に当たらないように。
- * 日本語は空白なしで書くので、2文字以上なら含まれていればよい
+ * 日本語は空白なしで書くので、2文字以上なら含まれていればよい。ただし2文字のカタカナのキーは、語の中で前後がカタカナでないときだけ
  */
 function fieldHasKey(field: BrandField, k: string): boolean {
   if (field.key === k) return true;
+  if (isShortKatakana(k)) return field.kanaWords.some((w) => wordHasKatakanaKey(w, k));
   if (!isAscii(k)) return k.length >= 2 && field.key.includes(k);
   if (k.length < 3) return false;
   for (let i = 0; i < field.words.length; i++) {
@@ -76,7 +108,7 @@ function fieldHasKey(field: BrandField, k: string): boolean {
 
 /** 文字列（お店の商品のブランド名・商品名）がこのブランドのものか。照らし方は brand 欄と同じ */
 export function textHasBrand(text: string, brand: IndexedBrand): boolean {
-  const field: BrandField = { key: searchKey(text), words: text.split(/[\s\u3000,，、/／・]+/).map(searchKey).filter(Boolean) };
+  const field = toField(text);
   return !!field.key && brand.keys.some((k) => fieldHasKey(field, k));
 }
 

@@ -10,7 +10,7 @@ import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
-import { listingVariant, notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { listingVariant, makerInListingName, notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -240,9 +240,15 @@ const GATE_DROP: Record<Exclude<AlternativeGateReason, 'ok'>, ShopDropReason> = 
   unrated: 'unrated',
 };
 
-/** お店の商品のブランド名（Yahoo! はブランドの欄、楽天は商品名にある一覧のブランド） */
-function brandOf(item: ShopItem, brands: IndexedBrand[]): string {
-  return item.brands[0] ?? brands.find((b) => textHasBrand(item.name, b))?.entry.name ?? '';
+/**
+ * お店の商品のブランド名。Yahoo! はブランドの欄。楽天は商品名の先頭の「〇〇化粧品」（一覧のブランドならその名前）、
+ * 無ければ商品名にある一覧のブランド（先頭の会社名のほうが、後ろの「〇〇対応」などの語より確か）
+ */
+export function brandOf(item: ShopItem, brands: IndexedBrand[]): string {
+  if (item.brands[0]) return item.brands[0];
+  const maker = makerInListingName(item.name);
+  const listed = (text: string) => brands.find((b) => textHasBrand(text, b))?.entry.name;
+  return maker ? (listed(maker) ?? maker) : (listed(item.name) ?? '');
 }
 
 /** 表示用に、お店の写真・価格・リンクを付ける（その返答にだけ使う。保存しない） */
@@ -462,7 +468,11 @@ function nameHasBrand(name: string, brand: IndexedBrand): boolean {
   const longKeys = brand.keys.filter((k) => !short(k));
   if (longKeys.length > 0 && textHasBrand(name, { ...brand, keys: longKeys })) return true;
   const shortKeys = brand.keys.filter(short);
-  return shortKeys.length > 0 && name.split(NAME_TOKEN_BREAK).some((t) => shortKeys.some((k) => searchKey(t).startsWith(k)));
+  // 語の頭にあり、textHasBrand でも当たるもの（カタカナのキーは後ろに続くカタカナがない：「ダヴ」が「ダブル洗顔」に当たらない）
+  return (
+    shortKeys.length > 0 &&
+    name.split(NAME_TOKEN_BREAK).some((t) => shortKeys.some((k) => searchKey(t).startsWith(k) && textHasBrand(t, { ...brand, keys: [k] })))
+  );
 }
 
 /**
