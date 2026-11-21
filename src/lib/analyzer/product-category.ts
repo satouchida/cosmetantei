@@ -176,7 +176,8 @@ const SUB_KIND_WORDS: Partial<Record<AlternativeCategory, readonly [RegExp, SubK
   toner: [
     [/ハンド(?!メイド)/, 'hand'],
     [BODY_ONLY, 'body_lotion'],
-    [/拭き取り|拭きとり|ふきとり|ふき取り/, 'wipe_off'],
+    // 「拭き取り不要」は拭き取り化粧水ではない（洗い流すパックの「洗い流し不要」と同じ）
+    [/(?:拭き取り|拭きとり|ふきとり|ふき取り)(?!不要|いらず|なし)/, 'wipe_off'],
   ],
 };
 
@@ -231,12 +232,24 @@ export function mostCommonSubKind(
 }
 
 /**
- * 同じ下位の種類の候補しか代わりにならないもの（顔の製品はハンド・からだ・目元・口紅・メイク落とし・洗顔料・ボディソープ・ボディローションの
- * 代わりにならず、その逆も同じ）。分析した製品がこれなら、名前に下位の種類が無い候補も外す
+ * 同じ下位の種類の候補しか代わりにならないもの（顔の製品はハンド・からだ・目元・口紅・メイク落とし・洗顔料・ボディソープ・ボディローション・
+ * 拭き取り化粧水の代わりにならず、その逆も同じ）。分析した製品がこれなら、名前に下位の種類が無い候補も外す。
+ * 拭き取り化粧水はコットンで拭いて汚れを落とす物なので、ふつうの化粧水とは使い方が違う（2026-11-21。ふつうの化粧水を
+ * 「拭き取り化粧水」として出していた）
  */
-const STRICT_SUB_KINDS: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'face_wash', 'body_wash', 'body_lotion']);
+const STRICT_SUB_KINDS: ReadonlySet<SubKind> = new Set([
+  'hand',
+  'body',
+  'eye',
+  'lip_color',
+  'makeup_remover',
+  'face_wash',
+  'body_wash',
+  'body_lotion',
+  'wipe_off',
+]);
 /** 分析した製品に下位の種類が無いとき（顔のクリーム等として扱う）に外す、候補の下位の種類 */
-const NOT_FOR_UNSAID: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion']);
+const NOT_FOR_UNSAID: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion', 'wipe_off']);
 
 /**
  * 候補の下位の種類が、分析した製品に合うか。same: 同じ（先に並べる）/ unsaid: 名前で分からない・どちらでもよい（後に並べる）/

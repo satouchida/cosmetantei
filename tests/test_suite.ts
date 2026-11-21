@@ -10499,14 +10499,14 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
   assert.strictEqual(subKindFit('milk', 'milk'), 'same');
   assert.strictEqual(subKindFit('milk', 'face_cream'), 'other');
   assert.strictEqual(subKindFit('milk', undefined), 'unsaid');
-  for (const strict of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_lotion'] as const) {
+  for (const strict of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_lotion', 'wipe_off'] as const) {
     assert.strictEqual(subKindFit(strict, undefined), 'other', strict);
   }
-  // 分析した製品に下位の種類が無いとき：ハンド・からだ用・目元・口紅・メイク落とし・ボディソープ・ボディローションは外し、ほかは今までどおり
-  for (const notForUnsaid of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion'] as const) {
+  // 分析した製品に下位の種類が無いとき：ハンド・からだ用・目元・口紅・メイク落とし・ボディソープ・ボディローション・拭き取り化粧水は外し、ほかは今までどおり
+  for (const notForUnsaid of ['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion', 'wipe_off'] as const) {
     assert.strictEqual(subKindFit(undefined, notForUnsaid), 'other', notForUnsaid);
   }
-  for (const kept of ['face_wash', 'milk', 'gel', 'face_cream', 'lip_care', 'sheet', 'wipe_off', undefined] as const) {
+  for (const kept of ['face_wash', 'milk', 'gel', 'face_cream', 'lip_care', 'sheet', undefined] as const) {
     assert.strictEqual(subKindFit(undefined, kept), 'unsaid', String(kept));
   }
 
@@ -10612,7 +10612,7 @@ test('166. Sub-kinds: names → kind and sub-kind, the drop and rank rules, the 
       // シートマスク・からだ用の日焼け止めは、種類のジャンルの一部なので種類のジャンルで絞る（2026-11-18 の実測の後）
       ['mask', 'sheet', ['シートマスク', '503020', 'シートマスク', '1767']],
       ['toner', 'body_lotion', ['ボディローション', null, 'ボディローション', null]],
-      ['toner', 'wipe_off', ['化粧水', '216307', '化粧水', '1764']],
+      ['toner', 'wipe_off', ['拭き取り化粧水', null, '拭き取り化粧水', null]],
       ['sunscreen', 'body', ['日焼け止め ボディ', '503054', '日焼け止め ボディ', '46427']],
       ['sunscreen', 'base', ['日焼け止め', '503054', '日焼け止め', '46427']],
       ['toner', undefined, ['化粧水', '216307', '化粧水', '1764']],
@@ -12534,4 +12534,58 @@ test('188. Shop listings without a brand field take a leading word repeated in �
   assert.ok(summarizeAlternatives(req, []).startsWith('「香料」を含まないボディミルクは'));
   // 形を言わない頼み方は今までどおり
   assert.ok(summarizeAlternatives(alternativeRequestFromText('香料が入っていないボディクリームを探して')!, [product('やさしい ボディクリーム')]).startsWith('「香料」を含まないボディクリームを'));
+});
+
+test('189. 拭き取り化粧水 needs the same sub-kind both ways (ordinary toners are not offered for it, nor it for them) and the shop searches 拭き取り化粧水; a brand written in the name in another listed spelling (Curel / キュレル) does not make the same product look different (live 2026-11-21: three ordinary toners were answered as 拭き取り化粧水, and one キュレル sheet mask was shown twice)', async () => {
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  const { alternativeRequestFromText } = await import('../src/lib/services/alternatives-service');
+  const { shopSearchLabel } = await import('../src/lib/services/shop-alternatives');
+  const { isSameProduct, productIdentityKey } = await import('../src/lib/search/product-identity');
+  const { productCategory } = await import('../src/lib/analyzer/product-category');
+
+  // 拭き取り化粧水：名前に拭き取りと書いた化粧水だけ。ふつうの化粧水を頼んだら、拭き取り化粧水は出さない
+  const toner = (id: string, brand: string, name: string) =>
+    verifiedProduct({ id: `t189_${id}`, brand, name, category: 'toner', ingredients: ['水', 'BG', 'グリセリン'] });
+  const saved = [
+    toner('naturie', 'ナチュリエ', 'ハトムギ化粧水(ナチュリエ スキンコンディショナーR)'),
+    toner('chifure', 'ちふれ・CHIFURE', '保湿化粧水 とてもしっとりタイプ'),
+    toner('minon', '第一三共ヘルスケア', 'ミノン アミノモイスト モイストチャージ ローション II もっとしっとりタイプ'),
+    toner('wipe', 'テスト', 'やさしい 拭き取り化粧水'),
+  ];
+  // ほかのテストが保存した化粧水（種類の欄が無く、名前で化粧水と分かる物も）は、この間だけ外す
+  const otherToners = COSMETICS_DATABASE.filter((x) => productCategory(x) === 'toner');
+  for (const p of otherToners) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.indexOf(p), 1);
+  COSMETICS_DATABASE.unshift(...saved);
+  try {
+    const found = (text: string) => {
+      const req = alternativeRequestFromText(text)!;
+      return findSafeAlternatives(req.avoid, [], 50, { category: req.category, subKind: req.subKind }).map((p) => p.id);
+    };
+    assert.deepStrictEqual(found('香料が入っていない拭き取り化粧水を探して'), ['t189_wipe']);
+    assert.deepStrictEqual(found('香料が入っていない化粧水を探して').sort(), ['t189_chifure', 't189_minon', 't189_naturie']);
+  } finally {
+    for (const p of saved) {
+      const at = COSMETICS_DATABASE.findIndex((x) => x.id === p.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    COSMETICS_DATABASE.push(...otherToners);
+  }
+  assert.strictEqual(shopSearchLabel('toner', 'wipe_off'), '拭き取り化粧水');
+  // 「拭き取り不要」は拭き取り化粧水ではない
+  const { subKindFromText } = await import('../src/lib/analyzer/product-category');
+  assert.strictEqual(subKindFromText('toner', '拭き取り不要 オールインワン化粧水'), undefined);
+  assert.strictEqual(subKindFromText('toner', 'ふきとり化粧水 200ml'), 'wipe_off');
+
+  // 同じ製品：ブランド欄が「Curel」、名前が「キュレル …」（一覧のキュレルの別の書き方）。JAN コードは違う（改良・入数違い）
+  const yahoo = { id: 'a', brand: 'キュレル', name: '潤浸保湿 モイストリペアシートマスク', barcode: '4901301411761' };
+  const kao = { id: 'b', brand: 'Curel', name: 'キュレル 潤浸保湿 モイストリペアシートマスク', barcode: '4901301395092' };
+  assert.strictEqual(productIdentityKey(kao.brand, kao.name), productIdentityKey(yahoo.brand, yahoo.name));
+  assert.ok(isSameProduct(yahoo, kao));
+  assert.ok(isSameProduct({ ...yahoo, name: 'キュレル 潤浸保湿 モイストリペアシートマスク' }, kao));
+  // 同じブランドの別の製品は別
+  assert.ok(!isSameProduct({ id: 'c', brand: 'Curel', name: 'キュレル 潤浸保湿 化粧水 III' }, yahoo));
+  // 一覧の書き方を外すのは名前の先頭だけ（語の途中は残す）。一覧に無いブランドは今までどおり
+  assert.strictEqual(productIdentityKey('Curel', '潤浸保湿 キュレルの化粧水'), '潤浸保湿キュレルの化粧水');
+  assert.strictEqual(productIdentityKey('ダイアンボタニカル', 'ダイアンボタニカル ボディミルク 400ml'), 'ボディミルク');
 });

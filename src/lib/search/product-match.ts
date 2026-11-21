@@ -57,22 +57,28 @@ const CATEGORY_KEYS: Record<string, string[]> = Object.fromEntries(
  * 一覧のブランドの書き方（名前・読み・英字表記）の照合キー → そのブランドの照合キー（名前のキー）。
  * forQuery: 検索語の語に使う一覧（普通の英語の語でもある書き方 AMBIGUOUS_BRAND_SPELLINGS を除く）
  */
-let brandIndex: { all: Map<string, string>; forQuery: Map<string, string> } | null = null;
+let brandIndex: { all: Map<string, string>; forQuery: Map<string, string>; spellings: Map<string, string[]> } | null = null;
+
+function buildListedBrandIndex(): NonNullable<typeof brandIndex> {
+  const all = new Map<string, string>();
+  // ブランドの照合キー → そのブランドの書き方すべて（listedBrandSpellings）
+  const spellings = new Map<string, string[]>();
+  for (const b of BRANDS_JP) {
+    const canonical = searchKey(b.name);
+    const written = [b.name, b.kana, ...(b.aliases ?? [])].filter((s): s is string => !!s);
+    spellings.set(canonical, [...(spellings.get(canonical) ?? []), ...written]);
+    for (const spelling of written) {
+      const key = searchKey(spelling);
+      if (key && !all.has(key)) all.set(key, canonical);
+    }
+  }
+  const forQuery = new Map(all);
+  for (const w of AMBIGUOUS_BRAND_SPELLINGS) forQuery.delete(searchKey(w));
+  return { all, forQuery, spellings };
+}
 
 function listedBrands(forQuery: boolean): Map<string, string> {
-  if (!brandIndex) {
-    const all = new Map<string, string>();
-    for (const b of BRANDS_JP) {
-      const canonical = searchKey(b.name);
-      for (const spelling of [b.name, b.kana, ...(b.aliases ?? [])]) {
-        const key = spelling ? searchKey(spelling) : '';
-        if (key && !all.has(key)) all.set(key, canonical);
-      }
-    }
-    const forQuery = new Map(all);
-    for (const w of AMBIGUOUS_BRAND_SPELLINGS) forQuery.delete(searchKey(w));
-    brandIndex = { all, forQuery };
-  }
+  brandIndex ??= buildListedBrandIndex();
   return forQuery ? brandIndex.forQuery : brandIndex.all;
 }
 
@@ -97,6 +103,18 @@ export function listedBrandKeys(brandField: string): string[] {
     if (hit) keys.add(hit[0]);
   }
   return [...keys];
+}
+
+/**
+ * 製品のブランド欄の、一覧のブランドの書き方すべて（名前・読み・別の書き方。「Curel」→ キュレル, Curel）。
+ * 見つけ方は listedBrandKeys と同じ
+ */
+export function listedBrandSpellings(brandField: string): string[] {
+  const keys = listedBrandKeys(brandField);
+  if (keys.length === 0) return [];
+  brandIndex ??= buildListedBrandIndex();
+  const { spellings } = brandIndex;
+  return keys.flatMap((k) => spellings.get(k) ?? []);
 }
 
 /** 検索語の語。一覧のブランドの書き方（続く語を含む）はブランドの照合キーにする（「Maybelline」→ メイベリン） */

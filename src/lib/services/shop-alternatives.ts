@@ -48,13 +48,13 @@ const GENRES: Record<AlternativeCategory, ShopGenre> = {
 /**
  * 下位の種類ごとの検索語とジャンル（docs/plans/alternative-search-improvements.md「Path 1」）。ジャンルは確かめた ID だけ
  * （乳液・クレンジングは 2026-10-18）。確かめた ID の無いものはジャンルで絞らず、名前の語で確かめる（ID を推測しない）。
- * ここに無い下位の種類（洗顔料・顔のクリーム・顔用や下地の日焼け止め・口紅・洗い流すパック・拭き取り化粧水）は、
+ * ここに無い下位の種類（洗顔料・顔のクリーム・顔用や下地の日焼け止め・口紅・洗い流すパック）は、
  * 種類の名前と種類のジャンルで探す（その種類のジャンルに入っている）
  * 自分の ID が無くても、種類のジャンルの一部なら種類のジャンルで絞る（ジャンル無しでは別の種類ばかり返る。実測 2026-11-18）：
  * からだ用の日焼け止め（日焼け止めのジャンル）・シートマスク（パックのジャンル）。種類のジャンルに入っているか分からない
  * ものは絞らない：ボディソープ・ボディローション・ハンド・からだ用・目元のクリーム・オールインワン（お店ではボディケア等の
  * 別のジャンル）、保湿ジェル（クリームのジャンルか分からない）、リップクリーム（リップのジャンルが口紅側か分からない。
- * ジャンル無しで見つかっている）
+ * ジャンル無しで見つかっている）、拭き取り化粧水（化粧水のジャンルに入るか確かめていない。名前の語で探し、種類は名前で確かめる）
  */
 const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKind, { label: string; genre?: ShopGenre }>>>> = {
   cleanser: {
@@ -73,7 +73,7 @@ const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKin
   sunscreen: { body: { label: '日焼け止め ボディ', genre: GENRES.sunscreen } },
   lip: { lip_care: { label: 'リップクリーム' } },
   mask: { sheet: { label: 'シートマスク', genre: GENRES.mask } },
-  toner: { body_lotion: { label: 'ボディローション' } },
+  toner: { body_lotion: { label: 'ボディローション' }, wipe_off: { label: '拭き取り化粧水' } },
 };
 
 /** お店で探す種類の語（Web で探す検索語も同じ語にする） */

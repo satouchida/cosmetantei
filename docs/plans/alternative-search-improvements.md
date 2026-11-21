@@ -108,7 +108,11 @@ Done 2026-11-17 (test 166; the owner's Path 0 run is still to do):
   did not list, because the kind's search would come back almost empty after the name filter:
   `gel` 保湿ジェル, `body_lotion` ボディローション, sunscreen `body` 日焼け止め ボディ (no genre).
   Sub-kinds with no label (face wash, face cream, face and base sunscreens, lip colour, wash-off
-  pack, wipe-off toner) keep the kind's label and genre, as today.
+  pack) keep the kind's label and genre, as today.
+- 2026-11-21: `wipe_off` (拭き取り化粧水) now requires the same sub-kind both ways, like
+  `body_lotion`, and the shop search uses the keyword 拭き取り化粧水 (no genre). A live
+  「拭き取り化粧水を探して」 had answered with three ordinary toners; a wipe-off toner is used on a
+  cotton pad to clean the skin, so an ordinary toner is not an alternative, and the reverse.
 - The log line has `subKind` after `kind` (null when none).
 - Additions beyond the table: kind words オールインワン (cream, before toner and serum),
   スキンコンディショナー (toner), モイスチャライザー (cream), メイクリムーバー (cleanser, before

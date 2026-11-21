@@ -1,6 +1,6 @@
 import { Product } from '../types';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
-import { listedBrandKeys } from './product-match';
+import { listedBrandKeys, listedBrandSpellings } from './product-match';
 
 /**
  * 同じ製品かどうか（表記の違う同じ製品を1つにまとめる・比較リストに登録した製品を代わりの商品に出さない）
@@ -40,11 +40,20 @@ const withoutNonNameWords = (name: string) => name.normalize('NFKC').replace(EDI
 
 /**
  * ページごとに表記が違う同じ製品を同一視するためのキー
- * 例: 「ちふれ・CHIFURE / 美白化粧水 Ｗ」と「ちふれ化粧品 / ちふれ美白化粧水 W」は同じキーになる
+ * 例: 「ちふれ・CHIFURE / 美白化粧水 Ｗ」と「ちふれ化粧品 / ちふれ美白化粧水 W」は同じキーになる。
+ * 「Curel / キュレル 潤浸保湿 モイストリペアシートマスク」と「キュレル / 潤浸保湿 モイストリペアシートマスク」も同じ
  */
 export function productIdentityKey(brand: string, name: string): string {
   // 容量（150ml・つめかえ用の 130ml 等）は成分が同じなので区別しない
   let key = compact(withoutNonNameWords(name)).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
+  // 名前の先頭の、ブランド欄とは別の書き方のブランド（ブランド欄が「Curel」で名前が「キュレル 潤浸保湿…」）。
+  // 一覧のブランドの書き方だけ、先頭だけ（短い書き方で語の途中を消さない）
+  const leading = listedBrandSpellings(brand)
+    .map(compact)
+    .filter((s) => s.length >= 2)
+    .sort((a, b) => b.length - a.length)
+    .find((s) => key.startsWith(s));
+  if (leading) key = key.slice(leading.length);
   for (const token of brandTokens(brand)) key = key.split(token).join('');
   return key || compact(name);
 }
