@@ -5,7 +5,7 @@ import { Product } from '@/lib/types';
 import { ShoppingBag, ExternalLink, ShieldCheck, JapaneseYen } from 'lucide-react';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
 import { badge, buttonPrimaryCompact, buttonSecondaryCompact, busyLook, innerCard, panel } from '../ui/design';
-import { CATEGORY_LABELS_JA, productCategory } from '@/lib/analyzer/product-category';
+import { kindLabel, productCategory, productSubKind } from '@/lib/analyzer/product-category';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { isPersistable } from '@/lib/usable-products';
@@ -31,7 +31,10 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
   // 「同じ種類」と書くのは、全商品の種類がそろうときだけ（src/lib/analyzer/product-category.ts）
   const categories = new Set(products.map((p) => productCategory(p)));
   const category = categories.size === 1 ? [...categories][0] : undefined;
-  const sameKind = category ? `同じ種類（${CATEGORY_LABELS_JA[category]}）で、` : '';
+  // 下位の種類も全商品でそろうときは、その名前（クレンジング・乳液。返答と同じ名前）
+  const subKinds = new Set(products.map((p) => productSubKind(p)));
+  const subKind = subKinds.size === 1 ? [...subKinds][0] : undefined;
+  const sameKind = category ? `同じ種類（${kindLabel(category, subKind)}）で、` : '';
 
   return (
     <section className={`my-3 space-y-3 text-ink ${panel('safe', 'roomy')}`}>

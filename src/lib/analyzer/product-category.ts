@@ -180,6 +180,31 @@ const SUB_KIND_WORDS: Partial<Record<AlternativeCategory, readonly [RegExp, SubK
   ],
 };
 
+/**
+ * 下位の種類の名前（返答・Web の検索語で、探している物を言う。「クレンジング」を「洗顔料」、「乳液」を「クリーム」と言わない）。
+ * 無い下位の種類は種類の名前（kindLabel）
+ */
+const SUB_KIND_LABELS_JA: Partial<Record<AlternativeCategory, Partial<Record<SubKind, string>>>> = {
+  cleanser: { makeup_remover: 'クレンジング', face_wash: '洗顔料', body_wash: 'ボディソープ' },
+  cream: {
+    all_in_one: 'オールインワン',
+    hand: 'ハンドクリーム',
+    body: 'ボディクリーム',
+    eye: 'アイクリーム',
+    milk: '乳液',
+    gel: '保湿ジェル',
+  },
+  sunscreen: { hand: 'ハンド用日焼け止め', base: '日焼け止め下地', body: 'ボディ用日焼け止め', face: '顔用日焼け止め' },
+  lip: { lip_care: 'リップクリーム', lip_color: '口紅' },
+  mask: { sheet: 'シートマスク', wash_off: '洗い流すパック' },
+  toner: { hand: 'ハンドローション', body_lotion: 'ボディローション', wipe_off: '拭き取り化粧水' },
+};
+
+/** 探している物の名前（下位の種類があればその名前、無ければ種類の名前） */
+export function kindLabel(kind: AlternativeCategory, subKind: SubKind | undefined): string {
+  return (subKind && SUB_KIND_LABELS_JA[kind]?.[subKind]) || CATEGORY_LABELS_JA[kind];
+}
+
 /** 種類の中の、下位の種類（名前・文章から）。種類が無い・語が無ければ undefined */
 export function subKindFromText(kind: AlternativeCategory | undefined, text: string): SubKind | undefined {
   if (!kind) return undefined;

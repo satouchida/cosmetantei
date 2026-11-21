@@ -9,6 +9,21 @@ import { AlternativeCategory, BODY_ONLY, FACE_ONLY, mostCommon, productCategory 
 
 export type ProductForm = 'mist' | 'sheet' | 'stick' | 'foam' | 'balm' | 'oil' | 'gel' | 'milk' | 'cream' | 'powder' | 'water';
 
+/** 形の名前（お店の商品名によく書かれる言い方。お店の検索語と、代わりの商品の返答で使う） */
+export const FORM_LABELS_JA: Readonly<Record<ProductForm, string>> = {
+  mist: 'ミスト',
+  sheet: 'シート',
+  stick: 'スティック',
+  foam: '泡',
+  balm: 'バーム',
+  oil: 'オイル',
+  gel: 'ジェル',
+  milk: 'ミルク',
+  cream: 'クリーム',
+  powder: 'パウダー',
+  water: 'ウォーター',
+};
+
 export interface FormProfile {
   form?: ProductForm;
   use?: 'face' | 'body';

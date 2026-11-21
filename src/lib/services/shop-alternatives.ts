@@ -3,7 +3,7 @@ import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
 import { AlternativeGateReason, alternativeGateReason } from '../analyzer/alternative-gate';
 import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
-import { bestFormSimilarity, FormProfile, formFromText, formProfile, formSimilarity, hasFormProfile, ProductForm } from '../analyzer/product-form';
+import { bestFormSimilarity, FORM_LABELS_JA, FormProfile, formFromText, formProfile, formSimilarity, hasFormProfile, ProductForm } from '../analyzer/product-form';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
@@ -76,26 +76,17 @@ const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKin
   toner: { body_lotion: { label: 'ボディローション' } },
 };
 
+/** お店で探す種類の語（Web で探す検索語も同じ語にする） */
+export function shopSearchLabel(category: AlternativeCategory, subKind: SubKind | undefined): string {
+  return shopSearchFor(category, subKind).label;
+}
+
 /** お店で探す語とジャンル。下位の種類の決まった検索語があればそれ、無ければ種類の名前とジャンル */
 function shopSearchFor(category: AlternativeCategory, subKind: SubKind | undefined): { label: string; genre?: ShopGenre } {
   const bySubKind = subKind && SUB_KIND_SEARCH[category]?.[subKind];
   return bySubKind ?? { label: CATEGORY_LABELS_JA[category], genre: GENRES[category] };
 }
 
-/** 検索語に足す形の語（お店の商品名によく書かれる言い方） */
-const FORM_SEARCH_WORDS: Record<ProductForm, string> = {
-  mist: 'ミスト',
-  sheet: 'シート',
-  stick: 'スティック',
-  foam: '泡',
-  balm: 'バーム',
-  oil: 'オイル',
-  gel: 'ジェル',
-  milk: 'ミルク',
-  cream: 'クリーム',
-  powder: 'パウダー',
-  water: 'ウォーター',
-};
 /** 出品者が商品名に形を書く種類（docs/plans/alternative-search-improvements.md「Path 2」） */
 const FORM_SEARCH_KINDS: ReadonlySet<AlternativeCategory> = new Set(['sunscreen', 'cleanser', 'cream']);
 
@@ -105,7 +96,7 @@ const FORM_SEARCH_KINDS: ReadonlySet<AlternativeCategory> = new Set(['sunscreen'
  */
 export function shopFormWord(category: AlternativeCategory, subKind: SubKind | undefined, form: ProductForm | undefined): string | undefined {
   if (!form || !FORM_SEARCH_KINDS.has(category)) return undefined;
-  return formFromText(shopSearchFor(category, subKind).label) ? undefined : FORM_SEARCH_WORDS[form];
+  return formFromText(shopSearchFor(category, subKind).label) ? undefined : FORM_LABELS_JA[form];
 }
 
 /**

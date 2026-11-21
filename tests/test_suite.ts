@@ -2452,7 +2452,7 @@ test('63. Alternatives: the search query uses only DB names and fixed words; the
     return req ? buildAlternativeQuery(req) : null;
   };
   assert.strictEqual(query('香料不使用の化粧水'), '敏感肌 化粧水 無香料 全成分');
-  assert.strictEqual(query('エタノールとパラベンが入っていない乳液を探して'), '敏感肌 クリーム アルコールフリー パラベンフリー 全成分');
+  assert.strictEqual(query('エタノールとパラベンが入っていない乳液を探して'), '敏感肌 乳液 アルコールフリー パラベンフリー 全成分');
   assert.strictEqual(query('PGが入ってない美容液'), '敏感肌 美容液 PG不使用 全成分');
   assert.strictEqual(query('リモネンも香料も入っていない洗顔'), '敏感肌 洗顔料 無香料 全成分', 'Fragrance allergens share one term');
   // 文章の中の個人的な内容は検索語に入らない
@@ -2461,7 +2461,7 @@ test('63. Alternatives: the search query uses only DB names and fixed words; the
   assert.strictEqual(query('何かいいものある？'), null, 'No ingredient and no category: no request');
   // 欲しい成分は避けない。避けたいと書かれた成分だけを避ける
   assert.strictEqual(query('セラミド配合で香料フリーの化粧水'), '敏感肌 化粧水 無香料 全成分');
-  assert.strictEqual(query('無香料でグリセリン入りの乳液'), '敏感肌 クリーム 無香料 全成分');
+  assert.strictEqual(query('無香料でグリセリン入りの乳液'), '敏感肌 乳液 無香料 全成分');
 
   // 比較リストから：候補成分を避け、種類は肌荒れしたコスメから。文章の種類が優先
   const routine = {
@@ -12335,4 +12335,47 @@ test('184. Bottle and refill (and sizes) are versions of one product: each price
       else process.env[k] = v;
     }
   }
+});
+
+test('185. Alternatives name what was asked for, not the top-level kind: the reply and the web search say クレンジング, ボディソープ, 乳液 (were 洗顔料 and クリーム), the web search adds the shop form word (オイル); when no shown product has the asked-for form, the reply says other forms are shown (forms still only rank) (live 2026-11-20: a cleansing-oil request answered 「洗顔料を2件」 with two gels)', async () => {
+  const { alternativeRequestFromText, buildAlternativeQuery, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { kindLabel } = await import('../src/lib/analyzer/product-category');
+  const req = (text: string) => alternativeRequestFromText(text)!;
+  const product = (name: string, category: Product['category']) => verifiedProduct({ id: `t185_${name}`, name, category });
+
+  // 名前：下位の種類があればその名前、無ければ種類の名前
+  assert.strictEqual(kindLabel('cleanser', 'makeup_remover'), 'クレンジング');
+  assert.strictEqual(kindLabel('cleanser', 'body_wash'), 'ボディソープ');
+  assert.strictEqual(kindLabel('cleanser', undefined), '洗顔料');
+  assert.strictEqual(kindLabel('cream', 'milk'), '乳液');
+  assert.strictEqual(kindLabel('cream', 'face_cream'), 'クリーム');
+  assert.strictEqual(kindLabel('toner', undefined), '化粧水');
+
+  // Web の検索語
+  assert.strictEqual(buildAlternativeQuery(req('香料が入っていないクレンジングオイルを探して')), '敏感肌 クレンジング オイル 無香料 全成分');
+  assert.strictEqual(buildAlternativeQuery(req('香料が入っていないボディソープを探して')), '敏感肌 ボディソープ 無香料 全成分');
+  assert.strictEqual(buildAlternativeQuery(req('香料が入っていない洗顔料を探して')), '敏感肌 洗顔料 無香料 全成分');
+  assert.strictEqual(buildAlternativeQuery(req('香料が入っていない乳液を探して')), '敏感肌 乳液 無香料 全成分');
+  // Web の検索語はお店の検索と同じ語（「顔用日焼け止め」のように狭めない）。返答は頼まれた物の名前
+  const face = req('香料が入っていない顔用の日焼け止めを探して');
+  assert.strictEqual(buildAlternativeQuery(face), '敏感肌 日焼け止め 無香料 全成分');
+  assert.ok(summarizeAlternatives(face, [product('やさしい UVミルク', 'sunscreen')]).startsWith('「香料」を含まない顔用日焼け止めを'));
+  assert.strictEqual(buildAlternativeQuery(req('香料が入っていないボディ用の日焼け止めを探して')), '敏感肌 日焼け止め ボディ 無香料 全成分');
+
+  // 返答：探している物の名前。頼まれた形が無ければ、ほかの形を出していると言う
+  const oilReq = req('香料が入っていないクレンジングオイルを探して');
+  const gel = product('エムディア クレンジング スピーディークレンジングジェル 130g', 'cleanser');
+  const oil = product('マイルド クレンジングオイル', 'cleanser');
+  const gelsOnly = summarizeAlternatives(oilReq, [gel]);
+  assert.ok(gelsOnly.startsWith('「香料」を含まないクレンジングを1件見つけました。'), gelsOnly);
+  assert.ok(gelsOnly.includes('オイルタイプは見つからなかったため、ほかのタイプのクレンジングを表示しています。'), gelsOnly);
+  assert.ok(!summarizeAlternatives(oilReq, [gel, oil]).includes('タイプは見つからなかった'));
+  // 形を頼んでいない・名前が形を言う（乳液）ときは言わない
+  assert.ok(!summarizeAlternatives(req('香料が入っていないクレンジングを探して'), [gel]).includes('タイプは見つからなかった'));
+  const milkReply = summarizeAlternatives(req('香料が入っていない乳液を探して'), [product('しっとり 保湿クリーム', 'cream')]);
+  assert.ok(milkReply.startsWith('「香料」を含まない乳液を1件見つけました。') && !milkReply.includes('タイプは見つからなかった'), milkReply);
+  // 名前が言う形と頼まれた形が違えば言う（「ジェル乳液」を頼んで、ジェルの乳液が無い）
+  const gelMilk = summarizeAlternatives(req('香料が入っていないジェル乳液を探して'), [product('しっとり 乳液', 'cream')]);
+  assert.ok(gelMilk.includes('ジェルタイプは見つからなかったため、ほかのタイプの乳液を表示しています。'), gelMilk);
+  assert.ok(summarizeAlternatives(req('香料が入っていないボディソープを探して'), [product('やさしい ボディソープ', 'cleanser')]).startsWith('「香料」を含まないボディソープを'));
 });

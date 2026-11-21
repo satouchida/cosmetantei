@@ -6,8 +6,8 @@ import { alternativeAvoidItems, findSafeAlternatives } from '../analyzer/alterna
 import { performDifferentialAnalysis } from '../analyzer/differential-analysis';
 import {
   AlternativeCategory,
-  CATEGORY_LABELS_JA,
   categoryFromText,
+  kindLabel,
   mostCommonCategory,
   mostCommonSubKind,
   productCategory,
@@ -15,8 +15,8 @@ import {
   SubKind,
   subKindFromText,
 } from '../analyzer/product-category';
-import { FormProfile, formProfile, mostCommonForm } from '../analyzer/product-form';
-import { findShopAlternatives, shopFormWord, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
+import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm } from '../analyzer/product-form';
+import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { findIngredientsInText } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { isSameProduct, productIdentityKey, ProductIdentity, registeredMatcher } from '../search/product-identity';
@@ -201,10 +201,14 @@ function queryTerm(k: KnownIngredient): string {
   return `${short}不使用`;
 }
 
-/** 検索語（成分DBの名前と決まった語だけ） */
+/**
+ * 検索語（成分DBの名前と決まった語だけ）。種類の語と形の語は、お店の検索と同じ（下位の種類の名前で確かめた語だけ使い、
+ * 「顔用日焼け止め」のように狭めすぎない。「クレンジング」「乳液」「ボディソープ」はその名前）
+ */
 export function buildAlternativeQuery(req: AlternativeRequest): string {
   const terms = [...new Set(req.known.map(queryTerm))].slice(0, MAX_QUERY_INGREDIENTS);
-  return ['敏感肌', req.category ? CATEGORY_LABELS_JA[req.category] : 'スキンケア', ...terms, '全成分'].join(' ');
+  const kind = req.category ? [shopSearchLabel(req.category, req.subKind), shopFormWord(req.category, req.subKind, req.profile?.form)] : ['スキンケア'];
+  return ['敏感肌', ...kind.filter((w): w is string => !!w), ...terms, '全成分'].join(' ');
 }
 
 export interface AlternativeResult {
@@ -308,7 +312,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
 
   // お店で足りない（キーが無い・失敗した・確かめられる商品が少ない）ときは、Web で候補を探してから確かめ直す。
   // 保存済みの製品（Web で見つけた製品を含む）を先に、お店の商品を後に並べる（同じ製品は1つだけ）
-  const target = `敏感肌向けの${req.category ? CATEGORY_LABELS_JA[req.category] : 'スキンケア製品'}`;
+  const target = `敏感肌向けの${req.category ? kindLabel(req.category, req.subKind) : 'スキンケア製品'}`;
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
   const checked = check();
   const keys = new Set(checked.map((p) => productIdentityKey(p.brand, p.name)));
@@ -415,7 +419,7 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   if (req.unknownKind) {
     return '肌荒れしたコスメの種類が分からないため、代わりの商品を探せませんでした。「化粧水で代わりを探して」のように、種類を添えてお送りください。';
   }
-  const kind = req.category ? CATEGORY_LABELS_JA[req.category] : 'コスメ';
+  const kind = req.category ? kindLabel(req.category, req.subKind) : 'コスメ';
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
   const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck) : [];
   if (products.length === 0) {
@@ -427,8 +431,16 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
         : '商品を選ぶときは、パッケージの全成分表示をご確認ください。',
     ].join('\n\n');
   }
+  // 形（オイル・ジェル等）は並べ替えにだけ使い、候補を外さない。頼まれた形が1つも無ければ、そう言う
+  // （「乳液」のように名前が頼まれた形を言う物は、その名前の物を出しているので言わない）
+  const form = req.profile?.form;
+  const otherForms =
+    form && formFromText(kind) !== form && !products.some((p) => formProfile(p.name, req.category).form === form)
+      ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
+      : [];
   return [
     `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
+    ...otherForms,
     ...shortfall,
     '肌に合うかは人によって違います。初めて使うときは少量から試してください。',
   ].join('\n\n');
