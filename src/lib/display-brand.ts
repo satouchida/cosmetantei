@@ -1,4 +1,5 @@
 import { listedBrandName } from './services/brand-suggest';
+import { displayListingName } from './search/listing-name';
 import type { Product } from './types';
 
 /**
@@ -7,12 +8,17 @@ import type { Product } from './types';
  * - 一般名詞や不正ワードが入っていた場合は、商品名の先頭語や安全な表記にフォールバック
  * - isGenericTerm はサーバー側で Gemini 判定キャッシュを参照するために差し込む
  */
+/** brand 欄にブランド名がある（空・「ブランド未登録」「ブランド未記載」でない） */
+function isKnownBrand(brand: string | undefined): brand is string {
+  return !!brand && brand !== 'ブランド未登録' && brand !== 'ブランド未記載';
+}
+
 export function getDisplayBrand(
   brand?: string,
   name?: string,
   isGenericTerm: (term: string) => boolean = () => false
 ): string {
-  if (brand && !isGenericTerm(brand) && brand !== 'ブランド未登録' && brand !== 'ブランド未記載') {
+  if (isKnownBrand(brand) && !isGenericTerm(brand)) {
     return listedBrandName(brand) ?? brand;
   }
   if (name) {
@@ -22,6 +28,15 @@ export function getDisplayBrand(
     }
   }
   return '実在コスメ';
+}
+
+/**
+ * お店の商品のカードに出すブランドの行と名前（名前は displayListingName）。ブランドが分からなければ、飾りを外した名前の最初の語を
+ * ブランドの行に出し、名前からは外す（「「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター」の売り文句をブランドにしない）
+ */
+export function listingCardLabels(p: Pick<Product, 'brand' | 'name'>): { brand: string; name: string } {
+  const brand = getDisplayBrand(p.brand, displayListingName(p.name));
+  return { brand, name: displayListingName(p.name, isKnownBrand(p.brand) ? p.brand : brand) };
 }
 
 /** 「ブランド 商品名」。商品名にブランド名（「ちふれ化粧品 / ちふれ」のどれか）が入っていれば商品名だけ */

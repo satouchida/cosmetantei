@@ -6,8 +6,8 @@ import { PriceApiCredit, Product } from '@/lib/types';
 import { AlertTriangle, ShieldCheck, Search, ExternalLink } from 'lucide-react';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
-import { getDisplayBrand } from '@/lib/display-brand';
-import { displayListingName, shopPriceVariantLabel } from '@/lib/search/listing-name';
+import { getDisplayBrand, listingCardLabels } from '@/lib/display-brand';
+import { shopPriceVariantLabel } from '@/lib/search/listing-name';
 import { productSourceInfo } from '@/lib/product-source';
 import { quasiDrugActives } from '@/lib/quasi-drug';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
@@ -101,6 +101,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
         {products.map((p) => {
           const actives = quasiDrugActives(p);
           const qoo10Url = isAlternatives ? buildQoo10AffiliateUrl(p.brand, p.name) : null;
+          // 代わりの商品はお店の商品名のことがあるので、【公式】などの飾りを外して出す（ブランドの行も飾りを外した名前から）
+          const label = isAlternatives ? listingCardLabels(p) : { brand: getDisplayBrand(p.brand, p.name), name: p.name };
           return (
             <div
               key={p.id}
@@ -110,10 +112,9 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                 <div className="flex items-start gap-2.5">
                   {isAlternatives && p.imageUrl && <ShopPhoto src={p.imageUrl} />}
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold text-sage-700">{getDisplayBrand(p.brand, p.name)}</div>
+                    <div className="text-xs font-semibold text-sage-700">{label.brand}</div>
                     <h2 className="text-[0.9375rem] font-semibold line-clamp-2 mt-0.5 leading-snug break-keep [overflow-wrap:anywhere]">
-                      {/* 代わりの商品はお店の商品名のことがあるので、【公式】などの飾りを外して出す */}
-                      {isAlternatives ? displayListingName(p.name, p.brand) : p.name}
+                      {label.name}
                     </h2>
                     {isAlternatives && p.shopPrice && (
                       <p className="text-sm font-semibold text-ink mt-0.5">

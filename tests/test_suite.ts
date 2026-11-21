@@ -9206,8 +9206,10 @@ test('149. Shop candidates show the product name without listing extras or a rep
   const { readFileSync } = await import('node:fs');
   const tray = readFileSync('src/components/search/ShopProductSummary.tsx', 'utf8');
   assert.match(tray, /displayListingName\(product\.name, product\.brand\)/);
-  // 代わりの商品のカードも同じ（owner request 2026-11-04）
-  assert.match(readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8'), /isAlternatives \? displayListingName\(p\.name, p\.brand\)/);
+  // 代わりの商品のカードも同じ（owner request 2026-11-04。ブランドの行といっしょに listingCardLabels で作る。test 191）
+  const card = readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8');
+  assert.match(card, /isAlternatives \? listingCardLabels\(p\)/);
+  assert.match(card, /\{label\.brand\}[\s\S]*?\{label\.name\}/);
   assert.match(readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8'), /displayListingName\(p\.name, p\.brand\)/);
 });
 
@@ -12588,4 +12590,73 @@ test('189. 拭き取り化粧水 needs the same sub-kind both ways (ordinary ton
   // 一覧の書き方を外すのは名前の先頭だけ（語の途中は残す）。一覧に無いブランドは今までどおり
   assert.strictEqual(productIdentityKey('Curel', '潤浸保湿 キュレルの化粧水'), '潤浸保湿キュレルの化粧水');
   assert.strictEqual(productIdentityKey('ダイアンボタニカル', 'ダイアンボタニカル ボディミルク 400ml'), 'ボディミルク');
+});
+
+test('190. A katakana brand of three or more letters does not count in the middle of another katakana word: 「エスト」 is not in 「ホワイトクエスト」, but still counts alone, after a maker or kanji, in 【】, and right before its product name (「キュレルモイストリペア」); a brand written in hiragana (ちふれ) and one split across words (ラ・ロッシュ・ポゼ) still count (live 2026-11-21: an ANTI-SIGNAL eye cream was shown as エスト)', async () => {
+  const { SEED_INDEX, buildBrandIndex, textHasBrand } = await import('../src/lib/services/brand-suggest');
+  const { brandOf } = await import('../src/lib/services/shop-alternatives');
+  const brand = (name: string) => SEED_INDEX.find((b) => b.entry.name === name)!;
+  const listing = '「ポイント10倍 11月20〜21日」ANTI-SIGNAL ホワイトクエスト 本体/無香料 20g アイクリーム アットコスメ';
+  const cases: [string, string, boolean][] = [
+    [listing, 'エスト', false],
+    ['ホワイトクエスト', 'エスト', false],
+    ['エスト ザ ローション', 'エスト', true],
+    ['コーセー エスト', 'エスト', true],
+    ['花王エスト', 'エスト', true],
+    ['【エスト】ローション', 'エスト', true],
+    ['キュレルモイストリペア アイクリーム', 'キュレル', true],
+    ['アイクリーム キュレル', 'キュレル', true],
+    ['おすすめのキュレル', 'キュレル', true],
+    ['薬用キュレル', 'キュレル', true],
+    ['ちふれ化粧水', 'ちふれ', true],
+    // ひらがなの後ろは語の頭（searchKey でカタカナになっても、前のカタカナとは数えない）
+    ['オススメのちふれ', 'ちふれ', true],
+    ['おすすめちふれ', 'ちふれ', true],
+    ['ラ・ロッシュ・ポゼ トレリアン', 'ラ ロッシュ ポゼ', true],
+    // 空白で区切れば別の語。区切らずにカタカナの語に続けて書いたものは、語の途中と区別できないので当てない
+    ['ホワイト エスト', 'エスト', true],
+    ['スキンケアキュレル', 'キュレル', false],
+  ];
+  for (const [text, name, expected] of cases) assert.strictEqual(textHasBrand(text, brand(name)), expected, `${name} in ${text}`);
+  // お店の商品のブランドに、名前の途中のエストを使わない
+  const item = { shopId: 'rakuten' as const, code: 't190', name: listing, brands: [], url: 'https://item.rakuten.co.jp/x/t190/', taxIncluded: true };
+  assert.notStrictEqual(brandOf(item, buildBrandIndex([])), 'エスト');
+});
+
+test('191. A 「」 or 『』 holding sale text or a date (「ポイント10倍 11月20〜21日」, 『クーポンで10%OFF』, 「11/20まで」) is listing clutter, but one holding a name (「ちふれ」, 「Coffee」) is kept; a shop card with no known brand takes its brand line from the cleaned name and drops that word from the name (live 2026-11-21: an eye cream showed 「ポイント10倍 as its brand and 「 11月20〜21日」 at the start of its name)', async () => {
+  const { displayListingName, withoutListingNoise } = await import('../src/lib/search/listing-name');
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const listing = '「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ';
+
+  // 売り文句の「」は、検索語にも表示にも残さない
+  assert.strictEqual(withoutListingNoise(listing), 'ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ');
+  assert.strictEqual(displayListingName(listing), 'ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ');
+  assert.strictEqual(displayListingName('『クーポンで10%OFF』ミノン 化粧水'), 'ミノン 化粧水');
+  assert.strictEqual(displayListingName('「11/20まで」セザンヌ 化粧水'), 'セザンヌ 化粧水');
+  assert.strictEqual(displayListingName('「エントリーで」ミノン 化粧水'), 'ミノン 化粧水');
+  // 名前の「」は残す（英語の off・sale は語のときだけ）
+  assert.strictEqual(displayListingName('「ちふれ」うるおい 化粧水'), '「ちふれ」うるおい 化粧水');
+  assert.strictEqual(displayListingName('「Coffee」スクラブ 洗顔'), '「Coffee」スクラブ 洗顔');
+  assert.strictEqual(withoutListingNoise('「Wholesale」ボディソープ'), '「Wholesale」ボディソープ');
+  // ポイント・% は売り方の形のときだけ
+  assert.strictEqual(displayListingName('「ポイントメイクリムーバー」 ビフェスタ'), '「ポイントメイクリムーバー」 ビフェスタ');
+  assert.strictEqual(displayListingName('「ビタミンC 10%配合」 美容液'), '「ビタミンC 10%配合」 美容液');
+  assert.strictEqual(displayListingName('「ポイントUP中」ミノン 化粧水'), 'ミノン 化粧水');
+  assert.strictEqual(displayListingName('「最大20%OFF」ミノン 化粧水'), 'ミノン 化粧水');
+
+  // ブランドが分からない：飾りを外した名前の最初の語をブランドの行に出し、名前から外す
+  assert.deepStrictEqual(listingCardLabels({ brand: '', name: listing }), {
+    brand: 'ANTI-SIGNAL',
+    name: 'リンクルハンター 本体/無香料 20g アイクリーム アットコスメ',
+  });
+  // 「ブランド未登録」はブランドが無いのと同じ（最初の語をブランドの行と名前の両方に出さない）
+  assert.deepStrictEqual(listingCardLabels({ brand: 'ブランド未登録', name: listing }), {
+    brand: 'ANTI-SIGNAL',
+    name: 'リンクルハンター 本体/無香料 20g アイクリーム アットコスメ',
+  });
+  // ブランドが分かる：今までどおり（先頭のブランド名を名前から外す）
+  assert.deepStrictEqual(
+    listingCardLabels({ brand: 'キュレル', name: '「ポイント10倍 11月20〜21日」キュレル モイストリペア アイクリーム 25g' }),
+    { brand: 'キュレル', name: 'モイストリペア アイクリーム 25g' }
+  );
 });
