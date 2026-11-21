@@ -114,12 +114,25 @@ function isNegatedInText(item: KnownIngredient, text: string): boolean {
 }
 
 /**
+ * 比較リストに登録した製品（肌荒れした・使える・今使っているコスメ）。代わりの商品に出さない。
+ * 今使っているコスメは使えるコスメにも入っているので、同じ ID は1つだけ
+ */
+export function registeredProducts(routine: UserRoutineState | undefined): Product[] {
+  if (!routine) return [];
+  const byId = new Map<string, Product>();
+  for (const p of [...routine.badProducts, ...(routine.safeProducts ?? []), ...(routine.currentlyUsing ?? [])]) {
+    if (!byId.has(p.id)) byId.set(p.id, p);
+  }
+  return [...byId.values()];
+}
+
+/**
  * 比較リストから。サーバーで比較をやり直し、その候補成分を避ける。肌荒れしたコスメが無ければ null
  */
 export function alternativeRequestFromRoutine(routine: UserRoutineState | undefined): AlternativeRequest | null {
   if (!routine || routine.badProducts.length === 0) return null;
   const diff = performDifferentialAnalysis(routine.badProducts, routine.safeProducts ?? []);
-  const registered = [...routine.badProducts, ...(routine.safeProducts ?? []), ...(routine.currentlyUsing ?? [])];
+  const registered = registeredProducts(routine);
   const known: KnownIngredient[] = [];
   for (const c of diff.culprits) {
     if (c.riskLevel === 'safe') continue;
@@ -368,9 +381,15 @@ export function avoidedNames(req: AlternativeRequest): string[] {
 
 /**
  * 依頼の内容を決める。文章に成分DBの成分があればそれを避ける。無ければ比較リストの候補成分を避け、
- * 種類は文章で指定されていればそれを使う。どちらも無ければ null
+ * 種類は文章で指定されていればそれを使う。どちらも無ければ null。
+ * どの決め方でも、比較リストに登録した製品は勧めない（文章で成分を書いたときも、使えるコスメだけのときも）
  */
 export function alternativeRequest(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
+  const req = requestFromTextOrRoutine(text, routine);
+  return req && excludingRegistered(req, registeredProducts(routine));
+}
+
+function requestFromTextOrRoutine(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
   const fromText = alternativeRequestFromText(text);
   if (fromText && fromText.known.length > 0) return fromText;
   const fromRoutine = alternativeRequestFromRoutine(routine);
@@ -380,6 +399,21 @@ export function alternativeRequest(text: string, routine: UserRoutineState | und
     return { ...fromRoutine, category, subKind, profile, ...(!category && { unknownKind: true }) };
   }
   return fromText;
+}
+
+/**
+ * 登録した製品を候補から除く製品に足す（同じ ID は1つだけ）。ID だけでなく製品そのものも足す
+ * （同じ製品が別の ID・別の書き方で保存されていても除けるように）
+ */
+function excludingRegistered(req: AlternativeRequest, registered: Product[]): AlternativeRequest {
+  if (registered.length === 0) return req;
+  const products = req.excludeProducts ?? [];
+  const productIds = new Set(products.map((p) => p.id));
+  return {
+    ...req,
+    excludeIds: [...new Set([...req.excludeIds, ...registered.map((p) => p.id)])],
+    excludeProducts: [...products, ...registered.filter((p) => !productIds.has(p.id))],
+  };
 }
 
 /** 成分表示の入力を開くボタン（ブラウザ側で処理する。quick-replies.ts） */

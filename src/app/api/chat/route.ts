@@ -5,6 +5,7 @@ import { isValidProduct, isValidRoutine, MAX_MESSAGE_LENGTH } from '@/lib/server
 import { resolveClientProduct, resolveClientRoutine } from '@/lib/server/client-products';
 import { hydrateVerifiedProducts } from '@/lib/data/cosmetics-db';
 import { MAX_LABEL_NAME_LENGTH, MAX_LABEL_TEXT_LENGTH } from '@/lib/services/label-reader';
+import { registeredProducts } from '@/lib/services/alternatives-service';
 import { apiRoute, readJsonBody, TOO_LARGE } from '@/lib/server/api-route';
 import { ChatAction, ChatContext, firstReply, LabelInput } from './shared';
 import {
@@ -87,7 +88,7 @@ async function handlePost(request: NextRequest) {
     const routine = sentRoutine && (await resolveClientRoutine(sentRoutine));
     const selectedProduct = sentProduct && (await resolveClientProduct(sentProduct));
     // 比較リストに登録した製品（代わりの商品に出さない）
-    const registered = routine ? [...routine.badProducts, ...(routine.safeProducts ?? []), ...(routine.currentlyUsing ?? [])] : [];
+    const registered = registeredProducts(routine);
 
     const userText = (message || '').trim();
     const ctx: ChatContext = { request, action, routine, selectedProduct, sentProduct, registered, userText, barcode, label };

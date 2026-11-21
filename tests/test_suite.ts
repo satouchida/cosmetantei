@@ -12429,3 +12429,52 @@ test('186. A two-letter katakana brand only counts when it stands alone in a wor
   assert.strictEqual(displayListingName('＼P10倍／【正規取扱品】ベルマン化粧品 ノンルースクイッククレンジング メイク落とし', 'ベルマン化粧品'), 'ノンルースクイッククレンジング メイク落とし');
   assert.strictEqual(withoutListingNoise('＼最大20%OFF／ キュレル 化粧水 P5倍 SPF50'), 'キュレル 化粧水 SPF50');
 });
+
+test('187. A typed alternatives request (「タール色素を含まないリップを探して」) never suggests a product in the lists either, also when only 使えるコスメ has products (live 2026-11-21: two saved 使えるコスメ lips came back as alternatives)', async () => {
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  const { alternativeRequest } = await import('../src/lib/services/alternatives-service');
+
+  const lip = (id: string, name: string) =>
+    verifiedProduct({ id, brand: '資生堂', name, category: 'lip', ingredients: ['ワセリン', 'グリセリン'] });
+  const saved = [lip('reg187_more_lip_db', 'モアリップN'), lip('reg187_other_lip_db', 'ほかのリップ')];
+  // ほかのテストが保存したリップは、この間だけ外す（除いたかどうかだけを見る）
+  const otherLips = COSMETICS_DATABASE.filter((x) => x.category === 'lip');
+  for (const p of otherLips) COSMETICS_DATABASE.splice(COSMETICS_DATABASE.indexOf(p), 1);
+  COSMETICS_DATABASE.unshift(...saved);
+  try {
+    const text = 'タール色素を含まないリップを探して';
+    // 使えるコスメだけ（肌荒れしたコスメは無い）。同じ製品が別の ID・別の書き方で登録されている
+    const usable = lip('reg187_more_lip_client', '資生堂 モアリップ N');
+    const routine = { badProducts: [], safeProducts: [usable], currentlyUsing: [] };
+    const found = (req: NonNullable<ReturnType<typeof alternativeRequest>>) =>
+      findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], 50, { category: req.category }).map((p) => p.id);
+
+    const req = alternativeRequest(text, routine)!;
+    assert.ok(req.known.length > 0, 'タール色素 is read from the text');
+    assert.deepStrictEqual(req.excludeIds, ['reg187_more_lip_client']);
+    // 今使っているコスメは使えるコスメにも入っている。同じ製品は1つだけ
+    const inUse = alternativeRequest(text, { ...routine, currentlyUsing: [usable] })!;
+    assert.deepStrictEqual(inUse.excludeIds, ['reg187_more_lip_client']);
+    assert.strictEqual(inUse.excludeProducts?.length, 1);
+    assert.ok(!found(req).includes('reg187_more_lip_db'), found(req).join());
+    assert.ok(found(req).includes('reg187_other_lip_db'), found(req).join());
+
+    // 比較リストが空なら、同じリップを勧めてよい
+    const open = alternativeRequest(text, { badProducts: [], safeProducts: [], currentlyUsing: [] })!;
+    assert.deepStrictEqual(open.excludeIds, []);
+    assert.ok(found(open).includes('reg187_more_lip_db'));
+
+    // 比較リストから作る依頼は今までどおり（同じ ID を2回足さない）
+    const bad = verifiedProduct({ id: 'reg187_bad', brand: 'KATE', name: 'リップモンスター', category: 'lip', ingredients: ['ワセリン', '香料'] });
+    const fromList = alternativeRequest('原因候補を含まないアイテムは？', { badProducts: [bad], safeProducts: [usable], currentlyUsing: [usable] })!;
+    assert.deepStrictEqual(fromList.excludeIds, ['reg187_bad', 'reg187_more_lip_client']);
+    assert.strictEqual(fromList.excludeProducts?.length, 2);
+  } finally {
+    for (const p of saved) {
+      const at = COSMETICS_DATABASE.findIndex((x) => x.id === p.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+    COSMETICS_DATABASE.push(...otherLips);
+  }
+});
