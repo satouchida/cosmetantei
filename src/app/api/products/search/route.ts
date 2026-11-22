@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { searchCosmeticsLive } from '@/lib/services/live-cosmetics-service';
 import { isActualCosmeticProduct } from '@/lib/services/product-filter';
 import { brandProducts, BrandSuggestion, buildBrandIndex, resolveBrand, suggestBrands } from '@/lib/services/brand-suggest';
-import { onePerBarcode, searchKey } from '@/lib/search/product-match';
+import { searchKey } from '@/lib/search/product-match';
+import { onePerProduct } from '@/lib/search/product-identity';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '@/lib/server/cache';
 import { getClientIp, isRateLimited, RATE_LIMIT_MESSAGE_JA } from '@/lib/server/rate-limit';
 import { Product } from '@/lib/types';
@@ -45,17 +46,17 @@ async function handleGet(request: NextRequest) {
   // brand: 検索語の先頭のブランドと残りの語。ブラウザはこれで、お店の製品一覧（/api/products/lineup）を取って絞り込む
   const brand = resolved ? { name: resolved.brand.entry.name, rest: resolved.rest } : null;
   // 保存済みの製品は毎回読み直す（キャッシュには外部の結果だけを入れ、新しく調べた製品がすぐ出るように）
-  // 同じ JAN の製品（ブランドの製品と検索結果の両方にある、別のサイトで調べたもの）は1つにする
+  // 同じ製品（同じ JAN・表記ゆれの同じ製品。ブランドの製品と検索結果の両方にある、別のサイトで調べたもの）は1つにする
+  // 残すのは limit 件まで（入力のたびに呼ぶので、ブランドの全製品どうしを比べない）
   const withBrandFirst = (external: Product[]) => {
-    const out = [...byBrand];
-    for (const p of external) {
-      if (!out.some((r) => r.id === p.id)) out.push(p);
-    }
-    return onePerBarcode(out, isVerified).slice(0, limit);
+    const ids = new Set(byBrand.map((r) => r.id));
+    const out = [...byBrand, ...external.filter((p) => !ids.has(p.id))];
+    return onePerProduct(out, isVerified, limit);
   };
   // 保存済みのブランドの製品だけで足りるなら、外部に問い合わせない
-  if (onePerBarcode(byBrand, isVerified).length >= limit) {
-    return NextResponse.json({ query: q, results: withBrandFirst([]), brands, brand });
+  const brandOnly = onePerProduct(byBrand, isVerified, limit);
+  if (brandOnly.length >= limit) {
+    return NextResponse.json({ query: q, results: brandOnly, brands, brand });
   }
 
   // ブランド名を入力している途中（「しせ」）は Open Beauty Facts に問い合わせない（ブランドの候補を出せば足り、待たせない）

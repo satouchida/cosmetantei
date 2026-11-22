@@ -12835,3 +12835,29 @@ test('195. A 「/」 before the size does not split one product in two (live 202
   assert.ok(!isSameProduct({ ...cosme, id: 'x', name: '極潤ヒアルロン液 / ミルク' }, rohto));
   assert.ok(!isSameProduct({ id: 'y', brand: '肌ラボ', name: '極潤 α ハリクリーム' }, rohto));
 });
+
+test('196. The name-search list keeps one entry per product, not only per barcode (live 2026-11-22: 「肌ラボ 極潤ヒアルロン液」 listed 「極潤ヒアルロン液 / 170ml」 and 「肌ラボ 極潤ヒアルロン液」, two web pages of one product)', async () => {
+  const { onePerProduct } = await import('../src/lib/search/product-identity');
+  const cosme = { id: 'web_cosme', brand: '肌ラボ / HADA LABO', name: '極潤ヒアルロン液 / 170ml', ingredients: [] as string[] };
+  const rohto = { id: 'web_rohto', brand: '肌ラボ', name: '肌ラボ 極潤ヒアルロン液', ingredients: ['水', 'BG'] };
+  const light = { id: 'shop_light', brand: '肌ラボ', name: '極潤ヒアルロン液 ライトタイプ', ingredients: [] as string[] };
+  const refill = { id: 'shop_refill', brand: 'ロート製薬', name: '肌ラボ 極潤 ハリクリーム', ingredients: [] as string[], barcode: '4987241100000' };
+  const verified = (p: { ingredients: string[] }) => p.ingredients.length > 0;
+  // 同じ製品は最初の位置に1つ。全成分を確かめた方を残す
+  assert.deepStrictEqual(onePerProduct([cosme, light, rohto], verified).map((p) => p.id), ['web_rohto', 'shop_light']);
+  assert.deepStrictEqual(onePerProduct([rohto, cosme], verified).map((p) => p.id), ['web_rohto']);
+  // 別の製品（ライトタイプ・別の製品）は残す。同じ JAN コードは今までどおり1つ
+  assert.deepStrictEqual(onePerProduct([light, refill, { ...refill, id: 'shop_refill2', name: '別名' }]).map((p) => p.id), ['shop_light', 'shop_refill']);
+  // 上限：残すのは max 件まで。上限より後の、残した製品と同じ製品は置き換えにだけ使う
+  assert.deepStrictEqual(onePerProduct([cosme, light, rohto], verified, 1).map((p) => p.id), ['web_rohto']);
+  // 置き換えた（全成分を確かめた）製品が、後ろに残した製品と同じなら1つにする（JAN コードで後ろの製品と同じ）
+  const noJan = { id: 'a', brand: '肌ラボ', name: '極潤ヒアルロン液', ingredients: [] as string[] };
+  const withJan = { id: 'c', brand: 'ハダラボ社', name: '別の書き方の名前', ingredients: [] as string[], barcode: '4987241145959' };
+  const verifiedJan = { id: 'p', brand: '肌ラボ', name: '極潤ヒアルロン液 / 170ml', ingredients: ['水'], barcode: '4987241145959' };
+  assert.deepStrictEqual(onePerProduct([noJan, withJan, verifiedJan], verified).map((p) => p.id), ['p']);
+  // 検索の候補の API は、この判定で1つにする（JAN コードだけで比べない）
+  const { readFileSync } = await import('node:fs');
+  const route = readFileSync('src/app/api/products/search/route.ts', 'utf8');
+  assert.strictEqual((route.match(/onePerProduct\((out|byBrand), isVerified, limit\)/g) ?? []).length, 2);
+  assert.doesNotMatch(route, /onePerBarcode/);
+});

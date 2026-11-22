@@ -274,6 +274,31 @@ export function isSameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   );
 }
 
+/**
+ * 同じ製品（isSameProduct：同じ JAN コード、ブランドと名前の表記ゆれ）は1つにする。並びは最初に出た位置のまま、
+ * 全成分を確かめた製品があればそちらを残す（onePerBarcode と同じ。「極潤ヒアルロン液 / 170ml」と「極潤ヒアルロン液」）。
+ * max: 残す数の上限（入力のたびに呼ぶ検索の候補で、ブランドの全製品どうしを比べないため。上限より後の製品は、
+ * 残した製品と同じなら置き換えにだけ使う）
+ */
+export function onePerProduct<T extends ProductIdentity>(
+  products: readonly T[],
+  isVerified: (p: T) => boolean = () => false,
+  max = Infinity
+): T[] {
+  const out: T[] = [];
+  for (const p of products) {
+    const i = out.findIndex((kept) => isSameProduct(kept, p));
+    if (i < 0) {
+      if (out.length < max) out.push(p);
+    } else if (!isVerified(out[i]) && isVerified(p)) {
+      out[i] = p;
+      // 置き換えた製品は JAN コード・全成分が違うので、後ろに残した製品と同じになることがある。それは除く
+      for (let j = out.length - 1; j > i; j--) if (isSameProduct(p, out[j])) out.splice(j, 1);
+    }
+  }
+  return out;
+}
+
 /** 登録した製品（肌荒れした・使えるコスメ）のどれかと同じ製品か */
 export function isRegisteredProduct(product: ProductIdentity, registered: readonly ProductIdentity[]): boolean {
   return registered.some((r) => isSameProduct(product, r));
