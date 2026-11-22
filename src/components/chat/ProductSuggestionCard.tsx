@@ -103,6 +103,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
           const qoo10Url = isAlternatives ? buildQoo10AffiliateUrl(p.brand, p.name) : null;
           // 代わりの商品はお店の商品名のことがあるので、【公式】などの飾りを外して出す（ブランドの行も飾りを外した名前から）
           const label = isAlternatives ? listingCardLabels(p) : { brand: getDisplayBrand(p.brand, p.name), name: p.name };
+          // 読み上げの商品名も見えている名前から（お店の商品名の「ポイント10倍」などを読ませない）
+          const spokenName = isAlternatives ? `${label.brand} ${label.name}` : p.name;
           return (
             <div
               key={p.id}
@@ -172,7 +174,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                     >
                       <span>販売ページを見る</span>
                       <ExternalLink className="w-4 h-4" aria-hidden />
-                      <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                      <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
                     </a>
                   )}
                   {/* 検索のリンクは横に並べる（狭い画面では折り返す） */}
@@ -184,7 +186,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                       className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
                     >
                       Amazonで探す
-                      <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                      <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
                     </a>
                     {qoo10Url && (
                       <a
@@ -194,7 +196,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                         className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
                       >
                         Qoo10で探す
-                        <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                        <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
                       </a>
                     )}
                   </div>
@@ -207,7 +209,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   type="button"
                   onClick={() => onSelectToAnalyze(p)}
                   // 同じ文のボタンが並ぶので、読み上げでは商品名を足す（見えている文は先頭に残す）
-                  aria-label={`成分を詳しくチェック（${p.name}）`}
+                  aria-label={`成分を詳しくチェック（${spokenName}）`}
                   aria-disabled={busy || undefined}
                   className={`w-full ${buttonPrimary} ${busyLook}`}
                 >
@@ -218,7 +220,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <button
                     type="button"
                     onClick={() => onAddToBad(p)}
-                    aria-label={`肌荒れした（${p.name}）`}
+                    aria-label={`肌荒れした（${spokenName}）`}
                     className={`${routineActionCompact} ${routineAction.bad}`}
                   >
                     <AlertTriangle className="w-4 h-4" aria-hidden />
@@ -227,7 +229,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                   <button
                     type="button"
                     onClick={() => onAddToUsable(p)}
-                    aria-label={`使えている（${p.name}）`}
+                    aria-label={`使えている（${spokenName}）`}
                     className={`${routineActionCompact} ${routineAction.safe}`}
                   >
                     <ShieldCheck className="w-4 h-4" aria-hidden />

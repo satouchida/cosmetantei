@@ -12660,3 +12660,24 @@ test('191. A 「」 or 『』 holding sale text or a date (「ポイント10倍 
     { brand: 'キュレル', name: 'モイストリペア アイクリーム 25g' }
   );
 });
+
+test('192. A shop card reads out and searches Amazon with the cleaned name, not the shop\'s 「ポイント10倍 11月20〜21日」 (live 2026-11-22: the screen-reader text of every link and button, and the Amazon search, still carried the sale text)', async () => {
+  const listing = '「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ';
+  const query = (url: string) => new URL(url).searchParams.get('k');
+  // Amazon の検索語に売り文句を入れない（Qoo10 と同じ）。ブランドが名前の先頭にあれば重ねない
+  assert.strictEqual(query(buildAmazonAffiliateUrl('', listing)), 'ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ');
+  assert.strictEqual(query(buildAmazonAffiliateUrl('キュレル', '【公式】キュレル モイストリペア アイクリーム')), 'キュレル モイストリペア アイクリーム');
+  assert.strictEqual(query(buildAmazonAffiliateUrl('ちふれ', 'リップスティック')), 'ちふれ リップスティック');
+  assert.strictEqual(query(buildAmazonAffiliateUrl('ＤＨＣ', 'DHC 薬用リップクリーム')), 'DHC 薬用リップクリーム');
+  // 名前が飾りだけなら、ブランドだけで探す（ブランドもなければ元の文字で、空の検索にしない）
+  assert.strictEqual(query(buildAmazonAffiliateUrl('テスト', '【公式】')), 'テスト');
+  assert.strictEqual(query(buildAmazonAffiliateUrl('', '【公式】')), '【公式】');
+  assert.strictEqual(query(buildAmazonAffiliateUrl('', '化粧水')), '化粧水');
+  // 読み上げの名前（リンクの隠し文・ボタンの aria-label）は、見えているブランドの行と名前から
+  const { readFileSync } = await import('node:fs');
+  const card = readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8');
+  assert.match(card, /const spokenName = isAlternatives \? `\$\{label\.brand\} \$\{label\.name\}` : p\.name;/);
+  assert.strictEqual((card.match(/（\{spokenName\}、新しいタブで開く）/g) ?? []).length, 3);
+  assert.strictEqual((card.match(/aria-label=\{`[^`]*（\$\{spokenName\}）`\}/g) ?? []).length, 3);
+  assert.doesNotMatch(card, /sr-only">（\{p\.name\}|aria-label=\{`[^`]*\$\{p\.name\}/);
+});
