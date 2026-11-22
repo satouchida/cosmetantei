@@ -10,7 +10,7 @@ import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
-import { brandTagInListingName, listingVariant, LOOSE_NOISE, makerInListingName, notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { brandTagInListingName, listingVariant, LOOSE_NOISE, makerInListingName, notSingleItem, withoutListingNoise, withoutSearchTags } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -675,7 +675,8 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const found: { product: Product; item: ShopItem; listing?: ShopItem }[] = [];
   // 同じ製品は1つだけ（別のお店・別の容量・先頭の 0 の違う JAN コード）。確かめた後で比べる
   // （確かめられない同じ製品の出品が先にあっても、確かめられる出品を落とさない）
-  const listingKey = (item: ShopItem) => searchKey(withoutListingNoise(item.name).replace(SIZE, ''));
+  // 名前の後のお店の分類・管理の語（「ボディローション・ジェル」「ヴァセリン ヴアセリンアドバンスムコウ400」）も外して比べる
+  const listingKey = (item: ShopItem) => searchKey(withoutSearchTags(withoutListingNoise(item.name)).replace(SIZE, ''));
   const add = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const list = product.ingredients.join('|');
     const key = listingKey(item);

@@ -1,4 +1,6 @@
 import type { ListingVariant } from '../types';
+import { categoryFromText } from '../analyzer/product-category';
+import { formFromText } from '../analyzer/product-form';
 
 /**
  * 「」『』で囲んだ売り文句（「「ポイント10倍 11月20〜21日」」「『クーポンで10%OFF』」）。「」には商品の名前が入ることもあるので、
@@ -33,17 +35,49 @@ export function withoutListingNoise(name: string): string {
 const SEARCH_TAG =
   /^(?:\d0代\S*|年代|\S+にくい|\S+しない|(?:紫外線|uv|日焼け|花粉)対策|ギフト\S*|プレゼント\S*|(?:母|父|敬老)の日\S*|クリスマス\S*|ホワイトデー\S*|バレンタイン\S*|ランキング\S*|(?:楽天)?第?\d+位\S*|受賞\S*|おすすめ|オススメ|メール便\S*|ネコポス\S*|ゆうパケット\S*|即納|送料込み?)$/i;
 
+/** 種類・形の語（「ボディローション」「化粧水」「ジェル」「ミルク」） */
+const isKindWord = (word: string) => !!categoryFromText(word) || !!formFromText(word);
+/** 最初の語をもう一度書いたところで切るのは、間にこの数以上の語があるときだけ */
+const MIN_WORDS_BETWEEN = 2;
+
+/**
+ * 商品の名前の後に付く、お店の分類・管理の語を外す（docs/plans/shop-search-reach.md「Step 3」）。
+ * - 最初の語（ブランド）をもう一度書いたところから後ろ（「ヴァセリン … 無香料 400ml ヴァセリン ヴアセリンアドバンスムコウ400」の
+ *   商品コード）。最初の語が2文字以上で種類の語でなく、間に2語以上あるときだけ
+ * - 種類・形の語を「・」でつないだ最後の語（楽天のジャンル名「ボディローション・ジェル」「ボディーローション・ミルク・トナー」）。
+ *   前の語に種類・形の語があるときだけ
+ * - 前の語をくり返した最後の語（「… ボディローション 大容量 400ml 無香料 ボディローション」）。数字だけの語は外さない
+ */
+function withoutNameTail(words: string[]): string[] {
+  let kept = words;
+  const first = kept[0]?.toLowerCase() ?? '';
+  if (first.length >= 2 && !isKindWord(first)) {
+    const again = kept.findIndex((w, i) => i - 1 >= MIN_WORDS_BETWEEN && w.toLowerCase() === first);
+    if (again > 0) kept = kept.slice(0, again);
+  }
+  while (kept.length > 1) {
+    const last = kept[kept.length - 1];
+    const before = kept.slice(0, -1);
+    const genre = last.includes('・') && last.split('・').every((part) => part && isKindWord(part)) && before.some(isKindWord);
+    // 数字だけの語（色番号の「0」「01」）は、くり返しても名前の一部のことがある
+    const repeat = /\D/.test(last) && before.some((w) => w.toLowerCase() === last.toLowerCase());
+    if (!genre && !repeat) break;
+    kept = before;
+  }
+  return kept;
+}
+
 /**
  * お店の商品名から、検索用の語より後ろを外す（「美容液ファンデ 崩れにくい 30代 40代 …」→「美容液ファンデ」）。先頭の検索用の語
- * （「ギフト キュレル …」）も外す。すべての語が検索用の語なら、そのまま。Amazon・Qoo10 の検索はすべての語を含む商品を探すので、
- * 名前ではない語が1つでもあると見つからない
+ * （「ギフト キュレル …」）も外す。すべての語が検索用の語なら、そのまま。お店の分類・管理の語（withoutNameTail）も外す。
+ * Amazon・Qoo10 の検索はすべての語を含む商品を探すので、名前ではない語が1つでもあると見つからない
  */
 export function withoutSearchTags(name: string): string {
   const words = name.normalize('NFKC').split(/\s+/).filter(Boolean);
   const start = words.findIndex((w) => !SEARCH_TAG.test(w));
   if (start < 0) return words.join(' ');
   const end = words.findIndex((w, i) => i > start && SEARCH_TAG.test(w));
-  return words.slice(start, end < 0 ? undefined : end).join(' ');
+  return withoutNameTail(words.slice(start, end < 0 ? undefined : end)).join(' ');
 }
 
 /**

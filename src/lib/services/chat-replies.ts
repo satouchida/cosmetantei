@@ -271,9 +271,48 @@ const KANJI = /[一-鿿々]/;
  * （成分DBの drying_alcohol：エタノール・イソプロパノール）。「アルコールフリー」「アルコールが入っていない」で、まとめて避ける。
  * 語の途中では一致させない（「セチルアルコール」「ベヘニルアルコール」は乾かさない別の成分、「高級アルコール」も同じ）
  */
-export const INGREDIENT_GROUP_WORDS: readonly { word: string; category: KnownIngredient['category'] }[] = [
+export interface IngredientGroupWord {
+  word: string;
+  category: KnownIngredient['category'];
+  /** その種類のうち、まとまりに入れない成分の ID */
+  except?: readonly string[];
+  /** 含まないという意味の言い方（「ノンケミカル」「ケミカルフリー」）のときだけ（その語だけでは意味が広い） */
+  negatedOnly?: true;
+  /** 返答で成分を並べる代わりに言う名前（成分が多いまとまり） */
+  label?: string;
+}
+
+/**
+ * 紫外線散乱剤（酸化チタン・酸化亜鉛）。成分DBでは紫外線吸収剤と同じ uv_filter だが、「ノンケミカル」の日焼け止めに使う。
+ * 「紫外線吸収剤不使用」「ノンケミカル」で避けるのは、それ以外の uv_filter（docs/plans/shop-search-reach.md「Step 2」）
+ */
+const UV_SCATTERERS = ['titanium_dioxide', 'zinc_oxide'];
+
+export const INGREDIENT_GROUP_WORDS: readonly IngredientGroupWord[] = [
   { word: 'アルコール', category: 'drying_alcohol' },
+  { word: '紫外線吸収剤', category: 'uv_filter', except: UV_SCATTERERS, label: '紫外線吸収剤' },
+  // 「ケミカル」だけでは意味が広い（「ケミカルピーリング」は語の途中なので当たらない）
+  { word: 'ケミカル', category: 'uv_filter', except: UV_SCATTERERS, negatedOnly: true, label: '紫外線吸収剤' },
 ];
+
+/** その成分が、まとまりの言い方の指す成分か */
+export function inIngredientGroup(group: IngredientGroupWord, item: Pick<KnownIngredient, 'id' | 'category'>): boolean {
+  return item.category === group.category && !group.except?.includes(item.id);
+}
+
+/**
+ * 名前（label）のあるまとまりのうち、成分をすべて ids に含むもの（「紫外線吸収剤」）。返答で成分を並べずにその名前で言う。
+ * members はそのまとまりの成分の日本語名
+ */
+export function coveredIngredientGroups(ids: readonly string[]): { label: string; members: string[] }[] {
+  const covered: { label: string; members: string[] }[] = [];
+  for (const group of INGREDIENT_GROUP_WORDS) {
+    if (!group.label || covered.some((c) => c.label === group.label)) continue;
+    const members = KNOWN_INGREDIENTS.filter((k) => inIngredientGroup(group, k));
+    if (members.length > 0 && members.every((m) => ids.includes(m.id))) covered.push({ label: group.label, members: members.map((m) => m.nameJa) });
+  }
+  return covered;
+}
 
 /**
  * 文章（NFKC・小文字）の start〜end にある、まとまりの言い方が1つの語か。語の途中（前がカタカナ・漢字、後がカタカナ）なら null。
@@ -291,12 +330,13 @@ export function standaloneGroupWord(text: string, start: number, end: number): {
 /** 文章の中の、まとまりを指す言い方（1つの語のものだけ）。含まないという意味の言い方は includeNegated のときだけ */
 function groupWordHits(norm: string, includeNegated: boolean) {
   const hits: { item: KnownIngredient; start: number; end: number; inAscii: boolean }[] = [];
-  for (const { word, category } of INGREDIENT_GROUP_WORDS) {
+  for (const group of INGREDIENT_GROUP_WORDS) {
+    const { word } = group;
     for (let start = norm.indexOf(word); start >= 0; start = norm.indexOf(word, start + 1)) {
       const end = start + word.length;
       const found = standaloneGroupWord(norm, start, end);
-      if (!found || (!includeNegated && found.negated)) continue;
-      for (const item of KNOWN_INGREDIENTS) if (item.category === category) hits.push({ item, start, end, inAscii: false });
+      if (!found || (!includeNegated && found.negated) || (group.negatedOnly && !found.negated)) continue;
+      for (const item of KNOWN_INGREDIENTS) if (inIngredientGroup(group, item)) hits.push({ item, start, end, inAscii: false });
     }
   }
   return hits;

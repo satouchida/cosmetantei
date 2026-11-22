@@ -3,7 +3,8 @@ import { AlternativeCategory, BODY_ONLY, FACE_ONLY, mostCommon, productCategory 
 
 /**
  * 製品の形（ミスト・ジェル等）と使う場所（顔・からだ）、日焼け止めの SPF・PA・ウォータープルーフ。名前の決まった語から読む
- * （docs/plans/alternative-search-improvements.md「Path 2」）。代わりの商品の並べ替えにだけ使い、形で候補を外さない。
+ * （docs/plans/alternative-search-improvements.md「Path 2」）。代わりの商品の並べ替えと、保存済みの製品で足りたか（お店に聞くか。
+ * docs/plans/shop-search-reach.md「Step 1」）に使い、形で候補を外さない。
  * ブラウザのカードでも読めるように、サーバー専用のものは読み込まない
  */
 

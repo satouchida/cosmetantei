@@ -6,6 +6,7 @@ import { alternativeAvoidItems, findSafeAlternatives, fitsKind } from '../analyz
 import { performDifferentialAnalysis } from '../analyzer/differential-analysis';
 import {
   AlternativeCategory,
+  candidateSubKind,
   categoryFromText,
   kindLabel,
   mostCommonCategory,
@@ -13,11 +14,12 @@ import {
   productCategory,
   productSubKind,
   SubKind,
+  subKindFit,
   subKindFromText,
 } from '../analyzer/product-category';
 import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm, ProductForm } from '../analyzer/product-form';
 import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
-import { findIngredientsInText, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
+import { coveredIngredientGroups, findIngredientsInText, inIngredientGroup, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { isSameProduct, ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { buildBrandIndex, SEED_INDEX, textHasBrand } from './brand-suggest';
@@ -41,7 +43,7 @@ export interface AlternativeRequest {
   category?: AlternativeCategory;
   /** 種類の中の下位の種類（クレンジング・乳液・ハンドクリーム等）。名前・文章の語から。無ければ今までどおり */
   subKind?: SubKind;
-  /** 形・使う場所（ミスト・顔用・SPF 等。名前・文章の語から。並べ替えとお店の検索語に使う。名前そのものは持たない） */
+  /** 形・使う場所（ミスト・顔用・SPF 等。名前・文章の語から。並べ替え・お店の検索語・お店に聞くか（fitsRequest）に使う。名前そのものは持たない） */
   profile?: FormProfile;
   /** 比較リストから作ったが、肌荒れしたコスメの種類が分からない（同数・不明）。別の種類を勧めないよう探さない */
   unknownKind?: boolean;
@@ -102,7 +104,7 @@ const NEGATION_WINDOW = 20;
 export function isNegatedInText(item: KnownIngredient, text: string): boolean {
   const t = text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
   // まとまりの言い方（「アルコールフリー」のアルコール）も、その成分の名前として見る
-  const groupWords = INGREDIENT_GROUP_WORDS.filter((g) => g.category === item.category).map((g) => g.word);
+  const groupWords = INGREDIENT_GROUP_WORDS.filter((g) => inIngredientGroup(g, item)).map((g) => g.word);
   const names = [...item.nameJa.split(/[（(/／)）]/), ...item.aliases, ...groupWords]
     .map((n) => n.normalize('NFKC').toLowerCase().replace(/\s+/g, ''))
     .filter((n) => n.length >= 2);
@@ -281,14 +283,33 @@ export function shopCheckSummary(counts: ShopSearchCounts): ShopCheckSummary {
 }
 
 /**
- * 代わりの商品を探す。キャッシュ済みの確認済み製品から探し、足りなければお店の商品検索で探す
- * （docs/plans/alternative-recommendations.md の step 3）。それでも足りなければ（お店のキーが無い・失敗した・
+ * 頼まれた物にそのまま合う製品か：下位の種類を頼まれたら同じ下位の種類、形を頼まれたら同じ形
+ * （docs/plans/shop-search-reach.md「Step 1」）。どちらも無ければ、どの製品も合う。
+ * 合わない保存済みの製品（バームを頼まれたときのクレンジングオイル）は、お店に聞く前の「足りた」に数えない
+ */
+function fitsRequest(product: Pick<Product, 'name'>, req: Pick<AlternativeRequest, 'category' | 'subKind' | 'profile'>): boolean {
+  const { category, subKind } = req;
+  const form = req.profile?.form;
+  if (subKind && category && subKindFit(subKind, candidateSubKind(subKind, category, product.name), category) !== 'same') return false;
+  return !form || formProfile(product.name, category).form === form;
+}
+
+/** 合う物を先に（保存済み → お店）、次に合わない物（保存済み → お店）。limit 件まで */
+function fittingFirst(saved: Product[], shop: Product[], fits: (p: Product) => boolean, limit: number): Product[] {
+  return [...saved.filter(fits), ...shop.filter(fits), ...saved.filter((p) => !fits(p)), ...shop.filter((p) => !fits(p))].slice(0, limit);
+}
+
+/**
+ * 代わりの商品を探す。キャッシュ済みの確認済み製品から探し、頼まれた物に合う製品（fitsRequest）が足りなければお店の
+ * 商品検索で探す（docs/plans/alternative-recommendations.md の step 3）。それでも足りなければ（お店のキーが無い・失敗した・
  * 確かめられる商品が少ない）、Web で候補を探してから同じ確認（避ける成分・強い刺激成分を含まない、全成分が
- * 確認済み、同じ種類）をやり直す
+ * 確認済み、同じ種類）をやり直す。合わない保存済みの製品は、足りない分を埋めるのに使う（そのために Web では探さない）
  */
 export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_LIMIT): Promise<AlternativeResult> {
   const terms = shopWordsFor(req);
+  const fits = (p: Product) => fitsRequest(p, req);
   let saved = 0;
+  let fitting = 0;
   let shopLog: AlternativesLog['shop'] = null;
   // shopCheck はログの shop と同じときに null（お店に聞かなかった）
   const done = (result: Omit<AlternativeResult, 'shopCheck'>, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
@@ -299,6 +320,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       avoid: req.avoid.filter((a) => !('riskLevel' in a) || a.riskLevel !== 'safe').length,
       terms,
       saved,
+      fitting,
       answeredBy,
       shown: result.products.length,
       shop: shopLog,
@@ -319,7 +341,9 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   };
   const local = check();
   saved = local.length;
-  if (local.length >= limit) return done({ products: local, researched: false, credits: [] }, 'saved');
+  fitting = local.filter(fits).length;
+  // 合う製品だけで足りれば、お店に聞かない（合わない製品は、お店で足りないときに埋める）
+  if (fitting >= limit) return done({ products: local, researched: false, credits: [] }, 'saved');
 
   let shopProducts: Product[] = [];
   let credits: PriceApiCredit[] = [];
@@ -331,24 +355,30 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       avoid: req.avoid,
       terms,
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
-      limit: limit - local.length,
-      allowPaidLookups: req.allowPaidLookups ?? true,
+      limit: limit - fitting,
+      // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）
+      allowPaidLookups: (req.allowPaidLookups ?? true) && local.length < limit,
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);
     shopProducts = shop.products.filter((p) => !isRegistered(p));
     credits = shop.credits;
     shopLog = { status: shop.status, ...shop.counts };
-    if (local.length + shopProducts.length >= limit) return done({ products: [...local, ...shopProducts], researched: false, credits }, 'shop');
+    // 合わない保存済みの製品で埋めて足りれば、Web では探さない（今までどおり、有料の調べものを増やさない）
+    if (local.length + shopProducts.length >= limit) {
+      const products = fittingFirst(local, shopProducts, fits, limit);
+      const shown = shopProducts.filter((p) => products.includes(p));
+      return done({ products, researched: false, credits: shown.length > 0 ? credits : [] }, shown.length > 0 ? 'shop' : 'saved');
+    }
   }
 
   // お店で足りない（キーが無い・失敗した・確かめられる商品が少ない）ときは、Web で候補を探してから確かめ直す。
-  // 保存済みの製品（Web で見つけた製品を含む）を先に、お店の商品を後に並べる（同じ製品は1つだけ）
+  // 合う製品を先に、保存済みの製品（Web で見つけた製品を含む）をお店の商品より先に並べる（同じ製品は1つだけ）
   const target = `敏感肌向けの${req.category ? kindLabel(req.category, req.subKind) : 'スキンケア製品'}`;
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
   const checked = check();
   const extra = shopProducts.filter((p) => !checked.some((c) => isSameProduct(c, p)));
-  const products = [...checked, ...extra].slice(0, limit);
+  const products = fittingFirst(checked, extra, fits, limit);
   const fromShop = products.some((p) => extra.includes(p));
   // 答えたのは、表示した製品を足した最後の段（Web で保存された製品 → お店 → もとから保存済み）
   const answeredBy = products.some((p) => !extra.includes(p) && !local.some((l) => l.id === p.id))
@@ -378,6 +408,8 @@ interface AlternativesLog {
   terms: string[];
   /** 保存済みの製品から見つかった数 */
   saved: number;
+  /** そのうち、頼まれた下位の種類・形に合う数（fitsRequest。これが足りないとお店に聞く） */
+  fitting: number;
   answeredBy: 'saved' | 'shop' | 'web' | 'none';
   shown: number;
   /** お店に聞かなかったときは null。shop.shown は、登録した製品を除く前の数 */
@@ -388,13 +420,22 @@ function logAlternatives(line: AlternativesLog): void {
   console.log(`[alternatives] ${JSON.stringify(line)}`);
 }
 
-/** 返答で見せる、避けた成分の名前（最大3つ） */
+/**
+ * 返答で見せる、避けた成分の名前（最大3つ）。名前のあるまとまりの成分をすべて避けるときは、成分を並べずにまとまりの名前
+ * （「ノンケミカル」：10の紫外線吸収剤のうち3つを並べず「紫外線吸収剤」）
+ */
 export function avoidedNames(req: AlternativeRequest): string[] {
+  const groups = coveredIngredientGroups(req.known.map((k) => k.id));
+  const inGroup = new Set(groups.flatMap((g) => g.members));
+  // 比較リストの候補成分は表示の書き方（「オキシベンゾン」）のことがあるので、成分DBの名前で比べる
+  const memberOfGroup = (a: { nameJa: string; nameEn?: string }) =>
+    inGroup.has(a.nameJa) ||
+    inGroup.has((findMatchingKnownIngredient(a.nameJa) ?? (a.nameEn ? findMatchingKnownIngredient(a.nameEn) : undefined))?.nameJa ?? '');
   const names = req.avoid
-    .filter((a) => !('riskLevel' in a) || a.riskLevel !== 'safe')
+    .filter((a) => (!('riskLevel' in a) || a.riskLevel !== 'safe') && !memberOfGroup(a))
     .map((a) => a.nameJa.split(/[（(]/)[0].trim().slice(0, 30))
     .filter(Boolean);
-  return [...new Set(names)].slice(0, 3);
+  return [...new Set([...groups.map((g) => g.label), ...names])].slice(0, 3);
 }
 
 /**
