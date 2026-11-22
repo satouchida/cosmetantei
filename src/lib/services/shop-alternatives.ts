@@ -10,7 +10,7 @@ import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
 import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
-import { brandTagInListingName, listingVariant, makerInListingName, notSingleItem, withoutListingNoise } from '../search/listing-name';
+import { brandTagInListingName, listingVariant, LOOSE_NOISE, makerInListingName, notSingleItem, withoutListingNoise } from '../search/listing-name';
 import { shopLink } from './shops';
 
 /**
@@ -367,10 +367,9 @@ export function variantMarks(name: string): string {
 type CaptionLabel = NonNullable<Awaited<ReturnType<typeof ingredientsFromCaption>>>;
 
 /**
- * 語に分ける前に外す飾り。withoutListingNoise が外さない括弧（(…)・≪…≫・《…》・〈…〉・◆…◆ など。宣伝の語が多い）と、
+ * 語に分ける前に外す飾り。withoutListingNoise が外さない括弧（LOOSE_NOISE）と、
  * 先頭の「店名 / 」「店名|」（2026-11-18 の4回目の測定で、名前で外れた 17 件のうち 3 件はこれだけの違い）
  */
-const LOOSE_NOISE = /\([^)]*\)|≪[^≫]*≫|《[^》]*》|〈[^〉]*〉|([◆■●▼▲◇□])[^◆■●▼▲◇□]*\1/g;
 const SHOP_PREFIX = /^[^/|]{1,30}(?:\||\s\/\s)\s*(?=\S)/;
 const looseName = (name: string) => withoutListingNoise(name).replace(LOOSE_NOISE, ' ').replace(SHOP_PREFIX, '');
 

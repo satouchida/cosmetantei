@@ -1,4 +1,4 @@
-import { withoutListingNoise } from '../search/listing-name';
+import { listingSearchName } from '../search/listing-name';
 import { labelBrandName } from './brand-suggest';
 
 /**
@@ -34,14 +34,14 @@ function brandWords(brand: string): string {
 }
 
 /**
- * 検索語（ブランド名＋商品名）。お店の商品名の【公式】・送料無料・容量などを外し、先頭の4語にする。
+ * 検索語（ブランド名＋商品名）。お店の商品名の【公式】・送料無料・容量・検索用の語（listingSearchName）などを外し、先頭の4語にする。
  * 対になっていないサロゲートは外す（encodeURIComponent が例外を投げて、カードが表示できなくなるので）。
  * 商品名が仮の名前・飾りだけのときは null（ブランド名だけ・空の検索は別の商品やランキングを開くので、リンクを出さない）
  */
 function searchQuery(brand: string, productName: string): string | null {
   if (PLACEHOLDER_NAME.test(productName.trim())) return null;
   const clean = (s: string) => s.replace(/\p{Cs}/gu, '').replace(/\s+/g, ' ').trim();
-  const name = clean(withoutListingNoise(productName.slice(0, MAX_NAME_LENGTH)).replace(PACKAGING, ' '));
+  const name = clean(listingSearchName(productName.slice(0, MAX_NAME_LENGTH)).replace(PACKAGING, ' '));
   // brand 欄が会社名で、飾りを外した商品名にブランドがあれば、ブランドを足さない（名前の中に、そのブランドのどれかの
   // 書き方がある。「第一三共ヘルスケア株式会社 ミノン …」「キュレル Curel …」にしない）
   if (name && labelBrandName(brand, name)) return name.split(' ').slice(0, MAX_WORDS).join(' ');

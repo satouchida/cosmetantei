@@ -24,6 +24,55 @@ export function withoutListingNoise(name: string): string {
   return name.normalize('NFKC').replace(LISTING_NOISE, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * お店の商品名で、商品の名前の後に並べた検索用の語（「崩れにくい 30代 40代 ギフト」）。1語まるごとのときだけ。
+ * 名前の語のこともある語は入れない：肌の種類（「化粧水 敏感肌用 高保湿タイプ」）・「メンズ」「女性用」（「ビオレ メンズ 洗顔」）・
+ * 「国産」「日本製」（「国産 馬油 クリーム」）・「人気」「時短」「長持ち」・「毛穴対策」「乾燥対策」（「毛穴対策 洗顔料」
+ * 「メラノCC 薬用しみ集中対策 美容液」）。「〇〇対策」は紫外線・UV・日焼け・花粉だけ
+ */
+const SEARCH_TAG =
+  /^(?:\d0代\S*|年代|\S+にくい|\S+しない|(?:紫外線|uv|日焼け|花粉)対策|ギフト\S*|プレゼント\S*|(?:母|父|敬老)の日\S*|クリスマス\S*|ホワイトデー\S*|バレンタイン\S*|ランキング\S*|(?:楽天)?第?\d+位\S*|受賞\S*|おすすめ|オススメ|メール便\S*|ネコポス\S*|ゆうパケット\S*|即納|送料込み?)$/i;
+
+/**
+ * お店の商品名から、検索用の語より後ろを外す（「美容液ファンデ 崩れにくい 30代 40代 …」→「美容液ファンデ」）。先頭の検索用の語
+ * （「ギフト キュレル …」）も外す。すべての語が検索用の語なら、そのまま。Amazon・Qoo10 の検索はすべての語を含む商品を探すので、
+ * 名前ではない語が1つでもあると見つからない
+ */
+export function withoutSearchTags(name: string): string {
+  const words = name.normalize('NFKC').split(/\s+/).filter(Boolean);
+  const start = words.findIndex((w) => !SEARCH_TAG.test(w));
+  if (start < 0) return words.join(' ');
+  const end = words.findIndex((w, i) => i > start && SEARCH_TAG.test(w));
+  return words.slice(start, end < 0 ? undefined : end).join(' ');
+}
+
+/**
+ * withoutListingNoise が外さない括弧（(…)・≪…≫・《…》・〈…〉・◆…◆ など。宣伝の語が多い）。
+ * お店の商品の照合（shop-alternatives.ts）と、Amazon・Qoo10 の検索語で外す
+ */
+export const LOOSE_NOISE = /\([^)]*\)|≪[^≫]*≫|《[^》]*》|〈[^〉]*〉|([◆■●▼▲◇□])[^◆■●▼▲◇□]*\1/g;
+/** 容量・入数（「170ml」「6個セット」「×3本」「7枚入り」）。検索では容量違いも同じ製品なので外す。色番号などの数字だけの語は残す */
+const SEARCH_SIZE = /(?<![a-z])(?:[x×]\s*)?\d+(?:\.\d+)?\s*(?:ml|g|kg|l|枚|個|本|点|箱|袋|パック)(?![a-z])(?:\s*入り?)?(?:\s*セット)?|\d+\s*セット/gi;
+/** 1語の区切り記号（「肌ラボ / 極潤ヒアルロン液」「200ml/500ml」の容量を外した後の「/」） */
+const LONE_SEPARATOR = /(?<=^|\s)[/／|｜]+(?=\s|$)/g;
+
+/**
+ * Amazon・Qoo10 で探す名前：飾り（withoutListingNoise）、宣伝の語が多い括弧、容量・入数、1語の「本体」、検索用の語を外す。
+ * 何も残らなければ ''
+ */
+export function listingSearchName(name: string): string {
+  const clean = withoutListingNoise(name);
+  const trimmed = clean
+    .replace(LOOSE_NOISE, ' ')
+    .replace(SEARCH_SIZE, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(DISPLAY_BODY_WORD, ' ')
+    .replace(LONE_SEPARATOR, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return withoutSearchTags(trimmed || clean);
+}
+
 /** 「〇〇化粧品」の会社名（かな・英数字3文字以上 + 化粧品）。「ゲル化粧品」は2文字なので当たらない */
 const MAKER_NAME = /^([ぁ-ゖァ-ヺーa-z0-9]{3,})化粧品$/i;
 /** 「〇〇化粧品」でも会社名ではない、種類の言い方 */
@@ -147,7 +196,8 @@ const DISPLAY_BODY_WORD = /(?<=^|\s)本体(?=\s|$)/g;
  */
 export function displayListingName(name: string, brand = ''): string {
   const clean = (t: string, noise: RegExp) => t.replace(noise, ' ').replace(/\s+/g, ' ').trim();
-  let s = clean(clean(name.normalize('NFKC'), DISPLAY_NOISE), DISPLAY_BODY_WORD);
+  // 検索用の語（「崩れにくい 30代 …」）より後ろも出さない（withoutSearchTags）
+  let s = withoutSearchTags(clean(clean(name.normalize('NFKC'), DISPLAY_NOISE), DISPLAY_BODY_WORD));
   // 「ちふれ・CHIFURE」のように書き方が複数あるブランドは、最初の書き方
   const b = brand.normalize('NFKC').split(/[・/／]/)[0].trim();
   // ブランド名の後に区切り（空白・／など）があるときだけ（「セザンヌ化粧品」の「セザンヌ」・型番「ABC-123」は外さない）。

@@ -12670,8 +12670,8 @@ test('191. A 「」 or 『』 holding sale text or a date (「ポイント10倍 
 test('192. A shop card reads out and searches Amazon with the cleaned name, not the shop\'s 「ポイント10倍 11月20〜21日」 (live 2026-11-22: the screen-reader text of every link and button, and the Amazon search, still carried the sale text)', async () => {
   const listing = '「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ';
   const query = (url: string) => new URL(url).searchParams.get('k');
-  // Amazon の検索語に売り文句を入れない（Qoo10 と同じ）。ブランドが名前の先頭にあれば重ねない
-  assert.strictEqual(query(buildAmazonAffiliateUrl('', listing)), 'ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ');
+  // Amazon の検索語に売り文句を入れない（Qoo10 と同じ）。ブランドが名前の先頭にあれば重ねない。容量も入れない（test 199）
+  assert.strictEqual(query(buildAmazonAffiliateUrl('', listing)), 'ANTI-SIGNAL リンクルハンター 本体/無香料 アイクリーム アットコスメ');
   assert.strictEqual(query(buildAmazonAffiliateUrl('キュレル', '【公式】キュレル モイストリペア アイクリーム')), 'キュレル モイストリペア アイクリーム');
   assert.strictEqual(query(buildAmazonAffiliateUrl('ちふれ', 'リップスティック')), 'ちふれ リップスティック');
   assert.strictEqual(query(buildAmazonAffiliateUrl('ＤＨＣ', 'DHC 薬用リップクリーム')), 'DHC 薬用リップクリーム');
@@ -13005,4 +13005,62 @@ test('198. A request naming only a product type (「美容液ファンデ」) fi
     delete process.env.CHAT_GATE_MODE;
     clearGatewayEnv();
   }
+});
+
+test('199. A shop listing name stops at the first search tag (「崩れにくい 30代 40代 …」), so the Amazon and Qoo10 searches and the card name are the product, not the shop\'s keywords (live 2026-11-22: 「美容液ファンデ」 showed 「… 崩れにくい 30代 40代 50代ファンデ ファンデ紫外線対策 メイク下地 …」 and searched Amazon with all ten words)', async () => {
+  const { withoutSearchTags, listingSearchName, displayListingName } = await import('../src/lib/search/listing-name');
+  const { buildQoo10SearchUrl } = await import('../src/lib/services/qoo10-affiliate');
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const listing = '美容液ファンデリキッドファンデ素肌感 崩れにくい 30代 40代 50代ファンデ ファンデ紫外線対策 メイク下地 ナチュラル肌ベースメイク 月桃';
+  const amazon = (brand: string, name: string) => new URL(buildAmazonAffiliateUrl(brand, name)).searchParams.get('k');
+  const qoo10 = (brand: string, name: string) => new URL(buildQoo10SearchUrl(brand, name)!).searchParams.get('keyword');
+
+  // 検索用の語より後ろを外す（Amazon・Qoo10・カードの名前・読み上げの名前が同じ名前になる）
+  assert.strictEqual(withoutSearchTags(listing), '美容液ファンデリキッドファンデ素肌感');
+  assert.strictEqual(amazon('はたけなう真心', listing), 'はたけなう真心 美容液ファンデリキッドファンデ素肌感');
+  assert.strictEqual(qoo10('はたけなう真心', listing), 'はたけなう真心 美容液ファンデリキッドファンデ素肌感');
+  assert.deepStrictEqual(listingCardLabels({ brand: 'はたけなう真心', name: listing }), { brand: 'はたけなう真心', name: '美容液ファンデリキッドファンデ素肌感' });
+  // ほかの検索用の語：贈り物・順位・送り方・年代の続く語・宣伝によく並ぶ「〇〇対策」
+  assert.strictEqual(withoutSearchTags('ハンドクリーム 桜 ギフト プレゼント 母の日'), 'ハンドクリーム 桜');
+  assert.strictEqual(withoutSearchTags('UVミルク 楽天1位 日本製'), 'UVミルク');
+  assert.strictEqual(withoutSearchTags('ＢＢクリーム ３０代'), 'BBクリーム', 'Full-width input is normalized first');
+  assert.strictEqual(withoutSearchTags('クレンジングバーム メール便 送料込'), 'クレンジングバーム');
+  assert.strictEqual(withoutSearchTags('BBクリーム 40代50代 カバー'), 'BBクリーム');
+  assert.strictEqual(withoutSearchTags('日焼け止め UV対策 毛穴対策'), '日焼け止め');
+  // 先頭の検索用の語も外す。すべてが検索用の語なら、そのまま（空の名前にしない）
+  assert.strictEqual(withoutSearchTags('ギフト プレゼント キュレル ハンドクリーム'), 'キュレル ハンドクリーム');
+  assert.strictEqual(withoutSearchTags('ギフト プレゼント'), 'ギフト プレゼント');
+
+  // 名前の語は外さない（保存した製品の名前・seed の名前。2026-11-22 の保存した 98 件で、どれも短くならないことを確かめた）
+  for (const name of [
+    'メラノCC 薬用しみ集中対策 美容液',
+    '化粧水 敏感肌用 高保湿タイプ',
+    '敏感肌用 炭 洗顔フォーム',
+    'ビオレ メンズ 洗顔',
+    'アミノモイスト モイストチャージ ローション II もっとしっとりタイプ',
+    'UVイデア XL プロテクショントーンアップ ティント',
+    'リップモンスターQ Q03 宮廷の密約',
+    '耐久カールマスカラ 01 ブラック',
+    'うるおい肌 ボディミルク',
+    '国産 馬油 クリーム',
+    'ヘアオイル 日本製 椿油',
+    '毛穴対策 洗顔料',
+    'スカルプ 女性用 育毛剤',
+    '時短 ジェル 人気色',
+  ]) {
+    assert.strictEqual(withoutSearchTags(name), name, name);
+  }
+  assert.strictEqual(amazon('ミノン', 'アミノモイスト モイストチャージ ローション II もっとしっとりタイプ'), 'ミノン アミノモイスト モイストチャージ ローション II もっとしっとりタイプ');
+
+  // 検索語：括弧・容量・入数・1語の「本体」・1語の区切りも外す。名前は6語まで（語を並べただけのお店の商品名）
+  assert.strictEqual(listingSearchName('ナチュリエ ハトムギ化粧水（ナチュリエ スキンコンディショナーR） 500ml'), 'ナチュリエ ハトムギ化粧水');
+  assert.strictEqual(listingSearchName('ミノン / MINON アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料'), 'ミノン MINON アミノモイスト モイストチャージ ミルク 無香料');
+  assert.strictEqual(listingSearchName('ROUND LAB 1025 独島 トナー 200ml/500ml'), 'ROUND LAB 1025 独島 トナー', 'A number alone (a model or shade) stays');
+  assert.strictEqual(listingSearchName('フェイスマスク 7枚入り'), 'フェイスマスク', 'No stray 「入り」 after the size');
+  assert.strictEqual(
+    amazon('ちふれ', 'ちふれ 保湿化粧水 とてもしっとりタイプ 6個セット うるおい 保湿 乾燥 ノンアルコール 無香料 無着色 chifure 正規品 ギフト可'),
+    'ちふれ 保湿化粧水 とてもしっとりタイプ うるおい 保湿 乾燥'
+  );
+  // 表示する名前は容量・括弧を残す（価格の横の「本体 250mL」とは別）。検索用の語だけ外す
+  assert.strictEqual(displayListingName('ボディミルク 250ml 無香料 ギフト 30代', ''), 'ボディミルク 250ml 無香料');
 });
