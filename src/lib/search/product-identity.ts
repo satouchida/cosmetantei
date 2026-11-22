@@ -1,6 +1,7 @@
 import { Product } from '../types';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { listedBrandKeys, listedBrandSpellings } from './product-match';
+import { labelBrandName } from '../services/brand-suggest';
 
 /**
  * 同じ製品かどうか（表記の違う同じ製品を1つにまとめる・比較リストに登録した製品を代わりの商品に出さない）
@@ -43,7 +44,9 @@ const withoutNonNameWords = (name: string) => name.normalize('NFKC').replace(EDI
  * 例: 「ちふれ・CHIFURE / 美白化粧水 Ｗ」と「ちふれ化粧品 / ちふれ美白化粧水 W」は同じキーになる。
  * 「Curel / キュレル 潤浸保湿 モイストリペアシートマスク」と「キュレル / 潤浸保湿 モイストリペアシートマスク」も同じ
  */
-export function productIdentityKey(brand: string, name: string): string {
+export function productIdentityKey(brandField: string, name: string): string {
+  // brand 欄が会社名なら、商品名の中のブランドで比べる（「花王」の「キュレル ハンドクリーム」と「キュレル」の「ハンドクリーム」）
+  const brand = identityBrand(brandField, name);
   // 容量（150ml・つめかえ用の 130ml 等）は成分が同じなので区別しない
   let key = compact(withoutNonNameWords(name)).replace(/\d+(\.\d+)?(ml|g|l)\b/g, '');
   // 名前の先頭の、ブランド欄とは別の書き方のブランド（ブランド欄が「Curel」で名前が「キュレル 潤浸保湿…」）。
@@ -57,6 +60,9 @@ export function productIdentityKey(brand: string, name: string): string {
   for (const token of brandTokens(brand)) key = key.split(token).join('');
   return key || compact(name);
 }
+
+/** 比べるブランド：brand 欄が会社名で、商品名に一覧のブランドがあればそのブランド（labelBrandName）、なければ brand 欄 */
+const identityBrand = (brand: string, name: string): string => labelBrandName(brand, name) ?? brand;
 
 /** JAN コードの比較用の形（数字だけ・先頭の 0 を除く） */
 export const normalJan = (code: string | undefined): string => (code ? code.replace(/\D/g, '').replace(/^0+/, '') : '');
@@ -140,6 +146,13 @@ function soundSkeleton(text: string): string | null {
   return out;
 }
 
+/**
+ * 英字の語でないローマ数字（「ローション I」「Lotion II」「ⅲ」は NFKC で iii）。母音だけなので、数字にしないと子音で消えて
+ * 「I」と「II」が同じになる
+ */
+const ROMAN_NUMERAL = /(?<![a-z])(iii|ii|iv|i)(?![a-z])/g;
+const ROMAN_VALUE: Record<string, number> = { i: 1, ii: 2, iii: 3, iv: 4 };
+
 /** ブランドを除いた名前の子音（名前の先頭のブランドは、英字でもカタカナでも除く）。比べられなければ null */
 function nameSound(brand: string, name: string): string | null {
   const tokens = brandTokens(brand);
@@ -149,7 +162,8 @@ function nameSound(brand: string, name: string): string | null {
     .replace(SIZE, ' ')
     .split(/\s+/)
     .filter((word) => !tokens.includes(compact(word)))
-    .join(' ');
+    .join(' ')
+    .replace(ROMAN_NUMERAL, (numeral) => ` ${ROMAN_VALUE[numeral]} `);
   let sound = soundSkeleton(rest);
   if (!sound) return null;
   for (const token of tokens) {
@@ -173,12 +187,57 @@ function similarIngredients(a: string[] | undefined, b: string[] | undefined): b
   if (!a?.length || !b?.length) return true;
   const larger = Math.max(a.length, b.length);
   if (Math.abs(a.length - b.length) > Math.max(2, Math.round(larger * 0.15))) return false;
-  const known = (list: string[]) => new Set(list.map((n) => findMatchingKnownIngredient(n)?.id).filter((id) => id !== undefined));
-  const knownA = known(a);
-  const knownB = known(b);
-  const all = new Set([...knownA, ...knownB]);
-  if (all.size === 0) return true;
-  return [...knownA].filter((id) => knownB.has(id)).length / all.size >= MIN_SHARED_KNOWN;
+  const shared = sharedKnown(a, b);
+  return shared.all === 0 || shared.ratio >= MIN_SHARED_KNOWN;
+}
+
+/** 成分DBで分かる成分の id（「BG」と「ブチレングリコール」は同じ id） */
+const knownIds = (list: string[]) => new Set(list.map((n) => findMatchingKnownIngredient(n)?.id).filter((id) => id !== undefined));
+
+/** 成分DBで分かる成分の、両方を合わせた数と、そのうち両方にある割合 */
+function sharedKnown(a: string[], b: string[]): { all: number; ratio: number } {
+  const knownA = knownIds(a);
+  const knownB = knownIds(b);
+  const all = new Set([...knownA, ...knownB]).size;
+  return { all, ratio: all === 0 ? 0 : [...knownA].filter((id) => knownB.has(id)).length / all };
+}
+
+/** 表記の揺れを許すときの全成分の条件：両方にあり、数の差が1以下、分かる成分が5つ以上で、その9割以上が両方にある */
+const MIN_KNOWN_FOR_NEAR_NAME = 5;
+const MIN_SHARED_FOR_NEAR_NAME = 0.9;
+
+function sameIngredientList(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (!a?.length || !b?.length || Math.abs(a.length - b.length) > 1) return false;
+  const shared = sharedKnown(a, b);
+  return shared.all >= MIN_KNOWN_FOR_NEAR_NAME && shared.ratio >= MIN_SHARED_FOR_NEAR_NAME;
+}
+
+/** ゛゜（濁点・半濁点）。外すと「アドバンスド」と「アドバンスト」、「パワー」と「ハワー」が同じになる */
+const VOICING_MARKS = new RegExp(`[${String.fromCharCode(0x3099, 0x309a)}]`, 'g');
+const withoutVoicing = (key: string) => key.normalize('NFD').replace(VOICING_MARKS, '').normalize('NFC');
+
+/**
+ * 子音の、清音と濁音（t・d、k・g、h・b・p・f）と s・t の違いを除いた形。英語の読みとカタカナの読みがずれる
+ * （「mucin」と「ムチン」、「advanced」と「アドバンスト」）。数字は残す（「96」と「92」は別の製品）
+ */
+const SOUND_FOLD: Record<string, string> = { d: 't', s: 't', g: 'k', b: 'h', p: 'h', f: 'h' };
+const foldSound = (sound: string) => [...sound].map((c) => SOUND_FOLD[c] ?? c).join('').replace(/([a-z])\1+/g, '$1');
+
+/** 濁点を除いて比べる名前のキーの長さの下限（「バーム」と「パーム」、「ハウダー」と「パウダー」を同じにしない） */
+const isLongEnoughForNearName = (key: string) => key.length >= MIN_NAME_SOUND;
+
+/**
+ * 表記の揺れだけが違う名前か。同じ書き方どうしは、名前のキーが濁点・半濁点を除いて同じ（文字が増える「I」と「II」は別）。
+ * カタカナと英字は、名前の子音が清濁・s と t を除いて同じ。全成分がほぼ同じとき（sameIngredientList）だけに使う
+ */
+function nearSameName(a: ProductIdentity, b: ProductIdentity): boolean {
+  if (hasKana(a.name) === hasKana(b.name)) {
+    const keyA = withoutVoicing(productIdentityKey(a.brand, a.name));
+    return isLongEnoughForNearName(keyA) && keyA === withoutVoicing(productIdentityKey(b.brand, b.name));
+  }
+  const soundA = nameSound(identityBrand(a.brand, a.name), a.name);
+  const soundB = nameSound(identityBrand(b.brand, b.name), b.name);
+  return !!soundA && !!soundB && foldSound(soundA) === foldSound(soundB);
 }
 
 /**
@@ -188,20 +247,30 @@ function similarIngredients(a: string[] | undefined, b: string[] | undefined): b
  */
 function sameNameAcrossScripts(a: ProductIdentity, b: ProductIdentity): boolean {
   if (hasKana(a.name) === hasKana(b.name)) return false;
-  const sound = nameSound(a.brand, a.name);
-  return sound !== null && sound === nameSound(b.brand, b.name) && similarIngredients(a.ingredients, b.ingredients);
+  const sound = nameSound(identityBrand(a.brand, a.name), a.name);
+  return (
+    sound !== null &&
+    sound === nameSound(identityBrand(b.brand, b.name), b.name) &&
+    similarIngredients(a.ingredients, b.ingredients)
+  );
 }
 
 /**
  * 同じ製品か：ID が同じ、JAN コードが同じ、またはブランドが同じで名前のキーが同じ（カタカナと英字の書き分けも同じ）。
+ * 全成分がほぼ同じなら、表記の揺れ（「アドバンスト」と「アドバンスド」、「mucin」と「ムチン」）も同じ名前とみなす。
  * 名前だけでは決めない（「リップクリーム」のような一般的な名前の、別のブランドの製品を同じにしない）
  */
 export function isSameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   if (a.id === b.id) return true;
   const jan = normalJan(a.barcode);
   if (jan && jan === normalJan(b.barcode)) return true;
-  const sameName = productIdentityKey(a.brand, a.name) === productIdentityKey(b.brand, b.name) || sameNameAcrossScripts(a, b);
-  return sameName && sameBrand(a.brand, b.brand);
+  // 安い比べ方から（ブランド → 名前のキー → 書き分け → 全成分 → 表記の揺れ）
+  if (!sameBrand(identityBrand(a.brand, a.name), identityBrand(b.brand, b.name))) return false;
+  return (
+    productIdentityKey(a.brand, a.name) === productIdentityKey(b.brand, b.name) ||
+    sameNameAcrossScripts(a, b) ||
+    (sameIngredientList(a.ingredients, b.ingredients) && nearSameName(a, b))
+  );
 }
 
 /** 登録した製品（肌荒れした・使えるコスメ）のどれかと同じ製品か */
@@ -216,35 +285,46 @@ export function registeredMatcher(registered: readonly ProductIdentity[]): (prod
   if (registered.length === 0) return () => false;
   const ids = new Set(registered.map((r) => r.id));
   const jans = new Set(registered.map((r) => normalJan(r.barcode)).filter(Boolean));
-  const byKey = new Map<string, string[]>();
-  for (const r of registered) {
-    const key = productIdentityKey(r.brand, r.name);
-    byKey.set(key, [...(byKey.get(key) ?? []), r.brand]);
-  }
-  // カタカナと英字の書き分け（sameNameAcrossScripts と同じ判定）を、名前の子音で引く
-  const bySound = new Map<string, ProductIdentity[]>();
+  type Entry = { brand: string; kana: boolean; ingredients?: string[] };
+  const add = (map: Map<string, Entry[]>, key: string, entry: Entry) => map.set(key, [...(map.get(key) ?? []), entry]);
+  // 名前のキーと、その濁点・半濁点を除いた形（表記の揺れは、全成分がほぼ同じときだけ使う）
+  const byKey = new Map<string, Entry[]>();
+  const byKeyWithoutVoicing = new Map<string, Entry[]>();
+  // カタカナと英字の書き分け（sameNameAcrossScripts・nearSameName と同じ判定）を、名前の子音で引く
+  const bySound = new Map<string, Entry[]>();
+  const byFoldedSound = new Map<string, Entry[]>();
   const scripts = new Set<boolean>();
   for (const r of registered) {
-    const sound = nameSound(r.brand, r.name);
+    const brand = identityBrand(r.brand, r.name);
+    const entry: Entry = { brand, kana: hasKana(r.name), ingredients: r.ingredients };
+    const key = productIdentityKey(r.brand, r.name);
+    add(byKey, key, entry);
+    if (isLongEnoughForNearName(withoutVoicing(key))) add(byKeyWithoutVoicing, withoutVoicing(key), entry);
+    const sound = nameSound(brand, r.name);
     if (!sound) continue;
-    bySound.set(sound, [...(bySound.get(sound) ?? []), r]);
-    scripts.add(hasKana(r.name));
+    add(bySound, sound, entry);
+    add(byFoldedSound, foldSound(sound), entry);
+    scripts.add(entry.kana);
   }
   return (p) => {
     if (ids.has(p.id)) return true;
     const jan = normalJan(p.barcode);
     if (jan && jans.has(jan)) return true;
-    const brands = byKey.get(productIdentityKey(p.brand, p.name));
-    if (brands?.some((b) => sameBrand(p.brand, b))) return true;
-    // 反対の書き方で登録した製品が無ければ、子音を作らない（成分DBの全製品と比べるため）
+    const brand = identityBrand(p.brand, p.name);
+    const key = productIdentityKey(p.brand, p.name);
+    if (byKey.get(key)?.some((r) => sameBrand(brand, r.brand))) return true;
     const kana = hasKana(p.name);
+    const nearSameList = (r: Entry) => sameBrand(brand, r.brand) && sameIngredientList(p.ingredients, r.ingredients);
+    const hasList = !!p.ingredients?.length;
+    if (hasList && byKeyWithoutVoicing.get(withoutVoicing(key))?.some((r) => r.kana === kana && nearSameList(r))) return true;
+    // 反対の書き方で登録した製品が無ければ、子音を作らない（成分DBの全製品と比べるため）
     if (!scripts.has(!kana)) return false;
-    const sound = nameSound(p.brand, p.name);
-    return (
-      !!sound &&
-      !!bySound
-        .get(sound)
-        ?.some((r) => hasKana(r.name) !== kana && sameBrand(p.brand, r.brand) && similarIngredients(p.ingredients, r.ingredients))
-    );
+    const sound = nameSound(brand, p.name);
+    if (!sound) return false;
+    const otherScript = (r: Entry) => r.kana !== kana;
+    if (bySound.get(sound)?.some((r) => otherScript(r) && sameBrand(brand, r.brand) && similarIngredients(p.ingredients, r.ingredients))) {
+      return true;
+    }
+    return hasList && !!byFoldedSound.get(foldSound(sound))?.some((r) => otherScript(r) && nearSameList(r));
   };
 }

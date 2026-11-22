@@ -1,6 +1,6 @@
 import 'server-only';
 import { Product } from '../types';
-import { productIdentityKey } from '../search/product-identity';
+import { isSameProduct, productIdentityKey } from '../search/product-identity';
 import { addProductToDynamicCache, isVerifiedSource, rememberVerifiedProducts } from '../data/cosmetics-db';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
 import { runAfterResponse } from '../server/cloudflare';
@@ -130,13 +130,11 @@ async function keepRealBrands(products: Product[]): Promise<Product[]> {
 /** 同じ製品が複数ページにある場合は、全成分が取れたもの（同順なら検索順の上位）を1件だけ残す */
 function uniqueProducts(products: Product[]): Product[] {
   const unique: Product[] = [];
-  const seen = new Set<string>();
   // 全成分のある方を先に。同じなら共有してよいページ（信頼するサイト）の方を残す
   const rank = (p: Product) => Number(!!p.ingredientSource) * 2 + Number(mayShareWebProduct(p));
   for (const p of [...products].sort((a, b) => rank(b) - rank(a))) {
-    const key = productIdentityKey(p.brand, p.name);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    // ブランドも比べる（名前のキーはブランドを除くので、キーだけでは別のブランドの同じ名前の製品が1つになる）
+    if (unique.some((u) => isSameProduct(u, p))) continue;
     unique.push(p);
   }
   return unique;

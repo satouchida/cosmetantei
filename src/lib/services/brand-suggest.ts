@@ -298,22 +298,67 @@ let seedByKey: Map<string, BrandEntry> | null = null;
  * brand 欄の書き方の揺れ（「Curel」「キュレル / curel」「花王 / キュレル」）を、一覧のブランド名にそろえる（表示だけ）。
  * 「/」「,」「、」で区切ったどの部分も、一覧のブランドの名前・読み・別の書き方と同じときだけ。
  * 語の一部では照らさない（「Kate Somerville」をケイトにしない）。会社名とブランド名が並んでいればブランド名。
+ * 「CosRx (コスアールエックス)」のような、名前と括弧の中の読みは、どちらかが一覧のブランドならそのブランド。
  * 一覧に無い部分がある・会社でないブランドが2つ以上ある → null（brand 欄のまま表示する）
  */
 export function listedBrandName(brandField: string): string | null {
-  if (!seedByKey) {
-    seedByKey = new Map();
-    for (const b of SEED_INDEX) for (const k of b.keys) if (!seedByKey.has(k)) seedByKey.set(k, b.entry);
-  }
   const found = new Set<BrandEntry>();
   for (const part of brandField.split(/[/／,，、]/)) {
-    const key = searchKey(part);
-    if (!key) continue;
-    const entry = seedByKey.get(key);
+    if (!searchKey(part)) continue;
+    const entry = seedEntry(part) ?? readingPairEntry(part);
     if (!entry) return null;
     found.add(entry);
   }
   const brands = [...found].filter((e) => !e.maker);
   const shown = brands.length > 0 ? brands : [...found];
   return shown.length === 1 ? shown[0].name : null;
+}
+
+/** 一覧のブランドの名前・読み・別の書き方と同じなら、そのブランド */
+function seedEntry(text: string): BrandEntry | null {
+  if (!seedByKey) {
+    seedByKey = new Map();
+    for (const b of SEED_INDEX) for (const k of b.keys) if (!seedByKey.has(k)) seedByKey.set(k, b.entry);
+  }
+  return seedByKey.get(searchKey(text)) ?? null;
+}
+
+/** 「CosRx (コスアールエックス)」のような、ブランド名と括弧の中の読み */
+const NAME_AND_READING = /^(.+?)\s*[(（]([^()（）]+)[)）]\s*$/;
+
+/** 「名前 (読み)」のどちらかが一覧のブランドで、もう一方が別のブランドでなければ、そのブランド */
+function readingPairEntry(part: string): BrandEntry | null {
+  const m = part.trim().match(NAME_AND_READING);
+  if (!m) return null;
+  const listed = [m[1], m[2]].map(seedEntry).filter((e): e is BrandEntry => e !== null);
+  return listed.length > 0 && listed.every((e) => e === listed[0]) ? listed[0] : null;
+}
+
+/**
+ * 会社名らしい brand 欄（「第一三共ヘルスケア株式会社」「〇〇製薬」「(株)〇〇」「Kao Corporation」）。
+ * NFKC にしてから見る（「㈱」「（株）」は「(株)」になる）
+ */
+const COMPANY_FIELD =
+  /^(株式会社|有限会社|\((株|有)\))|(株式会社|有限会社|\((株|有)\)|製薬|ヘルスケア|ホールディングス)$|\b(inc|corp|corporation|co\.?,?\s*ltd|ltd)\.?$/i;
+
+const labelBrandCache = new Map<string, string | null>();
+
+/**
+ * brand 欄が会社名（一覧の会社・「〇〇株式会社」「〇〇製薬」）で、商品名に一覧の会社でないブランドがちょうど1つあれば、
+ * そのブランド（「花王」の「キュレル ハンドクリーム」→ キュレル、「ロート製薬」の「メンソレータム …」→ メンソレータム）。
+ * 会社名でない brand 欄は変えない（「Kate Somerville」の商品名に KATE があってもケイトにしない）。無ければ null
+ */
+export function labelBrandName(brandField: string, name: string): string | null {
+  const cacheKey = `${brandField}\n${name}`;
+  const cached = labelBrandCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const listed = listedBrandName(brandField);
+  const isCompany = listed
+    ? BRANDS_JP.some((e) => e.name === listed && e.maker)
+    : COMPANY_FIELD.test(brandField.normalize('NFKC').trim());
+  const inName = isCompany ? SEED_INDEX.filter((b) => !b.entry.maker && textHasBrand(name, b)) : [];
+  const found = inName.length === 1 ? inName[0].entry.name : null;
+  if (labelBrandCache.size > 2000) labelBrandCache.clear();
+  labelBrandCache.set(cacheKey, found);
+  return found;
 }

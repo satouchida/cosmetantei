@@ -12681,3 +12681,76 @@ test('192. A shop card reads out and searches Amazon with the cleaned name, not 
   assert.strictEqual((card.match(/aria-label=\{`[^`]*（\$\{spokenName\}）`\}/g) ?? []).length, 3);
   assert.doesNotMatch(card, /sr-only">（\{p\.name\}|aria-label=\{`[^`]*\$\{p\.name\}/);
 });
+
+test('193. One product spelled three ways merges when the full ingredient lists match (live 2026-11-22: COSRX snail essence shown three times as "Advanced Snail 96 Mucin Power Essence", 「アドバンスト スネイル96ムチン …、100ml」 and 「アドバンスド スネイル96ムチンパワーエッセンス」), and a company in the brand field (花王, ロート製薬, 第一三共ヘルスケア株式会社) gives way to the brand in the name', async () => {
+  const { isSameProduct, registeredMatcher } = await import('../src/lib/search/product-identity');
+  const { getDisplayBrand, listingCardLabels } = await import('../src/lib/display-brand');
+  const { listedBrandName } = await import('../src/lib/services/brand-suggest');
+  // 本番に保存されていた3件の全成分（同じ13成分。「BG」と「ブチレングリコール」のように書き方だけ違う）
+  const listA = ['カタツムリ分泌液', 'アラントイン', 'ベタイン', 'パンテノール', 'ヒアルロン酸Na', 'アルギニン', 'エチルヘキサンジオール', 'カルボマー', 'ポリアクリル酸Na', '水', 'BG', '1,2-ヘキサンジオール', 'フェノキシエタノール'];
+  const listB = ['カタツムリ分泌液', 'ベタイン', 'ブチレングリコール', '1,2-ヘキサンジオール', 'ポリアクリル酸ナトリウム', 'フェノキシエタノール', 'ヒアルロン酸ナトリウム', 'アラントイン', 'エチルヘキサンジオール', 'カルボマー', 'パンテノール', 'アルギニン', '水'];
+  const english = { id: 'web_en', brand: 'COSRX', name: 'Advanced Snail 96 Mucin Power Essence', ingredients: listA };
+  const iherb = { id: 'web_iherb', brand: 'CosRx (コスアールエックス)', name: 'アドバンスト スネイル96ムチン パワーエッセンス、100ml', ingredients: listB };
+  const cosme = { id: 'web_cosme', brand: 'COSRX', name: 'アドバンスド スネイル96ムチンパワーエッセンス', ingredients: listA };
+  // 「mucin」と「ムチン」（s と t）、「アドバンスト」と「アドバンスド」（濁点）は、全成分がほぼ同じなら同じ製品
+  for (const [x, y] of [[english, iherb], [english, cosme], [iherb, cosme]]) {
+    assert.ok(isSameProduct(x, y), `${x.name} = ${y.name}`);
+    assert.ok(isSameProduct(y, x));
+    assert.ok(registeredMatcher([x])(y), `registered ${x.name} hides ${y.name}`);
+  }
+  // 全成分が無い・違う・数字が違う・ブランドが違うときは、表記の揺れでは同じにしない
+  assert.ok(!isSameProduct({ ...iherb, ingredients: undefined }, cosme));
+  assert.ok(!registeredMatcher([{ ...iherb, ingredients: undefined }])(cosme));
+  const otherList = ['水', 'グリセリン', 'BG', 'エタノール', 'カルボマー', '香料', 'メチルパラベン', 'トコフェロール', 'スクワラン', 'セラミドNP', 'ヒアルロン酸Na', 'クエン酸', 'PEG-60水添ヒマシ油'];
+  assert.ok(!isSameProduct(iherb, { ...cosme, ingredients: otherList }));
+  assert.ok(!isSameProduct(english, { ...cosme, ingredients: otherList }));
+  assert.ok(!isSameProduct(cosme, { ...cosme, id: 'web_92', name: 'アドバンスド スネイル92ムチンパワーエッセンス' }));
+  assert.ok(!isSameProduct(english, { ...cosme, id: 'web_92', name: 'アドバンスド スネイル92ムチンパワーエッセンス' }));
+  assert.ok(!isSameProduct(cosme, { ...cosme, id: 'other', brand: 'ミノン' }));
+  // 「I」と「II」は、全成分が同じでも別の製品（英字とカタカナの書き分けでも。ローマ数字は母音だけなので数字にして比べる）
+  const lotion1 = { id: 'l1', brand: 'キュレル', name: 'モイストリペア ローション I', ingredients: listA };
+  assert.ok(!isSameProduct(lotion1, { ...lotion1, id: 'l2', name: 'モイストリペア ローション II' }));
+  assert.ok(!isSameProduct(lotion1, { ...lotion1, id: 'l3', name: 'Moist Repair Lotion II' }));
+  assert.ok(!isSameProduct({ ...lotion1, ingredients: undefined }, { id: 'l4', brand: 'キュレル', name: 'Moist Repair Lotion II' }));
+  assert.ok(isSameProduct(lotion1, { ...lotion1, id: 'l5', name: 'Moist Repair Lotion I' }));
+
+  // brand 欄が会社名なら、商品名の中のブランドを出す（一覧の会社・「株式会社」「製薬」）。名前からはそのブランドを外す
+  assert.strictEqual(getDisplayBrand('花王', 'キュレル ハンドクリーム 50g'), 'キュレル');
+  assert.strictEqual(getDisplayBrand('ロート製薬', 'メンソレータム 薬用ハンドベール 乾燥バリアクリーム'), 'メンソレータム');
+  assert.strictEqual(getDisplayBrand('第一三共ヘルスケア株式会社', 'ミノン アミノモイスト モイストチャージ ローション'), 'ミノン');
+  assert.deepStrictEqual(listingCardLabels({ brand: '花王', name: 'キュレル ハンドクリーム 50g' }), { brand: 'キュレル', name: 'ハンドクリーム 50g' });
+  assert.deepStrictEqual(listingCardLabels({ brand: 'ロート製薬', name: 'メンソレータム 薬用ハンドベール' }), { brand: 'メンソレータム', name: '薬用ハンドベール' });
+  // 商品名にブランドが無い・会社名でない brand 欄は、これまでどおり
+  assert.strictEqual(getDisplayBrand('花王', 'ハンドクリーム'), '花王');
+  assert.strictEqual(getDisplayBrand('花王 / キュレル', 'ハンドクリーム'), 'キュレル');
+  assert.strictEqual(getDisplayBrand('Kate Somerville', 'KATE ExfoliKate Cleanser'), 'Kate Somerville');
+  assert.strictEqual(getDisplayBrand('Carte', '高保湿ハンドクリーム(50g)'), 'Carte');
+  // 同じ製品の判定も、会社名の brand 欄を商品名の中のブランドで比べる
+  assert.ok(isSameProduct({ id: 'k1', brand: '花王', name: 'キュレル ハンドクリーム 50g' }, { id: 'k2', brand: 'キュレル', name: 'ハンドクリーム' }));
+  assert.ok(registeredMatcher([{ id: 'k2', brand: 'キュレル', name: 'ハンドクリーム' }])({ id: 'k1', brand: '花王', name: 'キュレル ハンドクリーム 50g' }));
+  assert.ok(!isSameProduct({ id: 'k1', brand: '花王', name: 'ビオレ ハンドクリーム' }, { id: 'k2', brand: 'キュレル', name: 'ハンドクリーム' }));
+
+  // 「名前 (読み)」のブランド欄は、どちらかが一覧のブランドならそのブランド（違うブランドどうしなら決めない）
+  assert.strictEqual(listedBrandName('CosRx (コスアールエックス)'), 'COSRX');
+  assert.strictEqual(getDisplayBrand('CosRx (コスアールエックス)', 'アドバンスト スネイル96ムチン パワーエッセンス、100ml'), 'COSRX');
+  assert.strictEqual(listedBrandName('Curel (ちふれ)'), null);
+
+  // 濁点を除いて比べるのは、長い名前だけ（「バーム」と「パーム」は、全成分が同じでも別の製品）
+  const balm = { id: 'balm', brand: 'キュレル', name: 'バーム', ingredients: listA };
+  assert.ok(!isSameProduct(balm, { ...balm, id: 'palm', name: 'パーム' }));
+  assert.ok(!registeredMatcher([balm])({ ...balm, id: 'palm', name: 'パーム' }));
+  // 「(株)〇〇」「〇〇（株）」も会社名
+  assert.strictEqual(getDisplayBrand('(株)コーセー', 'カルテHD モイスチュア クリーム'), getDisplayBrand('コーセー', 'カルテHD モイスチュア クリーム'));
+  assert.strictEqual(getDisplayBrand('第一三共ヘルスケア（株）', 'ミノン アミノモイスト ローション'), 'ミノン');
+  // 会社名の brand 欄で、商品名のブランドが違えば別の製品（名前のキーは同じ「ハンドクリーム」になる）
+  const kaoCurel = { id: 'kc', brand: '花王', name: 'キュレル ハンドクリーム' };
+  const kaoBiore = { id: 'kb', brand: '花王', name: 'ビオレ ハンドクリーム' };
+  assert.ok(!isSameProduct(kaoCurel, kaoBiore));
+  // だから、製品を1つにまとめるところは名前のキーだけで比べない（ブランドも比べる isSameProduct）
+  const { readFileSync } = await import('node:fs');
+  for (const file of ['src/lib/services/alternatives-service.ts', 'src/lib/services/web-research.ts']) {
+    const source = readFileSync(file, 'utf8');
+    assert.doesNotMatch(source, /seen\.has\(key\)|keys\.has\(productIdentityKey/, file);
+    assert.match(source, /unique\.some\(\(u\) => isSameProduct\(u, p\)\)/, file);
+  }
+});
