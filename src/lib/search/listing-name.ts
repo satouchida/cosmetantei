@@ -139,6 +139,38 @@ export function variantLabel(variant: ListingVariant): string {
 }
 
 /**
+ * 名前から外す容量と、その前後の書き方（「(12g入り)」「約12g」「内容量:12g」「30g×2」「1,000ml」）。
+ * listingVariant の SIZE_IN_NAME とは別（価格の横の容量の読み方は変えない）
+ */
+const SHOWN_SIZE =
+  /(?:内容量\s*[:：]?\s*)?(?:約\s*)?(?<![a-z\d.,])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*(?:ml|g|l)(?![a-wyz])(?:\s*[x×]\s*\d+)?(?:\s*入り?)?/gi;
+/** 容量を外した後に残る空のかっこ（「(12g)」→「()」） */
+const EMPTY_BRACKETS = /\(\s*\)|\[\s*\]|【\s*】/g;
+/** 容量を外した後に重なった区切り（「ローション / 180mL / 無香料」→「ローション / / 無香料」） */
+const DOUBLED_SEPARATOR = /([/|・])(?:\s*[/|・])+/g;
+/** 容量を外した後、名前の端に残った区切り */
+const EDGE_SEPARATOR = /^[\s/|・]+|[\s/|・]+$/g;
+
+/**
+ * 価格の横に容量を書く商品の名前から、その容量を外す（「プロフィニッシュクッション 0 ライトオークル(12g)」→
+ * 「プロフィニッシュクッション 0 ライトオークル」。価格の横の「本体 12g」と二重に出さない）。
+ * 容量は名前に1つだけ書かれているときに書く（listingVariant）ので、外すのも同じ容量。容量が無ければ、そのまま。
+ * 何も残らなければ元の名前
+ */
+export function withoutShownSize(name: string, variant: ListingVariant | undefined): string {
+  if (!variant?.size) return name;
+  const s = name
+    .normalize('NFKC')
+    .replace(SHOWN_SIZE, ' ')
+    .replace(EMPTY_BRACKETS, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(DOUBLED_SEPARATOR, '$1')
+    .replace(EDGE_SEPARATOR, '')
+    .trim();
+  return s || name;
+}
+
+/**
  * お店の商品1つの価格の横に書く種類。詰替用か、容量が分かるときだけ（「本体」とだけ書いても分からない）
  */
 export function shopPriceVariantLabel(variant: ListingVariant | undefined): string | undefined {

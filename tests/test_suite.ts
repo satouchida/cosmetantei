@@ -13142,3 +13142,47 @@ test('200. 「クッションファンデ」 shows only cushion foundations, a s
     for (const p of [liquid, cushionProduct]) db.splice(db.findIndex((x) => x.id === p.id), 1);
   }
 });
+
+test('201. A shop card whose price shows the size (「本体 12g」) drops that size from the name, so 「(12g)」 is not shown twice (live 2026-11-22: 「プロフィニッシュクッション 0 ライトオークル(12g)」 beside 「本体 12g」); without a size beside the price the name keeps it', async () => {
+  const { listingVariant, withoutShownSize } = await import('../src/lib/search/listing-name');
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const shopPrice = (name: string) => ({ yen: 2970, taxIncluded: true, variant: listingVariant(name) });
+
+  const cushion = 'インテグレート プロフィニッシュクッション 0 ライトオークル(12g)';
+  assert.deepStrictEqual(listingCardLabels({ brand: 'インテグレート', name: cushion, shopPrice: shopPrice(cushion) }), {
+    brand: 'インテグレート',
+    name: 'プロフィニッシュクッション 0 ライトオークル',
+  });
+  // 詰替用：名前の「詰め替え」は残し、容量だけ外す（価格の横は「詰替用 400mL」）
+  const diane = 'ダイアンボタニカル ボディミルク 無香料 詰め替え(400ml)【ダイアンボタニカル】';
+  assert.deepStrictEqual(listingCardLabels({ brand: 'ダイアンボタニカル', name: diane, shopPrice: shopPrice(diane) }), {
+    brand: 'ダイアンボタニカル',
+    name: 'ボディミルク 無香料 詰め替え',
+  });
+  // かっこに入っていない容量・全角の容量・桁区切り
+  assert.strictEqual(withoutShownSize('ボディミルク 250ml 無香料', { refill: false, size: '250mL' }), 'ボディミルク 無香料');
+  assert.strictEqual(withoutShownSize('化粧水 1,000ml 大容量', listingVariant('化粧水 1,000ｍｌ 大容量')), '化粧水 大容量');
+  assert.strictEqual(withoutShownSize('ローション【180mL】', { refill: false, size: '180mL' }), 'ローション');
+  // 容量の前後の書き方（入り・約・内容量・×数）も一緒に外し、重なった区切りは1つにする
+  const g12 = { refill: false, size: '12g' };
+  assert.strictEqual(withoutShownSize('クッション 01(12g入り)', g12), 'クッション 01');
+  assert.strictEqual(withoutShownSize('クッション 約12g 01', g12), 'クッション 01');
+  assert.strictEqual(withoutShownSize('クッション 内容量:12g', g12), 'クッション');
+  assert.strictEqual(withoutShownSize('クッション 12g×2', g12), 'クッション');
+  assert.strictEqual(withoutShownSize('ローション / 180mL / 無香料', { refill: false, size: '180mL' }), 'ローション / 無香料');
+  assert.strictEqual(withoutShownSize('ローション / 180mL', { refill: false, size: '180mL' }), 'ローション');
+  assert.strictEqual(withoutShownSize('ローション 200ml (200ml)', { refill: false, size: '200mL' }), 'ローション');
+  // ほかの数の桁区切り・英数字の語の中の数字は残す
+  assert.strictEqual(withoutShownSize('ビタミンC 1,000mg配合 30ml', { refill: false, size: '30mL' }), 'ビタミンC 1,000mg配合');
+  assert.strictEqual(withoutShownSize('ローション A10g 30ml', { refill: false, size: '30mL' }), 'ローション A10g');
+  // 色番号・SPF などの数字は残す
+  assert.strictEqual(withoutShownSize('UVミルク SPF50+ PA++++ 01 (30g)', { refill: false, size: '30g' }), 'UVミルク SPF50+ PA++++ 01');
+
+  // 価格の横に容量が無い（容量が2つ・書いていない・価格が無い）なら、名前の容量を残す
+  const twoSizes = 'やさしい ローション 200ml/500ml';
+  assert.strictEqual(listingCardLabels({ brand: '', name: twoSizes, shopPrice: shopPrice(twoSizes) }).name, 'ローション 200ml/500ml');
+  assert.strictEqual(listingCardLabels({ brand: 'インテグレート', name: cushion }).name, 'プロフィニッシュクッション 0 ライトオークル(12g)');
+  assert.strictEqual(withoutShownSize('化粧水 (200ml)', { refill: true }), '化粧水 (200ml)');
+  // 名前が容量だけなら元の名前
+  assert.strictEqual(withoutShownSize('200ml', { refill: false, size: '200mL' }), '200ml');
+});

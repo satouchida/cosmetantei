@@ -1,5 +1,5 @@
 import { labelBrandName, listedBrandName } from './services/brand-suggest';
-import { displayListingName } from './search/listing-name';
+import { displayListingName, withoutShownSize } from './search/listing-name';
 import { readsAlike } from './search/product-identity';
 import type { Product } from './types';
 
@@ -34,9 +34,16 @@ export function getDisplayBrand(
 
 /**
  * お店の商品のカードに出すブランドの行と名前（名前は displayListingName）。ブランドが分からなければ、飾りを外した名前の最初の語を
- * ブランドの行に出し、名前からは外す（「「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター」の売り文句をブランドにしない）
+ * ブランドの行に出し、名前からは外す（「「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター」の売り文句をブランドにしない）。
+ * 価格の横に容量を書く商品（shopPrice.variant.size）は、名前から容量を外す（「(12g)」と「本体 12g」を二重に出さない）
  */
-export function listingCardLabels(p: Pick<Product, 'brand' | 'name'>): { brand: string; name: string } {
+export function listingCardLabels(p: Pick<Product, 'brand' | 'name' | 'shopPrice'>): { brand: string; name: string } {
+  const labels = brandAndName(p);
+  return { ...labels, name: withoutShownSize(labels.name, p.shopPrice?.variant) };
+}
+
+/** listingCardLabels のブランドの行と、ブランドを外した名前 */
+function brandAndName(p: Pick<Product, 'brand' | 'name'>): { brand: string; name: string } {
   const cleaned = displayListingName(p.name);
   // 一覧に無いブランドを「英字 読み」で書いた名前（「THE FUTURE ザフューチャー …」）は、英字の語をブランドの行に出し、読みも名前から外す
   // （最初の語だけをブランドにすると「THE」と「FUTURE ザフューチャー …」になる）
