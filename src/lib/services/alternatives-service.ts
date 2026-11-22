@@ -2,7 +2,7 @@ import 'server-only';
 import { CulpritIngredient, KnownIngredient, PriceApiCredit, Product, UserRoutineState } from '../types';
 import { analyzeProduct } from '../analyzer/ingredient-analyzer';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
-import { alternativeAvoidItems, findSafeAlternatives } from '../analyzer/alternative-gate';
+import { alternativeAvoidItems, findSafeAlternatives, fitsKind } from '../analyzer/alternative-gate';
 import { performDifferentialAnalysis } from '../analyzer/differential-analysis';
 import {
   AlternativeCategory,
@@ -263,11 +263,21 @@ export interface ShopCheckSummary {
    * unrated（評価できた成分が少ないだけ）・duplicate・excluded・otherKind は成分で外したのではないので数えない
    */
   rejected: number;
+  /** 読めた一覧のうち、商品名から探している種類と確かめられなかった数（counts.otherKindAfterRead） */
+  otherKind: number;
+  /** 読めた一覧のうち、評価できた成分が少なかった数（dropped.unrated。確かめた後にだけ数える） */
+  unrated: number;
 }
 
 export function shopCheckSummary(counts: ShopSearchCounts): ShopCheckSummary {
-  const { noList, suspect, irritant, standard } = counts.dropped;
-  return { checked: counts.checked, readable: counts.checked - noList, rejected: suspect + irritant + standard };
+  const { noList, suspect, irritant, standard, unrated } = counts.dropped;
+  return {
+    checked: counts.checked,
+    readable: counts.checked - noList,
+    rejected: suspect + irritant + standard,
+    otherKind: counts.otherKindAfterRead,
+    unrated,
+  };
 }
 
 /**
@@ -414,6 +424,14 @@ export function typeSearchRequest(text: string, routine: UserRoutineState | unde
   return alternativeRequest(text, routine);
 }
 
+/**
+ * 種類で探す依頼（typeSearchRequest）に合う製品か。名前で見つかった製品のうち、その種類・下位の種類の物だけを答えにする
+ * （「クッションファンデ」に、名前の「ファンデ」で見つかったリキッドファンデを出さない）
+ */
+export function fitsRequestedKind(req: AlternativeRequest, product: Pick<Product, 'category' | 'name'>): boolean {
+  return !req.category || fitsKind(product, req.category, req.subKind);
+}
+
 function requestFromTextOrRoutine(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
   const fromText = alternativeRequestFromText(text);
   if (fromText && fromText.known.length > 0) return fromText;
@@ -453,13 +471,19 @@ export function explainsShortfall(shown: number, shopCheck: ShopCheckSummary | n
 }
 
 /** 少ししか出せなかった理由と、次にできること（数だけ。商品名やお店の文は書かない。どの商品も安全とは言わない） */
-function shortfallParagraphs({ checked, readable, rejected }: ShopCheckSummary): string[] {
+function shortfallParagraphs({ checked, readable, rejected, otherKind, unrated }: ShopCheckSummary, kind: string): string[] {
   const read =
     readable === checked
       ? `お店の商品${checked}件の全成分表示を確かめました。`
       : `お店の商品${checked}件を確かめましたが、全成分表示を読めたのは${readable}件でした。`;
+  // 読めたのに出さなかった商品は、理由もそれぞれ書く（成分の理由だけ書くと、残りの件数が分からない）
+  const why = [
+    rejected > 0 && `${rejected}件は、避けたい成分か刺激になりやすい成分を含んでいました`,
+    otherKind > 0 && `${otherKind}件は、商品名から${kind}と確かめられませんでした`,
+    unrated > 0 && `${unrated}件は、確かめられない成分が多く含まれていました`,
+  ].filter(Boolean);
   return [
-    `${read}${rejected > 0 ? `そのうち${rejected}件は、避けたい成分か刺激になりやすい成分を含んでいました。` : ''}`,
+    `${read}${why.length > 0 ? `そのうち${why.join('。')}。` : ''}`,
     `気になる商品があれば、「${LABEL_INPUT_REPLY}」からパッケージの全成分表示を入力すると、原因候補の成分が入っていないかを確かめられます。`,
   ];
 }
@@ -500,7 +524,7 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   const allOfForm = !!form && products.every(hasForm);
   const kind = req.category ? requestedKindLabel(req.category, req.subKind, allOfForm ? form : undefined) : 'コスメ';
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
-  const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck) : [];
+  const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck, kind) : [];
   if (products.length === 0) {
     return [
       `${subject}は、全成分を確認できた商品の中からは見つかりませんでした。`,

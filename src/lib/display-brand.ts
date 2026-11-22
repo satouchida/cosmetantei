@@ -1,5 +1,6 @@
 import { labelBrandName, listedBrandName } from './services/brand-suggest';
 import { displayListingName } from './search/listing-name';
+import { readsAlike } from './search/product-identity';
 import type { Product } from './types';
 
 /**
@@ -37,10 +38,34 @@ export function getDisplayBrand(
  */
 export function listingCardLabels(p: Pick<Product, 'brand' | 'name'>): { brand: string; name: string } {
   const cleaned = displayListingName(p.name);
+  // 一覧に無いブランドを「英字 読み」で書いた名前（「THE FUTURE ザフューチャー …」）は、英字の語をブランドの行に出し、読みも名前から外す
+  // （最初の語だけをブランドにすると「THE」と「FUTURE ザフューチャー …」になる）
+  const withReading = isKnownBrand(p.brand) ? null : brandAndReading(cleaned);
+  if (withReading) return withReading;
   const brand = getDisplayBrand(p.brand, cleaned);
   // 名前から外すのは、ブランドの行に出したブランド（会社名の brand 欄なら、商品名の中のブランド）
   const fromLabel = isKnownBrand(p.brand) ? labelBrandName(p.brand, cleaned) : null;
   return { brand, name: displayListingName(p.name, fromLabel ?? (isKnownBrand(p.brand) ? p.brand : brand)) };
+}
+
+/** ブランドに使う英字の語（「THE」「rom&nd」「Dr.Jart+」） */
+const LATIN_WORD = /^[a-z0-9&.'+-]+$/i;
+/** 読みのカタカナの語 */
+const KANA_WORD = /^[ァ-ヺー]{2,}$/;
+const MAX_BRAND_WORDS = 3;
+
+/**
+ * 名前の先頭の英字の語（3語まで）と、その読みのカタカナの語（「TIRTIR ティルティル …」）。ブランドと、読みの後の名前。
+ * 読みの後に名前が無ければ null
+ */
+function brandAndReading(name: string): { brand: string; name: string } | null {
+  const words = name.split(' ');
+  for (let n = 1; n <= MAX_BRAND_WORDS && n < words.length - 1; n++) {
+    if (!LATIN_WORD.test(words[n - 1])) break;
+    const brand = words.slice(0, n).join(' ');
+    if (KANA_WORD.test(words[n]) && readsAlike(brand, words[n])) return { brand, name: words.slice(n + 1).join(' ') };
+  }
+  return null;
 }
 
 /**

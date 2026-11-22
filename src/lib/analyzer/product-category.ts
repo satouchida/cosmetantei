@@ -61,6 +61,11 @@ function kindFromText(text: string): AlternativeCategory | 'makeup' | undefined 
   return CATEGORY_WORDS.find(([pattern]) => pattern.test(t))?.[1];
 }
 
+/** 名前がメイク用品・髪の物（チーク・コンシーラー・下地・スカルプ等。代わりの商品の種類には無い） */
+export function isMakeupName(name: string): boolean {
+  return kindFromText(name) === 'makeup';
+}
+
 export function categoryFromText(text: string): AlternativeCategory | undefined {
   const kind = kindFromText(text);
   return kind === 'makeup' ? undefined : kind;

@@ -220,6 +220,11 @@ export interface ShopSearchCounts {
    * checked は、確かめた後に落とした数・shown・これの合計になる
    */
   notShown: number;
+  /**
+   * dropped.otherKind のうち、全成分を読んだ後の確認（alternativeGateReason の kind）で外した数。返答で、読めた商品を
+   * 出さなかった理由を書く
+   */
+  otherKindAfterRead: number;
 }
 
 function emptyCounts(): ShopSearchCounts {
@@ -233,6 +238,7 @@ function emptyCounts(): ShopSearchCounts {
     paidLookups: 0,
     shown: 0,
     notShown: 0,
+    otherKindAfterRead: 0,
   };
 }
 
@@ -689,6 +695,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   };
   const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const reason = rejection(product);
+    if (reason === 'otherKind') counts.otherKindAfterRead++;
     if (reason) drop(reason, item);
     else add(product, item, listing);
   };

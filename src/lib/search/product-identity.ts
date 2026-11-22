@@ -224,6 +224,19 @@ const withoutVoicing = (key: string) => key.normalize('NFD').replace(VOICING_MAR
 const SOUND_FOLD: Record<string, string> = { d: 't', s: 't', g: 'k', b: 'h', p: 'h', f: 'h' };
 const foldSound = (sound: string) => [...sound].map((c) => SOUND_FOLD[c] ?? c).join('').replace(/([a-z])\1+/g, '$1');
 
+/**
+ * 英字のブランド名と、その後に書いたカタカナの読みか（「THE FUTURE」と「ザフューチャー」、「TIRTIR」と「ティルティル」）。
+ * 語全体の子音が同じ（清濁・s と t は区別しない。r は英語では読まないことが多く、カタカナではルになるので比べない）
+ */
+export function readsAlike(latin: string, kana: string): boolean {
+  const sound = (text: string) => {
+    const skeleton = soundSkeleton(text);
+    return skeleton === null ? null : foldSound(skeleton.replace(/r/g, ''));
+  };
+  const latinSound = sound(latin);
+  return !!latinSound && latinSound === sound(kana);
+}
+
 /** 濁点を除いて比べる名前のキーの長さの下限（「バーム」と「パーム」、「ハウダー」と「パウダー」を同じにしない） */
 const isLongEnoughForNearName = (key: string) => key.length >= MIN_NAME_SOUND;
 

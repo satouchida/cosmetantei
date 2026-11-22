@@ -13,6 +13,7 @@ import {
   alternativeQuickReplies,
   alternativeRequest,
   findAlternatives,
+  fitsRequestedKind,
   summarizeAlternatives,
   typeSearchRequest,
 } from '@/lib/services/alternatives-service';
@@ -108,6 +109,10 @@ export async function priceInquiryReply({ gate, userText, request }: IntentConte
   return priceReply(toPriceSearchQuery(userText), getClientIp(request.headers));
 }
 
+/** 名前の検索で見せる製品の数と、種類で絞る前に取る数 */
+const SHOWN_MATCHES = 6;
+const TYPE_FILTER_POOL = 18;
+
 /**
  * E. 全入力に対する動的コスメ探索（肌トラブル・カテゴリ・成分・ブランド・製品名など）
  * Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
@@ -118,7 +123,13 @@ export async function productSearchReply({ gate, userText, routine }: IntentCont
   // 有料の調べものを2回しない）。保存した製品の名前は今までどおり先に探す
   const byType = typeSearchRequest(userText, routine);
   const webResearch = gate?.intent === 'product_lookup' && !byType;
-  const { products: matchedProducts, closeMatches } = await searchCosmeticsLiveWithCloseMatches(userText, 6, { webResearch });
+  // 種類だけの依頼では、名前で見つかった製品のうち、その種類の物だけ（「クッションファンデ」に、名前の「ファンデ」で見つかった
+  // リキッドファンデを出さない）。絞る前に多めに取る（上位がほかの形で埋まっても、合う製品を落とさない。保存した製品だけの検索）
+  const { products: found, closeMatches } = await searchCosmeticsLiveWithCloseMatches(userText, byType ? TYPE_FILTER_POOL : SHOWN_MATCHES, { webResearch });
+  const matchedProducts = byType ? found.filter((p) => fitsRequestedKind(byType, p)).slice(0, SHOWN_MATCHES) : found;
+  // 種類だけの依頼で、その種類の名前の商品が無ければ、その種類の強い刺激成分を含まない商品を探す（「該当する化粧品が
+  // 見つかりませんでした」で終わらせない。近い候補は種類で絞っていないので、こちらが先）
+  if (matchedProducts.length === 0 && byType) return alternativesResponse(byType);
 
   // F. 商品名の入力など。合う商品が無く、検索語にあるブランドの近い製品があれば、答えではなく近い候補として見せる
   if (matchedProducts.length === 0 && closeMatches.length > 0) {
@@ -130,9 +141,6 @@ export async function productSearchReply({ gate, userText, routine }: IntentCont
       quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '📝 成分表示を入力する'],
     });
   }
-  // 種類だけの依頼（「美容液ファンデ」）で、名前の商品が無ければ、その種類の強い刺激成分を含まない商品を探す
-  // （「該当する化粧品が見つかりませんでした」で終わらせない）
-  if (matchedProducts.length === 0 && byType) return alternativesResponse(byType);
   // 該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
   if (matchedProducts.length === 0) {
     const limit = webResearch ? currentSpendLimit(RESEARCH_BUCKETS) : null;

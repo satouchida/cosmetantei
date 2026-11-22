@@ -5,7 +5,7 @@ import { ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
-import { candidateSubKind, productCategory, SubKind, subKindFit } from './product-category';
+import { candidateSubKind, isMakeupName, productCategory, SubKind, subKindFit } from './product-category';
 import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { AnalyzedIngredient, CulpritIngredient, IngredientRiskLevel, Product } from '../types';
 
@@ -95,9 +95,7 @@ export function alternativeGateReason(
   }
 
   return (product, options = {}) => {
-    // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
-    if (options.category && productCategory(product) !== options.category) return 'kind';
-    if (options.category && subKindFit(options.subKind, candidateSubKindOf(product, options.category, options.subKind), options.category) === 'other') return 'kind';
+    if (options.category && !fitsKind(product, options.category, options.subKind)) return 'kind';
     const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
     if (!shopListing && !hasVerifiedIngredients(product)) return 'unverified';
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
@@ -137,6 +135,25 @@ export function alternativeGateReason(
 const NAME_ORDER = new Intl.Collator('ja');
 
 /** 候補の下位の種類（探している種類の中で、名前から。美容液ファンデは形にかかわらず：candidateSubKind） */
+/**
+ * 種類の語が名前に無くても、その語だけで種類が分かる下位の種類（「TIRTIR マスクフィット レッド クッション」はクッションファンデ）。
+ * ほかの下位の種類の語は種類を決めない（「ハンドソープ」はハンドクリームではなく、「ボディミスト」はボディクリームではない）
+ */
+const NAMES_THE_CATEGORY: ReadonlySet<SubKind> = new Set(['cushion']);
+
+/**
+ * 探している種類（と下位の種類）の製品か。種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）。種類の語が
+ * 無くても、NAMES_THE_CATEGORY の下位の種類の語があれば、その種類（お店の名前の確かめでは通していた）。メイク用品の名前
+ * （「クッションチーク」）は除く。代わりの商品の確認と、種類で探す依頼の名前の検索の結果に使う
+ */
+export function fitsKind(product: Pick<Product, 'category' | 'name'>, category: Product['category'], subKind: SubKind | undefined): boolean {
+  const candidate = candidateSubKindOf(product, category, subKind);
+  const named =
+    subKind && candidate === subKind && NAMES_THE_CATEGORY.has(subKind) && !isMakeupName(product.name) ? category : undefined;
+  if ((productCategory(product) ?? named) !== category) return false;
+  return subKindFit(subKind, candidate, category) !== 'other';
+}
+
 function candidateSubKindOf(product: Pick<Product, 'name'>, category: Product['category'], wanted: SubKind | undefined): SubKind | undefined {
   return category === 'other' ? undefined : candidateSubKind(wanted, category, product.name);
 }
