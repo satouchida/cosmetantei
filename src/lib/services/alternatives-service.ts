@@ -17,7 +17,7 @@ import {
 } from '../analyzer/product-category';
 import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm, ProductForm } from '../analyzer/product-form';
 import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
-import { findIngredientsInText } from './chat-replies';
+import { findIngredientsInText, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { isSameProduct, ProductIdentity, registeredMatcher } from '../search/product-identity';
 
@@ -97,13 +97,22 @@ const NEGATION_WINDOW = 20;
  * 「香料が入っていない」「エタノールとパラベン不使用」「無香料」のように、含まないことを求めているか。
  * 「セラミド配合で香料フリー」のセラミドは、否定の前に「配合」があるので求めていない
  */
-function isNegatedInText(item: KnownIngredient, text: string): boolean {
+export function isNegatedInText(item: KnownIngredient, text: string): boolean {
   const t = text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
-  const names = [...item.nameJa.split(/[（(/／)）]/), ...item.aliases]
+  // まとまりの言い方（「アルコールフリー」のアルコール）も、その成分の名前として見る
+  const groupWords = INGREDIENT_GROUP_WORDS.filter((g) => g.category === item.category).map((g) => g.word);
+  const names = [...item.nameJa.split(/[（(/／)）]/), ...item.aliases, ...groupWords]
     .map((n) => n.normalize('NFKC').toLowerCase().replace(/\s+/g, ''))
     .filter((n) => n.length >= 2);
   return names.some((n) => {
+    const isGroupWord = groupWords.includes(n);
     for (let i = t.indexOf(n); i >= 0; i = t.indexOf(n, i + 1)) {
+      if (isGroupWord) {
+        // まとまりの言い方は、1つの語のときだけ（「セチルアルコールフリー」はエタノールを避けるという意味ではない）
+        const found = standaloneGroupWord(t, i, i + n.length);
+        if (!found) continue;
+        if (found.negated) return true;
+      }
       if (t[i - 1] === '無') return true;
       const after = t.slice(i + n.length, i + n.length + NEGATION_WINDOW);
       const neg = NEGATION.exec(after);

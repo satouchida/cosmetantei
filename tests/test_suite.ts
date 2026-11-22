@@ -12861,3 +12861,37 @@ test('196. The name-search list keeps one entry per product, not only per barcod
   assert.strictEqual((route.match(/onePerProduct\((out|byBrand), isVerified, limit\)/g) ?? []).length, 2);
   assert.doesNotMatch(route, /onePerBarcode/);
 });
+
+test('197. 「アルコール」 in a request means every ingredient that dries the skin like ethanol (エタノール, イソプロパノール), but not セチルアルコール or 高級アルコール (live 2026-11-22: 「アルコールフリーの化粧水」 answered 「刺激になりやすい成分を含まない化粧水」 without naming what it avoided)', async () => {
+  const { alternativeRequestFromText } = await import('../src/lib/services/alternatives-service');
+  const { findIngredientsInText } = await import('../src/lib/services/chat-replies');
+  const { KNOWN_INGREDIENTS } = await import('../src/lib/data/ingredients-db');
+  const drying = KNOWN_INGREDIENTS.filter((k) => k.category === 'drying_alcohol').map((k) => k.id).sort();
+  assert.deepStrictEqual(drying, ['ethanol', 'isopropanol']);
+  const avoided = (text: string) => (alternativeRequestFromText(text)?.known ?? []).map((k) => k.id).sort();
+  for (const text of ['アルコールフリーの化粧水', 'アルコールが入っていない化粧水を探して', '無アルコールの化粧水', 'アルコール不使用の化粧水']) {
+    assert.deepStrictEqual(avoided(text), drying, text);
+  }
+  // 「ノンアルコール」も同じ（「無アルコール」と同じく、含まないという意味の前置き）
+  assert.deepStrictEqual(avoided('ノンアルコールの化粧水'), drying);
+  // ほかの成分と並べても、まとまりの成分は数の上限で落とさない
+  assert.deepStrictEqual(avoided('香料とパラベンとアルコールフリーの化粧水'), [...drying, 'fragrance', 'parabens'].sort());
+  // 語の途中の「アルコール」（セチルアルコールフリー）で、名前で求めたエタノールを「避けたい」にしない
+  const { isNegatedInText } = await import('../src/lib/services/alternatives-service');
+  const ethanol = KNOWN_INGREDIENTS.find((k) => k.id === 'ethanol')!;
+  assert.strictEqual(isNegatedInText(ethanol, 'エタノール配合でセチルアルコールフリーの化粧水'), false);
+  assert.strictEqual(isNegatedInText(ethanol, 'セラミド配合でアルコールフリーの化粧水'), true);
+  // 「セラミド配合でアルコールフリー」は、アルコールだけを避ける（セラミドは求めている）
+  assert.deepStrictEqual(avoided('セラミド配合でアルコールフリーの乳液'), drying);
+  // 語の途中の「アルコール」は別の成分（乾かさない）。エタノールの名前は今までどおり
+  assert.deepStrictEqual(avoided('セチルアルコールが入っていない乳液'), []);
+  assert.deepStrictEqual(avoided('高級アルコールフリーの化粧水'), []);
+  assert.deepStrictEqual(avoided('エタノールフリーの化粧水'), ['ethanol']);
+  // ふだんの拾い出し（成分の質問）でも「アルコール」は同じまとまり。含まないという意味の言い方は拾わない
+  assert.deepStrictEqual(findIngredientsInText('アルコールは肌に悪い？').map((k) => k.id).sort(), drying);
+  assert.deepStrictEqual(findIngredientsInText('アルコールフリーとは'), []);
+  assert.deepStrictEqual(findIngredientsInText('無アルコールの化粧水'), []);
+  assert.deepStrictEqual(findIngredientsInText('ノンアルコールの化粧水'), []);
+  assert.deepStrictEqual(findIngredientsInText('セチルアルコールって何'), []);
+  assert.deepStrictEqual(findIngredientsInText('変性アルコールって何').map((k) => k.id), ['ethanol']);
+});

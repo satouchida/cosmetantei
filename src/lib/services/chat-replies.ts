@@ -263,6 +263,44 @@ export async function explainCulprits(diff: DifferentialAnalysisResult): Promise
 
 const KATAKANA = /[ァ-ヶー]/;
 const ASCII_WORD = /^[a-z0-9]+$/;
+/** 漢字（「高級アルコール」の「級」） */
+const KANJI = /[一-鿿々]/;
+
+/**
+ * 1つの語で、同じ働きの成分のまとまりを指す言い方。「アルコール」は、エタノールと同じように揮発して肌を乾かす成分
+ * （成分DBの drying_alcohol：エタノール・イソプロパノール）。「アルコールフリー」「アルコールが入っていない」で、まとめて避ける。
+ * 語の途中では一致させない（「セチルアルコール」「ベヘニルアルコール」は乾かさない別の成分、「高級アルコール」も同じ）
+ */
+export const INGREDIENT_GROUP_WORDS: readonly { word: string; category: KnownIngredient['category'] }[] = [
+  { word: 'アルコール', category: 'drying_alcohol' },
+];
+
+/**
+ * 文章（NFKC・小文字）の start〜end にある、まとまりの言い方が1つの語か。語の途中（前がカタカナ・漢字、後がカタカナ）なら null。
+ * 語なら、含まないという意味（「無アルコール」「ノンアルコール」「アルコールフリー」「アルコール不使用」）かを返す
+ */
+export function standaloneGroupWord(text: string, start: number, end: number): { negated: boolean } | null {
+  const before = text[start - 1] ?? '';
+  const non = text.slice(Math.max(0, start - 2), start) === 'ノン';
+  const free = text.startsWith('フリー', end);
+  if (before !== '無' && !non && (KATAKANA.test(before) || KANJI.test(before))) return null;
+  if (KATAKANA.test(text[end] ?? '') && !free) return null;
+  return { negated: before === '無' || non || free || text.startsWith('不使用', end) };
+}
+
+/** 文章の中の、まとまりを指す言い方（1つの語のものだけ）。含まないという意味の言い方は includeNegated のときだけ */
+function groupWordHits(norm: string, includeNegated: boolean) {
+  const hits: { item: KnownIngredient; start: number; end: number; inAscii: boolean }[] = [];
+  for (const { word, category } of INGREDIENT_GROUP_WORDS) {
+    for (let start = norm.indexOf(word); start >= 0; start = norm.indexOf(word, start + 1)) {
+      const end = start + word.length;
+      const found = standaloneGroupWord(norm, start, end);
+      if (!found || (!includeNegated && found.negated)) continue;
+      for (const item of KNOWN_INGREDIENTS) if (item.category === category) hits.push({ item, start, end, inAscii: false });
+    }
+  }
+  return hits;
+}
 
 /**
  * 文章に出てくる既知成分を取り出す（長い名前を優先し、重なる一致は捨てる）。
@@ -326,10 +364,18 @@ export function findIngredientsInText(text: string, { includeNegated = false } =
     );
     if (!overlaps && !accepted.some((a) => a.item.id === hit.item.id)) accepted.push(hit);
   }
-  return accepted
+  // まとまりの言い方（「アルコール」）は、成分の名前と重ならないところだけ。同じところの成分はまとめて入れる
+  const named = [...accepted];
+  for (const hit of groupWordHits(norm, includeNegated)) {
+    const overlaps = named.some((a) => !a.inAscii && a.start < hit.end && hit.start < a.end);
+    if (!overlaps && !accepted.some((a) => a.item.id === hit.item.id)) accepted.push(hit);
+  }
+  const ordered = accepted
     .sort((a, b) => Number(a.inAscii) - Number(b.inAscii) || a.start - b.start)
-    .map((h) => h.item)
-    .slice(0, MAX_QUESTION_INGREDIENTS);
+    .map((h) => h.item);
+  // 含まない成分を探すときは、数で落とさない（「香料とパラベンとアルコールフリー」のイソプロパノールが消える）。
+  // 成分を説明するとき（既定）だけ、1回の返答に載せる数を絞る
+  return includeNegated ? ordered : ordered.slice(0, MAX_QUESTION_INGREDIENTS);
 }
 
 const NO_ANSWER_REPLY =
