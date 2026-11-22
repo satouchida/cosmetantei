@@ -43,6 +43,24 @@ export function listingCardLabels(p: Pick<Product, 'brand' | 'name'>): { brand: 
   return { brand, name: displayListingName(p.name, fromLabel ?? (isKnownBrand(p.brand) ? p.brand : brand)) };
 }
 
+/**
+ * カードのブランドの行（brand 欄があるときだけ getDisplayBrand でそろえる。「花王」の「キュレル …」→ キュレル、
+ * 「Curel」→ キュレル）。brand 欄が空・「ブランド未登録」なら、そのまま（商品名の最初の語をブランドにしない）
+ */
+export function brandLine(p: Pick<Product, 'brand' | 'name'>): string {
+  return isKnownBrand(p.brand) ? getDisplayBrand(p.brand, p.name) : p.brand;
+}
+
+/**
+ * 「ブランド 商品名」の、ブランドを brandLine にしたもの（「花王」の「キュレル ハンドクリーム」→「キュレル ハンドクリーム」）。
+ * 商品名に brand 欄か brandLine のブランドが入っていれば商品名だけ（「Curel」の「Curel フォーム」に「キュレル」を足さない）
+ */
+export function shownProductLabel(p: Pick<Product, 'brand' | 'name'>): string {
+  const brand = brandLine(p);
+  if (productLabel(p) === p.name || productLabel({ brand, name: p.name }) === p.name) return p.name;
+  return [brand, p.name].filter(Boolean).join(' ');
+}
+
 /** 「ブランド 商品名」。商品名にブランド名（「ちふれ化粧品 / ちふれ」のどれか）が入っていれば商品名だけ */
 export function productLabel(p: Pick<Product, 'brand' | 'name'>): string {
   const tokens = p.brand.split(/[/／・|,、]/).map((t) => t.trim()).filter((t) => t.length >= 2);

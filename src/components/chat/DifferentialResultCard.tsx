@@ -3,6 +3,7 @@
 import React from 'react';
 import { DifferentialAnalysisResult, Product } from '@/lib/types';
 import { AlertCircle, CheckCircle2, Flame, ShieldAlert, Sparkles } from 'lucide-react';
+import { shownProductLabel } from '@/lib/display-brand';
 import { AmazonAlternativeCard } from './AmazonAlternativeCard';
 import { PairFindingList } from './PairFindingList';
 import { MedicalNotice } from './MedicalNotice';
@@ -41,7 +42,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
           <ul className="list-disc pl-5 text-ink space-y-0.5">
             {badProducts.map((p) => (
               <li key={p.id} className="break-keep [overflow-wrap:anywhere]">
-                {p.brand} {p.name}
+                {shownProductLabel(p)}
               </li>
             ))}
           </ul>
@@ -56,7 +57,7 @@ export const DifferentialResultCard: React.FC<DifferentialResultCardProps> = ({ 
             <ul className="list-disc pl-5 text-ink space-y-0.5">
               {safeProducts.map((p) => (
                 <li key={p.id} className="break-keep [overflow-wrap:anywhere]">
-                  {p.brand} {p.name}
+                  {shownProductLabel(p)}
                 </li>
               ))}
             </ul>

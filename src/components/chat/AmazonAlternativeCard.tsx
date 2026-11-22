@@ -9,7 +9,7 @@ import { kindLabel, productCategory, productSubKind } from '@/lib/analyzer/produ
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
 import { isPersistable } from '@/lib/usable-products';
-import { displayListingName } from '@/lib/search/listing-name';
+import { listingCardLabels } from '@/lib/display-brand';
 import { useUnregisteredProducts } from './RegisteredProducts';
 
 interface AmazonAlternativeCardProps {
@@ -62,6 +62,8 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
           const qoo10Url = buildQoo10AffiliateUrl(p.brand, p.name);
           // サーバーが持っている製品だけ（入力した成分表示・お店の説明から読んだ製品は、サーバーが価格を調べない）
           const canPrice = !!onPriceLookup && isPersistable(p);
+          // ブランドの行と名前は、代わりの商品のカードと同じ（会社名の brand 欄なら商品名の中のブランド。名前は【公式】などを外す）
+          const label = listingCardLabels(p);
 
           return (
             <div
@@ -70,7 +72,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
             >
               <div>
                 <div className="flex items-center justify-between gap-1 text-xs mb-1">
-                  <span className="font-semibold text-sage-700 min-w-0 truncate">{p.brand}</span>
+                  <span className="font-semibold text-sage-700 min-w-0 truncate">{label.brand}</span>
                   <div className="flex flex-wrap items-center justify-end gap-1 shrink-0">
                     <WebSearchBadge product={p} />
                     {p.isQuasiDrug && (
@@ -81,7 +83,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
 
                 <h4 className="text-[0.9375rem] font-semibold line-clamp-2 leading-snug break-keep [overflow-wrap:anywhere]">
                   {/* お店の商品名のことがあるので、【公式】などの飾りを外して出す（リンクと読み上げは元の名前） */}
-                  {displayListingName(p.name, p.brand)}
+                  {label.name}
                 </h4>
                 <ProductSourceLink product={p} className="mt-1" />
 

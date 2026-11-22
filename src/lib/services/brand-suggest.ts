@@ -299,13 +299,14 @@ let seedByKey: Map<string, BrandEntry> | null = null;
  * 「/」「,」「、」で区切ったどの部分も、一覧のブランドの名前・読み・別の書き方と同じときだけ。
  * 語の一部では照らさない（「Kate Somerville」をケイトにしない）。会社名とブランド名が並んでいればブランド名。
  * 「CosRx (コスアールエックス)」のような、名前と括弧の中の読みは、どちらかが一覧のブランドならそのブランド。
+ * 「ちふれ・CHIFURE」のように同じブランドの書き方を「・」で並べたものも、そのブランド。
  * 一覧に無い部分がある・会社でないブランドが2つ以上ある → null（brand 欄のまま表示する）
  */
 export function listedBrandName(brandField: string): string | null {
   const found = new Set<BrandEntry>();
   for (const part of brandField.split(/[/／,，、]/)) {
     if (!searchKey(part)) continue;
-    const entry = seedEntry(part) ?? readingPairEntry(part);
+    const entry = seedEntry(part) ?? readingPairEntry(part) ?? sameBrandSpellingsEntry(part);
     if (!entry) return null;
     found.add(entry);
   }
@@ -332,6 +333,17 @@ function readingPairEntry(part: string): BrandEntry | null {
   if (!m) return null;
   const listed = [m[1], m[2]].map(seedEntry).filter((e): e is BrandEntry => e !== null);
   return listed.length > 0 && listed.every((e) => e === listed[0]) ? listed[0] : null;
+}
+
+/**
+ * 「ちふれ・CHIFURE」のように、同じブランドの書き方を「・」で並べたもの（どれも同じブランドのときだけ。
+ * 「ラ・ロッシュ・ポゼ」は「・」のまま一覧の書き方なので、ここまで来ない）
+ */
+function sameBrandSpellingsEntry(part: string): BrandEntry | null {
+  const spellings = part.split(/[・･]/).filter((s) => searchKey(s));
+  if (spellings.length < 2) return null;
+  const entries = spellings.map(seedEntry);
+  return entries.every((e) => e !== null && e === entries[0]) ? entries[0] : null;
 }
 
 /**

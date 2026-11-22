@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Trash2 } from 'lucide-react';
+import { brandLine } from '@/lib/display-brand';
 import type { Product } from '@/lib/types';
 
 interface ProductRowProps {
@@ -32,7 +33,7 @@ export const ProductRow: React.FC<ProductRowProps> = ({
   <div className={`bg-white pl-3 pr-1 py-2 rounded-xl border border-sand-200 border-l-[3px] shadow-xs ${accentClassName}`}>
     <div className="flex items-start justify-between gap-1">
       <div className="min-w-0 flex-1 py-1">
-        <div className={`text-xs font-semibold truncate ${brandClassName}`}>{product.brand}</div>
+        <div className={`text-xs font-semibold truncate ${brandClassName}`}>{brandLine(product)}</div>
         <div className="text-sm font-semibold text-ink break-keep [overflow-wrap:anywhere] line-clamp-2">
           {product.name}
         </div>

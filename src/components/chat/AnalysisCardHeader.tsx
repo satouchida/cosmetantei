@@ -3,6 +3,7 @@
 import React from 'react';
 import { AlertCircle, AlertTriangle, Globe, HelpCircle, ShieldCheck } from 'lucide-react';
 import { ProductAnalysisResult } from '@/lib/types';
+import { brandLine } from '@/lib/display-brand';
 import { ProductSourceLink } from './ProductSourceLink';
 import { badge as badgeClass, type Tone } from '../ui/design';
 
@@ -44,7 +45,7 @@ export const AnalysisCardHeader: React.FC<AnalysisCardHeaderProps> = ({
     <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 pb-3 border-b border-sand-200">
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs font-semibold text-sage-700">{product.brand}</span>
+          <span className="text-xs font-semibold text-sage-700">{brandLine(product)}</span>
           {isEstimatedFromMarketplaces && (
             <span className={badgeClass('brand')}>
               <Globe className="w-3 h-3" aria-hidden />

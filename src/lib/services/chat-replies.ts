@@ -302,11 +302,14 @@ export function findIngredientsInText(text: string, { includeNegated = false } =
         const before = norm[start - 1] ?? '';
         const after = norm[end] ?? '';
         if (KATAKANA.test(name[0]) && KATAKANA.test(before)) continue;
-        if (KATAKANA.test(name[name.length - 1]) && KATAKANA.test(after)) continue;
+        // 続くカタカナが「フリー」なら語の終わり（「グリセリンフリー」「サリチル酸フリー」「ビタミンCフリー」。
+        // 「グリセリンフリーローション」のように後にカタカナ語が続いてもよい。含まないという意味は下で見る）
+        const free = norm.startsWith('フリー', end);
+        if (KATAKANA.test(name[name.length - 1]) && KATAKANA.test(after) && !free) continue;
         // 「ビタミンC誘導体」「ビタミンCエチル」「アスコルビン酸グルコシド」は、アスコルビン酸とは性質の違う別の成分
-        if (norm.startsWith('誘導体', end) || (/[酸a-z0-9]$/.test(name) && KATAKANA.test(after))) continue;
+        if (norm.startsWith('誘導体', end) || (/[酸a-z0-9]$/.test(name) && KATAKANA.test(after) && !free)) continue;
         // 「無香料」「香料フリー」「パラベン不使用」は、その成分を含まないという意味
-        if (!includeNegated && (before === '無' || norm.startsWith('フリー', end) || norm.startsWith('不使用', end))) {
+        if (!includeNegated && (before === '無' || free || norm.startsWith('不使用', end))) {
           continue;
         }
         hits.push({ item, start, end, inAscii: false });

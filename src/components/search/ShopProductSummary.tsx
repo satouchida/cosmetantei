@@ -3,7 +3,8 @@
 import React from 'react';
 import { ExternalLink, Package } from 'lucide-react';
 import { Product } from '@/lib/types';
-import { displayListingName, shopPriceVariantLabel } from '@/lib/search/listing-name';
+import { shopPriceVariantLabel } from '@/lib/search/listing-name';
+import { listingCardLabels } from '@/lib/display-brand';
 import { badge } from '../ui/design';
 
 interface ShopProductSummaryProps {
@@ -32,6 +33,8 @@ const formatYen = (yen: number) => `¥${yen.toLocaleString('ja-JP')}`;
  * お店の名前は出さない
  */
 export const ShopProductSummary: React.FC<ShopProductSummaryProps> = ({ product }) => {
+  // ブランドの行と名前は、代わりの商品のカードと同じ（会社名の brand 欄なら商品名の中のブランド。名前は【公式】などを外す）
+  const label = listingCardLabels(product);
   // 写真が読めなければ代わりの絵にする（alt の文字が出ると商品名が見えてしまうので、alt は空）
   const [failed, setFailed] = React.useState(false);
   return (
@@ -60,9 +63,9 @@ export const ShopProductSummary: React.FC<ShopProductSummaryProps> = ({ product 
         </div>
       )}
       <div className="min-w-0">
-        <div className="text-xs font-semibold text-sage-700 truncate">{product.brand}</div>
+        <div className="text-xs font-semibold text-sage-700 truncate">{label.brand}</div>
         <h3 className="text-[0.9375rem] font-semibold text-ink line-clamp-2 leading-snug mt-0.5 break-keep [overflow-wrap:anywhere]">
-          {displayListingName(product.name, product.brand)}
+          {label.name}
         </h3>
         {product.shopPrice && (
           <div className="text-sm font-semibold text-ink mt-1">

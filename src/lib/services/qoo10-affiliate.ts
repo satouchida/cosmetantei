@@ -1,4 +1,5 @@
 import { withoutListingNoise } from '../search/listing-name';
+import { labelBrandName } from './brand-suggest';
 
 /**
  * Qoo10 のアフィリエイト検索リンク（バリューコマースの MyLink）。Qoo10 には商品を探す API が無いので、
@@ -41,6 +42,9 @@ function searchQuery(brand: string, productName: string): string | null {
   if (PLACEHOLDER_NAME.test(productName.trim())) return null;
   const clean = (s: string) => s.replace(/\p{Cs}/gu, '').replace(/\s+/g, ' ').trim();
   const name = clean(withoutListingNoise(productName.slice(0, MAX_NAME_LENGTH)).replace(PACKAGING, ' '));
+  // brand 欄が会社名で、飾りを外した商品名にブランドがあれば、ブランドを足さない（名前の中に、そのブランドのどれかの
+  // 書き方がある。「第一三共ヘルスケア株式会社 ミノン …」「キュレル Curel …」にしない）
+  if (name && labelBrandName(brand, name)) return name.split(' ').slice(0, MAX_WORDS).join(' ');
   const first = clean(brandWords(brand));
   if (!name || name.toLowerCase() === first.toLowerCase()) return null;
   const query = !first || name.toLowerCase().includes(first.toLowerCase()) ? name : `${first} ${name}`;

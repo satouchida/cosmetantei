@@ -8519,7 +8519,9 @@ test('137. Qoo10 links go through ValueCommerce MyLink, are labelled PR, and are
   // お店の商品名は【公式】・送料無料・容量・セットを外し、先頭の4語（Qoo10 の検索はすべての語を含む商品だけを出す）
   const keyword = (brand: string, name: string) => new URL(buildQoo10SearchUrl(brand, name)!).searchParams.get('keyword');
   assert.strictEqual(keyword('無印良品', '【公式】無印良品 敏感肌用化粧水 高保湿タイプ 400mL 大容量 詰め替え用 2個セット 送料無料 ポイント10倍 1'), '無印良品 敏感肌用化粧水 高保湿タイプ 大容量');
-  assert.strictEqual(keyword('ロート製薬', '肌ラボ 極潤ヒアルロン液 170ml ×3本'), 'ロート製薬 肌ラボ 極潤ヒアルロン液');
+  // brand 欄が会社名（ロート製薬）で、商品名に一覧のブランド（肌ラボ）があれば、会社名は検索語に入れない（test 194）
+  assert.strictEqual(keyword('ロート製薬', '肌ラボ 極潤ヒアルロン液 170ml ×3本'), '肌ラボ 極潤ヒアルロン液');
+  assert.strictEqual(keyword('ロート製薬', 'スキンアクア UVスーパーモイスチャーミルク'), 'スキンアクア UVスーパーモイスチャーミルク');
   assert.strictEqual(keyword('ちふれ・CHIFURE', '美白化粧水 VC 180ml'), 'ちふれ 美白化粧水 VC', 'Only the first spelling of the brand');
   assert.strictEqual(keyword('資生堂', 'スキンケアセット 3点セット'), '資生堂 スキンケアセット', 'A set word inside the name stays');
   assert.strictEqual(keyword('ラ・ロッシュ・ポゼ', 'トレリアン 400ml'), 'ラ ロッシュ ポゼ トレリアン', 'A ・ inside one brand name is kept');
@@ -9205,12 +9207,16 @@ test('149. Shop candidates show the product name without listing extras or a rep
   assert.strictEqual(displayListingName('【公式】', ''), '【公式】');
   const { readFileSync } = await import('node:fs');
   const tray = readFileSync('src/components/search/ShopProductSummary.tsx', 'utf8');
-  assert.match(tray, /displayListingName\(product\.name, product\.brand\)/);
+  // お店の商品のカード上部も、ブランドの行と名前を listingCardLabels で作る（test 194）
+  assert.match(tray, /const label = listingCardLabels\(product\);/);
+  assert.match(tray, /\{label\.brand\}[\s\S]*?\{label\.name\}/);
   // 代わりの商品のカードも同じ（owner request 2026-11-04。ブランドの行といっしょに listingCardLabels で作る。test 191）
   const card = readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8');
   assert.match(card, /isAlternatives \? listingCardLabels\(p\)/);
   assert.match(card, /\{label\.brand\}[\s\S]*?\{label\.name\}/);
-  assert.match(readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8'), /displayListingName\(p\.name, p\.brand\)/);
+  const amazonCard = readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8');
+  assert.match(amazonCard, /const label = listingCardLabels\(p\);/);
+  assert.match(amazonCard, /\{label\.brand\}[\s\S]*?\{label\.name\}/);
 });
 
 test('150. A shop request refused without the shop\'s own reason logs what answered, never the request values (seeding 403s 2026-11-03)', async () => {
@@ -12752,5 +12758,68 @@ test('193. One product spelled three ways merges when the full ingredient lists 
     const source = readFileSync(file, 'utf8');
     assert.doesNotMatch(source, /seen\.has\(key\)|keys\.has\(productIdentityKey/, file);
     assert.match(source, /unique\.some\(\(u\) => isSameProduct\(u, p\)\)/, file);
+  }
+});
+
+test('194. 「グリセリンフリー」「パラベンフリー」 avoid that ingredient (live 2026-11-22: 「グリセリンフリーの化粧水を探して」 suggested ちふれ 保湿化粧水 with グリセリン 10%), and every card\'s brand line shows the brand, not the company (第一三共ヘルスケア above ミノン on the ingredient-check screen)', async () => {
+  const { alternativeRequestFromText } = await import('../src/lib/services/alternatives-service');
+  const { findIngredientsInText } = await import('../src/lib/services/chat-replies');
+  const avoided = (text: string) => alternativeRequestFromText(text)?.avoid.map((a) => a.nameEn ?? a.nameJa) ?? [];
+  // カタカナの成分名のすぐ後の「フリー」は、語の終わり（カタカナ語の途中では一致させない決まりの例外）
+  assert.deepStrictEqual(avoided('グリセリンフリーの化粧水を探して'), ['Glycerin']);
+  assert.ok(avoided('パラベンフリーの化粧水を探して').some((n) => /paraben/i.test(n)));
+  // 「酸」・英数字で終わる名前（サリチル酸、ビタミンC）も。「〇〇フリーローション」のように後にカタカナ語が続いてもよい
+  assert.ok(avoided('サリチル酸フリーの化粧水').length > 0);
+  assert.ok(avoided('ビタミンCフリーの化粧水').length > 0);
+  assert.deepStrictEqual(avoided('グリセリンフリーローションを探して'), ['Glycerin']);
+  // 「ビタミンC誘導体」「アスコルビン酸グルコシド」は今までどおり別の成分
+  assert.ok(!findIngredientsInText('アスコルビン酸グルコシド').some((k) => k.id === 'ascorbic_acid'));
+  assert.deepStrictEqual(avoided('グリセリンが入っていない化粧水を探して'), ['Glycerin']);
+  // 「セラミド配合でパラベンフリー」は、パラベンだけを避ける
+  assert.ok(!avoided('セラミド配合でパラベンフリーの乳液').some((n) => /ceramide/i.test(n)));
+  assert.ok(avoided('セラミド配合でパラベンフリーの乳液').some((n) => /paraben/i.test(n)));
+  // 含まないという意味なので、ふだんの成分の拾い出しでは拾わない。カタカナ語の途中は今までどおり拾わない
+  assert.deepStrictEqual(findIngredientsInText('グリセリンフリー'), []);
+  assert.ok(!findIngredientsInText('ジプロピレングリコール').some((k) => k.id === 'propylene_glycol'));
+
+  // カードのブランドの行：brand 欄が会社名なら商品名の中のブランド、一覧の書き方にそろえる。空・未登録はそのまま
+  const { brandLine } = await import('../src/lib/display-brand');
+  assert.strictEqual(brandLine({ brand: '第一三共ヘルスケア', name: 'ミノン アミノモイスト モイストチャージ ローション II' }), 'ミノン');
+  assert.strictEqual(brandLine({ brand: 'Curel', name: '潤浸保湿 化粧水' }), 'キュレル');
+  assert.strictEqual(brandLine({ brand: 'ちふれ・CHIFURE', name: '保湿化粧水 とてもしっとりタイプ' }), 'ちふれ');
+  // 「・」を含む一覧のブランドは、一覧の書き方（「ちふれ・CHIFURE」のように分けない）
+  assert.strictEqual(brandLine({ brand: 'ラ・ロッシュ・ポゼ', name: 'トレリアン' }), 'ラ ロッシュ ポゼ');
+  assert.strictEqual(brandLine({ brand: '', name: 'ハトムギ 化粧水' }), '');
+  assert.strictEqual(brandLine({ brand: 'ブランド未登録', name: 'ハトムギ 化粧水' }), 'ブランド未登録');
+  // 「ちふれ・CHIFURE」は同じブランドの書き方の並び。別のブランドの並びは決めない
+  const { listedBrandName } = await import('../src/lib/services/brand-suggest');
+  assert.strictEqual(listedBrandName('ちふれ・CHIFURE'), 'ちふれ');
+  assert.strictEqual(listedBrandName('ちふれ・キュレル'), null);
+
+  // Amazon・Qoo10 の検索語にも会社名を入れない
+  const { buildAmazonAffiliateUrl } = await import('../src/lib/services/amazon-affiliate');
+  const { buildQoo10SearchUrl } = await import('../src/lib/services/qoo10-affiliate');
+  const minon = 'ミノン アミノモイスト モイストチャージ ローション II もっとしっとりタイプ';
+  assert.strictEqual(new URL(buildAmazonAffiliateUrl('第一三共ヘルスケア', minon)).searchParams.get('k'), minon);
+  assert.match(new URL(buildQoo10SearchUrl('第一三共ヘルスケア株式会社', minon)!).searchParams.get('keyword')!, /^ミノン /);
+  // 名前のブランドが別の書き方（Curel）なら、一覧の書き方（キュレル）を足さない。会社名でもない brand 欄は今までどおり
+  assert.strictEqual(new URL(buildAmazonAffiliateUrl('花王', 'Curel ハンドクリーム')).searchParams.get('k'), 'Curel ハンドクリーム');
+  assert.strictEqual(new URL(buildQoo10SearchUrl('花王', 'Curel ハンドクリーム')!).searchParams.get('keyword'), 'Curel ハンドクリーム');
+  assert.strictEqual(new URL(buildAmazonAffiliateUrl('花王', 'ハンドクリーム')).searchParams.get('k'), '花王 ハンドクリーム');
+  // 比較の結果のリストも：会社名はブランドに、商品名に別の書き方のブランドがあれば重ねない
+  const { shownProductLabel } = await import('../src/lib/display-brand');
+  assert.strictEqual(shownProductLabel({ brand: 'Curel', name: 'Curel フォーム' }), 'Curel フォーム');
+  assert.strictEqual(shownProductLabel({ brand: '花王', name: 'キュレル ハンドクリーム' }), 'キュレル ハンドクリーム');
+  assert.strictEqual(shownProductLabel({ brand: 'Curel', name: '潤浸保湿 化粧水' }), 'キュレル 潤浸保湿 化粧水');
+  assert.strictEqual(shownProductLabel({ brand: '', name: 'ハトムギ化粧水' }), 'ハトムギ化粧水');
+
+  // ブランドを出すカードは、どれも brandLine か listingCardLabels を通す（brand 欄をそのまま出さない）
+  const { readFileSync } = await import('node:fs');
+  const read = (f: string) => readFileSync(f, 'utf8');
+  assert.match(read('src/components/chat/AnalysisCardHeader.tsx'), /\{brandLine\(product\)\}/);
+  assert.match(read('src/components/routine/ProductRow.tsx'), /\{brandLine\(product\)\}/);
+  assert.strictEqual((read('src/components/chat/DifferentialResultCard.tsx').match(/\{shownProductLabel\(p\)\}/g) ?? []).length, 2);
+  for (const f of ['src/components/chat/AnalysisCardHeader.tsx', 'src/components/routine/ProductRow.tsx', 'src/components/chat/DifferentialResultCard.tsx', 'src/components/chat/AmazonAlternativeCard.tsx', 'src/components/search/ShopProductSummary.tsx', 'src/components/chat/ProductSuggestionCard.tsx']) {
+    assert.doesNotMatch(read(f), /\{(p|product)\.brand\}/, f);
   }
 });
