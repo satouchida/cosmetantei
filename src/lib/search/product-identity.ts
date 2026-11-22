@@ -15,7 +15,8 @@ const COMPANY_SUFFIX = /(株式会社|化粧品|コスメティックス?|cosmet
  */
 const COMPANY_PREFIX = /^(株式会社|有限会社|合同会社)(?=.)/;
 
-const compact = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[\s・･.,、。()（）\[\]【】'"’-]/g, '');
+/** 比べるときに除く記号（「極潤ヒアルロン液 / 170ml」の「/」も。容量を除いたあとに残って、同じ製品が別になる） */
+const compact = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[\s・･.,、。()（）\[\]【】'"’/-]/g, '');
 
 /** ブランド欄の語（会社名部分を除く。「ちふれ・CHIFURE」→ ちふれ, chifure） */
 function brandTokens(brand: string): string[] {

@@ -12823,3 +12823,15 @@ test('194. 「グリセリンフリー」「パラベンフリー」 avoid that 
     assert.doesNotMatch(read(f), /\{(p|product)\.brand\}/, f);
   }
 });
+
+test('195. A 「/」 before the size does not split one product in two (live 2026-11-22: 肌ラボ 極潤ヒアルロン液 shown twice, as 「極潤ヒアルロン液 / 170ml」 from cosme.com and 「極潤ヒアルロン液」 from shop.rohto.co.jp)', async () => {
+  const { isSameProduct, productIdentityKey, registeredMatcher } = await import('../src/lib/search/product-identity');
+  const cosme = { id: 'web_cosme', brand: '肌ラボ / HADA LABO', name: '極潤ヒアルロン液 / 170ml' };
+  const rohto = { id: 'web_rohto', brand: '肌ラボ', name: '極潤ヒアルロン液' };
+  assert.strictEqual(productIdentityKey(cosme.brand, cosme.name), productIdentityKey(rohto.brand, rohto.name));
+  assert.ok(isSameProduct(cosme, rohto));
+  assert.ok(registeredMatcher([rohto])(cosme));
+  // 「/」で分けた別の製品は、今までどおり別（容量だけが違うのではない）
+  assert.ok(!isSameProduct({ ...cosme, id: 'x', name: '極潤ヒアルロン液 / ミルク' }, rohto));
+  assert.ok(!isSameProduct({ id: 'y', brand: '肌ラボ', name: '極潤 α ハリクリーム' }, rohto));
+});
