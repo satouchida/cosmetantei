@@ -8,7 +8,14 @@ import {
   summarizeProductResults,
 } from '@/lib/services/chat-replies';
 import { alternativeButtonLabel, classifyChatMessage, GATE_REPLIES } from '@/lib/services/chat-gate';
-import { alternativeQuickReplies, alternativeRequest, findAlternatives, summarizeAlternatives } from '@/lib/services/alternatives-service';
+import {
+  AlternativeRequest,
+  alternativeQuickReplies,
+  alternativeRequest,
+  findAlternatives,
+  summarizeAlternatives,
+  typeSearchRequest,
+} from '@/lib/services/alternatives-service';
 import { toPriceSearchQuery } from '@/lib/services/price-service';
 import { getClientIp } from '@/lib/server/rate-limit';
 import { currentSpendLimit } from '@/lib/server/usage';
@@ -82,6 +89,11 @@ export async function findAlternativeReply({ gate, userText, routine }: IntentCo
       quickReplies: ['🧴 肌荒れしたコスメを入力する', '🔍 商品名で検索する'],
     });
   }
+  return alternativesResponse(req);
+}
+
+/** 避けたい成分を含まない商品を探して返す（代わりの商品探しと、種類だけの依頼で同じ返答） */
+async function alternativesResponse(req: AlternativeRequest) {
   const { products, credits, shopCheck } = await findAlternatives(req);
   return NextResponse.json({
     reply: summarizeAlternatives(req, products, shopCheck),
@@ -101,8 +113,11 @@ export async function priceInquiryReply({ gate, userText, request }: IntentConte
  * Web リサーチ（有料）は商品を調べる依頼のときだけ。検索語は商品名だけを取り出して使い、チャット文は送らない
  * 最後の分岐なので、必ず返答する
  */
-export async function productSearchReply({ gate, userText }: IntentContext) {
-  const webResearch = gate?.intent === 'product_lookup';
+export async function productSearchReply({ gate, userText, routine }: IntentContext) {
+  // 種類で探す依頼（「美容液ファンデ」）は、名前の Web リサーチをしない（見つからなければ種類で探し、そちらで調べる。
+  // 有料の調べものを2回しない）。保存した製品の名前は今までどおり先に探す
+  const byType = typeSearchRequest(userText, routine);
+  const webResearch = gate?.intent === 'product_lookup' && !byType;
   const { products: matchedProducts, closeMatches } = await searchCosmeticsLiveWithCloseMatches(userText, 6, { webResearch });
 
   // F. 商品名の入力など。合う商品が無く、検索語にあるブランドの近い製品があれば、答えではなく近い候補として見せる
@@ -115,6 +130,9 @@ export async function productSearchReply({ gate, userText }: IntentContext) {
       quickReplies: ['🔍 具体的な商品名で再検索', '📸 バーコードをスキャンする', '📝 成分表示を入力する'],
     });
   }
+  // 種類だけの依頼（「美容液ファンデ」）で、名前の商品が無ければ、その種類の強い刺激成分を含まない商品を探す
+  // （「該当する化粧品が見つかりませんでした」で終わらせない）
+  if (matchedProducts.length === 0 && byType) return alternativesResponse(byType);
   // 該当する商品が無い場合は Gemini に自由に答えさせず、定型文で返す
   if (matchedProducts.length === 0) {
     const limit = webResearch ? currentSpendLimit(RESEARCH_BUCKETS) : null;

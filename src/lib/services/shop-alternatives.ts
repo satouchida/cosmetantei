@@ -2,7 +2,7 @@ import 'server-only';
 import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
 import { AlternativeGateReason, alternativeGateReason } from '../analyzer/alternative-gate';
-import { AlternativeCategory, CATEGORY_LABELS_JA, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
+import { AlternativeCategory, CATEGORY_LABELS_JA, candidateSubKind, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
 import { bestFormSimilarity, FORM_LABELS_JA, FormProfile, formFromText, formProfile, formSimilarity, hasFormProfile, ProductForm } from '../analyzer/product-form';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
 import { normalJan } from '../search/product-identity';
@@ -74,6 +74,13 @@ const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKin
   lip: { lip_care: { label: 'リップクリーム' } },
   mask: { sheet: { label: 'シートマスク', genre: GENRES.mask } },
   toner: { body_lotion: { label: 'ボディローション' }, wipe_off: { label: '拭き取り化粧水' } },
+  // ファンデーションのジャンルの中で、形の名前で探す。BB・CC クリームはファンデーションのジャンルに入るか確かめていない
+  foundation: {
+    cushion: { label: 'クッションファンデーション', genre: GENRES.foundation },
+    serum_foundation: { label: '美容液ファンデーション', genre: GENRES.foundation },
+    powder: { label: 'パウダーファンデーション', genre: GENRES.foundation },
+    bb_cc: { label: 'BBクリーム' },
+  },
 };
 
 /** お店で探す種類の語（Web で探す検索語も同じ語にする） */
@@ -638,7 +645,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       // 別の種類（ジャンルが広い・名前が別の種類を言う）・別の下位の種類（クレンジングに洗顔料）と、勧めない製品
       // （同じ製品・同じシリーズ）は除く
       const kind = categoryFromText(name);
-      if ((kind && kind !== input.category) || subKindFit(input.subKind, subKindFromText(input.category, name), input.category) === 'other') {
+      if ((kind && kind !== input.category) || subKindFit(input.subKind, candidateSubKind(input.subKind, input.category, name), input.category) === 'other') {
         drop('otherKind', item);
         continue;
       }
@@ -690,7 +697,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const profile = hasFormProfile(input.profile) ? input.profile : undefined;
   const rank = ({ item }: { item: ShopItem }) => {
     const name = withoutListingNoise(item.name);
-    const sameSubKind = subKindFit(input.subKind, subKindFromText(input.category, name), input.category) === 'same';
+    const sameSubKind = subKindFit(input.subKind, candidateSubKind(input.subKind, input.category, name), input.category) === 'same';
     return (sameSubKind ? 1000 : 0) + (profile ? formSimilarity(profile, formProfile(name, input.category)) : 0);
   };
   // 並べ替えるものが無ければ、今までどおり limit 件そろったら止める。あれば、いちばん近い候補が limit 件そろうまで、

@@ -5,7 +5,7 @@ import { ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { getOrGenerateIngredientExplanation } from '../services/dynamic-ingredient-service';
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
-import { productCategory, SubKind, subKindFit, subKindFromText } from './product-category';
+import { candidateSubKind, productCategory, SubKind, subKindFit } from './product-category';
 import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
 import { AnalyzedIngredient, CulpritIngredient, IngredientRiskLevel, Product } from '../types';
 
@@ -97,7 +97,7 @@ export function alternativeGateReason(
   return (product, options = {}) => {
     // 種類が「その他」の製品は名前から推し量る（「UV ミスト」→ 日焼け止め）
     if (options.category && productCategory(product) !== options.category) return 'kind';
-    if (options.category && subKindFit(options.subKind, candidateSubKind(product, options.category), options.category) === 'other') return 'kind';
+    if (options.category && subKindFit(options.subKind, candidateSubKindOf(product, options.category, options.subKind), options.category) === 'other') return 'kind';
     const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
     if (!shopListing && !hasVerifiedIngredients(product)) return 'unverified';
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
@@ -136,9 +136,9 @@ export function alternativeGateReason(
 /** 代わりの商品の名前の順（並べ替えのたびに作らない） */
 const NAME_ORDER = new Intl.Collator('ja');
 
-/** 候補の下位の種類（探している種類の中で、名前から） */
-function candidateSubKind(product: Pick<Product, 'name'>, category: Product['category']): SubKind | undefined {
-  return category === 'other' ? undefined : subKindFromText(category, product.name);
+/** 候補の下位の種類（探している種類の中で、名前から。美容液ファンデは形にかかわらず：candidateSubKind） */
+function candidateSubKindOf(product: Pick<Product, 'name'>, category: Product['category'], wanted: SubKind | undefined): SubKind | undefined {
+  return category === 'other' ? undefined : candidateSubKind(wanted, category, product.name);
 }
 
 /**
@@ -174,7 +174,8 @@ export function findSafeAlternatives(
   // fragranceFree・alcoholFree の印は Open Beauty Facts の製品にしか無い（印のある製品だけが先に並んでいた）。
   // 医薬部外品であることは有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
   const { category, profile } = options;
-  const sameSubKind = (p: Product) => (category && subKindFit(options.subKind, candidateSubKind(p, category), category) === 'same' ? 1 : 0);
+  const sameSubKind = (p: Product) =>
+    category && subKindFit(options.subKind, candidateSubKindOf(p, category, options.subKind), category) === 'same' ? 1 : 0;
   const similarity = (p: Product) =>
     hasFormProfile(profile) ? formSimilarity(profile, formProfile(p.name, category === 'other' ? undefined : category)) : 0;
   const levels = new Map<string, IngredientRiskLevel>();

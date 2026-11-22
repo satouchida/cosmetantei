@@ -12895,3 +12895,114 @@ test('197. 「アルコール」 in a request means every ingredient that dries 
   assert.deepStrictEqual(findIngredientsInText('セチルアルコールって何'), []);
   assert.deepStrictEqual(findIngredientsInText('変性アルコールって何').map((k) => k.id), ['ethanol']);
 });
+
+test('198. A request naming only a product type (「美容液ファンデ」) finds that type without strong irritants instead of 「該当する化粧品が見つかりませんでした」, and foundation sub-kinds keep the form asked for (live 2026-11-22)', async () => {
+  const { typeSearchRequest } = await import('../src/lib/services/alternatives-service');
+  const { productSubKind, subKindFit, kindLabel } = await import('../src/lib/analyzer/product-category');
+  const { shopSearchLabel } = await import('../src/lib/services/shop-alternatives');
+  const kind = (text: string) => {
+    const r = typeSearchRequest(text, undefined);
+    return r && { category: r.category, subKind: r.subKind, avoid: r.avoid.length };
+  };
+  // 種類だけ：その種類（下位の種類も）を探す。避ける成分は無い（強い刺激成分はいつも外す）
+  assert.deepStrictEqual(kind('美容液ファンデ'), { category: 'foundation', subKind: 'serum_foundation', avoid: 0 });
+  assert.deepStrictEqual(kind('クッションファンデを探して'), { category: 'foundation', subKind: 'cushion', avoid: 0 });
+  assert.deepStrictEqual(kind('ファンデーションを探して'), { category: 'foundation', subKind: undefined, avoid: 0 });
+  // 成分も書いてあれば、その成分も避ける（「エタノール無添加の化粧水」が名前の検索に来ても、見つからないで終わらせない）
+  assert.deepStrictEqual(kind('香料フリーの美容液ファンデ'), { category: 'foundation', subKind: 'serum_foundation', avoid: 1 });
+  // ブランドのある文章（一覧のブランドも、保存した製品のブランドも）、長い文章（商品名・文）、種類の無い文章は使わない
+  assert.strictEqual(typeSearchRequest('キュレル 美容液ファンデ', undefined), null);
+  // 一覧に無いブランドでも、保存した製品のブランドなら（Web で調べて保存した製品）
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  assert.ok(typeSearchRequest('ルミナリエッタ クッションファンデ', undefined), 'not a brand yet');
+  const saved = { id: 'web_test198', brand: 'ルミナリエッタ', name: 'モイスト クッションファンデ', ingredients: ['水'] } as (typeof COSMETICS_DATABASE)[number];
+  COSMETICS_DATABASE.push(saved);
+  try {
+    assert.strictEqual(typeSearchRequest('ルミナリエッタ クッションファンデ', undefined), null);
+  } finally {
+    COSMETICS_DATABASE.splice(COSMETICS_DATABASE.indexOf(saved), 1);
+  }
+  assert.strictEqual(typeSearchRequest('ザ・ブランドエックス シンクロフィット クッションファンデーション ベージュ 12g', undefined), null);
+  assert.strictEqual(typeSearchRequest('エリクシール', undefined), null);
+  // 返答とお店の検索は、頼まれた形の名前で
+  assert.strictEqual(kindLabel('foundation', 'serum_foundation'), '美容液ファンデーション');
+  assert.strictEqual(shopSearchLabel('foundation', 'serum_foundation'), '美容液ファンデーション');
+  // ファンデーションの形（クッション・BB・CC・パウダー）は名前から。美容液だけを書いた物は美容液ファンデ
+  const { candidateSubKind } = await import('../src/lib/analyzer/product-category');
+  const sub = (name: string) => productSubKind({ category: 'foundation', name } as never);
+  assert.strictEqual(sub('ラスティング 美容液ファンデーション'), 'serum_foundation');
+  assert.strictEqual(sub('セラムファンデーション 30ml'), 'serum_foundation');
+  assert.strictEqual(sub('パウダリーファンデーション 美容液成分配合'), 'powder');
+  assert.strictEqual(sub('美容液クッションファンデ'), 'cushion');
+  assert.strictEqual(sub('BBクリーム 美容液成分配合'), 'bb_cc');
+  assert.strictEqual(sub('パウダーインリキッドファンデ'), undefined);
+  assert.strictEqual(sub('リキッドファンデーション'), undefined);
+  // 美容液ファンデは形ではなく、美容液の成分を配合したファンデ（オーナーの判断 2026-11-22）。美容液ファンデを頼んだら、
+  // 名前に美容液・セラムがあれば形にかかわらず出す（パウダリー・クッションも）。美容液の語が無い物は出さない
+  const fitFor = (wanted: Parameters<typeof subKindFit>[0], name: string) =>
+    subKindFit(wanted, candidateSubKind(wanted, 'foundation', name), 'foundation');
+  for (const name of ['ラスティング 美容液ファンデーション', 'パウダリーファンデーション 美容液成分配合', '美容液クッションファンデ', 'セラムファンデーション']) {
+    assert.strictEqual(fitFor('serum_foundation', name), 'same', name);
+  }
+  for (const name of ['パウダリーファンデーション', 'クッションファンデ', 'リキッドファンデーション']) {
+    assert.strictEqual(fitFor('serum_foundation', name), 'other', name);
+  }
+  // 形で頼んだら形で（パウダーを頼んだら、美容液成分配合のパウダリーも出す。リキッドの美容液ファンデは出さない）
+  assert.strictEqual(fitFor('powder', 'パウダリーファンデーション 美容液成分配合'), 'same');
+  assert.strictEqual(fitFor('powder', 'ラスティング 美容液ファンデーション'), 'other');
+  assert.strictEqual(fitFor('cushion', '美容液クッションファンデ'), 'same');
+  // 代わりの商品の確認も同じ判定（保存した製品から：美容液成分配合のパウダリーは出し、美容液の語の無いパウダリーは出さない）
+  const { findSafeAlternatives } = await import('../src/lib/analyzer/alternative-gate');
+  const { COSMETICS_DATABASE: db } = await import('../src/lib/data/cosmetics-db');
+  const { addProductToDynamicCache } = await import('../src/lib/data/cosmetics-db');
+  const ingredients = ['水', 'シクロペンタシロキサン', '酸化チタン', 'グリセリン', 'BG'];
+  const serumPowder = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_test198_serum_powder', name: 'テスト パウダリーファンデーション 美容液成分配合', category: 'foundation', ingredients })
+  );
+  const plainPowder = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_test198_plain_powder', name: 'テスト パウダリーファンデーション', category: 'foundation', ingredients })
+  );
+  try {
+    const found = findSafeAlternatives([], [], Number.MAX_SAFE_INTEGER, { category: 'foundation', subKind: 'serum_foundation' }).map((p) => p.id);
+    assert.ok(found.includes(serumPowder.id), 'a powder with serum ingredients is a 美容液ファンデ');
+    assert.ok(!found.includes(plainPowder.id), 'a powder without serum ingredients is not');
+  } finally {
+    for (const p of [serumPowder, plainPowder]) db.splice(db.findIndex((x) => x.id === p.id), 1);
+  }
+  // 形を言わないファンデーションの依頼は、どの形も出す
+  assert.strictEqual(subKindFit(undefined, sub('パウダリーファンデーション'), 'foundation'), 'unsaid');
+
+  // チャット：名前で探して見つからなければ、定型文ではなく種類で探した返答（お店・Web は使えない状態で、保存した製品から）
+  const { POST } = await import('../src/app/api/chat/route');
+  const { NextRequest } = await import('next/server');
+  const originalFetch = globalThis.fetch;
+  const geminiCalls: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    if (String(url).includes('generateContent')) geminiCalls.push(String(url));
+    return new Response('{}', { status: 503 });
+  }) as typeof fetch;
+  setGatewayEnv();
+  process.env.CHAT_GATE_MODE = 'off';
+  try {
+    const ask = async (message: string) => {
+      const res = await POST(
+        new NextRequest('http://localhost/api/chat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'cf-connecting-ip': '198.51.100.11' },
+          body: JSON.stringify({ message, routine: { badProducts: [] } }),
+        })
+      );
+      return (await res.json()) as { reply: string };
+    };
+    const typed = await ask('美容液ファンデ');
+    assert.doesNotMatch(typed.reply, /該当する化粧品が見つかりませんでした/, typed.reply);
+    assert.match(typed.reply, /美容液ファンデーション/, typed.reply);
+    // 長い商品名のような入力は、今までどおり見つからなかった返答
+    const named = await ask('ザ・ブランドエックス シンクロフィット クッションファンデーション ベージュ 12g');
+    assert.match(named.reply, /該当する化粧品が見つかりませんでした/, named.reply);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.CHAT_GATE_MODE;
+    clearGatewayEnv();
+  }
+});

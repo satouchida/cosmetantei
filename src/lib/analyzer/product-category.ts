@@ -116,7 +116,11 @@ export type SubKind =
   | 'sheet'
   | 'wash_off'
   | 'body_lotion'
-  | 'wipe_off';
+  | 'wipe_off'
+  | 'cushion'
+  | 'bb_cc'
+  | 'serum_foundation'
+  | 'powder';
 
 /**
  * からだ用の語（「ボディ用」「からだ用」「カラダ用」「体用」「全身用」「全身に」）。「からだ」「カラダ」だけは「からだにやさしい」と
@@ -140,7 +144,13 @@ export const FACE_ONLY = new RegExp(`^(?![\\s\\S]*(${BODY_WORDS}))[\\s\\S]*(顔�
  * - リップ：リップケアの語が口紅の語より先（「色付きリップクリーム」「ティント リップバーム」はリップケア、「色付きリップ」は口紅）
  * - パック：シートが洗い流すものより先（「クレイ シートマスク」はシート）。「洗い流し不要」は洗い流すパックではない
  * - 化粧水：からだ用が拭き取りより先
+ * - ファンデーション：形（クッション → BB・CC → パウダー）が先で、美容液は最後（「美容液クッションファンデ」はクッション、
+ *   「パウダリーファンデーション 美容液成分配合」はパウダー）。美容液ファンデは形ではなく、美容液の成分を配合したファンデ
+ *   なので、探すときは形にかかわらず名前の美容液・セラムで見る（candidateSubKind）。リキッド・クリームの語は下位の種類にしない
  */
+/** 美容液ファンデの語（美容液の成分を配合したファンデーション。「美容液ファンデーション」「美容液成分配合」「セラムファンデ」） */
+const SERUM_FOUNDATION = /美容液|セラム|\bserum\b/i;
+
 const SUB_KIND_WORDS: Partial<Record<AlternativeCategory, readonly [RegExp, SubKind][]>> = {
   cleanser: [
     // からだを洗うものが最初（「ボディソープ 泡」を洗顔料にしない）
@@ -173,6 +183,13 @@ const SUB_KIND_WORDS: Partial<Record<AlternativeCategory, readonly [RegExp, SubK
     [/シート|枚入り|\d+枚/, 'sheet'],
     [/洗い流す|洗い流し(?!不要)|ウォッシュオフ|クレイ|泥|ピールオフ/, 'wash_off'],
   ],
+  foundation: [
+    [/クッション|cushion/i, 'cushion'],
+    [/(?<![a-z])(bb|cc) ?(クリーム|cream)/i, 'bb_cc'],
+    // 「パウダーインリキッド」はパウダーではない
+    [/パウダー(?!イン)|パウダリー|プレスト|\bpowder\b/i, 'powder'],
+    [SERUM_FOUNDATION, 'serum_foundation'],
+  ],
   toner: [
     [/ハンド(?!メイド)/, 'hand'],
     [BODY_ONLY, 'body_lotion'],
@@ -199,6 +216,12 @@ const SUB_KIND_LABELS_JA: Partial<Record<AlternativeCategory, Partial<Record<Sub
   lip: { lip_care: 'リップクリーム', lip_color: '口紅' },
   mask: { sheet: 'シートマスク', wash_off: '洗い流すパック' },
   toner: { hand: 'ハンドローション', body_lotion: 'ボディローション', wipe_off: '拭き取り化粧水' },
+  foundation: {
+    cushion: 'クッションファンデーション',
+    bb_cc: 'BB・CCクリーム',
+    serum_foundation: '美容液ファンデーション',
+    powder: 'パウダーファンデーション',
+  },
 };
 
 /** 探している物の名前（下位の種類があればその名前、無ければ種類の名前） */
@@ -211,6 +234,16 @@ export function subKindFromText(kind: AlternativeCategory | undefined, text: str
   if (!kind) return undefined;
   const t = text.normalize('NFKC');
   return SUB_KIND_WORDS[kind]?.find(([pattern]) => pattern.test(t))?.[1];
+}
+
+/**
+ * 候補の下位の種類を、探している下位の種類と比べるために名前から読む（subKindFit に渡す）。ほとんどは subKindFromText と同じ。
+ * 美容液ファンデは形ではなく配合なので、美容液ファンデを探しているときは、名前に美容液・セラムがあれば形にかかわらず
+ * 美容液ファンデ（「パウダリーファンデーション 美容液成分配合」「美容液クッションファンデ」も美容液ファンデ）
+ */
+export function candidateSubKind(wanted: SubKind | undefined, kind: AlternativeCategory | undefined, name: string): SubKind | undefined {
+  if (wanted === 'serum_foundation' && kind === 'foundation' && SERUM_FOUNDATION.test(name.normalize('NFKC'))) return wanted;
+  return subKindFromText(kind, name);
 }
 
 /** 製品の下位の種類（productCategory の種類の中で、名前から） */
@@ -247,6 +280,11 @@ const STRICT_SUB_KINDS: ReadonlySet<SubKind> = new Set([
   'body_wash',
   'body_lotion',
   'wipe_off',
+  // ファンデーションは形が違うと使い方も仕上がりも違う（「美容液ファンデ」にパウダーを出さない）
+  'cushion',
+  'bb_cc',
+  'serum_foundation',
+  'powder',
 ]);
 /** 分析した製品に下位の種類が無いとき（顔のクリーム等として扱う）に外す、候補の下位の種類 */
 const NOT_FOR_UNSAID: ReadonlySet<SubKind> = new Set(['hand', 'body', 'eye', 'lip_color', 'makeup_remover', 'body_wash', 'body_lotion', 'wipe_off']);

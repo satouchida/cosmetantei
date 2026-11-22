@@ -20,6 +20,8 @@ import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeRes
 import { findIngredientsInText, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { isSameProduct, ProductIdentity, registeredMatcher } from '../search/product-identity';
+import { buildBrandIndex, SEED_INDEX, textHasBrand } from './brand-suggest';
+import { COSMETICS_DATABASE } from '../data/cosmetics-db';
 
 /**
  * 原因成分を含まない代わりの商品探し（T3）。手順: docs/plans/gemini-role-redesign.md「Phases 3 and 4」
@@ -393,6 +395,23 @@ export function avoidedNames(req: AlternativeRequest): string[] {
 export function alternativeRequest(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
   const req = requestFromTextOrRoutine(text, routine);
   return req && excludingRegistered(req, registeredProducts(routine));
+}
+
+/** 種類で探す依頼として読む文章の長さの上限（商品名を並べた長い名前・長い文は、種類で探す依頼ではない） */
+const MAX_TYPE_SEARCH_LENGTH = 30;
+
+/**
+ * 種類で探す依頼（「美容液ファンデ」「クッションファンデ」「ファンデーションを探して」「エタノール無添加の化粧水」）。
+ * 種類が分かり、ブランド（一覧のブランドと、保存した製品のブランド）を書いていない短い文章だけ。名前で探して見つからなかった
+ * ときに、その種類の、強い刺激成分（と、書いた成分・登録した肌荒れしたコスメの原因候補の成分）を含まない商品を探すのに使う。
+ * ブランドのある文章は、ブランドの製品を探しているので使わない
+ */
+export function typeSearchRequest(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
+  if (text.normalize('NFKC').trim().length > MAX_TYPE_SEARCH_LENGTH) return null;
+  if (!alternativeRequestFromText(text)?.category) return null;
+  if (SEED_INDEX.some((b) => textHasBrand(text, b))) return null;
+  if (buildBrandIndex(COSMETICS_DATABASE).some((b) => textHasBrand(text, b))) return null;
+  return alternativeRequest(text, routine);
 }
 
 function requestFromTextOrRoutine(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
