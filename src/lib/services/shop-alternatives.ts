@@ -9,7 +9,7 @@ import { isSameProduct, normalJan, ProductIdentity } from '../search/product-ide
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
-import { ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
+import { ingredientListKey, ingredientsFromCaption, janFromCaption, shopListingProduct } from './shop-ingredients';
 import { brandTagInListingName, listingVariant, LOOSE_NOISE, makerInListingName, notSingleItem, withoutListingNoise, withoutSearchTags } from '../search/listing-name';
 import { shopLink } from './shops';
 
@@ -674,6 +674,7 @@ function withDeadline<T>(promise: Promise<T>): Promise<T | null> {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
+
 export async function findShopAlternatives(input: ShopAlternativeInput): Promise<ShopAlternativeResult> {
   const counts = emptyCounts();
   if (!isRakutenApiConfigured() && !isYahooApiConfigured()) return { status: 'unavailable', products: [], credits: [], counts };
@@ -736,13 +737,14 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     return reason === 'ok' ? null : GATE_DROP[reason];
   };
   // item: お店が返した候補（数・順位・関連順はこれで）。listing: 表示する別の出品（Yahoo! の商品を JAN コードで楽天に見つけたとき）
-  const found: { product: Product; item: ShopItem; listing?: ShopItem }[] = [];
+  const found: { product: Product; item: ShopItem; listing?: ShopItem; listKey: string }[] = [];
   // 同じ製品は1つだけ（別のお店・別の容量・先頭の 0 の違う JAN コード）。確かめた後で比べる
   // （確かめられない同じ製品の出品が先にあっても、確かめられる出品を落とさない）
   // 名前の後のお店の分類・管理の語（「ボディローション・ジェル」「ヴァセリン ヴアセリンアドバンスムコウ400」）も外して比べる
   const listingKey = (item: ShopItem) => searchKey(withoutSearchTags(withoutListingNoise(item.name)).replace(SIZE, ''));
   const add = (product: Product, item: ShopItem, listing?: ShopItem) => {
-    const list = product.ingredients.join('|');
+    // 全成分の比べる形（空の一覧どうしは同じにしない）
+    const list = ingredientListKey(product.ingredients);
     const key = listingKey(item);
     // 楽天で見つけた商品は、表示する楽天の出品の名前でも比べる（無料の確かめで見つけた楽天の出品と同じ商品）
     const shownKey = listingKey(listing ?? item);
@@ -750,13 +752,13 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     const duplicate = found.some(
       (f) =>
         f.product.id === product.id ||
-        f.product.ingredients.join('|') === list ||
+        (list !== '' && f.listKey === list) ||
         listingKey(f.item) === key ||
         listingKey(f.listing ?? f.item) === shownKey ||
         (jan !== '' && normalJan(f.item.janCode) === jan)
     );
     if (duplicate) drop('duplicate', item);
-    else found.push({ product, item, ...(listing && { listing }) });
+    else found.push({ product, item, ...(listing && { listing }), listKey: list });
   };
   const shownSaved = input.shownSaved ?? [];
   const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {

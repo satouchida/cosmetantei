@@ -286,7 +286,7 @@ export interface IngredientGroupWord {
  * 紫外線散乱剤（酸化チタン・酸化亜鉛）。成分DBでは紫外線吸収剤と同じ uv_filter だが、「ノンケミカル」の日焼け止めに使う。
  * 「紫外線吸収剤不使用」「ノンケミカル」で避けるのは、それ以外の uv_filter（docs/plans/shop-search-reach.md「Step 2」）
  */
-const UV_SCATTERERS = ['titanium_dioxide', 'zinc_oxide'];
+export const UV_SCATTERERS: readonly string[] = ['titanium_dioxide', 'zinc_oxide'];
 
 export const INGREDIENT_GROUP_WORDS: readonly IngredientGroupWord[] = [
   { word: 'アルコール', category: 'drying_alcohol' },

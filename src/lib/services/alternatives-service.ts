@@ -19,7 +19,7 @@ import {
 } from '../analyzer/product-category';
 import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm, ProductForm } from '../analyzer/product-form';
 import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
-import { coveredIngredientGroups, findIngredientsInText, inIngredientGroup, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
+import { coveredIngredientGroups, findIngredientsInText, inIngredientGroup, INGREDIENT_GROUP_WORDS, standaloneGroupWord, UV_SCATTERERS } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { isSameProduct, ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { buildBrandIndex, SEED_INDEX, textHasBrand } from './brand-suggest';
@@ -203,7 +203,9 @@ export function shopTerms(req: Pick<AlternativeRequest, 'known'>): string[] {
   for (const k of req.known) {
     if (k.category === 'fragrance' || k.category === 'essential_oil') terms.add('無香料');
     else if (k.id === 'ethanol' || k.category === 'drying_alcohol') terms.add('アルコールフリー');
-    else if (k.category === 'uv_filter') terms.add('ノンケミカル');
+    // 「ノンケミカル」の日焼け止めは酸化チタン・酸化亜鉛を使うので、紫外線吸収剤のときだけ
+    // （docs/plans/mineral-filter-terms-and-list-dedupe.md「Step 1」）
+    else if (k.category === 'uv_filter' && !UV_SCATTERERS.includes(k.id)) terms.add('ノンケミカル');
   }
   return [...terms].slice(0, 2);
 }

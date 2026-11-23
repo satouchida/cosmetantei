@@ -89,6 +89,18 @@ function captionText(caption: string): string {
 }
 
 /** 商品説明から、全成分の部分を切り出す。見つからない・2つ以上あるときは null */
+
+/** ハイフン・ダッシュ・マイナスの書き分け（「PEG−60」と「PEG-60」。NFKC は U+2212 を変えない）。長音の「ー」は含めない */
+const DASHES = /[\u2010-\u2015\u2212]/g;
+
+/**
+ * 全成分の比べるための形：NFKC、ハイフンの書き分けをそろえ、空白を外す（同じ製品の別のお店の出品が、成分の書き方だけ違う。お店の候補と、商品名での成分探しで同じ形を使う。
+ * docs/plans/mineral-filter-terms-and-list-dedupe.md「Step 2」）
+ */
+export function ingredientListKey(list: readonly string[]): string {
+  return list.map((name) => name.normalize('NFKC').replace(DASHES, '-').replace(/\s+/g, '')).join('|');
+}
+
 export function cutIngredientBlock(caption: string): string | null {
   let text = captionText(caption);
   // 途中で切れているかもしれない長さは、説明の全体で見る（【変更後】で切った後ではなく）
@@ -324,8 +336,10 @@ async function lookupInShops(productQuery: string): Promise<Product[]> {
   const labels = await Promise.all(items.map((item) => ingredientsFromCaption(item.caption!)));
   items.forEach((item, i) => {
     const label = labels[i];
-    // 同じ成分の一覧（同じ商品の別のお店）は1つだけ
-    if (!label || found.some((p) => p.ingredients.join('|') === label.ingredients.join('|'))) return;
+    // 同じ成分の一覧（同じ商品の別のお店。ハイフンの書き分けなどは同じとみなす）は1つだけ
+    if (!label) return;
+    const labelKey = ingredientListKey(label.ingredients);
+    if (found.some((p) => ingredientListKey(p.ingredients) === labelKey)) return;
     found.push(shopListingProduct(item, brand.entry.name, label));
   });
   return found;

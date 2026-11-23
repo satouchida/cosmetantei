@@ -13832,3 +13832,61 @@ test('217. A keyword list after the kind\'s plain name is cut from shop names, o
   // 前の語が別の種類（化粧水の後の「クリーム」は化粧水の名前ではない）
   assert.strictEqual(displayListingName('テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥'), 'テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥');
 });
+
+test('218. 「ノンケミカル」 is sent to the shops only for the UV absorbers: avoiding 酸化亜鉛 or 酸化チタン, the minerals that non-chemical sunscreens use, sends no ingredient word (live 2026-11-24: 「酸化亜鉛不使用の日焼け止めスプレー」 searched 「ノンケミカル」「ミスト」)', async () => {
+  const { alternativeRequestFromText, findAlternatives, shopTerms } = await import('../src/lib/services/alternatives-service');
+  for (const text of ['酸化亜鉛不使用の日焼け止め', '酸化チタンが入っていない日焼け止め']) {
+    const req = alternativeRequestFromText(text)!;
+    assert.strictEqual(req.category, 'sunscreen', text);
+    assert.deepStrictEqual(shopTerms(req), [], text);
+  }
+  // 紫外線吸収剤だけ、または一緒に避けるなら、吸収剤のために「ノンケミカル」
+  assert.deepStrictEqual(shopTerms(alternativeRequestFromText('紫外線吸収剤不使用の日焼け止め')!), ['ノンケミカル']);
+  assert.deepStrictEqual(shopTerms(alternativeRequestFromText('酸化亜鉛と紫外線吸収剤が入っていない日焼け止め')!), ['ノンケミカル']);
+  // お店に送る語にも無い
+  const req = { ...alternativeRequestFromText('酸化亜鉛不使用の日焼け止めスプレー')!, excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
+  const shops = fakeShops([]);
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    await withShopKeys(shops.fetchFn, () => findAlternatives(req));
+  } finally {
+    console.log = originalLog;
+  }
+  const keywords = shops.requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp').map((u) => u.searchParams.get('keyword') ?? '');
+  assert.ok(keywords.length > 0, 'The shops are asked');
+  for (const k of keywords) assert.ok(!k.includes('ノンケミカル') && k.includes('日焼け止め'), k);
+});
+
+test('219. Two shop listings of one product whose ingredient lists differ only in the dash character (「PEG−60」 with U+2212 and 「PEG-60」) give one card, and the next listing takes the slot (live 2026-11-24: 紫外線予報 ノンケミカルUVクリアミストM shown twice)', async () => {
+  const { alternativeRequestFromText, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const list = '水、酸化セリウム、BG、メチルグルセス-10、ツボクサエキス、マデカッソシド、アシアチコシド、アルブチン、ブドウ果実エキス、ユキノシタエキス、ヒアルロン酸Na、オウゴン根エキス、マグワ根皮エキス、カミツレ花エキス、アセロラ果実エキス、水溶性コラーゲン、アロエベラ葉エキス、ヒメフウロエキス、ヨモギ葉エキス、マタタビ果実エキス、イザヨイバラエキス、プルラン、PEG-60水添ヒマシ油、ペンチレングリコール、ヘキサメタリン酸Na、クエン酸、クエン酸Na、(PEG-8/SMDI)コポリマー、ホウケイ酸(Ca/Na)、酸化銀、フェノキシエタノール';
+  const minusList = list.replace(/-/g, '−');
+  assert.notStrictEqual(minusList.normalize('NFKC'), list, 'NFKC keeps U+2212');
+  // 比べる形：ハイフンの書き分け・全角のかっこ・空白は同じ、番号・長音の「ー」・成分の数は別
+  const { ingredientListKey } = await import('../src/lib/services/shop-ingredients');
+  const key = (l: string) => ingredientListKey(l.split('、'));
+  assert.strictEqual(key(minusList), key(list));
+  assert.strictEqual(key('水、ホウケイ酸（Ca/Na）、PEG‐60 水添ヒマシ油'), key('水、ホウケイ酸(Ca/Na)、PEG-60水添ヒマシ油'));
+  assert.notStrictEqual(key('水、PEG-80水添ヒマシ油'), key('水、PEG-60水添ヒマシ油'));
+  assert.notStrictEqual(key('水、ポリソルベート80'), key('水、ポリソルベ-ト80'));
+  assert.notStrictEqual(key(`${list}、トレハロース`), key(list));
+  const req = { ...alternativeRequestFromText('酸化亜鉛不使用の日焼け止めスプレー')!, excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
+  const items = [
+    { itemName: '【企画品】紫外線予報 ノンケミカルUVクリアミストM(30mL)【紫外線予報】[日焼け止め 白浮きしない ノンケミカル SPF30 PA++]', itemCode: 't219:1', itemCaption: shopCaption(list) },
+    { itemName: '「ポイント10倍 11月20〜21日」紫外線予報 ノンケミカルUVクリアミストM 30mL 日焼け止め アットコスメ', itemCode: 't219:2', itemCaption: shopCaption(minusList) },
+    { itemName: 'テストサン UVミスト 日焼け止め 50mL', itemCode: 't219:3', itemCaption: shopCaption(`${list}、トレハロース`) },
+  ];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  try {
+    const found = await withShopKeys(fakeShops(items).fetchFn, () => findAlternatives(req));
+    const ids = found.products.map((p) => p.id);
+    assert.deepStrictEqual(ids.filter((id) => id.startsWith('shoptext_')), ['shoptext_rakuten_t219:1', 'shoptext_rakuten_t219:3'], JSON.stringify(ids));
+    const line = JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+    assert.strictEqual(line.shop.dropped.duplicate, 1, JSON.stringify(line.shop));
+  } finally {
+    console.log = originalLog;
+  }
+});
