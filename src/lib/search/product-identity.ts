@@ -269,25 +269,44 @@ function sameNameAcrossScripts(a: ProductIdentity, b: ProductIdentity): boolean 
   );
 }
 
-/** ブランドの欄が違う同じ製品で、短い方の名前のキーの長さの下限（「リップクリーム」「ハンドクリーム」のような一般的な名前で合わせない） */
+/** 名前のキーの一方がもう一方を含むとき、短い方の長さの下限（「リップクリーム」「ハンドクリーム」のような一般的な名前で合わせない） */
 const MIN_CONTAINED_KEY = 8;
+/** 型の印（I・II・数字）。キーは小文字 */
+const VARIANT_MARK_END = /[ivx0-9]$/;
+const VARIANT_MARK_START = /^[ivx0-9]/;
 
 /**
- * ブランドの欄が違っても同じ製品か：片方の brand 欄が会社名（isCompanyBrandField）で、全成分が同じで、ブランドを除いた名前の
- * キーの一方がもう一方を含む（短い方が MIN_CONTAINED_KEY 文字以上）。同じ製品がブランド（「ミノン」）と作った会社（「第一三共ヘルスケア」）の両方で保存されていることがある
- * （「アミノモイスト モイストチャージ ミルク」と「モイストチャージ ミルク」。docs/plans/alternatives-live-review-2026-11-23.md「Step 1」）
+ * ブランドを除いた名前のキーの一方がもう一方を含む（短い方が MIN_CONTAINED_KEY 文字以上）。短い方が型の印で終わり、長い方で
+ * その後に印が続くなら別の型（「ローション I」と「ローション II」、「スネイル9」と「スネイル96」）
  */
-function sameListAndContainedName(a: ProductIdentity, b: ProductIdentity): boolean {
-  // 片方の brand 欄が会社名のときだけ（別々のブランドの同じ名前・同じ全成分は同じにしない）
-  if (!isCompanyBrandField(a.brand) && !isCompanyBrandField(b.brand)) return false;
-  if (!sameIngredientList(a.ingredients, b.ingredients)) return false;
+function containedName(a: ProductIdentity, b: ProductIdentity): boolean {
   const [shorter, longer] = [productIdentityKey(a.brand, a.name), productIdentityKey(b.brand, b.name)].sort((x, y) => x.length - y.length);
-  return shorter.length >= MIN_CONTAINED_KEY && longer.includes(shorter);
+  if (shorter.length < MIN_CONTAINED_KEY) return false;
+  const at = longer.indexOf(shorter);
+  if (at < 0) return false;
+  return !(VARIANT_MARK_END.test(shorter) && VARIANT_MARK_START.test(longer.slice(at + shorter.length)));
+}
+
+/** 全成分の数が近い（sameIngredientList の安い前段。成分を照らし合わせる前に外す） */
+const listLengthsClose = (a: ProductIdentity, b: ProductIdentity) =>
+  !!a.ingredients?.length && !!b.ingredients?.length && Math.abs(a.ingredients.length - b.ingredients.length) <= 1;
+
+/**
+ * 全成分が同じで、名前の一方がもう一方を含む（containedName）。ブランドが同じか、片方の brand 欄が会社名（isCompanyBrandField）
+ * のとき。同じ製品が、名前に容量・「本体」・「無香料」を足して保存されていたり（「アミノモイスト モイストチャージ ミルク / 本体 /
+ * 100g / 無香料」と、楽天の「ミノンアミノモイストモイストチャージミルク」）、作った会社（「第一三共ヘルスケア」）の名前で保存されて
+ * いたりする（docs/plans/alternatives-live-review-2026-11-23.md「Step 1」）。安い比べ方から
+ */
+function sameListAndContainedName(a: ProductIdentity, b: ProductIdentity, brandsAgree: boolean): boolean {
+  if (!listLengthsClose(a, b) || !containedName(a, b)) return false;
+  // 別々のブランドの同じ名前・同じ全成分は同じにしない
+  if (!brandsAgree && !isCompanyBrandField(a.brand) && !isCompanyBrandField(b.brand)) return false;
+  return sameIngredientList(a.ingredients, b.ingredients);
 }
 
 /**
  * 同じ製品か：ID が同じ、JAN コードが同じ、またはブランドが同じで名前のキーが同じ（カタカナと英字の書き分けも同じ）。
- * ブランドの欄の片方が会社名なら、全成分が同じで名前の一方がもう一方を含めば同じ（sameListAndContainedName）。
+ * 全成分が同じで名前の一方がもう一方を含めば、同じブランドか片方のブランドの欄が会社名なら同じ（sameListAndContainedName）。
  * 全成分がほぼ同じなら、表記の揺れ（「アドバンスト」と「アドバンスド」、「mucin」と「ムチン」）も同じ名前とみなす。
  * 名前だけでは決めない（「リップクリーム」のような一般的な名前の、別のブランドの製品を同じにしない）
  */
@@ -296,11 +315,12 @@ export function isSameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   const jan = normalJan(a.barcode);
   if (jan && jan === normalJan(b.barcode)) return true;
   // 安い比べ方から（ブランド → 名前のキー → 書き分け → 全成分 → 表記の揺れ）
-  if (!sameBrand(identityBrand(a.brand, a.name), identityBrand(b.brand, b.name))) return sameListAndContainedName(a, b);
+  if (!sameBrand(identityBrand(a.brand, a.name), identityBrand(b.brand, b.name))) return sameListAndContainedName(a, b, false);
   return (
     productIdentityKey(a.brand, a.name) === productIdentityKey(b.brand, b.name) ||
     sameNameAcrossScripts(a, b) ||
-    (sameIngredientList(a.ingredients, b.ingredients) && nearSameName(a, b))
+    (sameIngredientList(a.ingredients, b.ingredients) && nearSameName(a, b)) ||
+    sameListAndContainedName(a, b, true)
   );
 }
 
@@ -362,10 +382,19 @@ export function registeredMatcher(registered: readonly ProductIdentity[]): (prod
     add(byFoldedSound, foldSound(sound), entry);
     scripts.add(entry.kana);
   }
+  // 全成分のある登録した製品（名前の一方がもう一方を含む同じ製品を、isSameProduct と同じく見つけるため）
+  const withList = registered.filter((r) => r.ingredients?.length);
+  const withListBrands = withList.map((r) => identityBrand(r.brand, r.name));
+  const containedSame = (p: ProductIdentity) => {
+    if (!p.ingredients?.length || withList.length === 0) return false;
+    const brand = identityBrand(p.brand, p.name);
+    return withList.some((r, i) => sameListAndContainedName(p, r, sameBrand(brand, withListBrands[i])));
+  };
   return (p) => {
     if (ids.has(p.id)) return true;
     const jan = normalJan(p.barcode);
     if (jan && jans.has(jan)) return true;
+    if (containedSame(p)) return true;
     const brand = identityBrand(p.brand, p.name);
     const key = productIdentityKey(p.brand, p.name);
     if (byKey.get(key)?.some((r) => sameBrand(brand, r.brand))) return true;

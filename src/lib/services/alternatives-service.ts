@@ -378,7 +378,9 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);
-    shopProducts = shop.products.filter((p) => !isRegistered(p));
+    // 保存済みの製品と同じ製品（名前の書き方が違い、名前の系列では外れなかったもの：「アミノモイスト モイストチャージ ミルク / 本体 /
+    // 100g / 無香料」と「ミノンアミノモイストモイストチャージミルク」）も出さない
+    shopProducts = shop.products.filter((p) => !isRegistered(p) && !local.some((l) => isSameProduct(l, p)));
     credits = shop.credits;
     shopLog = { status: shop.status, ...shop.counts };
     // 合わない保存済みの製品で埋めて足りれば、Web では探さない（今までどおり、有料の調べものを増やさない）。

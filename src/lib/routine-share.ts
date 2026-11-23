@@ -1,5 +1,5 @@
 import { CountryOrigin, Product } from './types';
-import { isPersistable, UsableEntry } from './usable-products';
+import { isPersistable, UsableEntry, withoutShopData } from './usable-products';
 import { isValidProduct, MAX_ROUTINE_PRODUCTS } from './product-validation';
 import { isPlainLabelText } from './utils/safe-text';
 import { fromBase64Url, toBase64Url } from './utils/base64url';
@@ -44,10 +44,7 @@ const MAX_REF_LENGTH = 200;
 /** 書き出してよい製品（入力した成分表示を除く）。価格・お店のリンク・画像は入れない（その時だけの情報） */
 function exportable(products: Product[]): Product[] {
   return products.filter(isPersistable).map((p) => {
-    const copy = { ...p };
-    delete copy.shopPrice;
-    delete copy.shopLink;
-    delete copy.yahooLink;
+    const copy = withoutShopData(p);
     delete copy.imageUrl;
     return copy;
   });

@@ -45,6 +45,18 @@ export function isStale(addedAt: number, now: number): boolean {
   return due.getTime() <= now;
 }
 
+/**
+ * お店のその時だけの情報（価格・販売ページ・同じ商品の Yahoo! の出品）を外した製品。端末に保存するときと書き出すときに使う
+ * （Yahoo! の出品へのリンクを残さない。LINEヤフー共通利用規約 8.1・8.3。docs/plans/alternatives-live-review-2026-11-23.md）
+ */
+export function withoutShopData(product: Product): Product {
+  const copy = { ...product };
+  delete copy.shopPrice;
+  delete copy.shopLink;
+  delete copy.yahooLink;
+  return copy;
+}
+
 /** 保存してよい製品（入力した成分表示・お店の商品説明から読んだ成分は保存しない） */
 export function isPersistable(product: Product): boolean {
   // お店の商品説明から読んだ成分：楽天は規約（第10条 (9)）で保存できない。Yahoo! の分は、サーバーが30日まで
@@ -89,14 +101,15 @@ export function parseUsable(raw: string | null): UsableEntry[] {
     if (!isValidProduct(product) || !isPersistable(product)) continue;
     if (typeof addedAt !== 'number' || !Number.isFinite(addedAt) || addedAt <= 0) continue;
     if (entries.some((e) => e.product.id === product.id)) continue;
-    entries.push({ product, addedAt, inUse: inUse !== false });
+    // 前に保存したお店の情報も、読むときに外す
+    entries.push({ product: withoutShopData(product), addedAt, inUse: inUse !== false });
     if (entries.length >= MAX_USABLE) break;
   }
   return entries;
 }
 
 export function serializeUsable(entries: UsableEntry[]): string {
-  return JSON.stringify(entries.filter(isSaved).map(({ product, addedAt, inUse }) => ({ product, addedAt, inUse })));
+  return JSON.stringify(entries.filter(isSaved).map(({ product, addedAt, inUse }) => ({ product: withoutShopData(product), addedAt, inUse })));
 }
 
 // ブラウザの中の保存先（useSyncExternalStore で読む。src/lib/client/browser-store.ts）。保存できない環境でも、

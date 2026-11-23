@@ -1,6 +1,6 @@
 # Plan: duplicates, wrong kinds, brand lines and a Yahoo! link (live check of 2026-11-23)
 
-Written 2026-11-23. Status: implemented 2026-11-23 (tests 207–211; gates 211/211). Code review pending at deploy.
+Written 2026-11-23. Status: steps 1–6 deployed as `fbf39df` (tests 207–211); a follow-up after review and live check is implemented but not deployed (test 212).
 Follows the live check of `1de92c0` (Cloudflare version `438d85d7`): five request searches, with the
 `[alternatives]` log line. Earlier rounds: [shop-search-reach.md](shop-search-reach.md),
 [shop-names-and-cleansing-genre.md](shop-names-and-cleansing-genre.md).
@@ -144,3 +144,30 @@ Next numbers from 207.
   link for a different variant, a set, or a name that disagrees. Credits include Yahoo!. The card
   renders both buttons.
 - A mutation check for each step, the full gates, and a live check.
+
+## Implementation notes
+
+- Steps 1–6 as planned, deployed as `fbf39df`. Tests 207–211. Tests 173, 188, 191, 192 and 202 were
+  updated for the intended changes. Every step's test fails with that step taken out.
+- The live check after `fbf39df` showed step 1 working: the 第一三共ヘルスケア record was merged and
+  「/ /」 and 松山油脂 were fixed. It also found a new duplicate. The saved ミノン record (brand field
+  「ミノン / MINON」, name without the brand) and the 楽天 listing 「ミノンアミノモイストモイストチャージミルク」
+  were both shown. The shop step's series key didn't match them. Before step 1, the 第一三共ヘルスケア record
+  had happened to exclude the listing.
+- Follow-up (test 212, not deployed yet):
+  - **Same brand, contained name.** `isSameProduct` now also merges records of the same brand when the
+    full lists match and one name contains the other.
+  - **Variant boundary** (review). A contained name followed by a variant mark is a different variant:
+    「ローション I」 vs 「ローション II」, 「スネイル9」 vs 「スネイル96」.
+  - **Shop vs saved.** `findAlternatives` drops a shop product that `isSameProduct` matches with a saved
+    one, on the path that returns without the web step. The web path already did this.
+  - **`registeredMatcher`** (review) now applies the same contained-name rule as `isSameProduct`.
+  - **Browser storage** (review). `withoutShopData` removes `shopPrice`, `shopLink` and `yahooLink` when
+    the 「使えるコスメ」 list is saved or read, and when a routine is shared.
+  - **Cheaper checks first** (review). The cross-brand check compares list lengths and name containment
+    before the company lookup and the ingredient matching.
+- Review, declined:
+  - A short result after the sub-kind filter doesn't fall through to the web step. That would add paid
+    calls, which this plan rules out. The reply explains the shortfall.
+  - Memoising `isCompanyBrandField`. With the cheap checks first, it runs only for near matches.
+- Gates: `tsc`, `eslint`, `npm test` 212/212.

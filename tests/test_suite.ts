@@ -13582,9 +13582,69 @@ test('211. A 楽天 card gets a link to the same item on Yahoo!ショッピン�
   assert.match(card, /showableShopLink\(p\.yahooLink\) \? '楽天市場で見る' : '販売ページを見る'/);
   assert.match(card, /\{showableShopLink\(p\.yahooLink\) && \(/);
   assert.match(card, /Yahoo!ショッピングで見る/);
-  assert.match(readFileSync('src/lib/routine-share.ts', 'utf8'), /delete copy\.yahooLink;/);
+  // 端末に保存するとき・書き出すときは、お店のその時だけの情報（価格・販売ページ・Yahoo! の出品）を外す
+  const { parseUsable, serializeUsable, withoutShopData } = await import('../src/lib/usable-products');
+  const withShop = verifiedProduct({
+    id: 't211_saved',
+    shopPrice: { yen: 1650, taxIncluded: true },
+    shopLink: { href: 'https://hb.afl.rakuten.co.jp/x', sponsored: true },
+    yahooLink: { href: 'https://store.shopping.yahoo.co.jp/x.html', sponsored: false },
+  });
+  const stripped = withoutShopData(withShop);
+  assert.ok(!('shopPrice' in stripped) && !('shopLink' in stripped) && !('yahooLink' in stripped));
+  assert.strictEqual(withShop.yahooLink?.href, 'https://store.shopping.yahoo.co.jp/x.html', 'The shown product is not changed');
+  const saved = serializeUsable([{ product: withShop, addedAt: 1, inUse: true }]);
+  assert.ok(!saved.includes('yahoo') && !saved.includes('rakuten') && !saved.includes('1650'), saved);
+  // 前に保存したお店の情報も、読むときに外す
+  const old = JSON.stringify([{ product: withShop, addedAt: 1, inUse: true }]);
+  assert.ok(!('yahooLink' in parseUsable(old)[0].product) && !('shopLink' in parseUsable(old)[0].product));
+  assert.match(readFileSync('src/lib/routine-share.ts', 'utf8'), /const copy = withoutShopData\(p\);/);
   const { isValidProduct } = await import('../src/lib/product-validation');
   const base = verifiedProduct({ id: 't211' });
   assert.ok(isValidProduct({ ...base, yahooLink: { href: 'https://store.shopping.yahoo.co.jp/x.html', sponsored: true } }));
   assert.ok(!isValidProduct({ ...base, yahooLink: { href: 'javascript:alert(1)', sponsored: false } }));
+});
+
+test('212. Review and live fixes for 207–211: a shop listing of a product already shown from the saved pool isn\'t shown again (live 2026-11-23: ミノン milk saved as 「アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料」 and on 楽天 as 「ミノンアミノモイストモイストチャージミルク」), a contained name with a different variant mark stays separate, and registeredMatcher agrees with isSameProduct', async () => {
+  const { isSameProduct, registeredMatcher, isRegisteredProduct } = await import('../src/lib/search/product-identity');
+  const { alternativeRequestFromText, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  // 同じブランド：全成分が同じで、一方の名前がもう一方を含む（容量・「本体」・「無香料」を足した名前）
+  const savedMinon = { id: 'web_t212_minon', brand: 'ミノン / MINON', name: 'アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料', ingredients: T207_LIST };
+  const shopMinon = { id: 'shoptext_rakuten_t212', brand: 'ミノン', name: 'ミノンアミノモイストモイストチャージミルク', ingredients: T207_LIST };
+  assert.ok(isSameProduct(savedMinon, shopMinon));
+  // 全成分が違えば別
+  assert.ok(!isSameProduct(savedMinon, { ...shopMinon, ingredients: [...T207_LIST.slice(0, 7), 'エタノール', '香料', 'カルボマー'] }));
+  // 型の印（I・II・数字）が後に続く名前は、全成分が同じでも別の型
+  const lotionI = { id: 'l1', brand: 'テストセーブ', name: 'テストセーブ モイストリペア ローション I', ingredients: T207_LIST };
+  assert.ok(!isSameProduct(lotionI, { ...lotionI, id: 'l2', name: 'テストセーブ モイストリペア ローション II とてもしっとり' }));
+  assert.ok(!isSameProduct({ ...lotionI, name: 'テストセーブ スネイル9 エッセンス' }, { ...lotionI, id: 'l3', name: 'テストセーブ スネイル96 エッセンス' }));
+  // 登録した製品の除き方（registeredMatcher）も isSameProduct と同じ（会社名で登録した製品の、ブランドの名前の同じ製品）
+  const registeredMaker = { id: 'web_t212_maker', brand: '第一三共ヘルスケア', name: 'モイストチャージ ミルク', ingredients: T207_LIST };
+  const brandRecord = { id: 'web_t212_brand', brand: 'ミノン', name: 'ミノン アミノモイスト モイストチャージ ミルク', ingredients: T207_LIST };
+  assert.ok(isRegisteredProduct(brandRecord, [registeredMaker]));
+  assert.ok(registeredMatcher([registeredMaker])(brandRecord));
+  assert.ok(!registeredMatcher([registeredMaker])({ ...brandRecord, ingredients: [...T207_LIST.slice(0, 7), 'エタノール', '香料', 'カルボマー'] }));
+
+  // 代わりの商品：保存済みの製品と同じお店の出品は出さない
+  addProductToDynamicCache(verifiedProduct({ ...savedMinon, country: 'JP', category: 'cream', ingredients: SHOP_CLEAN_LIST.split('、') }));
+  const req = alternativeRequestFromText('無香料の乳液')!;
+  const shops = fakeShops([
+    { itemName: 'ミノンアミノモイストモイストチャージミルク', itemCode: 't212:1', itemCaption: shopCaption(SHOP_CLEAN_LIST), itemPrice: 2310 },
+  ]);
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    // 本番と同じ形：保存済みの製品は3つ（乳液と分かるのはミノンだけ。ほかの2つは名前で乳液と分からない）なので、お店に聞き、
+    // お店の結果と合わせて3件に届くので Web には進まない（Web の段は同じ製品を除いていた）
+    for (const n of ['A', 'B']) addProductToDynamicCache(verifiedProduct({ id: `obf_t212_loose_${n}`, brand: 'テストセーブ', name: `テストセーブ モイストベース ${n}`, category: 'cream', ingredients: SHOP_CLEAN_LIST.split('、') }));
+    const keep = new Set(['web_t212_minon', 'obf_t212_loose_A', 'obf_t212_loose_B']);
+    const others = COSMETICS_DATABASE.map((p) => p.id).filter((id) => !keep.has(id));
+    const found = await withShopKeys(shops.fetchFn, () => findAlternatives({ ...req, excludeIds: others, allowPaidLookups: false }));
+    assert.ok(shops.requests.some((u) => u.hostname === 'openapi.rakuten.co.jp'), 'The shops are asked');
+    const ids = found.products.map((p) => p.id);
+    assert.ok(ids.includes('web_t212_minon'), JSON.stringify(ids));
+    assert.ok(!ids.includes('shoptext_rakuten_t212:1'), JSON.stringify(ids));
+  } finally {
+    console.log = originalLog;
+  }
 });
