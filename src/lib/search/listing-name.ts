@@ -32,8 +32,18 @@ export function withoutListingNoise(name: string): string {
  * 「国産」「日本製」（「国産 馬油 クリーム」）・「人気」「時短」「長持ち」・「毛穴対策」「乾燥対策」（「毛穴対策 洗顔料」
  * 「メラノCC 薬用しみ集中対策 美容液」）。「〇〇対策」は紫外線・UV・日焼け・花粉だけ
  */
+// 「アットコスメ」「@cosme」はクチコミサイトの名前（「… リップクリーム アットコスメ」。docs/plans/shop-names-and-cleansing-genre.md「Step 3」）
 const SEARCH_TAG =
-  /^(?:\d0代\S*|年代|\S+にくい|\S+しない|(?:紫外線|uv|日焼け|花粉)対策|ギフト\S*|プレゼント\S*|(?:母|父|敬老)の日\S*|クリスマス\S*|ホワイトデー\S*|バレンタイン\S*|ランキング\S*|(?:楽天)?第?\d+位\S*|受賞\S*|おすすめ|オススメ|メール便\S*|ネコポス\S*|ゆうパケット\S*|即納|送料込み?)$/i;
+  /^(?:\d0代\S*|年代|\S+にくい|\S+しない|(?:紫外線|uv|日焼け|花粉)対策|ギフト\S*|プレゼント\S*|(?:母|父|敬老)の日\S*|クリスマス\S*|ホワイトデー\S*|バレンタイン\S*|ランキング\S*|(?:楽天)?第?\d+位\S*|受賞\S*|アットコスメ\S*|@cosme\S*|おすすめ|オススメ|メール便\S*|ネコポス\S*|ゆうパケット\S*|即納|送料込み?)$/i;
+
+/**
+ * 名前の前に付く売り文句の語（docs/plans/shop-names-and-cleansing-genre.md「Step 2」）。
+ * 「BLACK FRIDAYはP2倍+2品同時購入で50円OFFクーポン POHO+ …」の「POHO+」より前
+ */
+const SALE_MARK =
+  'black\\s*friday|ブラックフライデー|クーポン|\\d+\\s*円\\s*off|\\d+\\s*%\\s*off|同時購入|お買い?物マラソン|スーパー\\s*sale|ポイント\\s*\\d+\\s*倍|(?<![a-z])p\\s*\\d+\\s*倍';
+/** 先頭から続く、売り文句の語を含む語と、その後の記号だけの語（「ポイント2倍!」の倍を外した後の「!」） */
+const LEADING_SALE = new RegExp(`^(?:\\S*?(?:${SALE_MARK})\\S*\\s*)+(?:[!！?？・/|]+(?:\\s+|$))*`, 'i');
 
 /** 種類・形の語（「ボディローション」「化粧水」「ジェル」「ミルク」） */
 const isKindWord = (word: string) => !!categoryFromText(word) || !!formFromText(word);
@@ -69,11 +79,14 @@ function withoutNameTail(words: string[]): string[] {
 
 /**
  * お店の商品名から、検索用の語より後ろを外す（「美容液ファンデ 崩れにくい 30代 40代 …」→「美容液ファンデ」）。先頭の検索用の語
- * （「ギフト キュレル …」）も外す。すべての語が検索用の語なら、そのまま。お店の分類・管理の語（withoutNameTail）も外す。
+ * （「ギフト キュレル …」）と先頭の売り文句（LEADING_SALE）も外す。すべての語が検索用の語なら、そのまま。お店の分類・管理の語
+ * （withoutNameTail）も外す。
  * Amazon・Qoo10 の検索はすべての語を含む商品を探すので、名前ではない語が1つでもあると見つからない
  */
 export function withoutSearchTags(name: string): string {
-  const words = name.normalize('NFKC').split(/\s+/).filter(Boolean);
+  const n = name.normalize('NFKC').trim();
+  // 先頭の売り文句（何も残らなければ外さない）
+  const words = (n.replace(LEADING_SALE, '') || n).split(/\s+/).filter(Boolean);
   const start = words.findIndex((w) => !SEARCH_TAG.test(w));
   if (start < 0) return words.join(' ');
   const end = words.findIndex((w, i) => i > start && SEARCH_TAG.test(w));
@@ -247,11 +260,13 @@ export function notSingleItem(name: string, sheet: boolean): boolean {
 
 /**
  * 表示で外す飾り（色番号の［01］などは商品の名前の一部なので残す。＼／で囲んだ売り文句と、売り文句の「」も外す）。
+ * [] は、配送・売り方の語があるときだけ外す（3語以上で種類の語のある [] は SEARCH_TAG_BRACKET で外す）。
+ * () は「(国内正規品)」と配送の語（「(メール便L)」）だけ外す（docs/plans/shop-names-and-cleansing-genre.md「Step 2」）。
  * かっこの中の JAN コード（「( 4901730160032 )」「(JAN:49012345)」。8桁は「JAN」と書いたときだけ）と、1語の「本体」も外す
  * （本体・詰替用と容量は価格の横に書く）
  */
 const DISPLAY_NOISE = withSaleQuote(
-  /【[^】]*】|＜[^＞]*＞|<[^>]*>|[\\＼][^\\＼/／]{1,20}[/／]|★|☆|送料無料|公式(?:ショップ|ストア)?|正規品|あす楽|期間限定|(?:ポイント|(?<![a-z])P)\s*\d+\s*倍|\d+\s*%\s*OFF|\(\s*(?:JAN(?:コード)?\s*:?\s*\d{8,14}|\d{13})\s*\)/
+  /\[[^\]]*(?:出荷|発送|営業日|送料|クーポン|ポイント|\d\s*倍|\d\s*(?:%|円)?\s*off(?![a-z])|(?<![a-z])sale(?![a-z])|セール|即納|メール便|ネコポス|ゆうパケット)[^\]]*\]|\(\s*(?:国内)?正規品\s*\)|\([^)]*(?:メール便|ネコポス|ゆうパケット|送料|出荷|発送)[^)]*\)|【[^】]*】|＜[^＞]*＞|<[^>]*>|[\\＼][^\\＼/／]{1,20}[/／]|★|☆|送料無料|公式(?:ショップ|ストア)?|正規品|あす楽|期間限定|(?:ポイント|(?<![a-z])P)\s*\d+\s*倍|\d+\s*%\s*OFF|\(\s*(?:JAN(?:コード)?\s*:?\s*\d{8,14}|\d{13})\s*\)/
 );
 /** 1語の「本体」（ほかの飾りを外した後に見る。「本体【公式】」でも外す） */
 const DISPLAY_BODY_WORD = /(?<=^|\s)本体(?=\s|$)/g;
@@ -260,10 +275,26 @@ const DISPLAY_BODY_WORD = /(?<=^|\s)本体(?=\s|$)/g;
  * お店の商品名を表示する形にする：飾り（【公式】・送料無料など）と、先頭のブランド名（上の行に出すので）を外す。
  * 何も残らなければ元の名前
  */
+/** [] の中身 */
+const SQUARE_BRACKET = /\[([^\]]*)\]/g;
+/** 検索用の語を並べた [] の語の数の下限（「[01 ライトベージュ]」のような色の名前は2語まで） */
+const MIN_TAG_BRACKET_WORDS = 3;
+
+/**
+ * 検索用の語を並べた []（「[リップクリーム 高保湿 無香料]」「[ワセリン ボディクリーム 保湿 敏感肌 乾燥肌]」）を外す。
+ * 3語以上で種類・形の語があるときだけ（色の名前「[N 21 ナチュラルベージュ]」「[01 ピュアベージュ 明るい肌色]」は残す）
+ */
+function withoutTagBrackets(name: string): string {
+  return name.replace(SQUARE_BRACKET, (whole, inner: string) => {
+    const words = inner.trim().split(/\s+/).filter(Boolean);
+    return words.length >= MIN_TAG_BRACKET_WORDS && words.some(isKindWord) ? ' ' : whole;
+  });
+}
+
 export function displayListingName(name: string, brand = ''): string {
   const clean = (t: string, noise: RegExp) => t.replace(noise, ' ').replace(/\s+/g, ' ').trim();
   // 検索用の語（「崩れにくい 30代 …」）より後ろも出さない（withoutSearchTags）
-  let s = withoutSearchTags(clean(clean(name.normalize('NFKC'), DISPLAY_NOISE), DISPLAY_BODY_WORD));
+  let s = withoutSearchTags(clean(clean(withoutTagBrackets(name.normalize('NFKC')), DISPLAY_NOISE), DISPLAY_BODY_WORD));
   // 「ちふれ・CHIFURE」のように書き方が複数あるブランドは、最初の書き方
   const b = brand.normalize('NFKC').split(/[・/／]/)[0].trim();
   // ブランド名の後に区切り（空白・／など）があるときだけ（「セザンヌ化粧品」の「セザンヌ」・型番「ABC-123」は外さない）。

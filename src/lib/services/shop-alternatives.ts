@@ -47,7 +47,7 @@ const GENRES: Record<AlternativeCategory, ShopGenre> = {
 
 /**
  * 下位の種類ごとの検索語とジャンル（docs/plans/alternative-search-improvements.md「Path 1」）。ジャンルは確かめた ID だけ
- * （乳液・クレンジングは 2026-10-18）。確かめた ID の無いものはジャンルで絞らず、名前の語で確かめる（ID を推測しない）。
+ * （乳液は 2026-10-18、クレンジングは 2026-11-22）。確かめた ID の無いものはジャンルで絞らず、名前の語で確かめる（ID を推測しない）。
  * ここに無い下位の種類（洗顔料・顔のクリーム・顔用や下地の日焼け止め・口紅・洗い流すパック）は、
  * 種類の名前と種類のジャンルで探す（その種類のジャンルに入っている）
  * 自分の ID が無くても、種類のジャンルの一部なら種類のジャンルで絞る（ジャンル無しでは別の種類ばかり返る。実測 2026-11-18）：
@@ -58,7 +58,10 @@ const GENRES: Record<AlternativeCategory, ShopGenre> = {
  */
 const SUB_KIND_SEARCH: Partial<Record<AlternativeCategory, Partial<Record<SubKind, { label: string; genre?: ShopGenre }>>>> = {
   cleanser: {
-    makeup_remover: { label: 'クレンジング', genre: { rakuten: 405100, yahoo: 48902 } },
+    // 楽天は「クレンジング」（210450。バーム・オイル・ジェル・ミルク等を含む）。405100 は「クレンジングジェル」で、
+    // バーム・オイルが見つからなかった（2026-11-22 に楽天の検索ページで確かめた。docs/plans/shop-names-and-cleansing-genre.md）。
+    // Yahoo! の 48902 は「クレンジング」
+    makeup_remover: { label: 'クレンジング', genre: { rakuten: 210450, yahoo: 48902 } },
     body_wash: { label: 'ボディソープ' },
   },
   cream: {
@@ -755,12 +758,15 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // まだ確かめられない JAN コードの商品を、もとの関連順に（2b の楽天、3 の有料の調べものの順）
   unchecked.sort((a, b) => position.get(a)! - position.get(b)!);
   // もう見つけた製品と同じ JAN コード・同じ JAN コードの別の出品は調べない（楽天・有料の調べものを重複に使わない）
-  const seenJans = new Set(found.map((f) => normalJan(f.item.janCode)).filter(Boolean));
+  const foundJans = new Set(found.map((f) => normalJan(f.item.janCode)).filter(Boolean));
+  const seenJans = new Set(foundJans);
   const lookable: ShopItem[] = [];
   for (const item of unchecked) {
     const jan = normalJan(item.janCode);
     if (jan && seenJans.has(jan)) {
-      drop('duplicate', item);
+      // 見つけた製品と同じ JAN コードだけが重複（返答で「見つけた商品と同じ製品の別の出品」と言う）。まだ確かめていない商品と
+      // 同じなら、その説明は読んでいないので成分表示なし（先の商品が見つからなくても、見つけたとは言わない）
+      drop(foundJans.has(jan) ? 'duplicate' : 'noList', item);
       continue;
     }
     if (jan) seenJans.add(jan);

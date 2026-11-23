@@ -269,16 +269,22 @@ export interface ShopCheckSummary {
   otherKind: number;
   /** 読めた一覧のうち、評価できた成分が少なかった数（dropped.unrated。確かめた後にだけ数える） */
   unrated: number;
+  /**
+   * 読めた一覧のうち、見つけた商品と同じ製品の別の出品だった数（dropped.duplicate。別のお店・容量違い・同じ JAN コード）。
+   * 返答で、読めた数と出した数の差を言うため（docs/plans/shop-names-and-cleansing-genre.md「Step 4」）
+   */
+  duplicate: number;
 }
 
 export function shopCheckSummary(counts: ShopSearchCounts): ShopCheckSummary {
-  const { noList, suspect, irritant, standard, unrated } = counts.dropped;
+  const { noList, suspect, irritant, standard, unrated, duplicate } = counts.dropped;
   return {
     checked: counts.checked,
     readable: counts.checked - noList,
     rejected: suspect + irritant + standard,
     otherKind: counts.otherKindAfterRead,
     unrated,
+    duplicate,
   };
 }
 
@@ -512,7 +518,7 @@ export function explainsShortfall(shown: number, shopCheck: ShopCheckSummary | n
 }
 
 /** 少ししか出せなかった理由と、次にできること（数だけ。商品名やお店の文は書かない。どの商品も安全とは言わない） */
-function shortfallParagraphs({ checked, readable, rejected, otherKind, unrated }: ShopCheckSummary, kind: string): string[] {
+function shortfallParagraphs({ checked, readable, rejected, otherKind, unrated, duplicate }: ShopCheckSummary, kind: string): string[] {
   const read =
     readable === checked
       ? `お店の商品${checked}件の全成分表示を確かめました。`
@@ -522,6 +528,7 @@ function shortfallParagraphs({ checked, readable, rejected, otherKind, unrated }
     rejected > 0 && `${rejected}件は、避けたい成分か刺激になりやすい成分を含んでいました`,
     otherKind > 0 && `${otherKind}件は、商品名から${kind}と確かめられませんでした`,
     unrated > 0 && `${unrated}件は、確かめられない成分が多く含まれていました`,
+    duplicate > 0 && `${duplicate}件は、見つけた商品と同じ製品の別の出品でした`,
   ].filter(Boolean);
   return [
     `${read}${why.length > 0 ? `そのうち${why.join('。')}。` : ''}`,
