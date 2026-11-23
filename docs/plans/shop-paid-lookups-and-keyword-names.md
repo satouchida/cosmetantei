@@ -98,3 +98,9 @@ Next number 216.
     (alternatives-live-review-2026-11-23.md), because it adds paid calls.
 - Each step's test fails with that step taken out, and so does the next-word guard.
 - Gates: `tsc`, `eslint`, `npm test` 217/217.
+- Live check of `cd75113` (Cloudflare version `c3722a8a`):
+  - **Step 1 works.** 「アルコールフリーのシートマスク」 made 2 paid lookups (was 0). Neither found a product
+    with a readable list, so it still shows 1 card.
+  - **Step 2 missed the real name.** The 楽天 name has the size glued to the word:
+    「… PA++++ 50g日焼け止め 紫外線吸収剤不使用 …」. The plain kind name may now start with a size. Test 217
+    uses the real name, and fails without this.

@@ -13814,6 +13814,10 @@ test('217. A keyword list after the kind\'s plain name is cut from shop names, o
   const sunscreen = '【公式】ラブミータッチ シルキーUVミルク spf50+ PA++++ 日焼け止め 紫外線吸収剤不使用 ノンケミカル スキンケア 乳幼児試験済み UVカット セラミド 紫外線防止 上原恵理 Dr.BEAUTOPIA 50g';
   assert.strictEqual(displayListingName(sunscreen, 'ラブミータッチ'), 'シルキーUVミルク spf50+ PA++++');
   assert.strictEqual(listingSearchName(sunscreen), 'ラブミータッチ シルキーUVミルク spf50+ PA++++');
+  // 本番の楽天の名前は、容量が種類の名前に付いている（「50g日焼け止め」。live 2026-11-23 after cd75113）
+  const glued = '【公式】 ラブミータッチ シルキーUVミルク spf50+ PA++++ 50g日焼け止め 紫外線吸収剤不使用 ノンケミカル スキンケア 乳幼児試験済み UVカット セラミド 紫外線防止 上原恵理 Dr.BEAUTOPIA';
+  assert.strictEqual(displayListingName(glued, 'ラブミータッチ'), 'シルキーUVミルク spf50+ PA++++');
+  assert.strictEqual(listingSearchName(glued), 'ラブミータッチ シルキーUVミルク spf50+ PA++++');
   const lip = 'アベンヌ 薬用リップケア モイスト リップクリーム 敏感肌用 保湿 無香料 4g';
   assert.strictEqual(displayListingName(lip, 'アベンヌ'), '薬用リップケア モイスト');
   assert.strictEqual(shopSearchQuery('アベンヌ', displayListingName(lip, 'アベンヌ')), 'アベンヌ 薬用リップケア モイスト');

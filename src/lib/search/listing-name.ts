@@ -49,8 +49,11 @@ const LEADING_SALE = new RegExp(`^(?:\\S*?(?:${SALE_MARK})\\S*\\s*)+(?:[!！?？
 const isKindWord = (word: string) => !!categoryFromText(word) || !!formFromText(word);
 /** 効能を並べた語とみなす、続いた種類の語の数 */
 const MIN_KIND_RUN = 3;
-/** 種類の名前だけの語（docs/plans/shop-paid-lookups-and-keyword-names.md「Step 2」） */
-const PLAIN_KIND_NAME = /^(?:日焼け止め|サンスクリーン|化粧水|美容液|乳液|クリーム|洗顔料?|クレンジング|リップクリーム|パック)$/i;
+/**
+ * 種類の名前だけの語（docs/plans/shop-paid-lookups-and-keyword-names.md「Step 2」）。前に容量が付いていてもよい
+ * （楽天の「… PA++++ 50g日焼け止め 紫外線吸収剤不使用 …」。容量は価格の横に出す）
+ */
+const PLAIN_KIND_NAME = /^(?:\d+(?:\.\d+)?\s*(?:ml|g|kg|l))?(?:日焼け止め|サンスクリーン|化粧水|美容液|乳液|クリーム|洗顔料?|クレンジング|リップクリーム|パック)$/i;
 /** 種類の名前だけの語の後に、検索用の語の並びとみなす語の数 */
 const MIN_KEYWORD_TAIL = 3;
 /** 検索用の語として数えない語：かっこの付いた語（「(顔・からだ用)」「(SPF50+」）、容量（「14g」）、SPF・PA の値（「SPF50+」「PA++++」） */
