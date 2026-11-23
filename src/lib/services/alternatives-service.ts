@@ -270,7 +270,8 @@ export interface ShopCheckSummary {
   /** 読めた一覧のうち、評価できた成分が少なかった数（dropped.unrated。確かめた後にだけ数える） */
   unrated: number;
   /**
-   * 読めた一覧のうち、見つけた商品と同じ製品の別の出品だった数（dropped.duplicate。別のお店・容量違い・同じ JAN コード）。
+   * 読めた一覧のうち、見つけた商品（一緒に出す保存済みの製品を含む）と同じ製品の別の出品だった数（dropped.duplicate。別のお店・
+   * 容量違い・同じ JAN コード・名前の書き方違い）。
    * 返答で、読めた数と出した数の差を言うため（docs/plans/shop-names-and-cleansing-genre.md「Step 4」）
    */
   duplicate: number;
@@ -372,15 +373,17 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       avoid: req.avoid,
       terms,
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
+      // 一緒に出す保存済みの製品と同じお店の出品は、お店の検索の中で外して、ほかの出品で埋める（出さない保存済みの製品は含めない）。
+      // 合う製品は必ず出る。埋める製品は、お店の合う商品が先に入って出ないことがある（その同じ出品を外しても、ほかの出品で探し続けるだけ）
+      shownSaved: fittingFirst(local, [], req, limit),
       limit: limit - fitting,
       // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）
       allowPaidLookups: (req.allowPaidLookups ?? true) && local.length < limit,
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);
-    // 保存済みの製品と同じ製品（名前の書き方が違い、名前の系列では外れなかったもの：「アミノモイスト モイストチャージ ミルク / 本体 /
-    // 100g / 無香料」と「ミノンアミノモイストモイストチャージミルク」）も出さない
-    shopProducts = shop.products.filter((p) => !isRegistered(p) && !local.some((l) => isSameProduct(l, p)));
+    // 保存済みの製品と同じ製品は、お店の検索の中で外してある（shownSaved。docs/plans/shop-dedupe-and-yahoo-link-log.md）
+    shopProducts = shop.products.filter((p) => !isRegistered(p));
     credits = shop.credits;
     shopLog = { status: shop.status, ...shop.counts };
     // 合わない保存済みの製品で埋めて足りれば、Web では探さない（今までどおり、有料の調べものを増やさない）。

@@ -5,7 +5,7 @@ import { AlternativeGateReason, alternativeGateReason } from '../analyzer/altern
 import { AlternativeCategory, CATEGORY_LABELS_JA, candidateSubKind, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
 import { bestFormSimilarity, FORM_LABELS_JA, FormProfile, formFromText, formProfile, formSimilarity, hasFormProfile, ProductForm } from '../analyzer/product-form';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
-import { normalJan } from '../search/product-identity';
+import { isSameProduct, normalJan, ProductIdentity } from '../search/product-identity';
 import { buildBrandIndex, IndexedBrand, textHasBrand } from './brand-suggest';
 import { findSavedByBarcode, lookupByBarcode } from './search-barcode-service';
 import { API_INTERVAL_MS, isRakutenApiConfigured, isYahooApiConfigured, rakutenItemSearch, ShopItem, yahooItemSearch } from './shop-apis';
@@ -141,6 +141,11 @@ export interface ShopAlternativeInput {
   terms: string[];
   /** 勧めない製品（分析した製品・肌荒れしたコスメ） */
   exclude: (Pick<Product, 'id' | 'name'> & Partial<Pick<Product, 'barcode'>>)[];
+  /**
+   * 一緒に出す保存済みの製品。全成分を読んだ後、同じ製品のお店の出品は duplicate として外し、ほかの出品で探し続ける
+   * （docs/plans/shop-dedupe-and-yahoo-link-log.md「Step 1」）
+   */
+  shownSaved?: ProductIdentity[];
   limit: number;
   /**
    * 足りないときに JAN コードで製品を調べてよいか（有料のことがある）。サーバーが持っている製品から探すときだけ。
@@ -164,7 +169,7 @@ export interface ShopAlternativeResult {
 /**
  * お店の候補が外れた理由。otherKind: 別の種類・別の下位の種類 / notSingle: セット・まとめ売り・中古・試供品など / excluded: 勧めない製品 /
  * noList: 読める成分表示も保存済みの製品も無い / suspect・irritant・standard・unrated: 確認（alternativeGateReason）/
- * duplicate: 同じ製品がもう候補にある
+ * duplicate: 同じ製品がもう候補にある（一緒に出す保存済みの製品を含む）
  */
 export type ShopDropReason =
   | 'otherKind'
@@ -228,7 +233,21 @@ export interface ShopSearchCounts {
    * 出さなかった理由を書く
    */
   otherKindAfterRead: number;
+  /**
+   * 楽天の出品を出したカードの、同じ商品の Yahoo! の出品へのリンク（yahooTwin）。rakutenShown: 楽天の出品を出したカードの数 /
+   * linked: リンクを付けた数 / why: 付けなかったカードの、いちばん先まで進んだ確かめの理由（YahooLinkMiss）。いつも
+   * rakutenShown = linked + why の合計（docs/plans/shop-dedupe-and-yahoo-link-log.md「Step 2」）
+   */
+  yahooLink: { rakutenShown: number; linked: number; why: Record<YahooLinkMiss, number> };
 }
+
+/**
+ * 楽天のカードに Yahoo! のリンクを付けなかった理由（確かめる順）。noJan: 楽天の出品が JAN コードを書いていない /
+ * noYahoo: 同じ検索の Yahoo! の商品に、その JAN コードのものが無い / set: セット・まとめ売り / name: 名前が合わない /
+ * variant: 型・版の語が違う
+ */
+export const YAHOO_LINK_MISSES = ['noJan', 'noYahoo', 'set', 'name', 'variant'] as const;
+export type YahooLinkMiss = (typeof YAHOO_LINK_MISSES)[number];
 
 function emptyCounts(): ShopSearchCounts {
   return {
@@ -242,6 +261,7 @@ function emptyCounts(): ShopSearchCounts {
     shown: 0,
     notShown: 0,
     otherKindAfterRead: 0,
+    yahooLink: { rakutenShown: 0, linked: 0, why: { noJan: 0, noYahoo: 0, set: 0, name: 0, variant: 0 } },
   };
 }
 
@@ -311,9 +331,8 @@ function sameListing(product: Pick<Product, 'name'>, item: ShopItem): boolean {
  * 書いていれば、名前に数字があってもセット・別の型の出品なので使わない）。説明に無いときだけ、名前の数字の並びを見る
  */
 function listingCarriesJan(listing: ShopItem, jan: string): boolean {
-  const inCaption = listing.caption ? janFromCaption(listing.caption) : null;
-  if (inCaption) return normalJan(inCaption) === jan;
-  return (listing.name.normalize('NFKC').match(/(?<!\d)\d{8,14}(?!\d)/g) ?? []).some((d) => normalJan(d) === jan);
+  // どの JAN コードを書いているかは rakutenJans だけで決める（Yahoo! のリンクの確かめと食い違わないように）
+  return jan !== '' && rakutenJans(listing).includes(jan);
 }
 
 /**
@@ -603,26 +622,46 @@ async function sameItemOnRakuten(
   return { sameJan, match: null, miss: furthest >= 0 ? JAN_MISS_REASONS[furthest] : null };
 }
 
+/** 楽天の出品が書いている JAN コード（説明にあればそれだけ。無ければ名前の8〜14桁）。2b（listingCarriesJan）と Yahoo! のリンクで使う */
+function rakutenJans(listing: ShopItem): string[] {
+  const inCaption = listing.caption ? janFromCaption(listing.caption) : null;
+  if (inCaption) return [normalJan(inCaption)].filter(Boolean);
+  return (listing.name.normalize('NFKC').match(/(?<!\d)\d{8,14}(?!\d)/g) ?? []).map(normalJan).filter(Boolean);
+}
+
 /**
  * 楽天の出品（shown）を出す商品の、同じ商品の Yahoo! の出品。楽天の JAN コードの確かめ（2b）と同じ強さで確かめる：
  * - 2b で見つけた商品（item が Yahoo! の商品で、出すのは楽天の出品）は、その Yahoo! の商品
- * - 同じ検索の Yahoo! の商品で、その JAN コードを楽天の出品も書いていて（説明か名前）、名前が合い（sameJanListing）、型・版の語が
- *   同じで（variantMarks）、1個の商品のもの
- * どれも無ければ undefined（別の型・セットの出品へのリンクを出さない）
+ * - 同じ検索の Yahoo! の商品で、その JAN コードを楽天の出品も書いていて（説明か名前）、1個の商品で、名前が合い（sameJanListing）、
+ *   型・版の語が同じ（variantMarks）もの
+ * 楽天の出品でなければ null。無ければ、いちばん先まで進んだ確かめの理由（数えるため。別の型・セットへのリンクは出さない）
  */
-function yahooTwin(item: ShopItem, shownListing: ShopItem, yahooItems: readonly ShopItem[], sheet: boolean, brands: IndexedBrand[]): ShopItem | undefined {
-  if (shownListing.shopId !== 'rakuten') return undefined;
-  if (item.shopId === 'yahoo') return item;
-  return yahooItems.find((y) => {
-    const jan = normalJan(y.janCode);
-    return (
-      !!jan &&
-      !notSingleItem(y.name, sheet) &&
-      listingCarriesJan(shownListing, jan) &&
-      sameJanListing(y, shownListing, brands) &&
-      variantMarks(y.name) === variantMarks(shownListing.name)
-    );
-  });
+function yahooTwin(
+  item: ShopItem,
+  shownListing: ShopItem,
+  yahooItems: readonly ShopItem[],
+  sheet: boolean,
+  brands: IndexedBrand[]
+): { twin: ShopItem } | { twin?: undefined; why: YahooLinkMiss } | null {
+  if (shownListing.shopId !== 'rakuten') return null;
+  if (item.shopId === 'yahoo') return { twin: item };
+  const jans = rakutenJans(shownListing);
+  if (jans.length === 0) return { why: 'noJan' };
+  const sameJan = yahooItems.filter((y) => jans.includes(normalJan(y.janCode)));
+  if (sameJan.length === 0) return { why: 'noYahoo' };
+  let furthest = -1;
+  for (const y of sameJan) {
+    const miss: YahooLinkMiss | null = notSingleItem(y.name, sheet)
+      ? 'set'
+      : !sameJanListing(y, shownListing, brands)
+        ? 'name'
+        : variantMarks(y.name) !== variantMarks(shownListing.name)
+          ? 'variant'
+          : null;
+    if (!miss) return { twin: y };
+    furthest = Math.max(furthest, YAHOO_LINK_MISSES.indexOf(miss));
+  }
+  return { why: YAHOO_LINK_MISSES[furthest] };
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -719,10 +758,13 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     if (duplicate) drop('duplicate', item);
     else found.push({ product, item, ...(listing && { listing }) });
   };
+  const shownSaved = input.shownSaved ?? [];
   const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const reason = rejection(product);
     if (reason === 'otherKind') counts.otherKindAfterRead++;
     if (reason) drop(reason, item);
+    // 一緒に出す保存済みの製品と同じ製品は出さず、ほかの出品で探し続ける（名前の書き方が違い、読む前の名前の系列では外れなかったもの）
+    else if (shownSaved.some((saved) => isSameProduct(saved, product))) drop('duplicate', item);
     else add(product, item, listing);
   };
   // 並べ替えの順位：同じ下位の種類が先（名前で分からない候補は後）、次に形・使う場所の近さ（product-form.ts）
@@ -843,7 +885,14 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // 近い順に。同じ近さなら、確かめた順ではなくお店の関連順（交互の並び）。limit 件より後は出さない
   const shown = found.sort((a, b) => rank(b) - rank(a) || position.get(a.item)! - position.get(b.item)!).slice(0, input.limit);
   // 楽天の出品を出す商品に、同じ商品の Yahoo! の出品も付ける（docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
-  const twins = shown.map(({ item, listing }) => yahooTwin(item, listing ?? item, yahoo ?? [], sheet, brands));
+  const twinChecks = shown.map(({ item, listing }) => yahooTwin(item, listing ?? item, yahoo ?? [], sheet, brands));
+  const twins = twinChecks.map((c) => c?.twin);
+  for (const c of twinChecks) {
+    if (!c) continue;
+    counts.yahooLink.rakutenShown++;
+    if (c.twin) counts.yahooLink.linked++;
+    else counts.yahooLink.why[c.why]++;
+  }
   // 楽天で見つけた Yahoo! の商品は、楽天の出品の写真・価格・リンク（表示する価格・写真は楽天のデータだけ）
   const products = shown.map(({ product, item, listing }, i) => {
     const twin = twins[i];

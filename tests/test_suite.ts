@@ -10285,6 +10285,9 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
         notShown: 0,
         // 別の種類の候補（otherKind 1）は名前で読む前に外したので、読んだ後に外した数は 0
         otherKindAfterRead: 0,
+        // 楽天の出品を出した3件。どの出品も JAN コードを書いていないので、Yahoo! のリンクは付かない
+        // （docs/plans/shop-dedupe-and-yahoo-link-log.md「Step 2」）
+        yahooLink: { rakutenShown: 3, linked: 0, why: { noJan: 3, noYahoo: 0, set: 0, name: 0, variant: 0 } },
       },
     });
 
@@ -13650,4 +13653,65 @@ test('212. Review and live fixes for 207–211: a shop listing of a product alre
   } finally {
     console.log = originalLog;
   }
+});
+
+test('213. The shop search drops a listing of a saved card\'s product while it is still looking, so another listing can take the slot and the reply counts it as a duplicate (live 2026-11-23 after 8193f7a: 「パラベンフリーの乳液」 showed 2 cards and the dropped ミノン listing was counted nowhere)', async () => {
+  const { alternativeRequestFromText, findAlternatives, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const saved = { id: 'web_t213_minon', brand: 'ミノン / MINON', name: 'アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料' };
+  addProductToDynamicCache(verifiedProduct({ ...saved, category: 'cream', ingredients: SHOP_CLEAN_LIST.split('、') }));
+  for (const n of ['A', 'B']) addProductToDynamicCache(verifiedProduct({ id: `obf_t213_loose_${n}`, brand: 'テストセーブ', name: `テストセーブ モイストベース ${n}`, category: 'cream', ingredients: SHOP_CLEAN_LIST.split('、') }));
+  const keep = new Set([saved.id, 'obf_t213_loose_A', 'obf_t213_loose_B']);
+  const others = COSMETICS_DATABASE.map((p) => p.id).filter((id) => !keep.has(id));
+  const req = { ...alternativeRequestFromText('無香料の乳液')!, excludeIds: others, allowPaidLookups: false };
+  const minonListing = { itemName: 'ミノンアミノモイストモイストチャージミルク(100g)【MINON(ミノン)】[敏感肌 乾燥肌 低刺激 アミノ酸 保湿 乳液 濃厚]', itemCode: 't213:1', itemCaption: shopCaption(SHOP_CLEAN_LIST) };
+  const other = (i: number, extra: string) => ({ itemName: `テストミルク${i} うるおい 乳液 150ml`, itemCode: `t213:${i}`, itemCaption: shopCaption(`${SHOP_CLEAN_LIST}、${extra}`) });
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  try {
+    // ミノンの出品が先に来ても外し、次の出品で2つの枠を埋める
+    const full = await withShopKeys(fakeShops([minonListing, other(2, 'トレハロース'), other(3, 'キサンタンガム')]).fetchFn, () => findAlternatives(req));
+    assert.deepStrictEqual(full.products.map((p) => p.id), [saved.id, 'shoptext_rakuten_t213:2', 'shoptext_rakuten_t213:3']);
+    const line = JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+    assert.strictEqual(line.shop.dropped.duplicate, 1, JSON.stringify(line.shop));
+
+    // 足りないときは、返答が外した出品を数える（読めた数と出した数の差を説明する）
+    const short = await withShopKeys(fakeShops([minonListing, other(2, 'トレハロース')]).fetchFn, () => findAlternatives(req));
+    assert.deepStrictEqual(short.products.map((p) => p.id), [saved.id, 'shoptext_rakuten_t213:2']);
+    assert.strictEqual(short.shopCheck?.duplicate, 1);
+    const reply = summarizeAlternatives(req, short.products, short.shopCheck);
+    assert.ok(reply.includes('1件は、見つけた商品と同じ製品の別の出品でした'), reply);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('214. The [alternatives] log counts why a 楽天 card got no Yahoo! link: the 楽天 listing states no JAN, no Yahoo! item has it, or the Yahoo! item is a set, has another name or another variant; linked cards are counted too, and the counts add up', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const jan = (n: number) => `49000000001${String(n).padStart(2, '0')}`;
+  const extras = ['トレハロース', 'ヒアルロン酸Na', 'キサンタンガム', 'クエン酸', 'トコフェロール', 'アラントイン'];
+  const rakuten = ['エー', 'ビー', 'シー', 'ディー', 'イー', 'エフ'].map((b, i) => ({
+    itemName: `テスト${b} うるおい 化粧水${i === 2 ? ' しっとり' : ''} 150ml`,
+    itemCode: `y214:${i}`,
+    // 1件目は JAN コードを書いていない
+    itemCaption: `${shopCaption(`${SHOP_CLEAN_LIST}、${extras[i]}`)}${i === 0 ? '' : `<br>JANコード：${jan(i)}`}`,
+  }));
+  const hit = (code: string, name: string, janCode: string) => ({ name, code, url: `https://store.shopping.yahoo.co.jp/t/${code}.html`, inStock: true, condition: 'new', brand: { name: name.split(' ')[0] }, janCode });
+  const yahooHits = [
+    // 2件目（ビー）の JAN コードの商品は無い
+    hit('c', 'テストシー うるおい 化粧水 さっぱり', jan(2)),
+    hit('d', 'テストディー うるおい 化粧水 2個セット', jan(3)),
+    hit('e', 'テストイー モイスト 乳液', jan(4)),
+    hit('f', 'テストエフ うるおい 化粧水', jan(5)),
+  ];
+  const result = await withShopKeys(fakeShops(rakuten, yahooHits).fetchFn, () =>
+    findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 6, allowPaidLookups: false })
+  );
+  assert.strictEqual(result.products.length, 6, JSON.stringify(result.products.map((p) => p.id)));
+  assert.deepStrictEqual(result.counts.yahooLink, { rakutenShown: 6, linked: 1, why: { noJan: 1, noYahoo: 1, set: 1, name: 1, variant: 1 } });
+  assert.deepStrictEqual(result.products.filter((p) => p.yahooLink).map((p) => p.id), ['shoptext_rakuten_y214:5']);
+  const { rakutenShown, linked, why } = result.counts.yahooLink;
+  assert.strictEqual(rakutenShown, linked + Object.values(why).reduce((a, b) => a + b, 0));
+  // 数と決まった語だけ（JAN コード・名前は入らない）
+  assert.ok(!JSON.stringify(result.counts).includes('4900000000'));
 });
