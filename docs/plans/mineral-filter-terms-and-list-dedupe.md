@@ -1,6 +1,6 @@
 # Plan: no 「ノンケミカル」 search word for 酸化亜鉛・酸化チタン, and one card per product when lists differ only in dashes
 
-Written 2026-11-24. Status: implemented and deployed 2026-11-24 (tests 218–219).
+Written 2026-11-24. Status: step 2 deployed as `a959e95`; step 1 deployed and then reverted (step 3, test 218), revert deployed 2026-11-24.
 Follows the live check of `e83dccb` (Cloudflare version `79c277de`). Earlier round:
 [shop-paid-lookups-and-keyword-names.md](shop-paid-lookups-and-keyword-names.md).
 
@@ -80,3 +80,30 @@ Next number 218.
 - Review note: `scripts/eval-alternatives.mts` uses `shopTerms`, so its 酸化亜鉛 and 酸化チタン cases no
   longer send 「ノンケミカル」. That matches production; re-baseline those cases if they are measured.
 - Gates: `tsc`, `eslint`, `npm test` 219/219.
+
+## Step 3. Revert step 1 (owner's decision, 2026-11-24)
+
+**Live check of `a959e95`** (Cloudflare version `db7f6c8a`):
+
+- **Step 2 works.** 「紫外線吸収剤不使用の日焼け止めスプレー」 still searches 「ノンケミカル」「ミスト」 and finds
+  both 紫外線予報 listings. It shows the mist once (`dropped.duplicate` 5, was 4). ミノン UVマイルドミルク takes
+  the freed slot.
+- **Step 1 made the 酸化亜鉛 search worse.** 「酸化亜鉛不使用の日焼け止めスプレー」 searched only 「ミスト」.
+
+| | Search words | Dropped for 酸化亜鉛 | Dropped as irritant | Shop cards |
+|---|---|---|---|---|
+| Before | ノンケミカル ミスト | 0 | 4 | the 紫外線予報 mist |
+| After | ミスト | 0 | 18 | none |
+
+The reasoning behind step 1 didn't hold. No readable listing was dropped for 酸化亜鉛 either way.
+「ノンケミカル」 also keeps out the alcohol-heavy chemical sprays, which matters more.
+
+**Change:**
+
+- `shopTerms` sends 「ノンケミカル」 for every UV filter again, including 酸化亜鉛 and 酸化チタン.
+- `UV_SCATTERERS` is no longer exported. Only the reverted code used it.
+- 「ノンケミカル」 is only a search word. The ingredients to avoid are unchanged: a 「酸化亜鉛不使用」 request
+  still avoids 酸化亜鉛 only, and every card is checked for it.
+
+**Test 218** now checks that 酸化亜鉛, 酸化チタン, the absorbers and both together send 「ノンケミカル」, and
+that the shop keyword contains it. It fails with step 1 put back.

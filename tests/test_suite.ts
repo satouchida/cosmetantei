@@ -13833,18 +13833,18 @@ test('217. A keyword list after the kind\'s plain name is cut from shop names, o
   assert.strictEqual(displayListingName('テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥'), 'テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥');
 });
 
-test('218. 「ノンケミカル」 is sent to the shops only for the UV absorbers: avoiding 酸化亜鉛 or 酸化チタン, the minerals that non-chemical sunscreens use, sends no ingredient word (live 2026-11-24: 「酸化亜鉛不使用の日焼け止めスプレー」 searched 「ノンケミカル」「ミスト」)', async () => {
+test('218. Avoiding 酸化亜鉛 or 酸化チタン still sends 「ノンケミカル」 to the shops, like the UV absorbers (live 2026-11-24 after a959e95: without it 「酸化亜鉛不使用の日焼け止めスプレー」 found no checkable mist, 18 irritant drops against 4, and no listing was dropped for 酸化亜鉛 either way)', async () => {
   const { alternativeRequestFromText, findAlternatives, shopTerms } = await import('../src/lib/services/alternatives-service');
-  for (const text of ['酸化亜鉛不使用の日焼け止め', '酸化チタンが入っていない日焼け止め']) {
+  for (const text of ['酸化亜鉛不使用の日焼け止め', '酸化チタンが入っていない日焼け止め', '紫外線吸収剤不使用の日焼け止め', '酸化亜鉛と紫外線吸収剤が入っていない日焼け止め']) {
     const req = alternativeRequestFromText(text)!;
     assert.strictEqual(req.category, 'sunscreen', text);
-    assert.deepStrictEqual(shopTerms(req), [], text);
+    assert.deepStrictEqual(shopTerms(req), ['ノンケミカル'], text);
   }
-  // 紫外線吸収剤だけ、または一緒に避けるなら、吸収剤のために「ノンケミカル」
-  assert.deepStrictEqual(shopTerms(alternativeRequestFromText('紫外線吸収剤不使用の日焼け止め')!), ['ノンケミカル']);
-  assert.deepStrictEqual(shopTerms(alternativeRequestFromText('酸化亜鉛と紫外線吸収剤が入っていない日焼け止め')!), ['ノンケミカル']);
-  // お店に送る語にも無い
-  const req = { ...alternativeRequestFromText('酸化亜鉛不使用の日焼け止めスプレー')!, excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
+  // 避ける成分は酸化亜鉛だけ（「ノンケミカル」は検索の語で、避ける成分は増やさない）
+  const zinc = alternativeRequestFromText('酸化亜鉛不使用の日焼け止めスプレー')!;
+  assert.deepStrictEqual(zinc.known.map((k) => k.id), ['zinc_oxide']);
+  // お店に送る語にもある
+  const req = { ...zinc, excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
   const shops = fakeShops([]);
   const originalLog = console.log;
   console.log = () => {};
@@ -13855,7 +13855,7 @@ test('218. 「ノンケミカル」 is sent to the shops only for the UV absorbe
   }
   const keywords = shops.requests.filter((u) => u.hostname === 'openapi.rakuten.co.jp').map((u) => u.searchParams.get('keyword') ?? '');
   assert.ok(keywords.length > 0, 'The shops are asked');
-  for (const k of keywords) assert.ok(!k.includes('ノンケミカル') && k.includes('日焼け止め'), k);
+  for (const k of keywords) assert.ok(k.includes('ノンケミカル') && k.includes('日焼け止め'), k);
 });
 
 test('219. Two shop listings of one product whose ingredient lists differ only in the dash character (「PEG−60」 with U+2212 and 「PEG-60」) give one card, and the next listing takes the slot (live 2026-11-24: 紫外線予報 ノンケミカルUVクリアミストM shown twice)', async () => {
