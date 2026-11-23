@@ -366,6 +366,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   let shopProducts: Product[] = [];
   let credits: PriceApiCredit[] = [];
   if (req.category) {
+    // 一緒に出せる保存済みの製品（合う製品と、頼まれた下位の種類で埋めてよい製品）
+    const shownSaved = fittingFirst(local, [], req, limit);
     const shop = await findShopAlternatives({
       category: req.category,
       subKind: req.subKind,
@@ -375,10 +377,11 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
       // 一緒に出す保存済みの製品と同じお店の出品は、お店の検索の中で外して、ほかの出品で埋める（出さない保存済みの製品は含めない）。
       // 合う製品は必ず出る。埋める製品は、お店の合う商品が先に入って出ないことがある（その同じ出品を外しても、ほかの出品で探し続けるだけ）
-      shownSaved: fittingFirst(local, [], req, limit),
+      shownSaved,
       limit: limit - fitting,
-      // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）
-      allowPaidLookups: (req.allowPaidLookups ?? true) && local.length < limit,
+      // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）。
+      // 数えるのは出せる製品だけ（別の下位の種類の製品は埋めない。docs/plans/shop-paid-lookups-and-keyword-names.md「Step 1」）
+      allowPaidLookups: (req.allowPaidLookups ?? true) && shownSaved.length < limit,
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);

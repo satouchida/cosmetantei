@@ -49,6 +49,14 @@ const LEADING_SALE = new RegExp(`^(?:\\S*?(?:${SALE_MARK})\\S*\\s*)+(?:[!！?？
 const isKindWord = (word: string) => !!categoryFromText(word) || !!formFromText(word);
 /** 効能を並べた語とみなす、続いた種類の語の数 */
 const MIN_KIND_RUN = 3;
+/** 種類の名前だけの語（docs/plans/shop-paid-lookups-and-keyword-names.md「Step 2」） */
+const PLAIN_KIND_NAME = /^(?:日焼け止め|サンスクリーン|化粧水|美容液|乳液|クリーム|洗顔料?|クレンジング|リップクリーム|パック)$/i;
+/** 種類の名前だけの語の後に、検索用の語の並びとみなす語の数 */
+const MIN_KEYWORD_TAIL = 3;
+/** 検索用の語として数えない語：かっこの付いた語（「(顔・からだ用)」「(SPF50+」）、容量（「14g」）、SPF・PA の値（「SPF50+」「PA++++」） */
+const NOT_KEYWORD = /[()（）[\]［］【】]|^\d+(?:\.\d+)?\s*(?:ml|g|kg|l|枚|個|本)$|^(?:spf\s*\d+\+*|pa\+*)$/i;
+/** 名前の続きの印（「ローション II」の番号） */
+const VARIANT_NUMERAL = /^(?:i{1,3}|iv|v|vi)$/i;
 /** 最初の語をもう一度書いたところで切るのは、間にこの数以上の語があるときだけ */
 const MIN_WORDS_BETWEEN = 2;
 
@@ -60,6 +68,7 @@ const MIN_WORDS_BETWEEN = 2;
  *   前の語に種類・形の語があるときだけ
  * - 前の語をくり返した最後の語（「… ボディローション 大容量 400ml 無香料 ボディローション」）。数字だけの語は外さない
  * - 種類の語が3つ以上続くところから後ろ（「… オールインワンジェル 化粧水 美容液 乳液 クリーム …」）。前の語に種類の語があるときだけ
+ * - 種類の名前だけの語（「日焼け止め」）から後ろ。前の語が同じ種類を名乗り、後ろに3語以上続くときだけ
  */
 function withoutNameTail(words: string[]): string[] {
   let kept = words;
@@ -73,6 +82,19 @@ function withoutNameTail(words: string[]): string[] {
     (_, i) => i > 0 && kept.slice(0, i).some(isKindWord) && kept.slice(i, i + MIN_KIND_RUN).length === MIN_KIND_RUN && kept.slice(i, i + MIN_KIND_RUN).every(isKindWord)
   );
   if (run > 0) kept = kept.slice(0, run);
+  // 種類の名前だけの語から後ろは、検索用の語の並び（「シルキーUVミルク spf50+ PA++++ 日焼け止め 紫外線吸収剤不使用 …」）。
+  // 前の語が同じ種類を名乗り、後ろにかっこ・容量でない語が3語以上続くときだけ（「ノンケミカル UVカット 日焼け止め ミルク」は名前。
+  // 「日焼け止め 14g (顔・からだ用) (SPF50+ PA++++)」の容量・注記は検索用の語ではない）
+  const plain = kept.findIndex((w, i) => {
+    const kind = PLAIN_KIND_NAME.test(w) ? categoryFromText(w) : undefined;
+    if (!kind) return false;
+    const tail = kept.slice(i + 1);
+    // 次の語が形・種類・番号なら、まだ名前（「アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料」）
+    if (tail[0] && (isKindWord(tail[0]) || VARIANT_NUMERAL.test(tail[0]))) return false;
+    if (tail.filter((t) => !NOT_KEYWORD.test(t)).length < MIN_KEYWORD_TAIL) return false;
+    return kept.slice(0, i).some((e) => categoryFromText(e) === kind);
+  });
+  if (plain > 0) kept = kept.slice(0, plain);
   while (kept.length > 1) {
     const last = kept[kept.length - 1];
     const before = kept.slice(0, -1);

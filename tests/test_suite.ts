@@ -13411,7 +13411,7 @@ test('205. A shop name drops a sale banner at its start (「BLACK FRIDAYはP2倍
   assert.strictEqual(listingSearchName(points), 'POHO+ UV リップヴァーム SPF50+リップ専用日焼け止め');
 
   // 3語以上の [] は検索用の語
-  assert.strictEqual(displayListingName('アベンヌ 薬用リップケア モイスト リップクリーム 敏感肌用 保湿 無香料 [リップクリーム 高保湿 無香料]', 'アベンヌ'), '薬用リップケア モイスト リップクリーム 敏感肌用 保湿 無香料');
+  assert.strictEqual(displayListingName('アベンヌ 薬用リップケア モイスト リップクリーム 敏感肌用 保湿 無香料 [リップクリーム 高保湿 無香料]', 'アベンヌ'), '薬用リップケア モイスト'); // 種類の名前だけの語から後ろの検索用の語も外す（217）
   assert.strictEqual(
     displayListingName('ヴァセリン インテンシブケア アドバンスドリペア ボディローション 無香料(400ml)【ヴァセリン(Vaseline)】[ワセリン ボディクリーム 保湿 敏感肌 乾燥肌 大容量]', 'ヴァセリン'),
     'インテンシブケア アドバンスドリペア ボディローション 無香料(400ml)'
@@ -13770,4 +13770,61 @@ test('215. Alternative cards get a 「Yahoo!ショッピングで探す」 searc
   const site = await import('../src/lib/site');
   assert.strictEqual(site.LEGAL_REVISED, '2026-11-23');
   assert.strictEqual(site.LEGAL_VERSION, '2026-10-30-2');
+});
+
+test('216. The paid-lookup check counts only the saved products that can be shown: for 「アルコールフリーのシートマスク」 two saved masks not named as sheet masks don\'t block paid lookups, and three saved sheet masks answer without the shops (live 2026-11-23: 1 card, 3 saved masks with 1 sheet mask, paidLookups 0)', async () => {
+  const { alternativeRequestFromText, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const req0 = alternativeRequestFromText('アルコールフリーのシートマスク')!;
+  assert.deepStrictEqual([req0.category, req0.subKind], ['mask', 'sheet']);
+  const saved = (id: string, name: string) =>
+    addProductToDynamicCache(verifiedProduct({ id, brand: 'テストセーブ', name, category: 'mask', ingredients: SHOP_CLEAN_LIST.split('、') }));
+  saved('obf_t216_sheet_A', 'テストセーブ うるおいシートマスク A');
+  saved('obf_t216_clay_A', 'テストセーブ モイストマスク A');
+  saved('obf_t216_clay_B', 'テストセーブ モイストマスク B');
+  saved('obf_t216_sheet_B', 'テストセーブ うるおいシートマスク B');
+  saved('obf_t216_sheet_C', 'テストセーブ うるおいシートマスク C');
+  const yahooJan = [{ name: 'ナゾ フェイスシートマスク', code: 'y_t216', url: 'https://store.shopping.yahoo.co.jp/s/t216.html', inStock: true, condition: 'new', brand: { name: 'ナゾ' }, janCode: '4900000000024' }];
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  const lastShop = () => JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+  const others = (keep: string[]) => [...COSMETICS_DATABASE.map((p) => p.id), 'obf_t216_sheet_A', 'obf_t216_sheet_B', 'obf_t216_sheet_C', 'obf_t216_clay_A', 'obf_t216_clay_B'].filter((id) => !keep.includes(id));
+  try {
+    // 合うのは1つ、ほかの2つは名前でシートマスクと分からない（埋めない）ので、有料の調べものをする
+    const live = { ...req0, excludeIds: others(['obf_t216_sheet_A', 'obf_t216_clay_A', 'obf_t216_clay_B']) };
+    await withShopKeys(fakeShops([], yahooJan).fetchFn, () => findAlternatives(live));
+    const line = lastShop();
+    assert.deepStrictEqual([line.saved, line.fitting], [3, 1], JSON.stringify(line));
+    assert.strictEqual(line.shop.paidLookups, 1, JSON.stringify(line.shop));
+
+    // シートマスクが3つ保存済みなら、お店に聞かない（今までどおり）
+    const full = { ...req0, excludeIds: others(['obf_t216_sheet_A', 'obf_t216_sheet_B', 'obf_t216_sheet_C']) };
+    const shops = fakeShops([], yahooJan);
+    const found = await withShopKeys(shops.fetchFn, () => findAlternatives(full));
+    assert.strictEqual(found.products.length, 3);
+    assert.strictEqual(shops.requests.length, 0);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('217. A keyword list after the kind\'s plain name is cut from shop names, on the card and in the search words, when an earlier word names the same kind and 3 or more words follow (live 2026-11-23: 「シルキーUVミルク spf50+ PA++++ 日焼け止め 紫外線吸収剤不使用 ノンケミカル …」)', async () => {
+  const { displayListingName, listingSearchName } = await import('../src/lib/search/listing-name');
+  const { shopSearchQuery } = await import('../src/lib/services/search-link-query');
+  const sunscreen = '【公式】ラブミータッチ シルキーUVミルク spf50+ PA++++ 日焼け止め 紫外線吸収剤不使用 ノンケミカル スキンケア 乳幼児試験済み UVカット セラミド 紫外線防止 上原恵理 Dr.BEAUTOPIA 50g';
+  assert.strictEqual(displayListingName(sunscreen, 'ラブミータッチ'), 'シルキーUVミルク spf50+ PA++++');
+  assert.strictEqual(listingSearchName(sunscreen), 'ラブミータッチ シルキーUVミルク spf50+ PA++++');
+  const lip = 'アベンヌ 薬用リップケア モイスト リップクリーム 敏感肌用 保湿 無香料 4g';
+  assert.strictEqual(displayListingName(lip, 'アベンヌ'), '薬用リップケア モイスト');
+  assert.strictEqual(shopSearchQuery('アベンヌ', displayListingName(lip, 'アベンヌ')), 'アベンヌ 薬用リップケア モイスト');
+  // 後ろが短い（名前の一部）
+  assert.strictEqual(displayListingName('ノンケミカル UVカット 日焼け止め ミルク'), 'ノンケミカル UVカット 日焼け止め ミルク');
+  // 前に同じ種類を名乗る語が無い（「ヒアルロン液」は種類の語ではない）
+  assert.strictEqual(displayListingName('肌ラボ 極潤 ヒアルロン液 化粧水 170ml 保湿 敏感肌 乾燥肌', '肌ラボ'), '極潤 ヒアルロン液 化粧水 170ml 保湿 敏感肌 乾燥肌');
+  // 次の語が形・種類（まだ名前）。SPF・PA の値は検索用の語として数えない
+  assert.strictEqual(displayListingName('アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料 60g'), 'アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料 60g');
+  assert.strictEqual(displayListingName('テスト UVミルク 日焼け止め SPF50+ PA++++ 無香料'), 'テスト UVミルク 日焼け止め SPF50+ PA++++ 無香料');
+  assert.strictEqual(displayListingName('テスト モイスト化粧水 化粧水 II しっとり 保湿 敏感肌'), 'テスト モイスト化粧水 化粧水 II しっとり 保湿 敏感肌');
+  // 前の語が別の種類（化粧水の後の「クリーム」は化粧水の名前ではない）
+  assert.strictEqual(displayListingName('テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥'), 'テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥');
 });
