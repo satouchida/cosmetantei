@@ -172,7 +172,20 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                       rel={p.shopLink.sponsored ? 'sponsored noopener noreferrer nofollow' : 'noopener noreferrer nofollow'}
                       className={`w-full ${buttonSecondary}`}
                     >
-                      <span>販売ページを見る</span>
+                      {/* 同じ商品の Yahoo! の出品もあるときは、どちらのお店かを書く（楽天の出品のときだけ yahooLink がある） */}
+                      <span>{showableShopLink(p.yahooLink) ? '楽天市場で見る' : '販売ページを見る'}</span>
+                      <ExternalLink className="w-4 h-4" aria-hidden />
+                      <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
+                    </a>
+                  )}
+                  {showableShopLink(p.yahooLink) && (
+                    <a
+                      href={p.yahooLink.href}
+                      target="_blank"
+                      rel={p.yahooLink.sponsored ? 'sponsored noopener noreferrer nofollow' : 'noopener noreferrer nofollow'}
+                      className={`w-full ${buttonSecondary}`}
+                    >
+                      <span>Yahoo!ショッピングで見る</span>
                       <ExternalLink className="w-4 h-4" aria-hidden />
                       <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
                     </a>

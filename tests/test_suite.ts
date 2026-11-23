@@ -11262,13 +11262,15 @@ test('173. Alternatives: a Yahoo! item still unchecked is looked up on Rakuten b
     const a = await search();
     assert.deepStrictEqual(a.products.map((p) => p.id), [`shoptext_rakuten_msj:${j0}-1`]);
     const shown = a.products[0];
-    // 表示は楽天の出品：名前はそのまま、写真・価格・アフィリエイトのリンクは楽天。Yahoo! のデータは出さないのでクレジットは楽天だけ
+    // 表示は楽天の出品：名前はそのまま、写真・価格・アフィリエイトのリンクは楽天。同じ商品の Yahoo! の出品へのリンクも付けるので、
+    // クレジットは楽天と Yahoo!（docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
     assert.strictEqual(shown.name, '【公式】ヤフA0号 化粧水 しっとり 150ml');
     assert.strictEqual(shown.ingredientSource, 'shop_listing');
     assert.ok(shown.shopLink?.sponsored && shown.shopLink.href.startsWith('https://hb.afl.rakuten.co.jp/') && shown.shopLink.href.includes(encodeURIComponent(`https://item.rakuten.co.jp/msj/${j0}-1/`)), JSON.stringify(shown.shopLink));
     assert.deepStrictEqual(shown.shopPrice, { yen: 1480, taxIncluded: true, variant: { refill: false, size: '150mL' } });
     assert.strictEqual(shown.imageUrl, `https://thumbnail.image.rakuten.co.jp/@0_mall/msj/${j0}-1.jpg`);
-    assert.deepStrictEqual(a.credits, ['rakuten']);
+    assert.ok(shown.yahooLink?.href.includes('store.shopping.yahoo.co.jp'), JSON.stringify(shown.yahooLink));
+    assert.deepStrictEqual(a.credits, ['rakuten', 'yahoo']);
     // 楽天を呼んだ順：種類の検索、そして Yahoo! の関連順に3件まで（4件目の j3 は呼ばない）
     assert.deepStrictEqual(rakutenCalls().map((u) => u.searchParams.get('keyword')), ['化粧水', j0, j1, j2]);
     // 同じ JAN コードで使わなかったのは、名前の合わない j2（テスト 175）
@@ -12539,7 +12541,8 @@ test('188. Shop listings without a brand field take a leading word repeated in �
   // ミルクの物が無ければ、ボディクリームとして出し、そう言う
   const creamsOnly = summarizeAlternatives(req, [product('やさしい ボディクリーム')]);
   assert.ok(creamsOnly.startsWith('「香料」を含まないボディクリームを1件'), creamsOnly);
-  assert.ok(creamsOnly.includes('ミルクタイプは見つからなかったため、ほかのタイプのボディクリームを表示しています。'), creamsOnly);
+  // 頼まれた名前（ボディミルク）と出した物の名前（ボディクリーム）で言う（docs/plans/alternatives-live-review-2026-11-23.md「Step 3」）
+  assert.ok(creamsOnly.includes('ボディミルクは見つからなかったため、ボディクリームを表示しています。'), creamsOnly);
   // ミルクとクリームが混ざっていれば、種類の名前（ミルクは出せたので「見つからなかった」とは言わない）
   const mixed = summarizeAlternatives(req, [product('やさしい ボディミルク'), product('やさしい ボディクリーム')]);
   assert.ok(mixed.startsWith('「香料」を含まないボディクリームを2件') && !mixed.includes('タイプは見つからなかった'), mixed);
@@ -12642,7 +12645,8 @@ test('191. A 「」 or 『』 holding sale text or a date (「ポイント10倍 
   // 売り文句の「」は、検索語にも表示にも残さない
   assert.strictEqual(withoutListingNoise(listing), 'ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ');
   // 後ろの「アットコスメ」はクチコミサイトの名前なので表示しない（test 205）
-  assert.strictEqual(displayListingName(listing), 'ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム');
+  // 「本体/」も外す（docs/plans/alternatives-live-review-2026-11-23.md「Step 5」）
+  assert.strictEqual(displayListingName(listing), 'ANTI-SIGNAL リンクルハンター 無香料 20g アイクリーム');
   assert.strictEqual(displayListingName('『クーポンで10%OFF』ミノン 化粧水'), 'ミノン 化粧水');
   assert.strictEqual(displayListingName('「11/20まで」セザンヌ 化粧水'), 'セザンヌ 化粧水');
   assert.strictEqual(displayListingName('「エントリーで」ミノン 化粧水'), 'ミノン 化粧水');
@@ -12659,12 +12663,12 @@ test('191. A 「」 or 『』 holding sale text or a date (「ポイント10倍 
   // ブランドが分からない：飾りを外した名前の最初の語をブランドの行に出し、名前から外す
   assert.deepStrictEqual(listingCardLabels({ brand: '', name: listing }), {
     brand: 'ANTI-SIGNAL',
-    name: 'リンクルハンター 本体/無香料 20g アイクリーム',
+    name: 'リンクルハンター 無香料 20g アイクリーム',
   });
   // 「ブランド未登録」はブランドが無いのと同じ（最初の語をブランドの行と名前の両方に出さない）
   assert.deepStrictEqual(listingCardLabels({ brand: 'ブランド未登録', name: listing }), {
     brand: 'ANTI-SIGNAL',
-    name: 'リンクルハンター 本体/無香料 20g アイクリーム',
+    name: 'リンクルハンター 無香料 20g アイクリーム',
   });
   // ブランドが分かる：今までどおり（先頭のブランド名を名前から外す）
   assert.deepStrictEqual(
@@ -12677,7 +12681,7 @@ test('192. A shop card reads out and searches Amazon with the cleaned name, not 
   const listing = '「ポイント10倍 11月20〜21日」ANTI-SIGNAL リンクルハンター 本体/無香料 20g アイクリーム アットコスメ';
   const query = (url: string) => new URL(url).searchParams.get('k');
   // Amazon の検索語に売り文句を入れない（Qoo10 と同じ）。ブランドが名前の先頭にあれば重ねない。容量も入れない（test 199）
-  assert.strictEqual(query(buildAmazonAffiliateUrl('', listing)), 'ANTI-SIGNAL リンクルハンター 本体/無香料 アイクリーム');
+  assert.strictEqual(query(buildAmazonAffiliateUrl('', listing)), 'ANTI-SIGNAL リンクルハンター 無香料 アイクリーム');
   assert.strictEqual(query(buildAmazonAffiliateUrl('キュレル', '【公式】キュレル モイストリペア アイクリーム')), 'キュレル モイストリペア アイクリーム');
   assert.strictEqual(query(buildAmazonAffiliateUrl('ちふれ', 'リップスティック')), 'ちふれ リップスティック');
   assert.strictEqual(query(buildAmazonAffiliateUrl('ＤＨＣ', 'DHC 薬用リップクリーム')), 'DHC 薬用リップクリーム');
@@ -12689,7 +12693,8 @@ test('192. A shop card reads out and searches Amazon with the cleaned name, not 
   const { readFileSync } = await import('node:fs');
   const card = readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8');
   assert.match(card, /const spokenName = isAlternatives \? `\$\{label\.brand\} \$\{label\.name\}` : p\.name;/);
-  assert.strictEqual((card.match(/（\{spokenName\}、新しいタブで開く）/g) ?? []).length, 3);
+  // 販売ページ・Yahoo!ショッピング・Amazon・Qoo10 のリンク（Yahoo! は docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
+  assert.strictEqual((card.match(/（\{spokenName\}、新しいタブで開く）/g) ?? []).length, 4);
   assert.strictEqual((card.match(/aria-label=\{`[^`]*（\$\{spokenName\}）`\}/g) ?? []).length, 3);
   assert.doesNotMatch(card, /sr-only">（\{p\.name\}|aria-label=\{`[^`]*\$\{p\.name\}/);
 });
@@ -13300,9 +13305,11 @@ test('202. Saved products that are not the form or sub-kind asked for don\'t sto
     assert.ok(lipLine.saved > lipLine.fitting, JSON.stringify(lipLine));
     assert.ok(lipLine.fitting < 3);
     assert.ok(lipShop.requests.some((u) => u.hostname === 'openapi.rakuten.co.jp'), 'The shops are asked for リップクリーム');
-    // お店のリップクリームは、名前でリップクリームと分からない保存済みの製品より先
+    // お店のリップクリームを出し、名前でリップクリームと分からない保存済みの製品は、空いた枠にも出さない
+    // （docs/plans/alternatives-live-review-2026-11-23.md「Step 2」）
     const lipNames = lips.products.map((p) => p.name);
-    assert.ok(lipNames.indexOf('テストリップ 薬用リップクリーム 2g') < lipNames.findIndex((n) => n.startsWith('テストセーブ リップモンスター')), JSON.stringify(lipNames));
+    assert.ok(lipNames.includes('テストリップ 薬用リップクリーム 2g'), JSON.stringify(lipNames));
+    assert.ok(!lipNames.some((n) => n.startsWith('テストセーブ リップモンスター')), JSON.stringify(lipNames));
   } finally {
     console.log = originalLog;
   }
@@ -13458,4 +13465,126 @@ test('206. When few alternatives are shown, the reply says how many readable lis
   // 楽天の2つ目は見つけた製品の別の出品（容量違い）。Yahoo! の2つは、どちらも見つかっていないので成分表示なし
   assert.strictEqual(result.counts.dropped.duplicate, 1, JSON.stringify(result.counts));
   assert.strictEqual(result.counts.noListByShop.yahoo, 2, JSON.stringify(result.counts));
+});
+
+const T207_LIST = ['水', 'グリセリン', 'BG', 'ペンチレングリコール', 'スクワラン', 'セラミドNP', 'ヒアルロン酸Na', 'トコフェロール', 'クエン酸', 'フェノキシエタノール'];
+
+test('207. One product saved under its brand and under the company that makes it is one product when the full lists match and one name contains the other (live 2026-11-23: ミノン 「アミノモイスト モイストチャージ ミルク」 and 第一三共ヘルスケア 「モイストチャージ ミルク」 shown as two alternatives)', async () => {
+  const { isSameProduct } = await import('../src/lib/search/product-identity');
+  const brandRecord = { id: 'web_t207_brand', brand: 'ミノン', name: 'ミノン アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料', ingredients: T207_LIST };
+  const makerRecord = { id: 'web_t207_maker', brand: '第一三共ヘルスケア', name: 'モイストチャージ ミルク', ingredients: T207_LIST };
+  assert.ok(isSameProduct(brandRecord, makerRecord));
+  assert.ok(isSameProduct(makerRecord, brandRecord));
+  // 全成分が違えば別の製品
+  assert.ok(!isSameProduct(brandRecord, { ...makerRecord, ingredients: [...T207_LIST.slice(0, 7), 'エタノール', '香料', 'カルボマー'] }));
+  // どちらも会社名でないブランド：同じ名前・同じ全成分でも別のブランドの製品
+  assert.ok(!isSameProduct({ ...brandRecord, brand: 'テストエー', name: 'テストエー モイストチャージ ミルク' }, { ...makerRecord, brand: 'テストビー', name: 'テストビー モイストチャージ ミルク' }));
+  // 含まれる名前が一般的すぎる（「ハンドクリーム」）なら、会社名でも同じにしない
+  assert.ok(!isSameProduct({ id: 'a', brand: '花王', name: 'ハンドクリーム', ingredients: T207_LIST }, { id: 'b', brand: 'キュレル', name: 'キュレル 潤浸保湿 ハンドクリーム', ingredients: T207_LIST }));
+});
+
+test('208. A product that isn\'t the sub-kind asked for doesn\'t fill an empty slot: for 「アルコールフリーのオールインワンジェル」 a saved petroleum jelly isn\'t shown even when the shops find only one (live 2026-11-23: a saved ヴァセリン ピュアスキンジェリー filled the third slot)', async () => {
+  const { alternativeRequestFromText, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const req = alternativeRequestFromText('アルコールフリーのオールインワンジェル')!;
+  assert.deepStrictEqual([req.category, req.subKind], ['cream', 'all_in_one']);
+  addProductToDynamicCache(verifiedProduct({ id: 'obf_t208_jelly', brand: 'テストセーブ', name: 'テストセーブ ピュアスキンジェリー', category: 'cream', ingredients: T207_LIST }));
+  const shops = fakeShops([{ itemName: 'テストワン オールインワンジェル 100g', itemCode: 'ai:1', itemCaption: shopCaption(SHOP_CLEAN_LIST) }]);
+  const originalLog = console.log;
+  console.log = () => {};
+  try {
+    const found = await withShopKeys(shops.fetchFn, () => findAlternatives({ ...req, allowPaidLookups: false }));
+    const ids = found.products.map((p) => p.id);
+    assert.ok(ids.includes('shoptext_rakuten_ai:1'), JSON.stringify(ids));
+    assert.ok(!ids.includes('obf_t208_jelly'), JSON.stringify(ids));
+    // 出したのはすべて名前でオールインワンと分かる製品
+    for (const p of found.products) assert.match(p.name.normalize('NFKC'), /オールインワン/, p.name);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('209. When none of the shown products is the requested body-care form, the reply names what it shows: three ボディミルク for 「ボディクリーム」 say ボディミルク, and mixed forms say ボディケア用品 (live 2026-11-23: 「ボディクリームを3件見つけました」 over three ボディミルク)', async () => {
+  const { alternativeRequestFromText, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const req = alternativeRequestFromText('無香料のボディクリーム')!;
+  assert.deepStrictEqual([req.category, req.subKind, req.profile?.form], ['cream', 'body', 'cream']);
+  const product = (name: string) => verifiedProduct({ id: `t209_${name}`, name, category: 'cream' });
+  const milks = summarizeAlternatives(req, ['テストA ボディミルク', 'テストB ボディミルク', 'テストC ボディミルク'].map(product));
+  assert.ok(milks.startsWith('「香料」を含まないボディミルクを3件見つけました。'), milks);
+  assert.ok(milks.includes('ボディクリームは見つからなかったため、ボディミルクを表示しています。'), milks);
+  const mixed = summarizeAlternatives(req, ['テストA ボディミルク', 'テストB ボディジェル'].map(product));
+  assert.ok(mixed.startsWith('「香料」を含まないボディケア用品を2件見つけました。'), mixed);
+  assert.ok(mixed.includes('ボディクリームは見つからなかったため、ほかのタイプのボディケア用品を表示しています。'), mixed);
+  // クリームがあれば今までどおり
+  const creams = summarizeAlternatives(req, ['テストA ボディクリーム', 'テストB ボディミルク'].map(product));
+  assert.ok(creams.startsWith('「香料」を含まないボディクリームを2件') && !creams.includes('見つからなかった'), creams);
+  // からだ用でない種類は今までどおり（バームが無ければ「バームタイプは見つからなかった」）
+  const balm = alternativeRequestFromText('無香料のクレンジングバーム')!;
+  const oils = summarizeAlternatives(balm, [verifiedProduct({ id: 't209_oil', name: 'テスト クレンジングオイル', category: 'cleanser' })]);
+  assert.ok(oils.includes('バームタイプは見つからなかったため、ほかのタイプのクレンジングを表示しています。'), oils);
+});
+
+test('210. Brand lines and names: a company brand field (ユニリーバ・ジャパン・CM) shows the brand in the name (ヴァセリン), a 松山油脂 listing shows 松山油脂 and drops it from the end of the name, 「本体」 between separators goes without leaving 「/ /」, and a list of kinds after the product is cut (live 2026-11-23)', async () => {
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const { listingSearchName } = await import('../src/lib/search/listing-name');
+  const k = (brand: string, name: string) => new URL(buildAmazonAffiliateUrl(brand, name)).searchParams.get('k');
+
+  assert.deepStrictEqual(listingCardLabels({ brand: 'ユニリーバ・ジャパン・CM', name: 'ヴァセリン オリジナル ピュアスキンジェリー 40g' }), { brand: 'ヴァセリン', name: 'オリジナル ピュアスキンジェリー 40g' });
+  assert.strictEqual(k('ユニリーバ・ジャパン・CM', 'ヴァセリン オリジナル ピュアスキンジェリー 40g'), 'ヴァセリン オリジナル ピュアスキンジェリー');
+  const matsuyama = '肌をうるおす 保湿乳液 詰替 うるおい スキンケア 乾燥肌 敏感肌 リフィル セラミド 松山油脂';
+  assert.deepStrictEqual(listingCardLabels({ brand: '松山油脂', name: matsuyama }), { brand: '松山油脂', name: '肌をうるおす 保湿乳液 詰替 うるおい スキンケア 乾燥肌 敏感肌 リフィル セラミド' });
+
+  // 「本体」：区切りの間・区切りに付いたもの。区切りの重なりと端の区切りを残さない
+  assert.deepStrictEqual(listingCardLabels({ brand: 'ミノン', name: 'ミノン アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料' }), { brand: 'ミノン', name: 'アミノモイスト モイストチャージ ミルク / 100g / 無香料' });
+  assert.deepStrictEqual(listingCardLabels({ brand: '', name: 'ANTI-SIGNAL ホワイトクエスト 本体/無香料 20g アイクリーム' }), { brand: 'ANTI-SIGNAL', name: 'ホワイトクエスト 無香料 20g アイクリーム' });
+  assert.strictEqual(listingSearchName('ANTI-SIGNAL ホワイトクエスト 無香料/本体 アイクリーム'), 'ANTI-SIGNAL ホワイトクエスト 無香料 アイクリーム');
+  // 空白に挟まれた区切り・数の間の区切り・語の中の「本体」は残す
+  assert.deepStrictEqual(listingCardLabels({ brand: '', name: '肌ラボ / 極潤ヒアルロン液 / 170ml' }), { brand: '肌ラボ', name: '極潤ヒアルロン液 / 170ml' });
+  assert.deepStrictEqual(listingCardLabels({ brand: 'テスト', name: 'テスト 化粧水 200ml/500ml' }), { brand: 'テスト', name: '化粧水 200ml/500ml' });
+  assert.deepStrictEqual(listingCardLabels({ brand: 'テスト', name: 'テスト 本体用 ボトル' }), { brand: 'テスト', name: '本体用 ボトル' });
+
+  // 種類の語が3つ以上続くところから後ろ（効能を並べた語）
+  const allInOne = 'ベールアンドコー オールインワンジェル 化粧水 美容液 乳液 クリーム ヒト型セラミド 保湿 界面活性剤フリー 無香料 日本製';
+  assert.strictEqual(listingSearchName(allInOne), 'ベールアンドコー オールインワンジェル');
+  assert.deepStrictEqual(listingCardLabels({ brand: '', name: allInOne }), { brand: 'ベールアンドコー', name: 'オールインワンジェル' });
+  // 種類の語が2つまで・前に種類の語が無いときは残す
+  assert.strictEqual(listingSearchName('テスト ジェル 化粧水 美容液'), 'テスト ジェル 化粧水 美容液');
+  assert.strictEqual(listingSearchName('化粧水 美容液 乳液 テスト'), '化粧水 美容液 乳液 テスト');
+});
+
+test('211. A 楽天 card gets a link to the same item on Yahoo!ショッピング: the Yahoo! item found on 楽天 by its JAN code, or a Yahoo! item whose JAN the 楽天 listing carries and whose name and variant agree; not a set or another variant (request 2026-11-23)', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const jan = '4900000000031';
+  const rakuten = [{ itemName: 'テストワン うるおい 化粧水 しっとり 150ml', itemCode: 'tw:1', itemCaption: `${shopCaption(SHOP_CLEAN_LIST)}<br>JANコード：${jan}`, itemPrice: 1650 }];
+  const hit = (code: string, name: string, janCode = jan) => ({ name, code, url: `https://store.shopping.yahoo.co.jp/tw/${code}.html`, inStock: true, condition: 'new', brand: { name: 'テストワン' }, janCode });
+  const search = (yahooHits: unknown[]) =>
+    withShopKeys(fakeShops(rakuten, yahooHits).fetchFn, () =>
+      findShopAlternatives({ category: 'toner', avoid: [{ nameJa: '香料' }], terms: [], exclude: [], limit: 1, allowPaidLookups: false })
+    );
+
+  // セット・別の型（さっぱり）・別の JAN コードは使わず、同じ商品の出品にリンクする
+  const linked = await search([
+    hit('set', 'テストワン うるおい 化粧水 しっとり 2個セット'),
+    hit('other', 'テストワン うるおい 化粧水 さっぱり'),
+    hit('jan', 'テストワン うるおい 化粧水 しっとり', '4900000000048'),
+    hit('ok', 'テストワン うるおい 化粧水 しっとり'),
+  ]);
+  assert.deepStrictEqual(linked.products.map((p) => p.id), ['shoptext_rakuten_tw:1']);
+  assert.deepStrictEqual(linked.products[0].yahooLink, { href: 'https://store.shopping.yahoo.co.jp/tw/ok.html', sponsored: false });
+  assert.deepStrictEqual(linked.credits, ['rakuten', 'yahoo']);
+  // 同じ商品が Yahoo! に無ければ、リンクもクレジットも楽天だけ
+  const alone = await search([hit('other', 'テストワン うるおい 化粧水 さっぱり')]);
+  assert.strictEqual(alone.products[0].yahooLink, undefined);
+  assert.deepStrictEqual(alone.credits, ['rakuten']);
+
+  // カード：両方あるときは店の名前のボタン、Yahoo! だけ https を確かめて出す。共有するリストには入れない
+  const { readFileSync } = await import('node:fs');
+  const card = readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8');
+  assert.match(card, /showableShopLink\(p\.yahooLink\) \? '楽天市場で見る' : '販売ページを見る'/);
+  assert.match(card, /\{showableShopLink\(p\.yahooLink\) && \(/);
+  assert.match(card, /Yahoo!ショッピングで見る/);
+  assert.match(readFileSync('src/lib/routine-share.ts', 'utf8'), /delete copy\.yahooLink;/);
+  const { isValidProduct } = await import('../src/lib/product-validation');
+  const base = verifiedProduct({ id: 't211' });
+  assert.ok(isValidProduct({ ...base, yahooLink: { href: 'https://store.shopping.yahoo.co.jp/x.html', sponsored: true } }));
+  assert.ok(!isValidProduct({ ...base, yahooLink: { href: 'javascript:alert(1)', sponsored: false } }));
 });

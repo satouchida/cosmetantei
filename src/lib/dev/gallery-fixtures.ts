@@ -214,6 +214,8 @@ export function shopProduct(i: number, opts: { longName?: boolean; sponsored?: b
     // 価格の横の種類（listingVariant で商品名から読むもの）。長い名前は詰替用、短い名前は本体
     shopPrice: { yen: i === 9 ? 1_234_567 : 990 + i * 490, taxIncluded: i % 3 === 0 ? false : true, variant: { refill: !!opts.longName, size: '400mL' } },
     shopLink: { href: `https://example.com/item/${i}`, sponsored: opts.sponsored ?? true },
+    // 偶数の商品は、同じ商品の Yahoo! の出品もある（楽天の出品のカードに2つ目のボタン）
+    ...(i % 2 === 0 && { yahooLink: { href: `https://example.com/yahoo/${i}`, sponsored: opts.sponsored ?? true } }),
   };
 }
 

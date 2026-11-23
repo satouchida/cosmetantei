@@ -47,6 +47,8 @@ const LEADING_SALE = new RegExp(`^(?:\\S*?(?:${SALE_MARK})\\S*\\s*)+(?:[!！?？
 
 /** 種類・形の語（「ボディローション」「化粧水」「ジェル」「ミルク」） */
 const isKindWord = (word: string) => !!categoryFromText(word) || !!formFromText(word);
+/** 効能を並べた語とみなす、続いた種類の語の数 */
+const MIN_KIND_RUN = 3;
 /** 最初の語をもう一度書いたところで切るのは、間にこの数以上の語があるときだけ */
 const MIN_WORDS_BETWEEN = 2;
 
@@ -57,6 +59,7 @@ const MIN_WORDS_BETWEEN = 2;
  * - 種類・形の語を「・」でつないだ最後の語（楽天のジャンル名「ボディローション・ジェル」「ボディーローション・ミルク・トナー」）。
  *   前の語に種類・形の語があるときだけ
  * - 前の語をくり返した最後の語（「… ボディローション 大容量 400ml 無香料 ボディローション」）。数字だけの語は外さない
+ * - 種類の語が3つ以上続くところから後ろ（「… オールインワンジェル 化粧水 美容液 乳液 クリーム …」）。前の語に種類の語があるときだけ
  */
 function withoutNameTail(words: string[]): string[] {
   let kept = words;
@@ -65,6 +68,11 @@ function withoutNameTail(words: string[]): string[] {
     const again = kept.findIndex((w, i) => i - 1 >= MIN_WORDS_BETWEEN && w.toLowerCase() === first);
     if (again > 0) kept = kept.slice(0, again);
   }
+  // 種類の語が3つ以上続くところから後ろは、効能を並べた語（「オールインワンジェル 化粧水 美容液 乳液 クリーム …」）
+  const run = kept.findIndex(
+    (_, i) => i > 0 && kept.slice(0, i).some(isKindWord) && kept.slice(i, i + MIN_KIND_RUN).length === MIN_KIND_RUN && kept.slice(i, i + MIN_KIND_RUN).every(isKindWord)
+  );
+  if (run > 0) kept = kept.slice(0, run);
   while (kept.length > 1) {
     const last = kept[kept.length - 1];
     const before = kept.slice(0, -1);
@@ -114,6 +122,8 @@ export function listingSearchName(name: string): string {
     .replace(SEARCH_SIZE, ' ')
     .replace(/\s+/g, ' ')
     .replace(DISPLAY_BODY_WORD, ' ')
+    .replace(SEPARATOR_RUN, (run) => run[0])
+    .replace(SEPARATOR_AT_WORD_EDGE, '$1')
     .replace(LONE_SEPARATOR, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -269,7 +279,21 @@ const DISPLAY_NOISE = withSaleQuote(
   /\[[^\]]*(?:出荷|発送|営業日|送料|クーポン|ポイント|\d\s*倍|\d\s*(?:%|円)?\s*off(?![a-z])|(?<![a-z])sale(?![a-z])|セール|即納|メール便|ネコポス|ゆうパケット)[^\]]*\]|\(\s*(?:国内)?正規品\s*\)|\([^)]*(?:メール便|ネコポス|ゆうパケット|送料|出荷|発送)[^)]*\)|【[^】]*】|＜[^＞]*＞|<[^>]*>|[\\＼][^\\＼/／]{1,20}[/／]|★|☆|送料無料|公式(?:ショップ|ストア)?|正規品|あす楽|期間限定|(?:ポイント|(?<![a-z])P)\s*\d+\s*倍|\d+\s*%\s*OFF|\(\s*(?:JAN(?:コード)?\s*:?\s*\d{8,14}|\d{13})\s*\)/
 );
 /** 1語の「本体」（ほかの飾りを外した後に見る。「本体【公式】」でも外す） */
-const DISPLAY_BODY_WORD = /(?<=^|\s)本体(?=\s|$)/g;
+const DISPLAY_BODY_WORD = /(?<=^|[\s/／|｜])本体(?=[\s/／|｜]|$)/g;
+/** 区切りの重なり（「本体」を外した後の「ミルク / / 100g」） */
+const SEPARATOR_RUN = /[/／|｜](?:\s*[/／|｜])+/g;
+/** 語の端に付いた区切り（「本体/無香料」の本体を外した後の「/無香料」）。空白に挟まれた区切り（「肌ラボ / 極潤」）は残す */
+const SEPARATOR_AT_WORD_EDGE = /(^|\s)[/／|｜]+(?=\S)|(?<=\S)[/／|｜]+(?=\s|$)/g;
+
+/** 「本体」を外した後の区切りを整える（docs/plans/alternatives-live-review-2026-11-23.md「Step 5」） */
+function tidySeparators(name: string): string {
+  return name
+    .replace(SEPARATOR_RUN, (run) => run[0])
+    .replace(SEPARATOR_AT_WORD_EDGE, '$1')
+    .replace(/^[\s/／|｜]+|[\s/／|｜]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * お店の商品名を表示する形にする：飾り（【公式】・送料無料など）と、先頭のブランド名（上の行に出すので）を外す。
@@ -294,12 +318,15 @@ function withoutTagBrackets(name: string): string {
 export function displayListingName(name: string, brand = ''): string {
   const clean = (t: string, noise: RegExp) => t.replace(noise, ' ').replace(/\s+/g, ' ').trim();
   // 検索用の語（「崩れにくい 30代 …」）より後ろも出さない（withoutSearchTags）
-  let s = withoutSearchTags(clean(clean(withoutTagBrackets(name.normalize('NFKC')), DISPLAY_NOISE), DISPLAY_BODY_WORD));
+  let s = withoutSearchTags(tidySeparators(clean(clean(withoutTagBrackets(name.normalize('NFKC')), DISPLAY_NOISE), DISPLAY_BODY_WORD)));
   // 「ちふれ・CHIFURE」のように書き方が複数あるブランドは、最初の書き方
   const b = brand.normalize('NFKC').split(/[・/／]/)[0].trim();
   // ブランド名の後に区切り（空白・／など）があるときだけ（「セザンヌ化粧品」の「セザンヌ」・型番「ABC-123」は外さない）。
   // 残りが色の印（[01]）だけなら外さない
   const rest = b && s.toLowerCase().startsWith(b.toLowerCase()) ? s.slice(b.length) : '';
   if (/^[\s/／|｜・:：]+[^\s[\]]/.test(rest) && !/^[\s/／|｜・:：]+\[[^\]]*\]$/.test(rest)) s = rest.replace(/^[\s/／|｜・:：]+/, '');
+  // 最後の語がブランドなら外す（「肌をうるおす 保湿乳液 … 松山油脂」。ブランドは上の行に出す）
+  const words = s.split(' ');
+  if (b && words.length > 1 && words[words.length - 1].toLowerCase() === b.toLowerCase()) s = words.slice(0, -1).join(' ');
   return s || name.trim();
 }

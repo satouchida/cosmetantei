@@ -603,6 +603,28 @@ async function sameItemOnRakuten(
   return { sameJan, match: null, miss: furthest >= 0 ? JAN_MISS_REASONS[furthest] : null };
 }
 
+/**
+ * 楽天の出品（shown）を出す商品の、同じ商品の Yahoo! の出品。楽天の JAN コードの確かめ（2b）と同じ強さで確かめる：
+ * - 2b で見つけた商品（item が Yahoo! の商品で、出すのは楽天の出品）は、その Yahoo! の商品
+ * - 同じ検索の Yahoo! の商品で、その JAN コードを楽天の出品も書いていて（説明か名前）、名前が合い（sameJanListing）、型・版の語が
+ *   同じで（variantMarks）、1個の商品のもの
+ * どれも無ければ undefined（別の型・セットの出品へのリンクを出さない）
+ */
+function yahooTwin(item: ShopItem, shownListing: ShopItem, yahooItems: readonly ShopItem[], sheet: boolean, brands: IndexedBrand[]): ShopItem | undefined {
+  if (shownListing.shopId !== 'rakuten') return undefined;
+  if (item.shopId === 'yahoo') return item;
+  return yahooItems.find((y) => {
+    const jan = normalJan(y.janCode);
+    return (
+      !!jan &&
+      !notSingleItem(y.name, sheet) &&
+      listingCarriesJan(shownListing, jan) &&
+      sameJanListing(y, shownListing, brands) &&
+      variantMarks(y.name) === variantMarks(shownListing.name)
+    );
+  });
+}
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function withDeadline<T>(promise: Promise<T>): Promise<T | null> {
@@ -820,9 +842,15 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
 
   // 近い順に。同じ近さなら、確かめた順ではなくお店の関連順（交互の並び）。limit 件より後は出さない
   const shown = found.sort((a, b) => rank(b) - rank(a) || position.get(a.item)! - position.get(b.item)!).slice(0, input.limit);
-  // 楽天で見つけた Yahoo! の商品は、楽天の出品の写真・価格・リンク（クレジットも楽天。表示するのは楽天のデータだけ）
-  const products = shown.map(({ product, item, listing }) => withShopInfo(product, listing ?? item));
-  const used = shown.map(({ item, listing }) => (listing ?? item).shopId);
+  // 楽天の出品を出す商品に、同じ商品の Yahoo! の出品も付ける（docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
+  const twins = shown.map(({ item, listing }) => yahooTwin(item, listing ?? item, yahoo ?? [], sheet, brands));
+  // 楽天で見つけた Yahoo! の商品は、楽天の出品の写真・価格・リンク（表示する価格・写真は楽天のデータだけ）
+  const products = shown.map(({ product, item, listing }, i) => {
+    const twin = twins[i];
+    return { ...withShopInfo(product, listing ?? item), ...(twin && { yahooLink: shopLink('yahoo', twin.url) }) };
+  });
+  // クレジットは使ったお店（Yahoo! のリンクを付けたら Yahoo! も）
+  const used = [...shown.map(({ item, listing }) => (listing ?? item).shopId), ...(twins.some(Boolean) ? (['yahoo'] as const) : [])];
   const credits: PriceApiCredit[] = (['rakuten', 'yahoo'] as const).filter((s) => used.includes(s));
   counts.notChecked = items.length - counts.checked;
   counts.shown = products.length;

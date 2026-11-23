@@ -103,6 +103,11 @@ export interface Product {
   /** お店の商品検索の製品の商品ページ。アフィリエイト ID が設定されていればアフィリエイトリンク（sponsored） */
   shopLink?: { href: string; sponsored: boolean };
   /**
+   * shopLink が楽天の出品のとき、同じ商品の Yahoo!ショッピングの出品（JAN コードと名前で確かめたものだけ）。表示だけに使い、
+   * 保存しない（docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
+   */
+  yahooLink?: { href: string; sponsored: boolean };
+  /**
    * false: 信頼するサイト（src/lib/data/trusted-sites.ts）ではないページから読んだ製品。調べた本人にだけ返し、
    * 共有のキャッシュに入れない。画面に「ほかのサイトの情報」と出す（表示だけに使い、サーバーは信用しない）
    */

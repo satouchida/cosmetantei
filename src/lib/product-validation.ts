@@ -71,7 +71,8 @@ export function isValidProduct(p: unknown): p is Product {
     // サーバーが知らない製品は送られたまま返し、カードにリンク・画像として出すので、ここで確かめる（サーバーが作るのは https だけ）
     (product.amazonSearchUrl === undefined || isHttpsUrl(product.amazonSearchUrl, MAX_SEARCH_URL_LENGTH)) &&
     (product.imageUrl === undefined || isHttpsUrl(product.imageUrl)) &&
-    (product.shopLink === undefined || isShopLink(product.shopLink))
+    (product.shopLink === undefined || isShopLink(product.shopLink)) &&
+    (product.yahooLink === undefined || isShopLink(product.yahooLink))
   );
 }
 

@@ -353,6 +353,12 @@ function sameBrandSpellingsEntry(part: string): BrandEntry | null {
 const COMPANY_FIELD =
   /^(株式会社|有限会社|\((株|有)\))|(株式会社|有限会社|\((株|有)\)|製薬|ヘルスケア|ホールディングス)$|\b(inc|corp|corporation|co\.?,?\s*ltd|ltd)\.?$/i;
 
+/** brand 欄が会社名か（一覧の会社・「〇〇株式会社」「〇〇製薬」「〇〇ヘルスケア」） */
+export function isCompanyBrandField(brandField: string): boolean {
+  const listed = listedBrandName(brandField);
+  return listed ? BRANDS_JP.some((e) => e.name === listed && e.maker) : COMPANY_FIELD.test(brandField.normalize('NFKC').trim());
+}
+
 const labelBrandCache = new Map<string, string | null>();
 
 /**
@@ -364,11 +370,7 @@ export function labelBrandName(brandField: string, name: string): string | null 
   const cacheKey = `${brandField}\n${name}`;
   const cached = labelBrandCache.get(cacheKey);
   if (cached !== undefined) return cached;
-  const listed = listedBrandName(brandField);
-  const isCompany = listed
-    ? BRANDS_JP.some((e) => e.name === listed && e.maker)
-    : COMPANY_FIELD.test(brandField.normalize('NFKC').trim());
-  const inName = isCompany ? SEED_INDEX.filter((b) => !b.entry.maker && textHasBrand(name, b)) : [];
+  const inName = isCompanyBrandField(brandField) ? SEED_INDEX.filter((b) => !b.entry.maker && textHasBrand(name, b)) : [];
   const found = inName.length === 1 ? inName[0].entry.name : null;
   if (labelBrandCache.size > 2000) labelBrandCache.clear();
   labelBrandCache.set(cacheKey, found);

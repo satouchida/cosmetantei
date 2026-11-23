@@ -300,9 +300,21 @@ function fitsRequest(product: Pick<Product, 'name'>, req: Pick<AlternativeReques
   return !form || formProfile(product.name, category).form === form;
 }
 
-/** 合う物を先に（保存済み → お店）、次に合わない物（保存済み → お店）。limit 件まで */
-function fittingFirst(saved: Product[], shop: Product[], fits: (p: Product) => boolean, limit: number): Product[] {
-  return [...saved.filter(fits), ...shop.filter(fits), ...saved.filter((p) => !fits(p)), ...shop.filter((p) => !fits(p))].slice(0, limit);
+/**
+ * 頼まれた物に合わなくても、足りない分を埋めてよい製品か：下位の種類を頼まれたら、名前がその下位の種類を言う製品だけ
+ * （形が違うのはよい：バームを頼まれたときのクレンジングオイル。オールインワンジェルにワセリンは出さない。
+ * docs/plans/alternatives-live-review-2026-11-23.md「Step 2」）。下位の種類を頼まれていなければ、どの製品も
+ */
+function fillsRequest(product: Pick<Product, 'name'>, req: Pick<AlternativeRequest, 'category' | 'subKind'>): boolean {
+  const { category, subKind } = req;
+  return !subKind || !category || subKindFit(subKind, candidateSubKind(subKind, category, product.name), category) === 'same';
+}
+
+/** 合う物を先に（保存済み → お店）、次に埋めてよい合わない物（保存済み → お店）。limit 件まで */
+function fittingFirst(saved: Product[], shop: Product[], req: AlternativeRequest, limit: number): Product[] {
+  const fits = (p: Product) => fitsRequest(p, req);
+  const fills = (p: Product) => !fits(p) && fillsRequest(p, req);
+  return [...saved.filter(fits), ...shop.filter(fits), ...saved.filter(fills), ...shop.filter(fills)].slice(0, limit);
 }
 
 /**
@@ -313,7 +325,6 @@ function fittingFirst(saved: Product[], shop: Product[], fits: (p: Product) => b
  */
 export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_LIMIT): Promise<AlternativeResult> {
   const terms = shopWordsFor(req);
-  const fits = (p: Product) => fitsRequest(p, req);
   let saved = 0;
   let fitting = 0;
   let shopLog: AlternativesLog['shop'] = null;
@@ -347,9 +358,9 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   };
   const local = check();
   saved = local.length;
-  fitting = local.filter(fits).length;
+  fitting = local.filter((p) => fitsRequest(p, req)).length;
   // 合う製品だけで足りれば、お店に聞かない（合わない製品は、お店で足りないときに埋める）
-  if (fitting >= limit) return done({ products: local, researched: false, credits: [] }, 'saved');
+  if (fitting >= limit) return done({ products: fittingFirst(local, [], req, limit), researched: false, credits: [] }, 'saved');
 
   let shopProducts: Product[] = [];
   let credits: PriceApiCredit[] = [];
@@ -370,9 +381,10 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     shopProducts = shop.products.filter((p) => !isRegistered(p));
     credits = shop.credits;
     shopLog = { status: shop.status, ...shop.counts };
-    // 合わない保存済みの製品で埋めて足りれば、Web では探さない（今までどおり、有料の調べものを増やさない）
+    // 合わない保存済みの製品で埋めて足りれば、Web では探さない（今までどおり、有料の調べものを増やさない）。
+    // 埋めてよくない製品（頼まれた下位の種類でない）は出さないので、limit 件より少ないことがある
     if (local.length + shopProducts.length >= limit) {
-      const products = fittingFirst(local, shopProducts, fits, limit);
+      const products = fittingFirst(local, shopProducts, req, limit);
       const shown = shopProducts.filter((p) => products.includes(p));
       return done({ products, researched: false, credits: shown.length > 0 ? credits : [] }, shown.length > 0 ? 'shop' : 'saved');
     }
@@ -384,7 +396,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
   const checked = check();
   const extra = shopProducts.filter((p) => !checked.some((c) => isSameProduct(c, p)));
-  const products = fittingFirst(checked, extra, fits, limit);
+  const products = fittingFirst(checked, extra, req, limit);
   const fromShop = products.some((p) => extra.includes(p));
   // 答えたのは、表示した製品を足した最後の段（Web で保存された製品 → お店 → もとから保存済み）
   const answeredBy = products.some((p) => !extra.includes(p) && !local.some((l) => l.id === p.id))
@@ -550,6 +562,9 @@ const BODY_FORM_NAMES: Partial<Record<ProductForm, string>> = {
   cream: 'ボディクリーム',
 };
 
+/** からだ用のクリームで、出した物の形が混ざっているときの名前（「ボディクリーム」と言わない） */
+const MIXED_BODY_LABEL = 'ボディケア用品';
+
 /** 返答で言う、探した物の名前。からだ用のクリームは頼まれた形の名前（形が無ければ kindLabel） */
 function requestedKindLabel(category: AlternativeCategory, subKind: SubKind | undefined, form: ProductForm | undefined): string {
   return (category === 'cream' && subKind === 'body' && form && BODY_FORM_NAMES[form]) || kindLabel(category, subKind);
@@ -570,7 +585,20 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   // 出した物がすべて頼まれた形（または何も無かった）ときは、頼まれた名前で言う（「ボディミルク」を「ボディクリーム」と言わない。
   // 一部だけなら、ほかの形も入っているので種類の名前）
   const allOfForm = !!form && products.every(hasForm);
-  const kind = req.category ? requestedKindLabel(req.category, req.subKind, allOfForm ? form : undefined) : 'コスメ';
+  // 頼まれた形が1つも無く、出した物がすべて同じ形なら、その形の名前で言う（「ボディクリーム」を頼まれて「ボディミルク」だけを
+  // 出したら「ボディミルク」。docs/plans/alternatives-live-review-2026-11-23.md「Step 3」）
+  const shownForms = new Set(products.map((p) => formProfile(p.name, req.category).form));
+  const onlyShownForm = form && !formShown && shownForms.size === 1 ? [...shownForms][0] : undefined;
+  // からだ用のクリームで、頼まれた形が無く、出した物の形が混ざっている（または名前の無い形の）ときは、形を言わない名前
+  const bodyForms = req.category === 'cream' && req.subKind === 'body' && !!form && !!BODY_FORM_NAMES[form];
+  const mixedBody = bodyForms && !formShown && products.length > 0 && !(onlyShownForm && BODY_FORM_NAMES[onlyShownForm]);
+  const kind = mixedBody
+    ? MIXED_BODY_LABEL
+    : req.category
+      ? requestedKindLabel(req.category, req.subKind, allOfForm ? form : onlyShownForm)
+      : 'コスメ';
+  // 頼まれた物の名前（からだ用のクリームは頼まれた形の名前）
+  const asked = req.category && form ? requestedKindLabel(req.category, req.subKind, form) : kind;
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
   const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck, kind) : [];
   if (products.length === 0) {
@@ -584,10 +612,17 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   }
   // 形（オイル・ジェル等）は並べ替えにだけ使い、候補を外さない。頼まれた形が1つも無ければ、そう言う
   // （「乳液」のように名前が頼まれた形を言う物は、その名前の物を出しているので言わない）
+  // 頼まれた名前と出した物の名前が違えば（「ボディクリーム」と「ボディミルク」）、その2つで言う
   const otherForms =
-    form && formFromText(kind) !== form && !formShown
-      ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
-      : [];
+    !form || formShown
+      ? []
+      : mixedBody
+        ? [`${asked}は見つからなかったため、ほかのタイプの${kind}を表示しています。`]
+        : asked !== kind
+        ? [`${asked}は見つからなかったため、${kind}を表示しています。`]
+        : formFromText(kind) !== form
+          ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
+          : [];
   return [
     `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
     ...otherForms,

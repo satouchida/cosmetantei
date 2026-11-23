@@ -47,6 +47,7 @@ function exportable(products: Product[]): Product[] {
     const copy = { ...p };
     delete copy.shopPrice;
     delete copy.shopLink;
+    delete copy.yahooLink;
     delete copy.imageUrl;
     return copy;
   });

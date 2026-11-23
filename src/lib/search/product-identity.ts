@@ -1,7 +1,7 @@
 import { Product } from '../types';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { listedBrandKeys, listedBrandSpellings } from './product-match';
-import { labelBrandName } from '../services/brand-suggest';
+import { isCompanyBrandField, labelBrandName } from '../services/brand-suggest';
 
 /**
  * 同じ製品かどうか（表記の違う同じ製品を1つにまとめる・比較リストに登録した製品を代わりの商品に出さない）
@@ -269,8 +269,25 @@ function sameNameAcrossScripts(a: ProductIdentity, b: ProductIdentity): boolean 
   );
 }
 
+/** ブランドの欄が違う同じ製品で、短い方の名前のキーの長さの下限（「リップクリーム」「ハンドクリーム」のような一般的な名前で合わせない） */
+const MIN_CONTAINED_KEY = 8;
+
+/**
+ * ブランドの欄が違っても同じ製品か：片方の brand 欄が会社名（isCompanyBrandField）で、全成分が同じで、ブランドを除いた名前の
+ * キーの一方がもう一方を含む（短い方が MIN_CONTAINED_KEY 文字以上）。同じ製品がブランド（「ミノン」）と作った会社（「第一三共ヘルスケア」）の両方で保存されていることがある
+ * （「アミノモイスト モイストチャージ ミルク」と「モイストチャージ ミルク」。docs/plans/alternatives-live-review-2026-11-23.md「Step 1」）
+ */
+function sameListAndContainedName(a: ProductIdentity, b: ProductIdentity): boolean {
+  // 片方の brand 欄が会社名のときだけ（別々のブランドの同じ名前・同じ全成分は同じにしない）
+  if (!isCompanyBrandField(a.brand) && !isCompanyBrandField(b.brand)) return false;
+  if (!sameIngredientList(a.ingredients, b.ingredients)) return false;
+  const [shorter, longer] = [productIdentityKey(a.brand, a.name), productIdentityKey(b.brand, b.name)].sort((x, y) => x.length - y.length);
+  return shorter.length >= MIN_CONTAINED_KEY && longer.includes(shorter);
+}
+
 /**
  * 同じ製品か：ID が同じ、JAN コードが同じ、またはブランドが同じで名前のキーが同じ（カタカナと英字の書き分けも同じ）。
+ * ブランドの欄の片方が会社名なら、全成分が同じで名前の一方がもう一方を含めば同じ（sameListAndContainedName）。
  * 全成分がほぼ同じなら、表記の揺れ（「アドバンスト」と「アドバンスド」、「mucin」と「ムチン」）も同じ名前とみなす。
  * 名前だけでは決めない（「リップクリーム」のような一般的な名前の、別のブランドの製品を同じにしない）
  */
@@ -279,7 +296,7 @@ export function isSameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   const jan = normalJan(a.barcode);
   if (jan && jan === normalJan(b.barcode)) return true;
   // 安い比べ方から（ブランド → 名前のキー → 書き分け → 全成分 → 表記の揺れ）
-  if (!sameBrand(identityBrand(a.brand, a.name), identityBrand(b.brand, b.name))) return false;
+  if (!sameBrand(identityBrand(a.brand, a.name), identityBrand(b.brand, b.name))) return sameListAndContainedName(a, b);
   return (
     productIdentityKey(a.brand, a.name) === productIdentityKey(b.brand, b.name) ||
     sameNameAcrossScripts(a, b) ||

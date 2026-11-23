@@ -37,6 +37,11 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'ソフィーナ', aliases: ['SOFINA'] },
   { name: 'エスト', aliases: ['est'] },
   { name: 'ニベア', aliases: ['NIVEA'] }, // バイヤスドルフのブランド。日本ではニベア花王が販売
+  // ユニリーバのブランド。brand 欄が会社名（「ユニリーバ・ジャパン・CM」）でも、商品名のヴァセリンを出す
+  { name: 'ヴァセリン', aliases: ['Vaseline', 'バセリン'] },
+  { name: 'ユニリーバ', aliases: ['Unilever', 'ユニリーバ・ジャパン', 'ユニリーバ・ジャパン・CM'], maker: true },
+  // 「肌をうるおす保湿」「M mark」などのシリーズを出している会社。お店の商品名の後ろに書かれることが多い
+  { name: '松山油脂', kana: 'まつやまゆし' },
   { name: 'カネボウ', aliases: ['KANEBO'], maker: true },
   { name: 'ルナソル', aliases: ['LUNASOL'] },
   { name: 'ケイト', aliases: ['KATE'] },
