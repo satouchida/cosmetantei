@@ -8965,8 +8965,8 @@ test('145. Foundations are their own kind, other makeup has none, and the altern
   const card = readFileSync('src/components/chat/AmazonAlternativeCard.tsx', 'utf8');
   assert.match(card, /onClick=\{\(\) => onPriceLookup\(p\)\}/);
   assert.match(card, /canPrice = !!onPriceLookup && isPersistable\(p\)/);
-  // Qoo10 は Amazon のボタンと同じボタンの形（枠線）
-  assert.match(card, /className=\{`\$\{canPrice \? '' : 'col-span-2'\} \$\{buttonSecondaryCompact\}`\}/);
+  // Qoo10 は Amazon のボタンと同じボタンの形（枠線）。Yahoo!ショッピングで探すがあれば2列に並ぶ（test 215）
+  assert.match(card, /className=\{`\$\{canPrice \|\| yahooSearchUrl \? '' : 'col-span-2'\} \$\{buttonSecondaryCompact\}`\}/);
   assert.doesNotMatch(card, /textLink/);
   const chat = readFileSync('src/components/chat/ChatContainer.tsx', 'utf8');
   assert.match(readFileSync('src/components/chat/MessageBubble.tsx', 'utf8'), /<DifferentialResultCard result=\{msg\.differentialAnalysis\} onPriceLookup=\{onPriceLookup\}/);
@@ -12696,8 +12696,9 @@ test('192. A shop card reads out and searches Amazon with the cleaned name, not 
   const { readFileSync } = await import('node:fs');
   const card = readFileSync('src/components/chat/ProductSuggestionCard.tsx', 'utf8');
   assert.match(card, /const spokenName = isAlternatives \? `\$\{label\.brand\} \$\{label\.name\}` : p\.name;/);
-  // 販売ページ・Yahoo!ショッピング・Amazon・Qoo10 のリンク（Yahoo! は docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
-  assert.strictEqual((card.match(/（\{spokenName\}、新しいタブで開く）/g) ?? []).length, 4);
+  // 販売ページ・Yahoo!ショッピング・Amazon・Qoo10・Yahoo!ショッピングの検索のリンク（docs/plans/alternatives-live-review-2026-11-23.md
+  // 「Step 6」、docs/plans/yahoo-search-link.md）
+  assert.strictEqual((card.match(/（\{spokenName\}、新しいタブで開く）/g) ?? []).length, 5);
   assert.strictEqual((card.match(/aria-label=\{`[^`]*（\$\{spokenName\}）`\}/g) ?? []).length, 3);
   assert.doesNotMatch(card, /sr-only">（\{p\.name\}|aria-label=\{`[^`]*\$\{p\.name\}/);
 });
@@ -13714,4 +13715,59 @@ test('214. The [alternatives] log counts why a 楽天 card got no Yahoo! link: t
   assert.strictEqual(rakutenShown, linked + Object.values(why).reduce((a, b) => a + b, 0));
   // 数と決まった語だけ（JAN コード・名前は入らない）
   assert.ok(!JSON.stringify(result.counts).includes('4900000000'));
+});
+
+test('215. Alternative cards get a 「Yahoo!ショッピングで探す」 search link like 「Qoo10で探す」: the ValueCommerce MyLink for Yahoo!ショッピング around the search page, the same search words as Qoo10, no impression image, sponsored and inside the PR area, and the privacy policy names the search page (owner 2026-11-23)', async () => {
+  const { buildYahooAffiliateUrl, buildYahooSearchUrl, YAHOO_MYLINK_SEARCH } = await import('../src/lib/services/yahoo-search-affiliate');
+  const { buildQoo10SearchUrl } = await import('../src/lib/services/qoo10-affiliate');
+  const { readFileSync } = await import('node:fs');
+  const read = (file: string) => readFileSync(file, 'utf8');
+  assert.strictEqual(YAHOO_MYLINK_SEARCH, 'https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=3784886&pid=892728177&vc_url=https%3A%2F%2Fshopping.yahoo.co.jp%2Fsearch%3Fp%3D');
+  // wrangler.toml の販売ページのリンクと同じ広告（sid・pid）
+  assert.ok(read('wrangler.toml').includes('YAHOO_AFFILIATE_LINK_TEMPLATE = "https://ck.jp.ap.valuecommerce.com/servlet/referral?sid=3784886&pid=892728177&vc_url={url}"'));
+
+  // 検索語は Qoo10 と同じ（飾り・容量・検索用の語を外し、先頭の4語。会社名の brand 欄は名前の中のブランド）
+  const p = (url: string | null) => new URL(url!).searchParams.get('p');
+  const q = (url: string | null) => new URL(url!).searchParams.get('keyword');
+  for (const [brand, name] of [
+    ['キュレル', '【公式】キュレル 潤浸保湿 化粧水 III とてもしっとり 150ml 送料無料'],
+    ['第一三共ヘルスケア株式会社', 'ミノン アミノモイスト モイストチャージ ミルク'],
+    ['', 'ミノンアミノモイストモイストチャージミルク(100g)【MINON(ミノン)】[敏感肌 乾燥肌 低刺激 アミノ酸 保湿 乳液 濃厚]'],
+  ]) {
+    assert.strictEqual(p(buildYahooSearchUrl(brand, name)), q(buildQoo10SearchUrl(brand, name)), name);
+  }
+  assert.strictEqual(buildYahooSearchUrl('', '化粧水'), 'https://shopping.yahoo.co.jp/search?p=%E5%8C%96%E7%B2%A7%E6%B0%B4');
+  // 検索語が作れなければリンクを出さない
+  assert.strictEqual(buildYahooAffiliateUrl('ニベア', '【公式】 500ml'), null, 'Name is all decoration');
+  assert.strictEqual(buildYahooAffiliateUrl('ニベア', 'ニベア'), null, 'Brand only');
+  assert.strictEqual(buildYahooAffiliateUrl('', ''), null, 'Empty');
+  assert.strictEqual(buildYahooAffiliateUrl('ブランド未登録', '製品 (JAN: 4901234567894)'), null, 'Placeholder name');
+  assert.doesNotThrow(() => buildYahooAffiliateUrl('ブランド', '化粧水 \uD83D'), 'A lone surrogate does not break the card');
+  // 商品名で Yahoo! のアドレスに別の項目を足せない。vc_url はもう1回エンコードした検索結果のページ
+  const href = buildYahooAffiliateUrl('キュレル', '化粧水 & 乳液 ?x=1#y')!;
+  assert.ok(href.startsWith(YAHOO_MYLINK_SEARCH));
+  const url = new URL(href);
+  assert.strictEqual(url.origin + url.pathname, 'https://ck.jp.ap.valuecommerce.com/servlet/referral');
+  assert.strictEqual(url.searchParams.get('vc_url'), buildYahooSearchUrl('キュレル', '化粧水 & 乳液 ?x=1#y'));
+  const target = new URL(url.searchParams.get('vc_url')!);
+  assert.strictEqual(target.origin + target.pathname, 'https://shopping.yahoo.co.jp/search');
+  assert.deepStrictEqual([...target.searchParams.keys()], ['p'], 'The product name cannot add parameters to Yahoo!');
+  assert.strictEqual(target.hash, '');
+
+  // 表示しただけで送信する 1×0 画像は使わない。PR の表示のあるカードの中にだけ置き、rel="sponsored"。注意書きに名前を出す
+  for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/chat/AmazonAlternativeCard.tsx', 'src/lib/services/yahoo-search-affiliate.ts']) {
+    assert.ok(!/ad\.jp\.ap\.valuecommerce\.com|<img[^>]*valuecommerce/.test(read(file)), `${file}: no ValueCommerce impression beacon`);
+  }
+  for (const file of ['src/components/chat/ProductSuggestionCard.tsx', 'src/components/chat/AmazonAlternativeCard.tsx']) {
+    const src = read(file);
+    assert.match(src, /const yahooSearchUrl = (?:isAlternatives \? )?buildYahooAffiliateUrl\(p\.brand, p\.name\)/, file);
+    assert.match(src, /\{yahooSearchUrl && \(\s*<a\s+href=\{yahooSearchUrl\}\s*target="_blank"\s*rel="[^"]*sponsored[^"]*"/, file);
+    assert.ok(src.includes('「Yahoo!ショッピングで探す」は商品名での検索結果のページを開きます。'), `${file}: search-results note`);
+    assert.ok(/PR：[^\n]*「Yahoo!ショッピングで探す」のリンクから購入されると/.test(src), `${file}: the PR note names the link`);
+  }
+  // プライバシーポリシー：バリューコマースの利用目的に Yahoo!ショッピングの検索結果のページ（同意の版は据え置き、最終改定日だけ）
+  assert.ok(read('src/app/privacy/page.tsx').includes('Yahoo!ショッピングの販売ページ・検索結果のページおよびQoo10の検索結果のページの提示'));
+  const site = await import('../src/lib/site');
+  assert.strictEqual(site.LEGAL_REVISED, '2026-11-23');
+  assert.strictEqual(site.LEGAL_VERSION, '2026-10-30-2');
 });

@@ -6,6 +6,7 @@ import { PriceApiCredit, Product } from '@/lib/types';
 import { AlertTriangle, ShieldCheck, Search, ExternalLink } from 'lucide-react';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
+import { buildYahooAffiliateUrl } from '@/lib/services/yahoo-search-affiliate';
 import { getDisplayBrand, listingCardLabels } from '@/lib/display-brand';
 import { shopPriceVariantLabel } from '@/lib/search/listing-name';
 import { productSourceInfo } from '@/lib/product-source';
@@ -101,6 +102,7 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
         {products.map((p) => {
           const actives = quasiDrugActives(p);
           const qoo10Url = isAlternatives ? buildQoo10AffiliateUrl(p.brand, p.name) : null;
+          const yahooSearchUrl = isAlternatives ? buildYahooAffiliateUrl(p.brand, p.name) : null;
           // 代わりの商品はお店の商品名のことがあるので、【公式】などの飾りを外して出す（ブランドの行も飾りを外した名前から）
           const label = isAlternatives ? listingCardLabels(p) : { brand: getDisplayBrand(p.brand, p.name), name: p.name };
           // 読み上げの商品名も見えている名前から（お店の商品名の「ポイント10倍」などを読ませない）
@@ -212,6 +214,17 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                         <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
                       </a>
                     )}
+                    {yahooSearchUrl && (
+                      <a
+                        href={yahooSearchUrl}
+                        target="_blank"
+                        rel="sponsored noopener noreferrer nofollow"
+                        className={`inline-flex min-h-12 items-center gap-1 text-sm ${textLink}`}
+                      >
+                        Yahoo!ショッピングで探す
+                        <span className="sr-only">（{spokenName}、新しいタブで開く）</span>
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
@@ -256,8 +269,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
       </div>
       {isAlternatives && (
         <p className="text-xs text-ink-muted">
-          PR：「販売ページを見る」「Amazonで探す」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。<br />
-          ※「Amazonで探す」「Qoo10で探す」は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。
+          PR：「販売ページを見る」「楽天市場で見る」「Yahoo!ショッピングで見る」「Amazonで探す」「Qoo10で探す」「Yahoo!ショッピングで探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。価格は検索した時点のものです。<br />
+          ※「Amazonで探す」「Qoo10で探す」「Yahoo!ショッピングで探す」は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。
         </p>
       )}
       <ApiCredits credits={credits} />

@@ -8,6 +8,7 @@ import { badge, buttonPrimaryCompact, buttonSecondaryCompact, busyLook, innerCar
 import { kindLabel, productCategory, productSubKind } from '@/lib/analyzer/product-category';
 import { buildAmazonAffiliateUrl } from '@/lib/services/amazon-affiliate';
 import { buildQoo10AffiliateUrl } from '@/lib/services/qoo10-affiliate';
+import { buildYahooAffiliateUrl } from '@/lib/services/yahoo-search-affiliate';
 import { isPersistable } from '@/lib/usable-products';
 import { listingCardLabels } from '@/lib/display-brand';
 import { useUnregisteredProducts } from './RegisteredProducts';
@@ -60,6 +61,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
           // いつもその場で作る（保存された製品のリンクには、前のタグが付いていることがある）
           const amazonUrl = buildAmazonAffiliateUrl(p.brand, p.name);
           const qoo10Url = buildQoo10AffiliateUrl(p.brand, p.name);
+          const yahooSearchUrl = buildYahooAffiliateUrl(p.brand, p.name);
           // サーバーが持っている製品だけ（入力した成分表示・お店の説明から読んだ製品は、サーバーが価格を調べない）
           const canPrice = !!onPriceLookup && isPersistable(p);
           // ブランドの行と名前は、代わりの商品のカードと同じ（会社名の brand 欄なら商品名の中のブランド。名前は【公式】などを外す）
@@ -117,7 +119,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                   <ExternalLink className="w-4 h-4" aria-hidden />
                   <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                 </a>
-                {(canPrice || qoo10Url) && (
+                {(canPrice || qoo10Url || yahooSearchUrl) && (
                   // 補助の操作は枠線のボタンで横に並べる（片方だけなら1つで幅いっぱい）
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {canPrice && (
@@ -126,7 +128,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                         onClick={() => onPriceLookup(p)}
                         aria-label={`価格を比べる（${p.name}）`}
                         aria-disabled={busy || undefined}
-                        className={`${qoo10Url ? '' : 'col-span-2'} ${buttonSecondaryCompact} ${busyLook}`}
+                        className={`${qoo10Url || yahooSearchUrl ? '' : 'col-span-2'} ${buttonSecondaryCompact} ${busyLook}`}
                       >
                         <JapaneseYen className="w-4 h-4 shrink-0" aria-hidden />
                         <span>価格を<wbr />比べる</span>
@@ -137,9 +139,22 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                         href={qoo10Url}
                         target="_blank"
                         rel="noopener noreferrer sponsored nofollow"
-                        className={`${canPrice ? '' : 'col-span-2'} ${buttonSecondaryCompact}`}
+                        className={`${canPrice || yahooSearchUrl ? '' : 'col-span-2'} ${buttonSecondaryCompact}`}
                       >
                         <span>Qoo10で<wbr />探す</span>
+                        <ExternalLink className="w-4 h-4 shrink-0" aria-hidden />
+                        <span className="sr-only">（{p.name}、新しいタブで開く）</span>
+                      </a>
+                    )}
+                    {yahooSearchUrl && (
+                      <a
+                        href={yahooSearchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer sponsored nofollow"
+                        // 3つ並ぶときは2列の下の段に幅いっぱいで（1つだけのときも幅いっぱい）
+                        className={`${canPrice && qoo10Url ? 'col-span-2' : canPrice || qoo10Url ? '' : 'col-span-2'} ${buttonSecondaryCompact}`}
+                      >
+                        <span>Yahoo!ショッピングで<wbr />探す</span>
                         <ExternalLink className="w-4 h-4 shrink-0" aria-hidden />
                         <span className="sr-only">（{p.name}、新しいタブで開く）</span>
                       </a>
@@ -152,8 +167,8 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
         })}
       </div>
       <p className="text-xs text-ink-muted">
-        PR：「Amazonで詳細・価格を見る」「Qoo10で探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。<br />
-        ※「Amazonで詳細・価格を見る」「Qoo10で探す」は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。
+        PR：「Amazonで詳細・価格を見る」「Qoo10で探す」「Yahoo!ショッピングで探す」のリンクから購入されると、コスメ探偵が紹介料を受け取ることがあります。<br />
+        ※「Amazonで詳細・価格を見る」「Qoo10で探す」「Yahoo!ショッピングで探す」は商品名での検索結果のページを開きます。別の商品や、成分の違う並行輸入品などが含まれることがあるため、購入前に販売ページ・パッケージの全成分表示をご確認ください。
       </p>
     </section>
   );
