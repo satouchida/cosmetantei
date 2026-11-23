@@ -2,6 +2,7 @@ import { Product } from '../types';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
 import { listedBrandKeys, listedBrandSpellings } from './product-match';
 import { isCompanyBrandField, labelBrandName } from '../services/brand-suggest';
+import { listingSearchName } from './listing-name';
 
 /**
  * 同じ製品かどうか（表記の違う同じ製品を1つにまとめる・比較リストに登録した製品を代わりの商品に出さない）
@@ -280,7 +281,10 @@ const VARIANT_MARK_START = /^[ivx0-9]/;
  * その後に印が続くなら別の型（「ローション I」と「ローション II」、「スネイル9」と「スネイル96」）
  */
 function containedName(a: ProductIdentity, b: ProductIdentity): boolean {
-  const [shorter, longer] = [productIdentityKey(a.brand, a.name), productIdentityKey(b.brand, b.name)].sort((x, y) => x.length - y.length);
+  // お店の商品名は飾り・かっこの検索用の語・容量を外してから（「ミノンアミノモイストモイストチャージミルク(100g)【MINON(ミノン)】
+  // [敏感肌 乾燥肌 低刺激 …]」→「ミノンアミノモイストモイストチャージミルク」。Amazon・Qoo10 の検索語と同じ）
+  const key = (p: ProductIdentity) => productIdentityKey(p.brand, listingSearchName(p.name) || p.name);
+  const [shorter, longer] = [key(a), key(b)].sort((x, y) => x.length - y.length);
   if (shorter.length < MIN_CONTAINED_KEY) return false;
   const at = longer.indexOf(shorter);
   if (at < 0) return false;

@@ -171,3 +171,8 @@ Next numbers from 207.
     calls, which this plan rules out. The reply explains the shortfall.
   - Memoising `isCompanyBrandField`. With the cheap checks first, it runs only for near matches.
 - Gates: `tsc`, `eslint`, `npm test` 212/212.
+- Live check of `d584c96`: the ミノン milk still showed twice. The real 楽天 name is
+  「ミノンアミノモイストモイストチャージミルク(100g)【MINON(ミノン)】[敏感肌 乾燥肌 低刺激 アミノ酸 保湿 乳液 濃厚]」,
+  and the name containment compared raw names. Both lists were the same 54 ingredients. `containedName`
+  now compares the cleaned names (`listingSearchName`, the same cleaning as the Amazon/Qoo10 words).
+  Test 212 uses the real name and fails without the cleaning.

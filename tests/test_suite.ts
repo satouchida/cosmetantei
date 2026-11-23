@@ -13612,6 +13612,9 @@ test('212. Review and live fixes for 207–211: a shop listing of a product alre
   const savedMinon = { id: 'web_t212_minon', brand: 'ミノン / MINON', name: 'アミノモイスト モイストチャージ ミルク / 本体 / 100g / 無香料', ingredients: T207_LIST };
   const shopMinon = { id: 'shoptext_rakuten_t212', brand: 'ミノン', name: 'ミノンアミノモイストモイストチャージミルク', ingredients: T207_LIST };
   assert.ok(isSameProduct(savedMinon, shopMinon));
+  // 本番の楽天の商品名（容量・【】・かっこの検索用の語つき。live 2026-11-23、d584c96 の後も2枚出ていた）
+  const rakutenName = 'ミノンアミノモイストモイストチャージミルク(100g)【MINON(ミノン)】[敏感肌 乾燥肌 低刺激 アミノ酸 保湿 乳液 濃厚]';
+  assert.ok(isSameProduct(savedMinon, { ...shopMinon, name: rakutenName }));
   // 全成分が違えば別
   assert.ok(!isSameProduct(savedMinon, { ...shopMinon, ingredients: [...T207_LIST.slice(0, 7), 'エタノール', '香料', 'カルボマー'] }));
   // 型の印（I・II・数字）が後に続く名前は、全成分が同じでも別の型
@@ -13629,7 +13632,7 @@ test('212. Review and live fixes for 207–211: a shop listing of a product alre
   addProductToDynamicCache(verifiedProduct({ ...savedMinon, country: 'JP', category: 'cream', ingredients: SHOP_CLEAN_LIST.split('、') }));
   const req = alternativeRequestFromText('無香料の乳液')!;
   const shops = fakeShops([
-    { itemName: 'ミノンアミノモイストモイストチャージミルク', itemCode: 't212:1', itemCaption: shopCaption(SHOP_CLEAN_LIST), itemPrice: 2310 },
+    { itemName: 'ミノンアミノモイストモイストチャージミルク(100g)【MINON(ミノン)】[敏感肌 乾燥肌 低刺激 アミノ酸 保湿 乳液 濃厚]', itemCode: 't212:1', itemCaption: shopCaption(SHOP_CLEAN_LIST), itemPrice: 2310 },
   ]);
   const originalLog = console.log;
   console.log = () => {};
