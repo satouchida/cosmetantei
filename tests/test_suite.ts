@@ -13890,3 +13890,37 @@ test('219. Two shop listings of one product whose ingredient lists differ only i
     console.log = originalLog;
   }
 });
+
+test('220. A keyword list that starts with the kind\'s plain name and names the same kind again (「洗顔料 泡洗顔 …」「洗顔料 クレンジングフォーム …」) is cut from shop names, on the card and in the search words; a form word, another kind, a short tail or a plain name right after the brand still keep the name (live 2026-11-24: 「香料が入っていない泡洗顔」)', async () => {
+  const { displayListingName, listingSearchName } = await import('../src/lib/search/listing-name');
+  const acseine = '【選べる 国内正規品】アクセーヌ ACSEINE リセット ウォッシュ 200ml 洗顔料 泡洗顔 弱アルカリ性 弱酸性 低刺激 無香料 アルコールフリー グリコール酸配合 天然多糖類 保湿成分 角質ケア 清潔感 密度感 きめ細かな泡 高機能洗顔 1本/2本';
+  assert.strictEqual(displayListingName(acseine, 'アクセーヌ'), 'ACSEINE リセット ウォッシュ 200ml');
+  assert.strictEqual(listingSearchName(acseine), 'アクセーヌ ACSEINE リセット ウォッシュ');
+  const cica = 'CICA シカ クレンジング洗顔 200g プラチナレーベル ドウシシャ 洗顔料 クレンジングフォーム 皮脂 毛穴 黒ずみ';
+  assert.strictEqual(displayListingName(cica), 'CICA シカ クレンジング洗顔 200g プラチナレーベル ドウシシャ');
+  assert.strictEqual(listingSearchName(cica), 'CICA シカ クレンジング洗顔 プラチナレーベル ドウシシャ');
+  // まだ名前：次の語が形・別の種類（test 217 と同じ）
+  assert.strictEqual(displayListingName('アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料 60g'), 'アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料 60g');
+  assert.strictEqual(displayListingName('テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥'), 'テスト ハトムギ化粧水 クリーム 大容量 保湿 乾燥');
+  // 言い直しの後が短い
+  assert.strictEqual(displayListingName('テスト リセット ウォッシュ 洗顔料 泡洗顔 150ml'), 'テスト リセット ウォッシュ 洗顔料 泡洗顔 150ml');
+  // ブランドのすぐ後の言い直しは名前
+  assert.strictEqual(displayListingName('ミノン 洗顔料 泡洗顔 敏感肌 低刺激 保湿'), 'ミノン 洗顔料 泡洗顔 敏感肌 低刺激 保湿');
+  // 言い直しの語は検索用の語に数えない（後ろは2語だけ）
+  assert.strictEqual(displayListingName('テスト リセット ウォッシュ 洗顔料 泡洗顔 詰替 つめかえ用'), 'テスト リセット ウォッシュ 洗顔料 泡洗顔 詰替 つめかえ用');
+  // 「UVジェル」は日焼け止めの言い直しではなく名前の形（review）
+  assert.strictEqual(displayListingName('ロート スキンアクア 日焼け止め UVジェル 無香料 ウォータープルーフ 顔用'), 'ロート スキンアクア 日焼け止め UVジェル 無香料 ウォータープルーフ 顔用');
+  assert.strictEqual(displayListingName('テスト UVミルク 日焼け止め UVジェル 無香料 ウォータープルーフ 顔用'), 'テスト UVミルク 日焼け止め UVジェル 無香料 ウォータープルーフ 顔用');
+});
+
+test('221. A 楽天 listing of プラチナレーベル (ドウシシャ) takes the brand from the brand list, not the first word 「CICA」 (live 2026-11-24)', async () => {
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { buildBrandIndex } = await import('../src/lib/services/brand-suggest');
+  const { brandOf } = await import('../src/lib/services/shop-alternatives');
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const name = 'CICA シカ クレンジング洗顔 200g プラチナレーベル ドウシシャ 洗顔料 クレンジングフォーム 皮脂 毛穴 黒ずみ';
+  const item = { shopId: 'rakuten' as const, code: 't221', name, brands: [], url: 'https://item.rakuten.co.jp/x/t221/', taxIncluded: true };
+  const brand = brandOf(item, buildBrandIndex(COSMETICS_DATABASE));
+  assert.strictEqual(brand, 'プラチナレーベル');
+  assert.deepStrictEqual(listingCardLabels({ brand, name }), { brand: 'プラチナレーベル', name: 'CICA シカ クレンジング洗顔 200g プラチナレーベル ドウシシャ' });
+});

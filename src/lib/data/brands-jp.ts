@@ -126,6 +126,7 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'オンリーミネラル', aliases: ['ONLY MINERALS'] },
   { name: 'SHIRO', kana: 'シロ' },
   { name: 'アクセーヌ', aliases: ['ACSEINE'] },
+  { name: 'プラチナレーベル', aliases: ['Platinum Label'] }, // ドウシシャ。楽天の名前は「CICA シカ … プラチナレーベル ドウシシャ」
   { name: 'アユーラ', aliases: ['AYURA'] },
   { name: '草花木果', kana: 'そうかもっか' },
   { name: 'ノエビア', aliases: ['NOEVIR'] },

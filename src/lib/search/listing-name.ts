@@ -60,6 +60,10 @@ const MIN_KEYWORD_TAIL = 3;
 const NOT_KEYWORD = /[()（）[\]［］【】]|^\d+(?:\.\d+)?\s*(?:ml|g|kg|l|枚|個|本)$|^(?:spf\s*\d+\+*|pa\+*)$/i;
 /** 名前の続きの印（「ローション II」の番号） */
 const VARIANT_NUMERAL = /^(?:i{1,3}|iv|v|vi)$/i;
+/** 種類の言い直し（「洗顔料 泡洗顔」）で切るのは、前にこの数以上の語（ブランドと名前）があるときだけ（「ミノン 洗顔料 泡洗顔 …」は名前） */
+const MIN_WORDS_BEFORE_REPEAT = 2;
+/** 「UV」で始まる語（「UVジェル」「UVミルク」）。日焼け止めの形の名前なので、種類の言い直しとみなさない */
+const UV_WORD = /^uv/i;
 /** 最初の語をもう一度書いたところで切るのは、間にこの数以上の語があるときだけ */
 const MIN_WORDS_BETWEEN = 2;
 
@@ -71,7 +75,7 @@ const MIN_WORDS_BETWEEN = 2;
  *   前の語に種類・形の語があるときだけ
  * - 前の語をくり返した最後の語（「… ボディローション 大容量 400ml 無香料 ボディローション」）。数字だけの語は外さない
  * - 種類の語が3つ以上続くところから後ろ（「… オールインワンジェル 化粧水 美容液 乳液 クリーム …」）。前の語に種類の語があるときだけ
- * - 種類の名前だけの語（「日焼け止め」）から後ろ。前の語が同じ種類を名乗り、後ろに3語以上続くときだけ
+ * - 種類の名前だけの語（「日焼け止め」）から後ろ。前の語が同じ種類を名乗り（または次の語が同じ種類の言い直しで）、後ろに3語以上続くときだけ
  */
 function withoutNameTail(words: string[]): string[] {
   let kept = words;
@@ -91,11 +95,20 @@ function withoutNameTail(words: string[]): string[] {
   const plain = kept.findIndex((w, i) => {
     const kind = PLAIN_KIND_NAME.test(w) ? categoryFromText(w) : undefined;
     if (!kind) return false;
+    const sameKind = (t: string) => categoryFromText(t) === kind;
     const tail = kept.slice(i + 1);
-    // 次の語が形・種類・番号なら、まだ名前（「アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料」）
-    if (tail[0] && (isKindWord(tail[0]) || VARIANT_NUMERAL.test(tail[0]))) return false;
-    if (tail.filter((t) => !NOT_KEYWORD.test(t)).length < MIN_KEYWORD_TAIL) return false;
-    return kept.slice(0, i).some((e) => categoryFromText(e) === kind);
+    const next = tail[0];
+    // 次の語が同じ種類の言い直し（「洗顔料 泡洗顔」「洗顔料 クレンジングフォーム」）なら、検索用の語の並び
+    // （docs/plans/kind-repeat-keyword-names-and-platinum-label.md「Step 1」）
+    // 「UVジェル」「UVミルク」は日焼け止めの言い直しではなく、名前の形（「スキンアクア 日焼け止め UVジェル …」）
+    const repeated = !!next && sameKind(next) && !UV_WORD.test(next);
+    // 次の語が形・別の種類・番号なら、まだ名前（「アネッサ UV 日焼け止め ジェル SPF50+ PA++++ 無香料」）
+    if (next && !repeated && (isKindWord(next) || VARIANT_NUMERAL.test(next))) return false;
+    // 言い直しの語そのものは、検索用の語の数に入れない
+    const keywords = (repeated ? tail.slice(1) : tail).filter((t) => !NOT_KEYWORD.test(t));
+    if (keywords.length < MIN_KEYWORD_TAIL) return false;
+    // 名前は前の語で済んでいる：同じ種類を名乗る語があるか、言い直しの前にブランドと名前の語がある
+    return kept.slice(0, i).some(sameKind) || (repeated && i >= MIN_WORDS_BEFORE_REPEAT);
   });
   if (plain > 0) kept = kept.slice(0, plain);
   while (kept.length > 1) {
