@@ -1,6 +1,6 @@
 # Plan: cut a keyword list that repeats the kind, and a brand entry for プラチナレーベル
 
-Written 2026-11-24. Status: implemented 2026-11-24 (tests 220–221), not yet deployed.
+Written 2026-11-24. Status: deployed 2026-11-24 as `d95d2f0` (Cloudflare version `919a0285`), checked live.
 Follows the live check of `d7d779b` (Cloudflare version `a62a3a10`): five request searches that ask the
 shops, with the `[alternatives]` log line. Earlier rounds:
 [shop-paid-lookups-and-keyword-names.md](shop-paid-lookups-and-keyword-names.md),
@@ -90,3 +90,15 @@ Next number 220.
 - Test 220 covers both fixes (the スキンアクア name, the 2-word tail). Each test fails with its step or fix
   taken out.
 - Gates: `tsc`, `eslint`, `npm test` 221/221.
+
+## Live check
+
+`d95d2f0`, Cloudflare version `919a0285`, 「香料が入っていない泡洗顔」:
+
+- 3 cards, all 楽天 listings whose full list has no 香料. The search words were 「無香料」「泡」. Of 38 checked, 2
+  were dropped as irritant and none as a duplicate. There were no paid lookups.
+- **Step 1 and 2 work.** The CICA card reads プラチナレーベル / 「CICA シカ クレンジング洗顔 プラチナレーベル
+  ドウシシャ」, with 「本体 200g」 next to the price.
+- The アクセーヌ listing was not among the 3 cards this time. Test 220 covers its name.
+- **Kept, as planned.** ミノン's 「… 詰替 レフィル 無香料 洗顔料 泡洗顔フォーム[ギフトラッピング対応]」 keeps its
+  name: nothing but a tag follows the repeated kind word.
