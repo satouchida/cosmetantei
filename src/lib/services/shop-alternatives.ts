@@ -152,6 +152,11 @@ export interface ShopAlternativeInput {
    * ブラウザから送られただけの製品（入力した成分表示・お店の説明から読んだ製品）では調べない
    */
   allowPaidLookups?: boolean;
+  /**
+   * 候補を確かめる前に、確認に要るものを取ってくる（鉱物油を避けるときの、炭化水素の AI の判定。
+   * services/mineral-oil-judge.ts）。無ければ何もしない
+   */
+  prepareCheck?: (product: Product) => Promise<void>;
   /** お店の API を続けて呼ぶ間隔（ミリ秒）。既定は API_INTERVAL_MS（1秒に1回まで）。変えるのは評価のスクリプト・テストだけ */
   shopCallIntervalMs?: number;
 }
@@ -761,7 +766,8 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     else found.push({ product, item, ...(listing && { listing }), listKey: list });
   };
   const shownSaved = input.shownSaved ?? [];
-  const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {
+  const consider = async (product: Product, item: ShopItem, listing?: ShopItem) => {
+    await input.prepareCheck?.(product);
     const reason = rejection(product);
     if (reason === 'otherKind') counts.otherKindAfterRead++;
     if (reason) drop(reason, item);
@@ -802,13 +808,13 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     const saved = savedFor.get(item);
     if (saved) {
       // 出品者の書いた JAN コードは間違えていることがある。保存済みの製品の名前と、お店の商品名が合うときだけ
-      if (sameListing(saved, item)) consider(saved, item);
+      if (sameListing(saved, item)) await consider(saved, item);
       else drop('noList', item);
       continue;
     }
     // 2. 楽天の商品説明の全成分
     const label = await ingredientsFromCaption(item.caption!);
-    if (label) consider(shopListingProduct(item, brandOf(item, brands), label), item);
+    if (label) await consider(shopListingProduct(item, brandOf(item, brands), label), item);
     else if (item.janCode) unchecked.push(item);
     else drop('noList', item);
   }
@@ -866,7 +872,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       counts.janToRakuten.found++;
       viaRakuten.add(item);
       // 確認・数え方はほかのお店の候補と同じ（数えるのは Yahoo! の候補として。表示は楽天の出品）
-      consider(shopListingProduct(match.listing, brandOf(match.listing, brands), match.label), item, match.listing);
+      await consider(shopListingProduct(match.listing, brandOf(match.listing, brands), match.label), item, match.listing);
     }
   }
   // 3. まだ足りなければ、上位の JAN コードの商品を調べる（有料のことがある。必要な数だけ、並べて、時間の上限つき）。
@@ -879,10 +885,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // 調べない JAN コードの商品は、成分を確かめられなかった
   for (const item of payable.slice(toLookup.length)) drop('noList', item);
   const looked = await Promise.all(toLookup.map((item) => withDeadline(lookupByBarcode(item.janCode!).catch(() => null))));
-  looked.forEach((product, i) => {
-    if (product && isShareable(product) && sameListing(product, toLookup[i])) consider(product, toLookup[i]);
+  for (const [i, product] of looked.entries()) {
+    if (product && isShareable(product) && sameListing(product, toLookup[i])) await consider(product, toLookup[i]);
     else drop('noList', toLookup[i]);
-  });
+  }
 
   // 近い順に。同じ近さなら、確かめた順ではなくお店の関連順（交互の並び）。limit 件より後は出さない
   const shown = found.sort((a, b) => rank(b) - rank(a) || position.get(a.item)! - position.get(b.item)!).slice(0, input.limit);

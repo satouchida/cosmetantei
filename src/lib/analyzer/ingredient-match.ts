@@ -1,19 +1,40 @@
 import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
 import { isSyntheticOrganicCiNumber, tarDyeOf, tarDyeOfCi } from '../data/tar-dyes';
+import { BoundedCache } from '../utils/bounded-cache';
 import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingredient-name';
 import { ordinaryIngredients, quasiDrugActives } from '../quasi-drug';
 import { KnownIngredient, Product } from '../types';
 
-/** 既知DBの名称・別名の簡略形（照合のたびに作らない） */
-let abbreviatedKnownNames: { item: KnownIngredient; names: Set<string> }[] | undefined;
-function knownAbbreviatedNames() {
-  abbreviatedKnownNames ??= KNOWN_INGREDIENTS.map((item) => ({
-    item,
-    names: new Set(
-      [item.nameJa, item.nameEn, ...item.aliases].map((n) => abbreviateIngredientName(normalizeIngredientName(n)))
-    ),
-  }));
-  return abbreviatedKnownNames;
+/**
+ * 既知DBの名称・別名を正規化したもの。照合のたびに作らない（作り直すと、保存済みの製品の全成分を照合する
+ * 代わりの製品探しで CPU 時間が Workers の上限を超える。docs/plans/ingredient-match-cpu.md）
+ */
+export interface KnownNames {
+  /** 正規化した成分名・英語名・別名 → その名前を持つ、辞書の順で最初の成分 */
+  byName: Map<string, KnownIngredient>;
+  /** 辞書の順の成分と、その別名を正規化したもの（部分一致用）・簡略形（簡略名の照合用） */
+  entries: { item: KnownIngredient; aliases: string[]; abbreviated: Set<string> }[];
+}
+
+/** 成分の一覧から照合用の名前を作る（同じ名前を持つ成分が複数あれば、一覧で先の成分） */
+export function buildKnownNames(items: readonly KnownIngredient[]): KnownNames {
+  const byName = new Map<string, KnownIngredient>();
+  const entries = items.map((item) => {
+    const names = [item.nameJa, item.nameEn, ...item.aliases].map(normalizeIngredientName);
+    for (const name of names) if (name && !byName.has(name)) byName.set(name, item);
+    return {
+      item,
+      aliases: item.aliases.map(normalizeIngredientName),
+      abbreviated: new Set(names.map(abbreviateIngredientName)),
+    };
+  });
+  return { byName, entries };
+}
+
+let knownNames: KnownNames | undefined;
+function knownNameIndex(): KnownNames {
+  knownNames ??= buildKnownNames(KNOWN_INGREDIENTS);
+  return knownNames;
 }
 
 /**
@@ -52,20 +73,6 @@ const QUALIFIER_PATTERN = /植物性|植物由来|天然|濃|vegetable|natural|p
  */
 const ACID_SALT_SUFFIX = /^(na|2na|3na|k|2k|ca|mg|tea|アンモニウム|ナトリウム|カリウム|カルシウム|マグネシウム)?$/;
 
-/** 成分名・英語名・別名のどれかと、正規化した名前が完全に一致する成分 */
-function exactMatch(norm: string): KnownIngredient | undefined {
-  for (const item of KNOWN_INGREDIENTS) {
-    if (
-      normalizeIngredientName(item.nameJa) === norm ||
-      normalizeIngredientName(item.nameEn) === norm ||
-      item.aliases.some((a) => normalizeIngredientName(a) === norm)
-    ) {
-      return item;
-    }
-  }
-  return undefined;
-}
-
 /** タール色素の項目の ID。個別の報告がある赤色219号・黄色204号は、その項目に */
 function dyeIngredientId(dye: { color: string; number: number }): string {
   return dye.color === '赤' && dye.number === 219 ? 'brilliant_lake_red_r' : dye.color === '黄' && dye.number === 204 ? 'quinoline_yellow_ss' : 'tar_dye';
@@ -95,6 +102,9 @@ function aliasIsPartOf(item: KnownIngredient, normAlias: string, norm: string): 
     return true;
   }
 
+  // 鉱物油：パラフィンスルホン酸Na などの洗浄成分は油ではない。イソパラフィンは名前で決めず AI が判定する（analyzer/mineral-oil.ts）
+  if (item.id === 'mineral_oil' && /イソパラフィン|isoparaffin|スルホン酸|硫酸|sulfon|sulfate/.test(norm)) return false;
+
   // 有効成分（グリチルリチン酸2K, アラントイン, ナイアシンアミド）
   if (norm.includes(normAlias) && normAlias.length >= 4) {
     // 水酸化亜鉛・過酸化亜鉛・水酸化チタンは紫外線散乱剤の酸化亜鉛・酸化チタンではない
@@ -105,32 +115,55 @@ function aliasIsPartOf(item: KnownIngredient, normAlias: string, norm: string): 
   return false;
 }
 
-/** 正規化した名前が、この成分を名前の一部として含むか（部分一致の照合） */
-function containsKnownName(item: KnownIngredient, norm: string): boolean {
+/** 正規化した名前が、成分名・英語名・別名のどれかと完全に一致する、辞書の順で最初の成分 */
+export function knownIngredientByName(norm: string): KnownIngredient | undefined {
+  return norm ? knownNameIndex().byName.get(norm) : undefined;
+}
+
+/** 正規化した名前が、この成分（別名は正規化済み）を名前の一部として含むか（部分一致の照合） */
+function containsKnownName(item: KnownIngredient, aliases: string[], norm: string): boolean {
   // 「無水エタノール」「変性アルコール」などはエタノールにマッチ（高級アルコール等は除く）
   if (item.id === 'ethanol') return isEthanolName(norm);
   if (EXACT_MATCH_ONLY.has(item.id)) {
     const stripped = norm.replace(QUALIFIER_PATTERN, '');
-    return !!stripped && item.aliases.some((a) => normalizeIngredientName(a) === stripped);
+    return !!stripped && aliases.includes(stripped);
   }
-  return item.aliases.some((alias) => aliasIsPartOf(item, normalizeIngredientName(alias), norm));
+  return aliases.some((alias) => aliasIsPartOf(item, alias, norm));
 }
+
+/**
+ * 照合の結果（一致しなかったことも null で）を、元の名前ごとに覚える。結果は名前と辞書だけで決まり、
+ * 辞書は動いている間は変わらない。同じ成分（水・BG・グリセリン等）は多くの製品に何度も出てくる
+ */
+const matchCache = new BoundedCache<KnownIngredient | null>(5000);
+/** これより長い名前は覚えない（お店の説明文などから来る長い文字列でメモリを使わない。長い名前はまず繰り返されない） */
+const MATCH_CACHE_MAX_NAME_LENGTH = 200;
 
 /**
  * 既知の刺激成分辞書と照合する
  * 誤爆防止（フェノキシエタノールがエタノールにマッチする等のバグを防ぐ）
  */
 export function findMatchingKnownIngredient(rawName: string): KnownIngredient | undefined {
+  if (rawName.length > MATCH_CACHE_MAX_NAME_LENGTH) return matchKnownIngredient(rawName);
+  const cached = matchCache.get(rawName);
+  if (cached !== undefined) return cached ?? undefined;
+  const found = matchKnownIngredient(rawName);
+  matchCache.set(rawName, found ?? null);
+  return found;
+}
+
+function matchKnownIngredient(rawName: string): KnownIngredient | undefined {
   const norm = normalizeIngredientName(rawName);
   if (!norm) return undefined;
+  const { entries } = knownNameIndex();
 
-  // 1. 完全一致
-  const exact = exactMatch(norm);
+  // 1. 完全一致（成分名・英語名・別名のどれか。辞書の順で最初の成分）
+  const exact = knownIngredientByName(norm);
   if (exact) return exact;
 
   // 1b. 簡略名と成分名の違い（POE/ポリオキシエチレン、Na/ナトリウム、2K/ジカリウム 等）を除けば完全一致
   const abbreviated = abbreviateIngredientName(norm);
-  const byAbbreviation = knownAbbreviatedNames().find(({ names }) => names.has(abbreviated));
+  const byAbbreviation = entries.find(({ abbreviated: names }) => names.has(abbreviated));
   if (byAbbreviation) return byAbbreviation.item;
 
   // 色素は名前の形で（src/lib/data/tar-dyes.ts）。個別の報告がある赤色219号・黄色204号は、その項目に
@@ -158,7 +191,7 @@ export function findMatchingKnownIngredient(rawName: string): KnownIngredient | 
   }
 
   // 3. 部分一致（短すぎる略語は除外）。辞書の順で最初に一致した成分
-  return KNOWN_INGREDIENTS.find((item) => containsKnownName(item, norm));
+  return entries.find(({ item, aliases }) => containsKnownName(item, aliases, norm))?.item;
 }
 
 /**

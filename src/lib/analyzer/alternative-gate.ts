@@ -7,6 +7,7 @@ import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingr
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
 import { candidateSubKind, isMakeupName, productCategory, SubKind, subKindFit } from './product-category';
 import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
+import { mayBeMineralOil } from './mineral-oil';
 import { AnalyzedIngredient, CulpritIngredient, IngredientRiskLevel, Product } from '../types';
 
 /**
@@ -75,24 +76,37 @@ export function alternativeGate(
   return (product, options) => reason(product, options) === 'ok';
 }
 
-/** alternativeGate と同じ確認で、外れた理由を返す（決まりはここにだけ書く） */
-export function alternativeGateReason(
-  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
-): (product: Product, options?: AlternativeGateOptions) => AlternativeGateReason {
-  // 避けるべき成分を「既知DBのID」と「日本語名・英語名」の両方で表す（英語INCI表記の製品にも対応）
-  const avoidIds = new Set<string>();
-  const avoidNames = new Set<string>();
+/**
+ * 確認で避ける成分を「既知DBのID」と「日本語名・英語名（正規化）」の両方で表す（英語INCI表記の製品にも対応）。
+ * 低刺激と判定済みの成分（水・グリセリン等）まで避けると候補がほぼ無くなるため除く
+ */
+export function avoidedIngredients(avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]): {
+  ids: Set<string>;
+  names: Set<string>;
+} {
+  const ids = new Set<string>();
+  const names = new Set<string>();
   for (const c of avoidCulprits) {
-    // 低刺激と判定済みの成分（水・グリセリン等）まで避けると候補がほぼ無くなるため除外する
     if ('riskLevel' in c && c.riskLevel === 'safe') continue;
     for (const name of [c.nameJa, c.nameEn]) {
       if (!name) continue;
       const norm = normalizeIngredientName(name);
-      if (norm) avoidNames.add(norm);
+      if (norm) names.add(norm);
       const known = findMatchingKnownIngredient(name);
-      if (known) avoidIds.add(known.id);
+      if (known) ids.add(known.id);
     }
   }
+  return { ids, names };
+}
+
+/** alternativeGate と同じ確認で、外れた理由を返す（決まりはここにだけ書く） */
+export function alternativeGateReason(
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
+): (product: Product, options?: AlternativeGateOptions) => AlternativeGateReason {
+  const { ids: avoidIds, names: avoidNames } = avoidedIngredients(avoidCulprits);
+  // 鉱物油を避けるとき、名前で決まらない炭化水素（イソパラフィン等）は AI の判定で「鉱物油でない」ものだけ通す
+  // （判定は確認の前に取ってくる。services/mineral-oil-judge.ts）
+  const avoidsMineralOil = avoidIds.has('mineral_oil');
 
   return (product, options = {}) => {
     if (options.category && !fitsKind(product, options.category, options.subKind)) return 'kind';
@@ -113,6 +127,7 @@ export function alternativeGateReason(
       }
       const known = findMatchingKnownIngredient(raw);
       if (known && avoidIds.has(known.id)) return 'suspect';
+      if (avoidsMineralOil && mayBeMineralOil(raw)) return 'suspect';
       // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
       const rating = known ?? getOrGenerateIngredientExplanation(raw);
       if (rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant') return 'irritant';

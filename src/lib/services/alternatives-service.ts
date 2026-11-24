@@ -2,7 +2,7 @@ import 'server-only';
 import { CulpritIngredient, KnownIngredient, PriceApiCredit, Product, UserRoutineState } from '../types';
 import { analyzeProduct } from '../analyzer/ingredient-analyzer';
 import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
-import { alternativeAvoidItems, findSafeAlternatives, fitsKind } from '../analyzer/alternative-gate';
+import { alternativeAvoidItems, avoidedIngredients, findSafeAlternatives, fitsKind, hasVerifiedIngredients } from '../analyzer/alternative-gate';
 import { performDifferentialAnalysis } from '../analyzer/differential-analysis';
 import {
   AlternativeCategory,
@@ -21,6 +21,8 @@ import { FORM_LABELS_JA, formFromText, FormProfile, formProfile, mostCommonForm,
 import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeResult, ShopSearchCounts } from './shop-alternatives';
 import { coveredIngredientGroups, findIngredientsInText, inIngredientGroup, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
+import { mineralOilJudge } from './mineral-oil-judge';
+import { isGeminiConfigured } from './gemini-client';
 import { isSameProduct, ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { buildBrandIndex, SEED_INDEX, textHasBrand } from './brand-suggest';
 import { COSMETICS_DATABASE } from '../data/cosmetics-db';
@@ -55,6 +57,11 @@ export interface AlternativeRequest {
   excludeProducts?: ProductIdentity[];
   /** お店で足りないとき、JAN コードで製品を調べてよいか（有料のことがある。既定は調べる） */
   allowPaidLookups?: boolean;
+  /**
+   * 避けたいと書かれたが、成分DBに無い語（「シリコン不使用」のシリコン）。確かめていないと返事で言うためだけに持つ
+   * （お店にもログにも送らない。ログは数だけ）
+   */
+  unknownAvoid?: string[];
 }
 
 /** 文や句の切れ目（読点・句点・改行と、理由や逆接でつなぐ語） */
@@ -82,11 +89,13 @@ export function alternativeRequestFromText(text: string): AlternativeRequest | n
   // 「ボディ」で、からだ用の化粧水だけを探さない）
   const clause = clauseNaming(text, category);
   const subKind = subKindFromText(category, clause);
+  const unknownAvoid = unknownAvoidWords(text);
   return {
     avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })),
     known,
     category,
     ...(subKind && { subKind }),
+    ...(unknownAvoid.length > 0 && { unknownAvoid }),
     profile: formProfile(clause, category),
     excludeIds: [],
   };
@@ -96,6 +105,30 @@ const NEGATION = /入っていない|入ってない|入らない|含まない|�
 const POSITIVE = /配合|入り|入っている|入ってる|含む|使用/;
 /** 名前のあとを見る範囲（「エタノールとパラベンが入っていない」のように並べた成分にも届く長さ） */
 const NEGATION_WINDOW = 20;
+
+/**
+ * 避けたいと書かれた語（「○○フリー」「○○不使用」「○○が入っていない」「無○○」の○○）。語はカタカナ・漢字・英数字の続きだけ
+ * （「の」などで切れる）。「無香料無着色」は「無」で区切る
+ */
+const AVOID_PHRASE =
+  /([ァ-ヶー一-龠a-z0-9]{2,15})(?:が|を|は)?(?:フリー|free|不使用|入っていない|入ってない|含まない|含まれていない|無添加|なし|無し|抜き)|無((?:(?!無)[ァ-ヶー一-龠]){2,10})/g;
+/** 成分ではない語（「無添加」の添加、「刺激なし」の刺激） */
+const NOT_AN_INGREDIENT_WORD = /^(添加|刺激)/;
+/** 返事で言う、成分DBに無い語の数の上限 */
+const MAX_UNKNOWN_AVOID = 2;
+
+/** 避けたいと書かれたが、成分DBの成分でも、まとまりの語（アルコール・紫外線吸収剤等）でもない語（「シリコン不使用」のシリコン） */
+export function unknownAvoidWords(text: string): string[] {
+  const t = text.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+  const words = new Set<string>();
+  for (const m of t.matchAll(AVOID_PHRASE)) {
+    const word = m[1] ?? m[2];
+    if (NOT_AN_INGREDIENT_WORD.test(word)) continue;
+    const known = findIngredientsInText(word, { includeNegated: true }).length > 0 || INGREDIENT_GROUP_WORDS.some((g) => g.word === word);
+    if (!known) words.add(word);
+  }
+  return [...words].slice(0, MAX_UNKNOWN_AVOID);
+}
 
 /**
  * 「香料が入っていない」「エタノールとパラベン不使用」「無香料」のように、含まないことを求めているか。
@@ -206,6 +239,8 @@ export function shopTerms(req: Pick<AlternativeRequest, 'known'>): string[] {
     // 酸化亜鉛・酸化チタンを避けるときも「ノンケミカル」。外すとエタノールの多いスプレーばかりになり、確かめられる商品が減った
     // （docs/plans/mineral-filter-terms-and-list-dedupe.md「Step 3」）
     else if (k.category === 'uv_filter') terms.add('ノンケミカル');
+    // お店の商品名に多い言い方（docs/plans/mineral-oil-avoid-request.md「Step 2」）
+    else if (k.id === 'mineral_oil') terms.add('鉱物油フリー');
   }
   return [...terms].slice(0, 2);
 }
@@ -338,6 +373,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       subKind: req.subKind ?? null,
       // 確認で避けない成分（低刺激と判定済み）は数えない
       avoid: req.avoid.filter((a) => !('riskLevel' in a) || a.riskLevel !== 'safe').length,
+      unknownAvoid: req.unknownAvoid?.length ?? 0,
       terms,
       saved,
       fitting,
@@ -348,6 +384,24 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     return { ...result, shopCheck: shopLog && shopCheckSummary(shopLog) };
   };
   if (req.unknownKind) return done({ products: [], researched: false, credits: [] }, 'none');
+  // 鉱物油を避けるとき、名前で決まらない炭化水素（イソパラフィン等）の AI の判定を、確かめる前に取ってくる
+  // （確認は判定が「鉱物油でない」名前だけを通す。docs/plans/mineral-oil-avoid-request.md「Step 4」）
+  const judge = avoidedIngredients(req.avoid).ids.has('mineral_oil') ? mineralOilJudge() : undefined;
+  const judgeSaved = async () => {
+    if (!judge) return;
+    // 出せる製品だけ（除く製品・全成分を確かめていない製品・利用者の成分表示の製品の名前に、聞く回数を使わない）
+    const excluded = new Set(req.excludeIds);
+    const isRegistered = registeredMatcher(req.excludeProducts ?? []);
+    const showable = COSMETICS_DATABASE.filter(
+      (p) =>
+        !excluded.has(p.id) &&
+        hasVerifiedIngredients(p) &&
+        p.ingredientSource !== 'user_label' &&
+        (!req.category || fitsKind(p, req.category, req.subKind)) &&
+        !isRegistered(p)
+    );
+    await judge(showable.flatMap((p) => p.ingredients));
+  };
   // 同じ製品がブランド表記違い・カタカナと英字の書き分けで重複して登録されていることがあるため、多めに取って1件にまとめる
   const check = () => {
     const unique: Product[] = [];
@@ -359,6 +413,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     }
     return unique.slice(0, limit);
   };
+  await judgeSaved();
   const local = check();
   saved = local.length;
   fitting = local.filter((p) => fitsRequest(p, req)).length;
@@ -384,6 +439,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）。
       // 数えるのは出せる製品だけ（別の下位の種類の製品は埋めない。docs/plans/shop-paid-lookups-and-keyword-names.md「Step 1」）
       allowPaidLookups: (req.allowPaidLookups ?? true) && shownSaved.length < limit,
+      ...(judge && { prepareCheck: (p: Product) => judge(p.ingredients) }),
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);
@@ -404,6 +460,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   // 合う製品を先に、保存済みの製品（Web で見つけた製品を含む）をお店の商品より先に並べる（同じ製品は1つだけ）
   const target = `敏感肌向けの${req.category ? kindLabel(req.category, req.subKind) : 'スキンケア製品'}`;
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
+  await judgeSaved();
   const checked = check();
   const extra = shopProducts.filter((p) => !checked.some((c) => isSameProduct(c, p)));
   const products = fittingFirst(checked, extra, req, limit);
@@ -432,6 +489,8 @@ interface AlternativesLog {
   subKind: SubKind | null;
   /** 避ける成分の数 */
   avoid: number;
+  /** 避けたいと書かれたが成分DBに無い語の数（語そのものは残さない） */
+  unknownAvoid: number;
   /** お店の検索語に足す決まった語（成分の語と形の語。依頼から決まる。お店に聞かなかったときも出す） */
   terms: string[];
   /** 保存済みの製品から見つかった数 */
@@ -611,13 +670,22 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
   const asked = req.category && form ? requestedKindLabel(req.category, req.subKind, form) : kind;
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
   const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck, kind) : [];
+  // 成分DBに無い語は確かめていない。鉱物油の、名前で決まらない炭化水素は AI の判定（docs/plans/mineral-oil-avoid-request.md）
+  const unknown = req.unknownAvoid ?? [];
+  const notChecked = unknown.length > 0 ? [`「${unknown.join('」「')}」は成分データに無いため、含まれていないかを確かめていません。`] : [];
+  const unknownAdvice = unknown.length > 0 ? [`パッケージの全成分表示に「${unknown.join('」「')}」が無いかもご確認ください。`] : [];
+  const aiJudged = avoidedIngredients(req.avoid).ids.has('mineral_oil') && isGeminiConfigured()
+    ? ['鉱物油かどうかが成分名だけでは分からない成分（イソパラフィンなど）は、AI が判定しています。AI の判定には誤りが含まれることがあります。']
+    : [];
   if (products.length === 0) {
     return [
+      ...notChecked,
       `${subject}は、全成分を確認できた商品の中からは見つかりませんでした。`,
       ...shortfall,
       names.length > 0
         ? `商品を選ぶときは、パッケージの全成分表示に「${names.join('」「')}」が無いかをご確認ください。`
         : '商品を選ぶときは、パッケージの全成分表示をご確認ください。',
+      ...unknownAdvice,
     ].join('\n\n');
   }
   // 形（オイル・ジェル等）は並べ替えにだけ使い、候補を外さない。頼まれた形が1つも無ければ、そう言う
@@ -634,9 +702,12 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
           ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
           : [];
   return [
+    ...notChecked,
     `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
+    ...aiJudged,
     ...otherForms,
     ...shortfall,
+    ...unknownAdvice,
     '肌に合うかは人によって違います。初めて使うときは少量から試してください。',
   ].join('\n\n');
 }

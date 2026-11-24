@@ -3,7 +3,7 @@
  * 成分名から分類を決めるルール（generateIngredientExplanation）は analyzer/ingredient-rules.ts にある
  */
 import { KnownIngredient, IngredientCategory, IngredientRiskLevel, INGREDIENT_RISK_LEVELS } from '../types';
-import { KNOWN_INGREDIENTS } from '../data/ingredients-db';
+import { knownIngredientByName } from '../analyzer/ingredient-match';
 import { stripMarkdownEmphasis } from './gemini';
 import { callGemini, isGeminiConfigured, parseJsonLoose } from './gemini-client';
 import { cacheGetJSON, cachePutJSON, hashedCacheKey } from '../server/cache';
@@ -59,29 +59,14 @@ export function getOrGenerateIngredientExplanation(rawName: string): KnownIngred
   const norm = normalizeName(rawName);
 
   // 1. Layer 1: 動的キャッシュ確認
-  if (DYNAMIC_INGREDIENT_CACHE.has(norm)) {
-    return DYNAMIC_INGREDIENT_CACHE.get(norm)!;
-  }
+  const cachedItem = DYNAMIC_INGREDIENT_CACHE.get(norm);
+  if (cachedItem) return cachedItem;
 
-  // 2. 既知DB（KNOWN_INGREDIENTS）照合
-  for (const item of KNOWN_INGREDIENTS) {
-    const normJa = normalizeName(item.nameJa);
-    const normEn = normalizeName(item.nameEn);
-    if (norm === normJa || norm === normEn || item.aliases.some((a) => normalizeName(a) === norm)) {
-      DYNAMIC_INGREDIENT_CACHE.set(norm, item);
-      return item;
-    }
-  }
-
-  // 部分一致（長めの主要キーワード）
-  for (const item of KNOWN_INGREDIENTS) {
-    for (const alias of item.aliases) {
-      const normAlias = normalizeName(alias);
-      if (normAlias.length >= 3 && norm === normAlias) {
-        DYNAMIC_INGREDIENT_CACHE.set(norm, item);
-        return item;
-      }
-    }
+  // 2. 既知DB（KNOWN_INGREDIENTS）照合。成分名・英語名・別名のどれかと完全に一致する、辞書の順で最初の成分
+  const item = knownIngredientByName(norm);
+  if (item) {
+    DYNAMIC_INGREDIENT_CACHE.set(norm, item);
+    return item;
   }
 
   // 3. Layer 2: ルールベース動的推論。結果には呼び出した人の表記が入るので、共有のキャッシュには入れない

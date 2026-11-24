@@ -149,6 +149,10 @@ const REF = {
     title: 'Huang et al. Biological and pharmacological activities of squalene and related compounds: potential uses in cosmetic dermatology. Molecules 2009',
     url: 'https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6253993/',
   },
+  mineralOilsReview2019: {
+    title: 'Chuberre et al. Mineral oils and waxes in cosmetics: an overview mainly based on the current European regulations and the safety profile of these compounds. J Eur Acad Dermatol Venereol 2019',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/31588613/',
+  },
   glycerolReview: {
     title: 'Fluhr et al. Glycerol and the skin: holistic approach to its origin and functions. Br J Dermatol 2008',
     url: 'https://pubmed.ncbi.nlm.nih.gov/18510666/',
@@ -816,6 +820,39 @@ export const KNOWN_INGREDIENTS: AuditedIngredient[] = [
     sensitiveSkinAdviceJa: '多くの化粧品に含まれる基本成分です。',
     sources: [REF.butyleneGlycolAllergy],
     reviewedAt: REVIEWED,
+  },
+  {
+    // 「鉱物油フリー」の頼みを読むための項目（docs/plans/mineral-oil-avoid-request.md）。評価はルールの「エモリエント油」と同じ。
+    // イソパラフィン・水添ポリイソブテンなど名前で決まらない炭化水素は、ここに入れず AI が判定する（analyzer/mineral-oil.ts）
+    id: 'mineral_oil',
+    nameJa: '鉱物油（ミネラルオイル・ワセリン等）',
+    nameEn: 'Mineral Oil (Paraffinum Liquidum, Petrolatum)',
+    aliases: [
+      '鉱物油',
+      'ミネラルオイル',
+      '流動パラフィン',
+      'パラフィン',
+      'ワセリン',
+      '白色ワセリン',
+      'ペトロラタム',
+      'マイクロクリスタリンワックス',
+      'セレシン',
+      'オゾケライト',
+      'mineral oil',
+      'paraffinum liquidum',
+      'petrolatum',
+      'paraffin',
+      'microcrystalline wax',
+      'cera microcristallina',
+      'ceresin',
+      'ozokerite',
+    ],
+    category: 'barrier_support',
+    riskLevel: 'safe',
+    reasonJa: '石油を精製して得られる炭化水素の油・ロウです。肌の表面をおおって水分の蒸発を防ぎます。酸化しにくく、アレルギーの報告はまれです。',
+    sensitiveSkinAdviceJa: 'EUでは、純度の基準を満たしたものだけが化粧品に使えます。「鉱物油フリー」の製品を選びたい場合は、全成分表示で確かめられます。',
+    sources: [REF.mineralOilsReview2019],
+    reviewedAt: '2026-11-24',
   },
 
   // ==========================================
