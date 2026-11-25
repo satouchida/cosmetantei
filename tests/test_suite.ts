@@ -13990,7 +13990,7 @@ test('222. Ingredient matching normalizes the DB names once and remembers each l
   }
 });
 
-test('223. 「鉱物油フリー」 requests avoid the new 鉱物油 entry (ミネラルオイル・ワセリン・ペトロラタム…), send 「鉱物油フリー」 to the shops, and an avoided word the app doesn\'t know is named as not checked (live 2026-11-24: 「鉱物油フリーのクリーム」 showed セラヴィ with ペトロラタム)', async () => {
+test('223. 「鉱物油フリー」 requests avoid the new 鉱物油 entry (ミネラルオイル・ワセリン・ペトロラタム…), send 「鉱物油フリー」 to the shops, and an avoided word the app doesn\'t know is avoided like any other, with 「〇〇フリー」 sent to the shops (live 2026-11-24: 「鉱物油フリーのクリーム」 showed セラヴィ with ペトロラタム)', async () => {
   const { alternativeRequestFromText, shopTerms, buildAlternativeQuery, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
   const { alternativeGateReason } = await import('../src/lib/analyzer/alternative-gate');
   for (const name of ['ミネラルオイル', 'ワセリン', '白色ワセリン', 'ペトロラタム', '流動パラフィン', 'マイクロクリスタリンワックス', '水添マイクロクリスタリンワックス', 'セレシン', 'Mineral Oil', 'Paraffinum Liquidum', 'Petrolatum', 'Cera Microcristallina']) {
@@ -14020,14 +14020,16 @@ test('223. 「鉱物油フリー」 requests avoid the new 鉱物油 entry (ミ�
   // Gemini の設定が無ければ AI は判定していないので、そう言わない（設定があるときは test 224）
   assert.doesNotMatch(summarizeAlternatives(req, [verifiedProduct({})]), /AI が判定/);
 
-  // 成分DBに無い語は、確かめていないと言う（語はお店にもログにも送らない）
+  // 成分DBに無い語も、ほかの成分と同じく避ける（成分名が当たるかは AI の判定。test 227）。お店と Web には「〇〇フリー」
   const silicone = alternativeRequestFromText('シリコン不使用の化粧水')!;
   assert.deepStrictEqual(silicone.unknownAvoid, ['シリコン']);
-  assert.deepStrictEqual(shopTerms(silicone), []);
+  assert.deepStrictEqual(shopTerms(silicone), ['シリコンフリー']);
+  assert.strictEqual(buildAlternativeQuery(silicone), '敏感肌 化粧水 シリコンフリー 全成分');
   const found = summarizeAlternatives(silicone, [verifiedProduct({ category: 'toner' })]);
-  assert.match(found, /^「シリコン」は成分データに無いため、含まれていないかを確かめていません。\n\n/);
-  assert.match(found, /パッケージの全成分表示に「シリコン」が無いかもご確認ください。/);
-  assert.match(summarizeAlternatives(silicone, []), /^「シリコン」は成分データに無いため/);
+  assert.match(found, /^「シリコン」を含まない化粧水を1件見つけました。/);
+  assert.doesNotMatch(found, /成分データに無い|確かめていません/);
+  assert.match(summarizeAlternatives(silicone, []), /^「シリコン」を含まない化粧水は、全成分を確認できた商品の中からは見つかりませんでした。/);
+  assert.match(summarizeAlternatives(silicone, []), /パッケージの全成分表示に「シリコン」が無いかをご確認ください。/);
   assert.deepStrictEqual(alternativeRequestFromText('無香料無着色の化粧水')!.unknownAvoid, ['着色']);
   for (const text of ['香料不使用の化粧水', '無添加の化粧水', '刺激なしのクリーム', 'アルコールフリーの化粧水', 'パラベンフリーで鉱物油フリーのクリーム', '敏感肌向けの化粧水']) {
     assert.strictEqual(alternativeRequestFromText(text)!.unknownAvoid, undefined, text);
@@ -14113,25 +14115,33 @@ test('224. Avoiding 鉱物油, hydrocarbons the name doesn\'t settle (イソパ�
       assert.strictEqual(alternativeGateReason([{ nameJa: '香料' }])(cream([unjudged]), { category: 'cream' }), 'ok');
       assert.strictEqual(mayBeMineralOil(iso), false);
 
-      // KV に残す：決まった判定は30日、「分からない」は1日
-      const keyOf = (name: string) => hashedCacheKey('mineral-oil:v1', name.toLowerCase());
-      assert.strictEqual(kv.get(await keyOf(iso)), '"not_mineral_oil"');
-      assert.strictEqual(ttls.get(await keyOf(pib)), 60 * 60 * 24 * 30);
-      assert.strictEqual(ttls.get(await keyOf(dodecane)), 60 * 60 * 24);
+      // KV は判定の帳面1つ（名前ごとに書かない。Free プランの書き込みは1日1,000回）：決まった判定は30日、「分からない」は1日
+      const { cachePutJSON } = await import('../src/lib/server/cache');
+      const DAY = 24 * 60 * 60 * 1000;
+      const bookKey = await hashedCacheKey('mineral-oil:v2', 'all');
+      const book = () => JSON.parse(kv.get(bookKey)!) as Record<string, [string, number]>;
+      const near = (actual: number, expected: number) => Math.abs(actual - expected) < 60_000;
+      assert.strictEqual(book()[iso.toLowerCase()][0], 'not_mineral_oil');
+      assert.ok(near(book()[pib.toLowerCase()][1], Date.now() + 30 * DAY));
+      assert.ok(near(book()[dodecane.toLowerCase()][1], Date.now() + DAY));
+      assert.strictEqual(ttls.get(bookKey), 60 * 60 * 24 * 30);
+      assert.ok(![...kv.keys()].some((k) => k.startsWith('mineral-oil:') && k !== bookKey), 'One KV value for every verdict');
+      const putInBook = async (name: string) => cachePutJSON(bookKey, { ...book(), [name.toLowerCase()]: ['not_mineral_oil', Date.now() + DAY] }, 60 * 60 * 24 * 30);
 
-      // 覚えた名前・KV にある名前は聞かない
+      // 覚えた名前・KV にある名前は聞かない。期限の切れた判定は聞き直す
       const stored = `重質流動イソパラフィン${u}`;
-      kv.set(await keyOf(stored), '"not_mineral_oil"');
+      await putInBook(stored);
       await mineralOilJudge()([iso, pib, stored]);
       assert.strictEqual(requests.length, 1);
       assert.strictEqual(avoidMineralOil(cream([stored]), { category: 'cream' }), 'ok');
 
       // 1回の依頼で呼ぶのは3回まで。使い切った後も、KV にある判定は読む。失敗したら残りは聞かない
+      // （帳面は1回の依頼で1回だけ読む）
+      const storedLate = `ポリエチレン${u}late`;
+      await putInBook(storedLate);
       const capped = mineralOilJudge();
       for (let i = 0; i < 5; i++) await capped([`ポリブテン${u}x${i}`]);
       assert.strictEqual(requests.length, 4);
-      const storedLate = `ポリエチレン${u}late`;
-      kv.set(await keyOf(storedLate), '"not_mineral_oil"');
       await capped([storedLate]);
       assert.strictEqual(requests.length, 4);
       assert.strictEqual(mayBeMineralOil(storedLate), false);
@@ -14219,6 +14229,457 @@ test('225. Avoiding 鉱物油, a shop listing is judged before it is checked: on
     assert.ok(line.shop.dropped.suspect >= 1, JSON.stringify(line.shop));
   } finally {
     console.log = originalLog;
+    clearGatewayEnv();
+  }
+});
+
+test('226. An avoided word the app doesn\'t know never stops the search: 「シリコンフリー」 alone searches any kind like 「香料フリー」, and the word is still avoided when the registered products decide what else to avoid (owner 2026-11-25)', async () => {
+  const { alternativeRequestFromText, alternativeRequest, summarizeAlternatives, typeSearchRequest } = await import('../src/lib/services/alternatives-service');
+  for (const text of ['シリコンフリー', 'シリコン不使用', '無シリコン']) {
+    const req = alternativeRequest(text, undefined);
+    assert.ok(req, text);
+    assert.deepStrictEqual([req.known, req.avoid, req.excludeIds, req.category, req.unknownAvoid], [[], [], [], undefined, ['シリコン']], text);
+    // 種類で探す依頼（名前の検索の後）ではない。名前の検索は今までどおり
+    assert.strictEqual(typeSearchRequest(text, undefined), null, text);
+    assert.match(summarizeAlternatives(req, [verifiedProduct({})]), /^「シリコン」を含まないコスメを1件見つけました。/, text);
+  }
+  // 避けたい語も成分も種類も無ければ、今までどおり探さない
+  assert.strictEqual(alternativeRequestFromText('何かいいものある？'), null);
+  assert.strictEqual(alternativeRequestFromText('無添加のもの'), null);
+  // 「無料」「無印良品」の「無」は避けたい語ではない
+  for (const text of ['無印良品の化粧水', '無料サンプルの化粧水', '無理のない化粧水']) {
+    assert.strictEqual(alternativeRequestFromText(text)!.unknownAvoid, undefined, text);
+  }
+  // 「〇〇フリー」の語は、「無」の後の決まりで外さない
+  assert.deepStrictEqual(alternativeRequestFromText('人工色素フリーの化粧水')!.unknownAvoid, ['人工色素']);
+
+  // 登録した肌荒れコスメの候補成分で探すときも、成分DBに無い語を避ける
+  const routine = {
+    currentlyUsing: [],
+    badProducts: [verifiedProduct({ id: 'alt226_bad', category: 'toner', ingredients: ['水', 'エタノール', 'グリセリン'] })],
+    safeProducts: [],
+  };
+  const req = alternativeRequest('シリコン不使用の化粧水', routine)!;
+  assert.deepStrictEqual([req.known.map((k) => k.id), req.category, req.unknownAvoid], [['ethanol'], 'toner', ['シリコン']]);
+  assert.match(summarizeAlternatives(req, []), /シリコン」を含まない化粧水は/);
+  assert.strictEqual(alternativeRequest('化粧水でおすすめは？', routine)!.unknownAvoid, undefined);
+  // 種類を書かなければ、登録したコスメの種類で探す
+  const kindless = alternativeRequest('シリコンフリー', routine)!;
+  assert.deepStrictEqual([kindless.category, kindless.unknownAvoid, kindless.unknownKind], ['toner', ['シリコン'], undefined]);
+  assert.strictEqual(typeSearchRequest('シリコンフリー', routine), null);
+});
+
+test('227. Avoiding a word the app doesn\'t know (「シリコン」), Gemini judges each ingredient name: only names judged not シリコン pass (unsure, unjudged, or the word in the name keep the product out), verdicts are kept in KV, and saved products are judged before they are checked (owner 2026-11-25)', async () => {
+  const { avoidedWordJudge } = await import('../src/lib/services/avoided-word-judge');
+  const { cachePutJSON } = await import('../src/lib/server/cache');
+  const { alternativeGateReason } = await import('../src/lib/analyzer/alternative-gate');
+  const { alternativeRequestFromText, findAlternatives, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { hashedCacheKey } = await import('../src/lib/server/cache');
+  const { normalizeIngredientName } = await import('../src/lib/utils/ingredient-name');
+  const u = `${process.pid}${Date.now()}`;
+  const dimethicone = `ジメチコン${u}`;
+  const cyclo = `シクロペンタシロキサン${u}`;
+  const plain = `ヒアルロン酸Na${u}`;
+  const probability: Record<string, number> = { [dimethicone]: 0.95, [cyclo]: 0.5 };
+  const requests: { body: any }[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!String(url).endsWith('/decisions')) return new Response('offline in tests', { status: 503 });
+    const body = JSON.parse(String(init?.body));
+    requests.push({ body });
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(body.questions)) {
+      const name = JSON.parse(q.instructions.split('ingredientName: ')[1]);
+      answers[id] = { type: 'noul', noul: probability[name] ?? 0.05 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  const kv = new Map<string, string>();
+  const ttls = new Map<string, number>();
+  const puts: string[] = [];
+  const APP_CACHE = {
+    async get(key: string, type?: string) {
+      const v = kv.get(key);
+      return v === undefined ? null : type === 'json' ? JSON.parse(v) : v;
+    },
+    async put(key: string, value: string, opts?: { expirationTtl?: number }) {
+      kv.set(key, value);
+      ttls.set(key, opts?.expirationTtl ?? 0);
+      puts.push(key);
+    },
+  };
+  const logs: string[] = [];
+  const originalLog = console.log;
+  setGatewayEnv();
+  try {
+    await withCloudflareEnv({ APP_CACHE }, async () => {
+      const toner = (ingredients: string[]) => verifiedProduct({ category: 'toner', ingredients: ['水', ...ingredients] });
+      const gate = alternativeGateReason([], ['シリコン']);
+      // 判定が無いうちは、確かめられないので通さない
+      assert.strictEqual(gate(toner([plain]), { category: 'toner' }), 'suspect');
+      // 語を避けないときは、判定を見ない
+      assert.strictEqual(alternativeGateReason([])(toner([plain]), { category: 'toner' }), 'ok');
+
+      await avoidedWordJudge(['シリコン'])(['水', plain, dimethicone, cyclo, `シリコンパウダー${u}`, 'ヒドロキシエチルセルロース、加水分解シルク']);
+      assert.strictEqual(requests.length, 1, 'One call for all the names');
+      const asked = Object.values<any>(requests[0].body.questions).map((q) => q.instructions as string);
+      // 名前に語がある「シリコンパウダー」は聞かずに外す。並んだ名前は分けて聞く
+      assert.deepStrictEqual(
+        asked.map((q) => JSON.parse(q.split('ingredientName: ')[1])),
+        ['水', plain, dimethicone, cyclo, 'ヒドロキシエチルセルロース', '加水分解シルク']
+      );
+      assert.ok(asked.every((q) => q.includes('avoidedWord: "シリコン"\ningredientName: ')));
+      assert.strictEqual(requests[0].body.model, 'gemini-decision-1');
+
+      assert.strictEqual(gate(toner([plain]), { category: 'toner' }), 'ok');
+      assert.strictEqual(gate(toner(['ヒドロキシエチルセルロース、加水分解シルク']), { category: 'toner' }), 'ok');
+      assert.strictEqual(gate(toner([dimethicone]), { category: 'toner' }), 'suspect');
+      assert.strictEqual(gate(toner([cyclo]), { category: 'toner' }), 'suspect', 'unsure counts as シリコン');
+      assert.strictEqual(gate(toner([`シリコンパウダー${u}`]), { category: 'toner' }), 'suspect', 'The word in the name');
+      assert.strictEqual(gate(toner([plain, `ベタイン${u}`]), { category: 'toner' }), 'suspect', 'No verdict counts as シリコン');
+
+      // KV は語ごとに判定の帳面1つ（キーは語のハッシュ）。書くのは聞いた回数だけ。決まった判定は30日、「分からない」は1日
+      const DAY = 24 * 60 * 60 * 1000;
+      const bookKey = await hashedCacheKey('avoided-word:v1', 'シリコン');
+      const book = () => JSON.parse(kv.get(bookKey)!) as Record<string, [string, number]>;
+      const near = (actual: number, expected: number) => Math.abs(actual - expected) < 60_000;
+      const norm = normalizeIngredientName;
+      assert.strictEqual(book()[norm(plain)][0], 'absent');
+      assert.strictEqual(book()[norm(dimethicone)][0], 'contains');
+      assert.ok(near(book()[norm(dimethicone)][1], Date.now() + 30 * DAY));
+      assert.ok(near(book()[norm(cyclo)][1], Date.now() + DAY));
+      assert.strictEqual(puts.filter((k) => k.startsWith('avoided-word:')).length, 1, 'One write for one call');
+      assert.doesNotMatch(kv.get(bookKey)!, /シリコン/, 'The word is not in the stored value');
+      const stored = `トレハロース${u}`;
+      await cachePutJSON(bookKey, { ...book(), [norm(stored)]: ['absent', Date.now() + DAY] }, 60 * 60 * 24 * 30);
+      await avoidedWordJudge(['シリコン'])([plain, dimethicone, stored]);
+      assert.strictEqual(requests.length, 1);
+      assert.strictEqual(gate(toner([stored]), { category: 'toner' }), 'ok');
+
+      // 「1,2-ヘキサンジオール」は1つの名前（カンマで分けない）。英語の文のような名前は聞かない（判定が無いまま＝出さない）
+      const before = requests.length;
+      const sentence = `Say no to all ${u.slice(-6)}`;
+      await avoidedWordJudge(['シリコン'])([`1,2-ヘキサンジオール${u}`, `1，2-ヘキサンジオール${u}`, sentence]);
+      assert.strictEqual(requests.length, before + 1);
+      assert.deepStrictEqual(
+        Object.values<any>(requests.at(-1)!.body.questions).map((q) => JSON.parse(q.instructions.split('ingredientName: ')[1])),
+        [`1,2-ヘキサンジオール${u}`]
+      );
+      assert.strictEqual(gate(toner([`1,2-ヘキサンジオール${u}`]), { category: 'toner' }), 'ok');
+      assert.strictEqual(gate(toner([sentence]), { category: 'toner' }), 'suspect');
+
+      // 医薬部外品の有効成分も聞く（確認は有効成分も見る）
+      const activeName = `グリチルリチン酸2K${u}`;
+      const quasi = verifiedProduct({ id: `obf_t227_quasi_${u}`, category: 'toner', name: `テスト227 薬用化粧水${u}`, ingredients: ['水', `ベタイン${u}q`], isQuasiDrug: true, activeIngredientsJa: [activeName] });
+
+      // 代わりの商品探し：保存済みの候補の名前を確かめる前に聞き、シリコンに当たる成分の製品は出さない
+      const clean = verifiedProduct({ id: `obf_t227_clean_${u}`, category: 'toner', name: `テスト227 化粧水A${u}`, ingredients: ['水', `グリセリン${u}`] });
+      const silicone = verifiedProduct({ id: `obf_t227_sil_${u}`, category: 'toner', name: `テスト227 化粧水B${u}`, ingredients: ['水', `アモジメチコン${u}`] });
+      probability[`アモジメチコン${u}`] = 0.9;
+      addProductToDynamicCache(clean);
+      addProductToDynamicCache(silicone);
+      addProductToDynamicCache(quasi);
+      const req = alternativeRequestFromText('シリコンフリーの化粧水')!;
+      const others = COSMETICS_DATABASE.map((p) => p.id).filter((id) => ![clean.id, silicone.id, quasi.id].includes(id));
+      console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+      const result = await findAlternatives({ ...req, excludeIds: others, allowPaidLookups: false });
+      console.log = originalLog;
+      assert.deepStrictEqual(result.products.map((p) => p.id).sort(), [clean.id, quasi.id].sort());
+      assert.ok(requests.some((r) => JSON.stringify(r.body).includes(activeName)), 'The active ingredient was asked about');
+      assert.match(summarizeAlternatives(req, result.products), /^「シリコン」を含まない化粧水を2件見つけました。/);
+      assert.match(summarizeAlternatives(req, result.products), /「シリコン」に当たる成分かどうかは、AI が成分ごとに判定しています。AI の判定には誤りが含まれることがあります。/);
+      // ログには書かれた語を残さない（数と「〇〇フリー」だけ）
+      const line = logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!;
+      assert.doesNotMatch(line, /シリコン/);
+      assert.deepStrictEqual(JSON.parse(line.slice('[alternatives] '.length)).unknownAvoid, 1);
+    });
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('228. Avoiding a word the app doesn\'t know, shop listings are judged in groups before they are checked: 「シリコンフリー」 is sent to the shops, the listing with ジメチコン is dropped and the other is shown (owner 2026-11-25)', async () => {
+  const { alternativeRequestFromText, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const u = `${process.pid}${Date.now()}`;
+  const base = `水、グリセリン、BG、スクワラン、ヒアルロン酸Na、カルボマー、水酸化K、フェノキシエタノール`;
+  const items = [
+    { itemName: `テスト228 モイストクリーム${u} 50g`, itemCode: 't228:1', itemCaption: shopCaption(`${base}、ジメチコン${u}`) },
+    { itemName: `テスト228 バリアクリーム${u} 40g`, itemCode: 't228:2', itemCaption: shopCaption(`${base}、ベタイン${u}`) },
+  ];
+  const shops = fakeShops(items);
+  let calls = 0;
+  const asked: string[] = [];
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (!String(input).endsWith('/decisions')) return shops.fetchFn(input, init);
+    calls++;
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(JSON.parse(String(init?.body)).questions)) {
+      const name: string = JSON.parse(q.instructions.split('ingredientName: ')[1]);
+      asked.push(name);
+      answers[id] = { type: 'noul', noul: name.startsWith('ジメチコン') ? 0.95 : 0.05 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  const req = { ...alternativeRequestFromText('シリコンフリーのクリーム')!, excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
+  setGatewayEnv();
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  try {
+    const found = await withShopKeys(fetchFn, () => findAlternatives(req));
+    const ids = found.products.map((p) => p.id).filter((id) => id.startsWith('shoptext_'));
+    assert.deepStrictEqual(ids, ['shoptext_rakuten_t228:2'], JSON.stringify(found.products.map((p) => p.id)));
+    assert.ok(asked.includes(`ジメチコン${u}`) && asked.includes(`ベタイン${u}`), JSON.stringify(asked));
+    assert.strictEqual(calls, 1, 'Both listings are judged in one call');
+    const rakutenQueries = shops.requests.filter((r) => r.hostname === 'openapi.rakuten.co.jp').map((r) => r.searchParams.get('keyword') ?? '');
+    assert.ok(rakutenQueries.length > 0 && rakutenQueries.every((q) => q.includes('シリコンフリー')), JSON.stringify(rakutenQueries));
+    const line = JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+    assert.strictEqual(line.terms[0], '〇〇フリー');
+    assert.ok(line.shop.dropped.suspect >= 1, JSON.stringify(line.shop));
+  } finally {
+    console.log = originalLog;
+    clearGatewayEnv();
+  }
+});
+
+test('229. A verdict book that cannot be read is not overwritten (the answers are used for this request only), and one judge call writes the book once however many Gemini calls it made (owner 2026-11-25)', async () => {
+  const { avoidedWordJudge } = await import('../src/lib/services/avoided-word-judge');
+  const { alternativeGateReason } = await import('../src/lib/analyzer/alternative-gate');
+  const u = `${process.pid}${Date.now()}`;
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!String(url).endsWith('/decisions')) return new Response('offline in tests', { status: 503 });
+    calls++;
+    const answers: Record<string, unknown> = {};
+    for (const id of Object.keys(JSON.parse(String(init?.body)).questions)) answers[id] = { type: 'noul', noul: 0.05 };
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  const puts: string[] = [];
+  const broken = {
+    async get() {
+      throw new Error('kv down');
+    },
+    async put(key: string) {
+      puts.push(key);
+    },
+  };
+  const working = {
+    async get() {
+      return null;
+    },
+    async put(key: string) {
+      puts.push(key);
+    },
+  };
+  setGatewayEnv();
+  try {
+    await withCloudflareEnv({ APP_CACHE: broken }, async () => {
+      await avoidedWordJudge([`テスト語${u}`])([`ベタイン${u}`]);
+    });
+    assert.strictEqual(calls, 1);
+    assert.deepStrictEqual(puts, [], 'Not written over a book it could not read');
+    assert.strictEqual(alternativeGateReason([], [`テスト語${u}`])(verifiedProduct({ ingredients: [`ベタイン${u}`] }), { category: 'cream' }), 'ok');
+
+    // 250 の名前は 100 件ずつ3回聞くが、帳面を書くのは1回
+    await withCloudflareEnv({ APP_CACHE: working }, async () => {
+      await avoidedWordJudge([`別の語${u}`])(Array.from({ length: 250 }, (_, i) => `ベタイン${u}n${i}`));
+    });
+    assert.strictEqual(calls, 4);
+    assert.strictEqual(puts.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('230. Words the app doesn\'t know are classified by the Decision model before the search: an avoided word that is an ingredient (or unsure) is avoided, one that is not is dropped; an asked-for item that is a cosmetic kind is searched as that kind, anything else is ignored; words are not stored in KV (owner 2026-11-25)', async () => {
+  const { alternativeRequestFromText, resolveUnknownWords } = await import('../src/lib/services/alternatives-service');
+  const { hashedCacheKey } = await import('../src/lib/server/cache');
+  const u = `${process.pid}${Date.now()}`.slice(-8);
+  const ingredient: Record<string, number> = { シリコン: 0.95, [`テスト語${u}`]: 0.05, [`ナゾ成分${u}`]: 0.5 };
+  const kind: Record<string, number> = { 下地: 0.95, [`ナゾ品${u}`]: 0.5, [`ベツ物${u}`]: 0.05 };
+  const asked: string[] = [];
+  let calls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!String(url).endsWith('/decisions')) return new Response('offline in tests', { status: 503 });
+    calls++;
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(JSON.parse(String(init?.body)).questions)) {
+      const text: string = q.instructions;
+      asked.push(text);
+      const word = JSON.parse(text.split('word: ')[1]);
+      answers[id] = { type: 'noul', noul: (text.includes('製品の種類を表す言葉') ? kind[word] : ingredient[word]) ?? 0.05 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  const kv = new Map<string, string>();
+  const APP_CACHE = {
+    async get(key: string, type?: string) {
+      const v = kv.get(key);
+      return v === undefined ? null : type === 'json' ? JSON.parse(v) : v;
+    },
+    async put(key: string, value: string) {
+      kv.set(key, value);
+    },
+  };
+  setGatewayEnv();
+  try {
+    await withCloudflareEnv({ APP_CACHE }, async () => {
+      const req = (await resolveUnknownWords(alternativeRequestFromText('シリコン不使用の下地')!))!;
+      assert.deepStrictEqual([req.unknownAvoid, req.kindWord, req.category, req.askedItem], [['シリコン'], '下地', undefined, undefined]);
+      assert.strictEqual(calls, 1, 'Both words in one call');
+      // 成分の問いは、成分のまとまり（シリコン等）も成分に含める
+      const ingredientQuestion = asked.find((q) => q.includes('word: "シリコン"'))!;
+      assert.match(ingredientQuestion, /成分の種類・系統をまとめて呼ぶ言葉（例：シリコン/);
+      assert.match(asked.find((q) => q.includes('word: "下地"'))!, /製品の種類を表す言葉/);
+      // KV には語を残さない（帳面の名前も中身の名前もハッシュ）
+      const book = kv.get(await hashedCacheKey('word-class:v1', 'all'))!;
+      assert.ok(book);
+      assert.doesNotMatch(book, /シリコン|下地/);
+      // 帳面にある語は聞き直さない
+      await resolveUnknownWords(alternativeRequestFromText('シリコン不使用の下地')!);
+      assert.strictEqual(calls, 1);
+
+      // 成分ではないと判定された語は避けない。ほかに探すものが無ければ null
+      assert.strictEqual(await resolveUnknownWords(alternativeRequestFromText(`テスト語${u}フリー`)!), null);
+      const kept = await resolveUnknownWords(alternativeRequestFromText(`テスト語${u}フリーの化粧水`)!);
+      assert.deepStrictEqual([kept!.category, kept!.unknownAvoid], ['toner', undefined]);
+      // 分からなければ避ける
+      assert.deepStrictEqual((await resolveUnknownWords(alternativeRequestFromText(`ナゾ成分${u}フリー`)!))!.unknownAvoid, [`ナゾ成分${u}`]);
+      // 頼まれた物の語は、種類と判定されたときだけ使う（分からない・違うは使わない）
+      assert.strictEqual(await resolveUnknownWords(alternativeRequestFromText(`ナゾ品${u}を探して`)!), null);
+      const other = await resolveUnknownWords(alternativeRequestFromText(`香料フリーのベツ物${u}`)!);
+      assert.deepStrictEqual([other!.kindWord, other!.category, other!.avoid.map((a) => a.nameJa)], [undefined, undefined, ['香料']]);
+      // 頼まれた物の語は、後ろの避けたい句・頼み方の語に取られない
+      for (const text of ['下地を探して。シリコンは避けたい', '下地、刺激が少ないもの', '下地で無添加のもの']) {
+        assert.strictEqual(alternativeRequestFromText(text)?.askedItem, '下地', text);
+      }
+    });
+    // Gemini の設定が無ければ（判定の無い語は）、避けたい語は避け、頼まれた物の語は使わない
+    clearGatewayEnv();
+    const offline = await resolveUnknownWords(alternativeRequestFromText('ミツケタ語不使用のヒミツ品')!);
+    assert.deepStrictEqual([offline!.unknownAvoid, offline!.kindWord], [['ミツケタ語'], undefined]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('231. A kind the app doesn\'t know (「下地」) is searched with that word: the Decision model checks each listing\'s kind and only fitting listings are shown; the word is not logged (owner 2026-11-25)', async () => {
+  const { findAlternatives, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const u = `${process.pid}${Date.now()}`;
+  const base = '水、グリセリン、BG、スクワラン、ヒアルロン酸Na、カルボマー、水酸化K、フェノキシエタノール';
+  const items = [
+    { itemName: `テスト231 なめらか化粧下地${u} 30g`, itemCode: 't231:1', itemCaption: shopCaption(base) },
+    { itemName: `テスト231 カバーパウダー${u} 10g`, itemCode: 't231:2', itemCaption: shopCaption(`${base}、ベタイン`) },
+  ];
+  const shops = fakeShops(items);
+  const kindAsked: string[] = [];
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (!String(input).endsWith('/decisions')) return shops.fetchFn(input, init);
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(JSON.parse(String(init?.body)).questions)) {
+      const text: string = q.instructions;
+      if (text.includes('productName: ')) {
+        const name: string = JSON.parse(text.split('productName: ')[1]);
+        kindAsked.push(name);
+        answers[id] = { type: 'noul', noul: name.includes('下地') ? 0.95 : 0.05 };
+      } else answers[id] = { type: 'noul', noul: 0.05 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  const req = { avoid: [], known: [], kindWord: '下地', excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
+  setGatewayEnv();
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  try {
+    const found = await withShopKeys(fetchFn, () => findAlternatives(req));
+    const ids = found.products.map((p) => p.id).filter((id) => id.startsWith('shoptext_'));
+    assert.deepStrictEqual(ids, ['shoptext_rakuten_t231:1'], JSON.stringify(found.products.map((p) => p.id)));
+    const line0 = JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+    assert.strictEqual(line0.shop.dropped.otherKind, 1, JSON.stringify(line0.shop));
+    assert.strictEqual(kindAsked.length, 2, JSON.stringify(kindAsked));
+    const rakutenQueries = shops.requests.filter((r) => r.hostname === 'openapi.rakuten.co.jp').map((r) => r.searchParams.get('keyword') ?? '');
+    assert.ok(rakutenQueries.length > 0 && rakutenQueries.every((q) => q.startsWith('下地')), JSON.stringify(rakutenQueries));
+    // ジャンルでは絞らない（アプリの種類ではない）
+    assert.ok(shops.requests.every((r) => !r.searchParams.get('genreId')));
+    assert.match(summarizeAlternatives(req, found.products), /^刺激になりやすい成分を含まない下地を1件見つけました。/);
+    const line = logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!;
+    assert.doesNotMatch(line, /下地/);
+    assert.strictEqual(JSON.parse(line.slice('[alternatives] '.length)).kind, 'word');
+  } finally {
+    console.log = originalLog;
+    clearGatewayEnv();
+  }
+});
+
+test('232. A kind the app doesn\'t know matches saved products under other names: for 「下地」 the Decision model also judges a saved 「プライマー」 (names with the word are asked first), and 鉱物油 is judged on the products of that kind (owner 2026-11-25)', async () => {
+  const { alternativeRequestFromText, findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const u = `${process.pid}${Date.now()}`;
+  const primer = verifiedProduct({ id: `obf_t232_primer_${u}`, category: 'other', name: `テスト232 スムースプライマー${u}`, ingredients: ['水', `グリセリン${u}`, `流動イソパラフィン${u}`] });
+  const base = verifiedProduct({ id: `obf_t232_base_${u}`, category: 'other', name: `テスト232 化粧下地${u}`, ingredients: ['水', `ベタイン${u}`] });
+  const toner = verifiedProduct({ id: `obf_t232_toner_${u}`, category: 'toner', name: `テスト232 化粧水${u}`, ingredients: ['水', `トレハロース${u}`] });
+  for (const p of [primer, base, toner]) addProductToDynamicCache(p);
+  const kindOrder: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!String(url).endsWith('/decisions')) return new Response('offline in tests', { status: 503 });
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(JSON.parse(String(init?.body)).questions)) {
+      const text: string = q.instructions;
+      if (text.includes('productName: ')) {
+        const name: string = JSON.parse(text.split('productName: ')[1]);
+        kindOrder.push(name);
+        answers[id] = { type: 'noul', noul: /下地|プライマー/.test(name) ? 0.95 : 0.05 };
+      } else answers[id] = { type: 'noul', noul: 0.1 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  setGatewayEnv();
+  try {
+    const req = { ...alternativeRequestFromText('鉱物油フリー')!, kindWord: '下地', excludeIds: COSMETICS_DATABASE.map((p) => p.id).filter((id) => ![primer.id, base.id, toner.id].includes(id)), allowPaidLookups: false };
+    const found = await findAlternatives(req);
+    assert.deepStrictEqual(found.products.map((p) => p.id).sort(), [base.id, primer.id].sort());
+    const ours = kindOrder.filter((n) => n.startsWith('テスト232'));
+    assert.ok(ours.indexOf(`テスト232 化粧下地${u}`) < ours.indexOf(`テスト232 スムースプライマー${u}`), JSON.stringify(ours));
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGatewayEnv();
+  }
+});
+
+test('233. With more than 300 saved candidates, products named with the kind word are judged first and are never cut from the pool (review 2026-11-25)', async () => {
+  const { findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const u = `${process.pid}${Date.now()}`;
+  // 名前の順で「化粧下地」より先に並ぶ製品（カタカナは漢字より先）を 320 件
+  const fillers = Array.from({ length: 320 }, (_, i) =>
+    verifiedProduct({ id: `obf_t233_f${i}_${u}`, category: 'other', name: `テスト233 アイテム${String(i).padStart(3, '0')}${u}`, ingredients: ['水', `ベタイン${u}`] })
+  );
+  const base = verifiedProduct({ id: `obf_t233_base_${u}`, category: 'other', name: `テスト233 化粧下地${u}`, ingredients: ['水', `ベタイン${u}`] });
+  for (const p of [...fillers, base]) addProductToDynamicCache(p);
+  const ours = new Set([...fillers, base].map((p) => p.id));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    if (!String(url).endsWith('/decisions')) return new Response('offline in tests', { status: 503 });
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(JSON.parse(String(init?.body)).questions)) {
+      const name: string = JSON.parse(String(q.instructions).split('productName: ')[1]);
+      answers[id] = { type: 'noul', noul: name.includes('下地') ? 0.95 : 0.05 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  setGatewayEnv();
+  try {
+    const req = { avoid: [], known: [], kindWord: '下地', excludeIds: COSMETICS_DATABASE.map((p) => p.id).filter((id) => !ours.has(id)), allowPaidLookups: false };
+    const found = await findAlternatives(req);
+    assert.deepStrictEqual(found.products.map((p) => p.id), [base.id]);
+  } finally {
+    globalThis.fetch = originalFetch;
     clearGatewayEnv();
   }
 });

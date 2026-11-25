@@ -6,7 +6,7 @@
  * docs/plans/mineral-oil-avoid-request.md「Step 4」
  */
 import { BoundedCache } from '../utils/bounded-cache';
-import { normalizeIngredientName } from '../utils/ingredient-name';
+import { LISTED_NAME_SEPARATOR, normalizeIngredientName } from '../utils/ingredient-name';
 import { findMatchingKnownIngredient } from './ingredient-match';
 
 export const MINERAL_OIL_VERDICTS = ['mineral_oil', 'not_mineral_oil', 'unsure'] as const;
@@ -21,8 +21,6 @@ const HYDROCARBON =
  */
 const NOT_HYDROCARBON =
   /酸|グリコール|エーテル|エステル|スルホ|ポリマー|共重合|ミツロウ|ビーズ|ビーワックス|キャンデリラ|カルナウバ|ライス|コメヌカ|ヒマワリ|ホホバ|ラノリン|glycol|acid|ether|ester|sulf|peg|polymer|bees|candelilla|carnauba|rice|sunflower|jojoba|lanolin/;
-/** 成分表示の1項目に並んで入っている名前の区切り（「イソドデカン、マイカ」「〜共重合体/イソヘキサデカン/ポリソルベート80」「ポリブテン・マイカ」） */
-const LIST_SEPARATOR = /[/／、,，・･]/;
 
 /**
  * 成分表示の1項目のうち、鉱物油かを AI に判定させる名前（name は表示のまま、norm は正規化した名前。無ければ空）。
@@ -32,7 +30,7 @@ export function unclearHydrocarbonNames(raw: string): { name: string; norm: stri
   const cached = unclearNames.get(raw);
   if (cached) return cached;
   const names = raw
-    .split(LIST_SEPARATOR)
+    .split(LISTED_NAME_SEPARATOR)
     .map((part) => ({ name: part.normalize('NFKC').trim(), norm: normalizeIngredientName(part) }))
     .filter(
       ({ name, norm }) =>

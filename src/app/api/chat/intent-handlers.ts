@@ -12,6 +12,7 @@ import {
   AlternativeRequest,
   alternativeQuickReplies,
   alternativeRequest,
+  resolveUnknownWords,
   findAlternatives,
   fitsRequestedKind,
   summarizeAlternatives,
@@ -82,7 +83,9 @@ export async function ingredientQuestionReply({ gate, userText }: IntentContext)
 /** C. 代わりの商品探し（T3）。避ける成分は成分DBの名前か比較の候補成分だけで、検索語に文章を使わない */
 export async function findAlternativeReply({ gate, userText, routine }: IntentContext) {
   if (gate?.intent !== 'find_alternative') return null;
-  const req = alternativeRequest(userText, routine);
+  // アプリが知らない語（「シリコン」「下地」）は、成分か種類かを AI で確かめてから使う
+  const parsed = alternativeRequest(userText, routine);
+  const req = parsed && (await resolveUnknownWords(parsed));
   if (!req) {
     return NextResponse.json({
       reply:
@@ -129,7 +132,9 @@ export async function productSearchReply({ gate, userText, routine }: IntentCont
   const matchedProducts = byType ? found.filter((p) => fitsRequestedKind(byType, p)).slice(0, SHOWN_MATCHES) : found;
   // 種類だけの依頼で、その種類の名前の商品が無ければ、その種類の強い刺激成分を含まない商品を探す（「該当する化粧品が
   // 見つかりませんでした」で終わらせない。近い候補は種類で絞っていないので、こちらが先）
-  if (matchedProducts.length === 0 && byType) return alternativesResponse(byType);
+  // 成分DBに無い避けたい語は、成分かを AI で確かめてから使う（代わりの商品探しと同じ）
+  const typeRequest = matchedProducts.length === 0 && byType ? await resolveUnknownWords(byType) : null;
+  if (typeRequest) return alternativesResponse(typeRequest);
 
   // F. 商品名の入力など。合う商品が無く、検索語にあるブランドの近い製品があれば、答えではなく近い候補として見せる
   if (matchedProducts.length === 0 && closeMatches.length > 0) {

@@ -15,8 +15,8 @@ import { shopLink } from './shops';
 
 /**
  * 代わりの商品を、楽天市場・Yahoo!ショッピングの商品検索から探す（docs/plans/alternative-recommendations.md の step 3）
- * - 検索語は種類（下位の種類）の名前と決まった語（「無香料」「ノンケミカル」など）だけ。利用者が入力した文・成分表示は
- *   送らない。種類はお店のジャンル（step 2 で確かめた ID）でも絞る。確かめた ID の無い下位の種類は絞らない
+ * - 検索語は種類（下位の種類）の名前と決まった語（「無香料」「ノンケミカル」など）、成分DBに無い避けたい語の「〇〇フリー」
+ *   （利用者の文から取った2〜15文字の語）だけ。利用者が入力した文・成分表示は送らない。種類はお店のジャンル（step 2 で確かめた ID）でも絞る。確かめた ID の無い下位の種類は絞らない
  * - 成分は安い順に確かめる（1 と 2 の候補を、お店の関連順のまま先に。どちらも無い候補は、足りないときだけ 3 へ）：
  *   1. Yahoo! の JAN コードで、保存済みの確かめた製品（費用なし）
  *   2. 楽天の商品説明の全成分（shop-ingredients.ts。その返答にだけ使う。楽天の規約 第10条 (9)）
@@ -125,18 +125,28 @@ const MAX_BARCODE_LOOKUPS = 2;
  * 1回の押下で最初の検索と合わせて4回まで（それ以上は、待ち時間と全員の枠を使いすぎる）
  */
 const MAX_RAKUTEN_JAN_LOOKUPS = 3;
+/** AI の判定が要るとき、まとめて全成分を読み、判定を聞く候補の数（読む手間は、足りた後の数件分だけ増える） */
+const CHECK_WINDOW = 10;
 /** JAN コードで楽天を探す手順に使ってよい時間（ふつうは3回で約3秒。遅いときはここで止める） */
 const JAN_STEP_BUDGET_MS = 6_000;
 /** お店の説明から読んだ一覧で、評価できた成分の割合の下限 */
 const MIN_RATED_SHARE = 0.8;
 
 export interface ShopAlternativeInput {
-  category: AlternativeCategory;
+  /** 探す種類。アプリの種類に無い種類（「下地」）は kindWord で */
+  category?: AlternativeCategory;
+  /**
+   * アプリの種類に無い、頼まれた種類の語（「下地」）。検索語はこの語で、ジャンル・名前の種類では絞らない。その種類の商品かは
+   * AI の判定（prepareCheck で取ってくる。analyzer/kind-word.ts）
+   */
+  kindWord?: string;
   /** 分析した製品の下位の種類（無ければ今までどおり。ハンド・からだ用などの候補は外す） */
   subKind?: SubKind;
   /** 分析した製品の形・使う場所（並べ替えにだけ使う。形で候補を外さない） */
   profile?: FormProfile;
   avoid: (CulpritIngredient | { nameJa: string; nameEn?: string })[];
+  /** 成分DBに無い、避けたいと書かれた語（「シリコン」。確認は AI の判定で。analyzer/avoided-word.ts） */
+  avoidWords?: readonly string[];
   /** 検索語に足す決まった語（「無香料」「アルコールフリー」「ノンケミカル」など） */
   terms: string[];
   /** 勧めない製品（分析した製品・肌荒れしたコスメ） */
@@ -153,10 +163,10 @@ export interface ShopAlternativeInput {
    */
   allowPaidLookups?: boolean;
   /**
-   * 候補を確かめる前に、確認に要るものを取ってくる（鉱物油を避けるときの、炭化水素の AI の判定。
-   * services/mineral-oil-judge.ts）。無ければ何もしない
+   * 候補を確かめる前に、確認に要るものを取ってくる（鉱物油・成分DBに無い語を避けるときの AI の判定。
+   * services/mineral-oil-judge.ts・avoided-word-judge.ts）。いくつかの候補をまとめて渡す（判定をまとめて聞く）。無ければ何もしない
    */
-  prepareCheck?: (product: Product) => Promise<void>;
+  prepareCheck?: (products: Product[]) => Promise<void>;
   /** お店の API を続けて呼ぶ間隔（ミリ秒）。既定は API_INTERVAL_MS（1秒に1回まで）。変えるのは評価のスクリプト・テストだけ */
   shopCallIntervalMs?: number;
 }
@@ -683,7 +693,7 @@ function withDeadline<T>(promise: Promise<T>): Promise<T | null> {
 export async function findShopAlternatives(input: ShopAlternativeInput): Promise<ShopAlternativeResult> {
   const counts = emptyCounts();
   if (!isRakutenApiConfigured() && !isYahooApiConfigured()) return { status: 'unavailable', products: [], credits: [], counts };
-  const { label, genre } = shopSearchFor(input.category, input.subKind);
+  const { label, genre } = input.category ? shopSearchFor(input.category, input.subKind) : { label: input.kindWord ?? '', genre: undefined };
   // お店に送るのは種類（下位の種類）の名前と決まった語だけ
   const keyword = [label, ...input.terms].join(' ');
   // 楽天を続けて呼ぶとき（下の 2b）に、前の呼び出しから間をあけるため
@@ -720,7 +730,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       // 別の種類（ジャンルが広い・名前が別の種類を言う）・別の下位の種類（クレンジングに洗顔料）と、勧めない製品
       // （同じ製品・同じシリーズ）は除く
       const kind = categoryFromText(name);
-      if ((kind && kind !== input.category) || subKindFit(input.subKind, candidateSubKind(input.subKind, input.category, name), input.category) === 'other') {
+      if (
+        input.category &&
+        ((kind && kind !== input.category) || subKindFit(input.subKind, candidateSubKind(input.subKind, input.category, name), input.category) === 'other')
+      ) {
         drop('otherKind', item);
         continue;
       }
@@ -733,12 +746,18 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     }
   }
 
-  const gateReason = alternativeGateReason(input.avoid);
+  const gateReason = alternativeGateReason(input.avoid, input.avoidWords);
   const excludeIds = new Set(input.exclude.map((p) => p.id));
   /** 勧めてよければ null、だめなら理由 */
   const rejection = (p: Product): ShopDropReason | null => {
     if (excludeIds.has(p.id) || excludedJans.has(normalJan(p.barcode))) return 'excluded';
-    const reason = gateReason(p, { category: input.category, subKind: input.subKind, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
+    const reason = gateReason(p, {
+      category: input.category,
+      subKind: input.subKind,
+      kindWord: input.kindWord,
+      allowShopListing: true,
+      minRatedShare: MIN_RATED_SHARE,
+    });
     return reason === 'ok' ? null : GATE_DROP[reason];
   };
   // item: お店が返した候補（数・順位・関連順はこれで）。listing: 表示する別の出品（Yahoo! の商品を JAN コードで楽天に見つけたとき）
@@ -766,8 +785,16 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     else found.push({ product, item, ...(listing && { listing }), listKey: list });
   };
   const shownSaved = input.shownSaved ?? [];
-  const consider = async (product: Product, item: ShopItem, listing?: ShopItem) => {
-    await input.prepareCheck?.(product);
+  /**
+   * AI の判定を聞く価値がある候補か。避ける成分のほかの決まり（種類・成分表示・化粧品基準・強い刺激成分・評価できた割合）で
+   * もう外れる候補の名前に、聞く回数を使わない（避ける成分の確認は、外れる理由を足すだけ）。kindWord の種類は判定で決めるので見ない
+   */
+  const preGate = alternativeGateReason([]);
+  const worthJudging = (p: Product) =>
+    !excludeIds.has(p.id) &&
+    preGate(p, { category: input.category, subKind: input.subKind, allowShopListing: true, minRatedShare: MIN_RATED_SHARE }) === 'ok';
+  // 確かめる前に input.prepareCheck を済ませておく
+  const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const reason = rejection(product);
     if (reason === 'otherKind') counts.otherKindAfterRead++;
     if (reason) drop(reason, item);
@@ -778,6 +805,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // 並べ替えの順位：同じ下位の種類が先（名前で分からない候補は後）、次に形・使う場所の近さ（product-form.ts）
   const profile = hasFormProfile(input.profile) ? input.profile : undefined;
   const rank = ({ item }: { item: ShopItem }) => {
+    if (!input.category) return 0;
     const name = withoutListingNoise(item.name);
     const sameSubKind = subKindFit(input.subKind, candidateSubKind(input.subKind, input.category, name), input.category) === 'same';
     return (sameSubKind ? 1000 : 0) + (profile ? formSimilarity(profile, formProfile(name, input.category)) : 0);
@@ -802,21 +830,30 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const free = items.filter((i) => savedFor.has(i) || i.caption);
   const rest = items.filter((i) => !savedFor.has(i) && !i.caption);
   const unchecked: ShopItem[] = [];
-  for (const item of free.slice(0, MAX_CANDIDATES)) {
-    if (enough()) break;
-    counts.checked++;
-    const saved = savedFor.get(item);
-    if (saved) {
-      // 出品者の書いた JAN コードは間違えていることがある。保存済みの製品の名前と、お店の商品名が合うときだけ
-      if (sameListing(saved, item)) await consider(saved, item);
+  // AI の判定が要るときは、CHECK_WINDOW 件ずつ全成分を先に読み、判定をまとめて取ってから確かめる（1件ずつ聞くと、聞く回数の
+  // 上限ですぐに確かめられなくなる）。要らなければ今までどおり1件ずつ（足りた後の候補の説明を読まない）
+  const window = input.prepareCheck ? CHECK_WINDOW : 1;
+  const freeItems = free.slice(0, MAX_CANDIDATES);
+  for (let start = 0; start < freeItems.length && !enough(); start += window) {
+    const read = await Promise.all(
+      freeItems.slice(start, start + window).map(async (item) => {
+        const saved = savedFor.get(item);
+        // 出品者の書いた JAN コードは間違えていることがある。保存済みの製品の名前と、お店の商品名が合うときだけ
+        if (saved) return { item, product: sameListing(saved, item) ? saved : null };
+        // 2. 楽天の商品説明の全成分
+        const label = await ingredientsFromCaption(item.caption!);
+        return { item, product: label ? shopListingProduct(item, brandOf(item, brands), label) : null };
+      })
+    );
+    await input.prepareCheck?.(read.flatMap(({ product }) => (product && worthJudging(product) ? [product] : [])));
+    for (const { item, product } of read) {
+      if (enough()) break;
+      counts.checked++;
+      if (product) consider(product, item);
+      // 説明に全成分が無い楽天の商品は、JAN コードがあれば後で調べる
+      else if (!savedFor.has(item) && item.janCode) unchecked.push(item);
       else drop('noList', item);
-      continue;
     }
-    // 2. 楽天の商品説明の全成分
-    const label = await ingredientsFromCaption(item.caption!);
-    if (label) await consider(shopListingProduct(item, brandOf(item, brands), label), item);
-    else if (item.janCode) unchecked.push(item);
-    else drop('noList', item);
   }
   // 無料の手段の無い候補は、足りないときだけ見る（仕事は無い。JAN コードがあれば有料の調べものの候補、無ければ成分表示なし）。
   // 無料の確かめの上限とは別に数えるので、上の確かめで上限まで使っても、Yahoo! の JAN コードの商品は有料の調べものに届く
@@ -872,7 +909,9 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
       counts.janToRakuten.found++;
       viaRakuten.add(item);
       // 確認・数え方はほかのお店の候補と同じ（数えるのは Yahoo! の候補として。表示は楽天の出品）
-      await consider(shopListingProduct(match.listing, brandOf(match.listing, brands), match.label), item, match.listing);
+      const product = shopListingProduct(match.listing, brandOf(match.listing, brands), match.label);
+      if (worthJudging(product)) await input.prepareCheck?.([product]);
+      consider(product, item, match.listing);
     }
   }
   // 3. まだ足りなければ、上位の JAN コードの商品を調べる（有料のことがある。必要な数だけ、並べて、時間の上限つき）。
@@ -885,8 +924,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   // 調べない JAN コードの商品は、成分を確かめられなかった
   for (const item of payable.slice(toLookup.length)) drop('noList', item);
   const looked = await Promise.all(toLookup.map((item) => withDeadline(lookupByBarcode(item.janCode!).catch(() => null))));
-  for (const [i, product] of looked.entries()) {
-    if (product && isShareable(product) && sameListing(product, toLookup[i])) await consider(product, toLookup[i]);
+  const usable = looked.map((product, i) => (product && isShareable(product) && sameListing(product, toLookup[i]) ? product : null));
+  await input.prepareCheck?.(usable.filter((p): p is Product => !!p && worthJudging(p)));
+  for (const [i, product] of usable.entries()) {
+    if (product) consider(product, toLookup[i]);
     else drop('noList', toLookup[i]);
   }
 

@@ -1,7 +1,7 @@
 import 'server-only';
 import { CulpritIngredient, KnownIngredient, PriceApiCredit, Product, UserRoutineState } from '../types';
 import { analyzeProduct } from '../analyzer/ingredient-analyzer';
-import { findMatchingKnownIngredient } from '../analyzer/ingredient-match';
+import { findMatchingKnownIngredient, labelIngredients } from '../analyzer/ingredient-match';
 import { alternativeAvoidItems, avoidedIngredients, findSafeAlternatives, fitsKind, hasVerifiedIngredients } from '../analyzer/alternative-gate';
 import { performDifferentialAnalysis } from '../analyzer/differential-analysis';
 import {
@@ -22,6 +22,10 @@ import { findShopAlternatives, shopFormWord, shopSearchLabel, ShopAlternativeRes
 import { coveredIngredientGroups, findIngredientsInText, inIngredientGroup, INGREDIENT_GROUP_WORDS, standaloneGroupWord } from './chat-replies';
 import { researchAlternativeCandidates } from './web-research';
 import { mineralOilJudge } from './mineral-oil-judge';
+import { avoidedWordJudge } from './avoided-word-judge';
+import { kindWordJudge } from './kind-word-judge';
+import { classifyWords } from './word-class-judge';
+import { fitsKindWord, kindWordName } from '../analyzer/kind-word';
 import { isGeminiConfigured } from './gemini-client';
 import { isSameProduct, ProductIdentity, registeredMatcher } from '../search/product-identity';
 import { buildBrandIndex, SEED_INDEX, textHasBrand } from './brand-suggest';
@@ -35,6 +39,16 @@ import { COSMETICS_DATABASE } from '../data/cosmetics-db';
 
 /** 検索語に使う成分の上限（長い検索語は結果が減る） */
 const MAX_QUERY_INGREDIENTS = 3;
+/** 成分DBに無い語を避けるとき、保存済みの製品のうち AI に聞く候補の数（limit の何倍か） */
+const WORD_JUDGE_POOL = 8;
+/** アプリの種類に無い種類の語で探すとき、保存済みの製品のうち、その種類かを AI に聞く候補の数と、聞く回数 */
+const KIND_JUDGE_POOL = 300;
+const SAVED_KIND_CALLS = 2;
+
+/** AI に判定させる成分名。確認（alternativeGateReason）が見る成分と同じ（医薬部外品の有効成分も） */
+function judgedNames(product: Product): string[] {
+  return labelIngredients(product).map(({ raw }) => raw);
+}
 const DEFAULT_LIMIT = 3;
 
 export interface AlternativeRequest {
@@ -58,10 +72,17 @@ export interface AlternativeRequest {
   /** お店で足りないとき、JAN コードで製品を調べてよいか（有料のことがある。既定は調べる） */
   allowPaidLookups?: boolean;
   /**
-   * 避けたいと書かれたが、成分DBに無い語（「シリコン不使用」のシリコン）。確かめていないと返事で言うためだけに持つ
-   * （お店にもログにも送らない。ログは数だけ）
+   * 避けたいと書かれたが、成分DBに無い語（「シリコン不使用」のシリコン）。ほかの成分と同じく避ける（成分名が当たるかは AI が判定。
+   * analyzer/avoided-word.ts）。お店と Web の検索語に「〇〇フリー」として入れる。ログには数だけ
    */
   unknownAvoid?: string[];
+  /**
+   * 頼まれた物の語のうち、アプリの種類に無い語（「シリコン不使用の下地」の下地）。まだ確かめていない。resolveUnknownWords で
+   * 化粧品の種類と判定されたら kindWord になり、そうでなければ使わない
+   */
+  askedItem?: string;
+  /** アプリの種類に無い、頼まれた種類の語（AI が化粧品の種類と判定した語）。その種類の商品かは、商品ごとに AI が判定する */
+  kindWord?: string;
 }
 
 /** 文や句の切れ目（読点・句点・改行と、理由や逆接でつなぐ語） */
@@ -75,7 +96,7 @@ function clauseNaming(text: string, category: AlternativeCategory | undefined): 
 }
 
 /**
- * 文章（「香料が入っていない化粧水」等）から。成分DBの成分も種類も無ければ null
+ * 文章（「香料が入っていない化粧水」等）から。成分DBの成分も種類も、成分DBに無い避けたい語も無ければ null
  * 文章そのものは検索に使わない
  */
 export function alternativeRequestFromText(text: string): AlternativeRequest | null {
@@ -84,18 +105,22 @@ export function alternativeRequestFromText(text: string): AlternativeRequest | n
   const negated = mentioned.filter((k) => isNegatedInText(k, text));
   const known = negated.length > 0 ? negated : mentioned;
   const category = categoryFromText(text);
-  if (known.length === 0 && !category) return null;
+  // 成分DBに無い語だけの頼み（「シリコンフリー」）も、種類を問わず、その語に当たる成分と強い刺激成分を含まない物を探す
+  const unknownAvoid = unknownAvoidWords(text);
+  // 種類が分からなければ、頼まれた物の語（「下地」）を取っておく（化粧品の種類かは resolveUnknownWords で AI が判定）
+  const askedItem = category ? undefined : askedItemWord(text, unknownAvoid);
+  if (known.length === 0 && !category && unknownAvoid.length === 0 && !askedItem) return null;
   // 下位の種類と形は、探す種類を書いた部分だけから読む（「ボディミルクで荒れたので化粧水を探して」の
   // 「ボディ」で、からだ用の化粧水だけを探さない）
   const clause = clauseNaming(text, category);
   const subKind = subKindFromText(category, clause);
-  const unknownAvoid = unknownAvoidWords(text);
   return {
     avoid: known.map((k) => ({ nameJa: k.nameJa, nameEn: k.nameEn })),
     known,
     category,
     ...(subKind && { subKind }),
     ...(unknownAvoid.length > 0 && { unknownAvoid }),
+    ...(askedItem && { askedItem }),
     profile: formProfile(clause, category),
     excludeIds: [],
   };
@@ -114,6 +139,8 @@ const AVOID_PHRASE =
   /([ァ-ヶー一-龠a-z0-9]{2,15})(?:が|を|は)?(?:フリー|free|不使用|入っていない|入ってない|含まない|含まれていない|無添加|なし|無し|抜き)|無((?:(?!無)[ァ-ヶー一-龠]){2,10})/g;
 /** 成分ではない語（「無添加」の添加、「刺激なし」の刺激） */
 const NOT_AN_INGREDIENT_WORD = /^(添加|刺激)/;
+/** 「無」の後で成分ではない語（「無料」「無理」「無難」「無限」「無駄」「無効」「無事」「無償」「無数」「無線」「無人」「無意識」「無印良品」） */
+const NOT_AN_INGREDIENT_AFTER_MU = /^(料|理|難|限|駄|効|事|償|数|線|人|意識|印)/;
 /** 返事で言う、成分DBに無い語の数の上限 */
 const MAX_UNKNOWN_AVOID = 2;
 
@@ -123,11 +150,56 @@ export function unknownAvoidWords(text: string): string[] {
   const words = new Set<string>();
   for (const m of t.matchAll(AVOID_PHRASE)) {
     const word = m[1] ?? m[2];
-    if (NOT_AN_INGREDIENT_WORD.test(word)) continue;
+    if (NOT_AN_INGREDIENT_WORD.test(word) || (m[1] === undefined && NOT_AN_INGREDIENT_AFTER_MU.test(word))) continue;
     const known = findIngredientsInText(word, { includeNegated: true }).length > 0 || INGREDIENT_GROUP_WORDS.some((g) => g.word === word);
     if (!known) words.add(word);
   }
   return [...words].slice(0, MAX_UNKNOWN_AVOID);
+}
+
+/** 頼まれた物の語の候補（カタカナ・漢字の続き） */
+const ITEM_RUN = /[ァ-ヶー一-龠]{2,15}/g;
+/** 頼まれた物ではない語（頼み方・肌の言い方・「化粧品」のような種類を言わない語） */
+const NOT_AN_ITEM = /^(探|教|検索|紹介|購入|使用|使|敏感肌|乾燥肌|脂性肌|混合肌|普通肌|肌|商品|製品|化粧品|コスメ|アイテム|スキンケア|代|候補|成分|刺激|添加|低刺激|無添加)/;
+/** 避けたいと書いた句（「アルコールは避けたい」）。頼まれた物の語にしない */
+const AVOID_WISH = /[ァ-ヶー一-龠a-z0-9]{2,15}(?:は|を|が)?(?:避け|控え|苦手|ダメ|だめ|NG|ng)/g;
+
+/**
+ * 種類が分からない頼みで、頼まれた物の語（「シリコン不使用の下地」「下地を探して」の下地）。避けたい語の句・成分DBの成分の名前・
+ * 頼み方の語は除き、最後の語（頼みごとは後ろに来る）。無ければ undefined
+ */
+export function askedItemWord(text: string, avoidWords: readonly string[]): string | undefined {
+  const t = text.normalize('NFKC').toLowerCase().replace(/\s+/g, '').replace(AVOID_PHRASE, '、').replace(AVOID_WISH, '、');
+  const words = [...t.matchAll(ITEM_RUN)]
+    .map((m) => m[0])
+    .filter((w) => !NOT_AN_ITEM.test(w) && !avoidWords.includes(w) && findIngredientsInText(w, { includeNegated: true }).length === 0);
+  return words.at(-1);
+}
+
+/**
+ * アプリが知らない語を、AI（Decisions API）で確かめてから使う（owner 2026-11-25）:
+ * - 避けたい語（「シリコン」）：成分（成分のまとまりを含む）と判定されたか、分からなければ避ける。成分ではないと判定されたら使わない
+ * - 頼まれた物の語（「下地」）：化粧品の種類と判定されたら、その種類を探す（商品ごとに AI が種類を確かめる）。そうでなければ使わない
+ * 探すものが何も残らなければ null（今までどおり、成分か種類を書くように返事する）
+ */
+export async function resolveUnknownWords(req: AlternativeRequest): Promise<AlternativeRequest | null> {
+  const avoidWords = req.unknownAvoid ?? [];
+  const item = req.askedItem;
+  if (avoidWords.length === 0 && !item) return req;
+  const classes = await classifyWords([
+    ...avoidWords.map((word) => ({ word, ask: 'ingredient' as const })),
+    ...(item ? [{ word: item, ask: 'kind' as const }] : []),
+  ]);
+  const kept = avoidWords.filter((word) => classes.get(word)?.ingredient !== 'no');
+  const kindWord = item && classes.get(item)?.kind === 'yes' ? item : undefined;
+  const resolved: AlternativeRequest = kindWord
+    ? { ...req, category: undefined, subKind: undefined, profile: undefined, unknownKind: undefined, kindWord }
+    : { ...req };
+  delete resolved.askedItem;
+  delete resolved.unknownAvoid;
+  if (kept.length > 0) resolved.unknownAvoid = kept;
+  const nothingToSearch = resolved.avoid.length === 0 && !resolved.category && !resolved.kindWord && kept.length === 0 && !resolved.unknownKind;
+  return nothingToSearch ? null : resolved;
 }
 
 /**
@@ -231,8 +303,10 @@ export function alternativeRequestFromProduct(product: Product): AlternativeRequ
  * お店の検索語に足す決まった語（お店の商品名によく書かれる語だけ。多すぎると結果が減る）。
  * scripts/eval-alternatives.mts も、本番と同じ語で測るためにこれを使う
  */
-export function shopTerms(req: Pick<AlternativeRequest, 'known'>): string[] {
+export function shopTerms(req: Pick<AlternativeRequest, 'known' | 'unknownAvoid'>): string[] {
   const terms = new Set<string>();
+  // 成分DBに無い語（「シリコン」）は、書かれた語に「フリー」（お店の商品名に多い言い方）。書かれた語を先に
+  for (const word of req.unknownAvoid ?? []) terms.add(`${word}フリー`);
   for (const k of req.known) {
     if (k.category === 'fragrance' || k.category === 'essential_oil') terms.add('無香料');
     else if (k.id === 'ethanol' || k.category === 'drying_alcohol') terms.add('アルコールフリー');
@@ -269,8 +343,10 @@ function queryTerm(k: KnownIngredient): string {
  * 「顔用日焼け止め」のように狭めすぎない。「クレンジング」「乳液」「ボディソープ」はその名前）
  */
 export function buildAlternativeQuery(req: AlternativeRequest): string {
-  const terms = [...new Set(req.known.map(queryTerm))].slice(0, MAX_QUERY_INGREDIENTS);
-  const kind = req.category ? [shopSearchLabel(req.category, req.subKind), shopFormWord(req.category, req.subKind, req.profile?.form)] : ['スキンケア'];
+  const terms = [...new Set([...(req.unknownAvoid ?? []).map((word) => `${word}フリー`), ...req.known.map(queryTerm)])].slice(0, MAX_QUERY_INGREDIENTS);
+  const kind = req.category
+    ? [shopSearchLabel(req.category, req.subKind), shopFormWord(req.category, req.subKind, req.profile?.form)]
+    : [req.kindWord ?? 'スキンケア'];
   return ['敏感肌', ...kind.filter((w): w is string => !!w), ...terms, '全成分'].join(' ');
 }
 
@@ -369,12 +445,14 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   // shopCheck はログの shop と同じときに null（お店に聞かなかった）
   const done = (result: Omit<AlternativeResult, 'shopCheck'>, answeredBy: AlternativesLog['answeredBy']): AlternativeResult => {
     logAlternatives({
-      kind: req.unknownKind ? 'unknown' : (req.category ?? 'any'),
+      // 種類の語（利用者の語）はログに残さない
+      kind: req.unknownKind ? 'unknown' : (req.category ?? (kindWord ? 'word' : 'any')),
       subKind: req.subKind ?? null,
       // 確認で避けない成分（低刺激と判定済み）は数えない
       avoid: req.avoid.filter((a) => !('riskLevel' in a) || a.riskLevel !== 'safe').length,
       unknownAvoid: req.unknownAvoid?.length ?? 0,
-      terms,
+      // 書かれた語（「シリコン」）はログに残さない
+      terms: terms.map((t) => (req.unknownAvoid?.some((word) => t === `${word}フリー`) ? '〇〇フリー' : t)),
       saved,
       fitting,
       answeredBy,
@@ -386,27 +464,75 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   if (req.unknownKind) return done({ products: [], researched: false, credits: [] }, 'none');
   // 鉱物油を避けるとき、名前で決まらない炭化水素（イソパラフィン等）の AI の判定を、確かめる前に取ってくる
   // （確認は判定が「鉱物油でない」名前だけを通す。docs/plans/mineral-oil-avoid-request.md「Step 4」）
-  const judge = avoidedIngredients(req.avoid).ids.has('mineral_oil') ? mineralOilJudge() : undefined;
+  const oilJudge = avoidedIngredients(req.avoid).ids.has('mineral_oil') ? mineralOilJudge() : undefined;
+  // 成分DBに無い避けたい語（「シリコン」）は、成分名ごとに AI が判定する（判定が「当たらない」名前だけを通す）
+  const words = req.unknownAvoid ?? [];
+  const wordJudge = words.length > 0 ? avoidedWordJudge(words) : undefined;
+  // アプリの種類に無い種類の語（「下地」）は、商品ごとに AI がその種類かを判定する（判定が「当たる」商品だけを出す）
+  const kindWord = req.kindWord;
+  // 保存済みの製品とお店の商品で、聞く回数を別に持つ（保存済みの製品の判定で、お店の商品の判定を使い切らない）
+  const savedKindJudge = kindWord ? kindWordJudge(kindWord, { maxCalls: SAVED_KIND_CALLS }) : undefined;
+  const kindJudge = kindWord ? kindWordJudge(kindWord) : undefined;
+  const fitsWord = (p: Product) => !kindWord || fitsKindWord(kindWord, p.name);
+  const excludes = [...req.excludeIds, ...(req.excludeProducts ?? [])];
+  const options = { category: req.category, subKind: req.subKind, profile: req.profile, avoidWords: words, kindWord };
+  let judgedPool: Product[] | undefined;
   const judgeSaved = async () => {
-    if (!judge) return;
-    // 出せる製品だけ（除く製品・全成分を確かめていない製品・利用者の成分表示の製品の名前に、聞く回数を使わない）
-    const excluded = new Set(req.excludeIds);
-    const isRegistered = registeredMatcher(req.excludeProducts ?? []);
-    const showable = COSMETICS_DATABASE.filter(
-      (p) =>
-        !excluded.has(p.id) &&
-        hasVerifiedIngredients(p) &&
-        p.ingredientSource !== 'user_label' &&
-        (!req.category || fitsKind(p, req.category, req.subKind)) &&
-        !isRegistered(p)
-    );
-    await judge(showable.flatMap((p) => p.ingredients));
+    // 種類の語で探すときは、その種類と判定された候補だけを、下で鉱物油の判定にかける
+    if (oilJudge && !kindWord) {
+      // 出せる製品だけ（除く製品・全成分を確かめていない製品・利用者の成分表示の製品の名前に、聞く回数を使わない）
+      const excluded = new Set(req.excludeIds);
+      const isRegistered = registeredMatcher(req.excludeProducts ?? []);
+      const showable = COSMETICS_DATABASE.filter(
+        (p) =>
+          !excluded.has(p.id) &&
+          hasVerifiedIngredients(p) &&
+          p.ingredientSource !== 'user_label' &&
+          (!req.category || fitsKind(p, req.category, req.subKind)) &&
+          !isRegistered(p)
+      );
+      await oilJudge(showable.flatMap(judgedNames));
+    }
+    // 語・種類の語の判定は、ほかの確認を通る製品のうち、出す候補になる数だけ（聞く数を絞る）。確かめ直すのも、その候補だけ
+    // （保存済みの製品をもう一度すべて見ない）。
+    // 種類の語（「下地」）は、名前にその語が無い製品（「プライマー」）も AI が同じ種類か判定する。名前にその語がある製品を先に
+    if (wordJudge || savedKindJudge) {
+      // 種類の語で探すときは、鉱物油の判定がまだ無いので、候補を選ぶ確認では鉱物油を避けない（出す前の確認で避ける）
+      const avoidForPool = kindWord ? req.avoid.filter((a) => !avoidedIngredients([a]).ids.has('mineral_oil')) : req.avoid;
+      const poolOptions = { ...options, avoidWords: [], kindWord: undefined };
+      let pool: Product[];
+      if (kindWord && savedKindJudge) {
+        // 通るものをすべて並べてから、名前にその語がある製品を先にして切る（切った後で並べると、その語のある製品が落ちる）
+        const word = kindWordName(kindWord);
+        const named: Product[] = [];
+        const others: Product[] = [];
+        for (const p of findSafeAlternatives(avoidForPool, excludes, Infinity, poolOptions)) {
+          (kindWordName(p.name).includes(word) ? named : others).push(p);
+        }
+        pool = [...named, ...others].slice(0, KIND_JUDGE_POOL);
+        await savedKindJudge(pool);
+        pool = pool.filter(fitsWord).slice(0, limit * WORD_JUDGE_POOL);
+        await oilJudge?.(pool.flatMap(judgedNames));
+      } else {
+        pool = findSafeAlternatives(avoidForPool, excludes, limit * WORD_JUDGE_POOL, poolOptions);
+      }
+      await wordJudge?.(pool.flatMap(judgedNames));
+      judgedPool = pool;
+    }
   };
+  const judgeShop = oilJudge || wordJudge || kindJudge
+    ? async (products: Product[]) => {
+        // 種類を先に（その種類でない商品の成分は聞かない）
+        await kindJudge?.(products);
+        const ingredients = products.filter(fitsWord).flatMap(judgedNames);
+        await oilJudge?.(ingredients);
+        await wordJudge?.(ingredients);
+      }
+    : undefined;
   // 同じ製品がブランド表記違い・カタカナと英字の書き分けで重複して登録されていることがあるため、多めに取って1件にまとめる
   const check = () => {
     const unique: Product[] = [];
-    const options = { category: req.category, subKind: req.subKind, profile: req.profile };
-    for (const p of findSafeAlternatives(req.avoid, [...req.excludeIds, ...(req.excludeProducts ?? [])], limit * 4, options)) {
+    for (const p of findSafeAlternatives(req.avoid, excludes, limit * 4, { ...options, ...(judgedPool && { pool: judgedPool }) })) {
       // 名前のキーだけでは比べない（キーはブランドを除くので、別のブランドの「ハンドクリーム」が1つになる）
       if (unique.some((u) => isSameProduct(u, p))) continue;
       unique.push(p);
@@ -422,14 +548,16 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
 
   let shopProducts: Product[] = [];
   let credits: PriceApiCredit[] = [];
-  if (req.category) {
+  if (req.category || kindWord) {
     // 一緒に出せる保存済みの製品（合う製品と、頼まれた下位の種類で埋めてよい製品）
     const shownSaved = fittingFirst(local, [], req, limit);
     const shop = await findShopAlternatives({
       category: req.category,
+      kindWord,
       subKind: req.subKind,
       profile: req.profile,
       avoid: req.avoid,
+      avoidWords: words,
       terms,
       exclude: [...(req.excludeProducts ?? []), ...local, ...req.excludeIds.map((id) => ({ id, name: '' }))],
       // 一緒に出す保存済みの製品と同じお店の出品は、お店の検索の中で外して、ほかの出品で埋める（出さない保存済みの製品は含めない）。
@@ -439,7 +567,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）。
       // 数えるのは出せる製品だけ（別の下位の種類の製品は埋めない。docs/plans/shop-paid-lookups-and-keyword-names.md「Step 1」）
       allowPaidLookups: (req.allowPaidLookups ?? true) && shownSaved.length < limit,
-      ...(judge && { prepareCheck: (p: Product) => judge(p.ingredients) }),
+      ...(judgeShop && { prepareCheck: judgeShop }),
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
     const isRegistered = registeredMatcher(req.excludeProducts ?? []);
@@ -458,7 +586,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
 
   // お店で足りない（キーが無い・失敗した・確かめられる商品が少ない）ときは、Web で候補を探してから確かめ直す。
   // 合う製品を先に、保存済みの製品（Web で見つけた製品を含む）をお店の商品より先に並べる（同じ製品は1つだけ）
-  const target = `敏感肌向けの${req.category ? kindLabel(req.category, req.subKind) : 'スキンケア製品'}`;
+  const target = `敏感肌向けの${req.category ? kindLabel(req.category, req.subKind) : (kindWord ?? 'スキンケア製品')}`;
   await researchAlternativeCandidates(buildAlternativeQuery(req), target);
   await judgeSaved();
   const checked = check();
@@ -483,8 +611,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
  * URL・お店の文・利用者の文は出さない
  */
 interface AlternativesLog {
-  /** unknown: 種類が分からず探さなかった / any: 種類を決めずに探した */
-  kind: AlternativeCategory | 'unknown' | 'any';
+  /** unknown: 種類が分からず探さなかった / any: 種類を決めずに探した / word: アプリの種類に無い種類の語で探した */
+  kind: AlternativeCategory | 'unknown' | 'any' | 'word';
   /** 下位の種類（決まった語）。無ければ null */
   subKind: SubKind | null;
   /** 避ける成分の数 */
@@ -522,12 +650,13 @@ export function avoidedNames(req: AlternativeRequest): string[] {
     .filter((a) => (!('riskLevel' in a) || a.riskLevel !== 'safe') && !memberOfGroup(a))
     .map((a) => a.nameJa.split(/[（(]/)[0].trim().slice(0, 30))
     .filter(Boolean);
-  return [...new Set([...groups.map((g) => g.label), ...names])].slice(0, 3);
+  return [...new Set([...groups.map((g) => g.label), ...names, ...(req.unknownAvoid ?? [])])].slice(0, 3);
 }
 
 /**
  * 依頼の内容を決める。文章に成分DBの成分があればそれを避ける。無ければ比較リストの候補成分を避け、
- * 種類は文章で指定されていればそれを使う。どちらも無ければ null。
+ * 種類は文章で指定されていればそれを使う。どちらも無くても、成分DBに無い避けたい語（「シリコンフリー」）があれば、
+ * 種類を問わない依頼にする（その語も避ける）。成分も種類も避けたい語も無ければ null。
  * どの決め方でも、比較リストに登録した製品は勧めない（文章で成分を書いたときも、使えるコスメだけのときも）
  */
 export function alternativeRequest(text: string, routine: UserRoutineState | undefined): AlternativeRequest | null {
@@ -567,7 +696,18 @@ function requestFromTextOrRoutine(text: string, routine: UserRoutineState | unde
   if (fromRoutine) {
     // 文章で種類を指定されたら、下位の種類も文章から（「ハンドクリームで探して」）
     const { category, subKind, profile } = fromText?.category ? fromText : fromRoutine;
-    return { ...fromRoutine, category, subKind, profile, ...(!category && { unknownKind: true }) };
+    // 成分DBに無い語・アプリの種類に無い頼まれた物の語は、登録したコスメの候補成分で探すときも使う（resolveUnknownWords）
+    const unknownAvoid = fromText?.unknownAvoid;
+    const askedItem = fromText?.askedItem;
+    return {
+      ...fromRoutine,
+      category,
+      subKind,
+      profile,
+      ...(unknownAvoid && { unknownAvoid }),
+      ...(askedItem && { askedItem }),
+      ...(!category && { unknownKind: true }),
+    };
   }
   return fromText;
 }
@@ -665,27 +805,25 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
     ? MIXED_BODY_LABEL
     : req.category
       ? requestedKindLabel(req.category, req.subKind, allOfForm ? form : onlyShownForm)
-      : 'コスメ';
+      : (req.kindWord ?? 'コスメ');
   // 頼まれた物の名前（からだ用のクリームは頼まれた形の名前）
   const asked = req.category && form ? requestedKindLabel(req.category, req.subKind, form) : kind;
   const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
   const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck, kind) : [];
-  // 成分DBに無い語は確かめていない。鉱物油の、名前で決まらない炭化水素は AI の判定（docs/plans/mineral-oil-avoid-request.md）
+  // 鉱物油の、名前で決まらない炭化水素（docs/plans/mineral-oil-avoid-request.md）と、成分DBに無い語に当たる成分は AI の判定
   const unknown = req.unknownAvoid ?? [];
-  const notChecked = unknown.length > 0 ? [`「${unknown.join('」「')}」は成分データに無いため、含まれていないかを確かめていません。`] : [];
-  const unknownAdvice = unknown.length > 0 ? [`パッケージの全成分表示に「${unknown.join('」「')}」が無いかもご確認ください。`] : [];
-  const aiJudged = avoidedIngredients(req.avoid).ids.has('mineral_oil') && isGeminiConfigured()
-    ? ['鉱物油かどうかが成分名だけでは分からない成分（イソパラフィンなど）は、AI が判定しています。AI の判定には誤りが含まれることがあります。']
-    : [];
+  const judgedBy = [
+    ...(avoidedIngredients(req.avoid).ids.has('mineral_oil') ? ['鉱物油かどうかが成分名だけでは分からない成分（イソパラフィンなど）は、AI が判定しています。'] : []),
+    ...(unknown.length > 0 ? [`「${unknown.join('」「')}」に当たる成分かどうかは、AI が成分ごとに判定しています。`] : []),
+  ];
+  const aiJudged = judgedBy.length > 0 && isGeminiConfigured() ? [`${judgedBy.join('')}AI の判定には誤りが含まれることがあります。`] : [];
   if (products.length === 0) {
     return [
-      ...notChecked,
       `${subject}は、全成分を確認できた商品の中からは見つかりませんでした。`,
       ...shortfall,
       names.length > 0
         ? `商品を選ぶときは、パッケージの全成分表示に「${names.join('」「')}」が無いかをご確認ください。`
         : '商品を選ぶときは、パッケージの全成分表示をご確認ください。',
-      ...unknownAdvice,
     ].join('\n\n');
   }
   // 形（オイル・ジェル等）は並べ替えにだけ使い、候補を外さない。頼まれた形が1つも無ければ、そう言う
@@ -702,12 +840,10 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
           ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
           : [];
   return [
-    ...notChecked,
     `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
     ...aiJudged,
     ...otherForms,
     ...shortfall,
-    ...unknownAdvice,
     '肌に合うかは人によって違います。初めて使うときは少量から試してください。',
   ].join('\n\n');
 }

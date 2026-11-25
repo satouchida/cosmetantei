@@ -7,6 +7,8 @@ import { abbreviateIngredientName, normalizeIngredientName } from '../utils/ingr
 import { findStandardEntry, productUseType, standardNote } from './jp-standards';
 import { candidateSubKind, isMakeupName, productCategory, SubKind, subKindFit } from './product-category';
 import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './product-form';import { findMatchingKnownIngredient, isPlaceholderIngredient, labelIngredients } from './ingredient-match';
+import { mayContainAvoidedWord } from './avoided-word';
+import { fitsKindWord } from './kind-word';
 import { mayBeMineralOil } from './mineral-oil';
 import { AnalyzedIngredient, CulpritIngredient, IngredientRiskLevel, Product } from '../types';
 
@@ -49,6 +51,11 @@ export interface AlternativeGateOptions {
    * 別の下位の種類は「別の種類」（kind）として外す
    */
   subKind?: SubKind;
+  /**
+   * アプリの種類に無い、頼まれた種類の語（「下地」。category の代わり）。AI の判定でその種類と確かめた商品だけ
+   * （analyzer/kind-word.ts）
+   */
+  kindWord?: string;
   /** お店の商品説明から読んだ成分表示の製品も確かめる（その返答にだけ使う。確認済みの出典ではない） */
   allowShopListing?: boolean;
   /**
@@ -70,9 +77,10 @@ export type AlternativeGateReason = 'ok' | 'kind' | 'unverified' | 'userLabel' |
  * 避ける成分から、代わりの商品の確認を作る。含まない・強い刺激成分を含まない・同じ種類・全成分が確かめられている
  */
 export function alternativeGate(
-  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
+  avoidWords: readonly string[] = []
 ): (product: Product, options?: AlternativeGateOptions) => boolean {
-  const reason = alternativeGateReason(avoidCulprits);
+  const reason = alternativeGateReason(avoidCulprits, avoidWords);
   return (product, options) => reason(product, options) === 'ok';
 }
 
@@ -99,17 +107,23 @@ export function avoidedIngredients(avoidCulprits: (CulpritIngredient | { nameJa:
   return { ids, names };
 }
 
-/** alternativeGate と同じ確認で、外れた理由を返す（決まりはここにだけ書く） */
+/**
+ * alternativeGate と同じ確認で、外れた理由を返す（決まりはここにだけ書く）。
+ * avoidWords: 成分DBに無い、避けたいと書かれた語（「シリコン」）。AI の判定で「当たらない」名前だけ通す（analyzer/avoided-word.ts）
+ */
 export function alternativeGateReason(
-  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]
+  avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
+  avoidWords: readonly string[] = []
 ): (product: Product, options?: AlternativeGateOptions) => AlternativeGateReason {
   const { ids: avoidIds, names: avoidNames } = avoidedIngredients(avoidCulprits);
+  const words = avoidWords.map(normalizeIngredientName).filter(Boolean);
   // 鉱物油を避けるとき、名前で決まらない炭化水素（イソパラフィン等）は AI の判定で「鉱物油でない」ものだけ通す
   // （判定は確認の前に取ってくる。services/mineral-oil-judge.ts）
   const avoidsMineralOil = avoidIds.has('mineral_oil');
 
   return (product, options = {}) => {
     if (options.category && !fitsKind(product, options.category, options.subKind)) return 'kind';
+    if (options.kindWord && !fitsKindWord(options.kindWord, product.name)) return 'kind';
     const shopListing = options.allowShopListing && isSellerTextProduct(product) && product.ingredients.length > 0;
     if (!shopListing && !hasVerifiedIngredients(product)) return 'unverified';
     // ユーザーが入力した成分表示の製品は、ほかの人へのおすすめにしない（共有キャッシュにも入れていない）
@@ -128,6 +142,7 @@ export function alternativeGateReason(
       const known = findMatchingKnownIngredient(raw);
       if (known && avoidIds.has(known.id)) return 'suspect';
       if (avoidsMineralOil && mayBeMineralOil(raw)) return 'suspect';
+      if (words.some((word) => mayContainAvoidedWord(word, raw))) return 'suspect';
       // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
       const rating = known ?? getOrGenerateIngredientExplanation(raw);
       if (rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant') return 'irritant';
@@ -183,19 +198,24 @@ export function findSafeAlternatives(
   excluded: readonly (string | ProductIdentity)[] = [],
   limit = 3,
   /** profile: 分析した製品の形・使う場所（並べ替えにだけ使う。product-form.ts） */
-  options: Pick<AlternativeGateOptions, 'category' | 'subKind'> & { profile?: FormProfile } = {}
+  /** avoidWords: 成分DBに無い避けたい語。pool: 探す製品（無ければ保存済みのすべて。AI の判定を取った候補だけを確かめ直すとき） */
+  options: Pick<AlternativeGateOptions, 'category' | 'subKind' | 'kindWord'> & {
+    profile?: FormProfile;
+    avoidWords?: readonly string[];
+    pool?: readonly Product[];
+  } = {}
 ): Product[] {
-  const passes = alternativeGate(avoidCulprits);
+  const passes = alternativeGate(avoidCulprits, options.avoidWords);
   const excludedIds = new Set(excluded.filter((e): e is string => typeof e === 'string'));
   const isExcluded = registeredMatcher(excluded.filter((e): e is ProductIdentity => typeof e !== 'string'));
   const sheet = options.category === 'mask' && options.subKind === 'sheet';
   // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索。お店のページから保存した
   // セット・まとめ売り（「6個セット」）は1個の商品ではないので勧めない（お店の候補と同じ決まり）
-  const safeItems = COSMETICS_DATABASE.filter(
+  const safeItems = (options.pool ?? COSMETICS_DATABASE).filter(
     (product) =>
       !excludedIds.has(product.id) &&
       !notSingleItem(product.name, sheet) &&
-      passes(product, { category: options.category, subKind: options.subKind }) &&
+      passes(product, { category: options.category, subKind: options.subKind, kindWord: options.kindWord }) &&
       !isExcluded(product)
   );
 

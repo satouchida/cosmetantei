@@ -16,6 +16,12 @@ export function isWheatDerivedName(raw: string): boolean {
   return /コムギ|小麦|トリティカム|triticum/.test(n) || /(?<!buck)wheat/.test(n.replace(/\s+/g, ''));
 }
 
+/**
+ * 成分表示の1項目に並んで入っている名前の区切り（「イソドデカン、マイカ」「〜共重合体/イソヘキサデカン/ポリソルベート80」「ポリブテン・マイカ」）。
+ * 数字の前のカンマは名前の一部（「1,2-ヘキサンジオール」）
+ */
+export const LISTED_NAME_SEPARATOR = /[/／、・･]|[,，](?![\d０-９])/;
+
 export function normalizeIngredientName(name: string): string {
   if (!name) return '';
   // 全角英数（ＢＧ・ＤＰＧ など、Web ページの成分表示に多い）を半角にそろえる
