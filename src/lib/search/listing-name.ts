@@ -123,14 +123,37 @@ function withoutNameTail(words: string[]): string[] {
   return kept;
 }
 
+/** 縦線（NFKC の後なので「｜」も「|」） */
+const BAR = /\s*\|\s*/;
+/** 縦線で切るのは、前にこの数以上の名前の語があるときだけ（「ORBIS オルビス | アクアフォース …」のブランドの二重書きは名前ではない） */
+const MIN_WORDS_BEFORE_BAR = 3;
+
 /**
- * お店の商品名から、検索用の語より後ろを外す（「美容液ファンデ 崩れにくい 30代 40代 …」→「美容液ファンデ」）。先頭の検索用の語
+ * 縦線の後に並べた検索用の語を外す（楽天の「ベース ルミネッセンス トーン | 化粧下地 プライマー … 美容液 メイク下地 透明感 保湿」
+ * →「ベース ルミネッセンス トーン」）。縦線の前後に、かっこ・容量でない語が前に3語以上・後ろに3語以上あって、
+ * 後ろに種類・形の語を含むときだけ（「ニベア 200ml | ボディミルク …」「ORBIS オルビス | アクアフォース …」のようにブランドだけの前は切らない）。NFKC にした名前を渡す
+ */
+function withoutBarKeywords(name: string): string {
+  const parts = name.split(BAR);
+  for (let i = 1; i < parts.length; i++) {
+    const before = parts.slice(0, i).join(' ').split(/\s+/).filter((w) => w && !NOT_KEYWORD.test(w));
+    const after = parts.slice(i).join(' ').split(/\s+/).filter((w) => w && !NOT_KEYWORD.test(w));
+    if (before.length >= MIN_WORDS_BEFORE_BAR && after.length >= MIN_KEYWORD_TAIL && after.some(isKindWord)) {
+      return parts.slice(0, i).join(' | ');
+    }
+  }
+  return name;
+}
+
+/**
+ * お店の商品名から、検索用の語より後ろを外す（「美容液ファンデ 崩れにくい 30代 40代 …」→「美容液ファンデ」）。縦線の後の検索用の語
+ * （withoutBarKeywords）も外す。先頭の検索用の語
  * （「ギフト キュレル …」）と先頭の売り文句（LEADING_SALE）も外す。すべての語が検索用の語なら、そのまま。お店の分類・管理の語
  * （withoutNameTail）も外す。
  * Amazon・Qoo10 の検索はすべての語を含む商品を探すので、名前ではない語が1つでもあると見つからない
  */
 export function withoutSearchTags(name: string): string {
-  const n = name.normalize('NFKC').trim();
+  const n = withoutBarKeywords(name.normalize('NFKC').trim());
   // 先頭の売り文句（何も残らなければ外さない）
   const words = (n.replace(LEADING_SALE, '') || n).split(/\s+/).filter(Boolean);
   const start = words.findIndex((w) => !SEARCH_TAG.test(w));
@@ -154,7 +177,8 @@ const LONE_SEPARATOR = /(?<=^|\s)[/／|｜]+(?=\s|$)/g;
  * 何も残らなければ ''
  */
 export function listingSearchName(name: string): string {
-  const clean = withoutListingNoise(name);
+  // 縦線の後の検索用の語は、1語の区切り（LONE_SEPARATOR）を外す前に切る
+  const clean = withoutBarKeywords(withoutListingNoise(name));
   const trimmed = clean
     .replace(LOOSE_NOISE, ' ')
     .replace(SEARCH_SIZE, ' ')

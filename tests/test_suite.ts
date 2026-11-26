@@ -14901,3 +14901,23 @@ test('237. A 楽天 listing named 「【to/one】ベース …」 takes the bran
   const toone = brands.find((b) => b.entry.name === 'to/one')!;
   for (const other of ['ルミネッセンス トーン', 'ハトムギ化粧水 トーンアップ', 'TONE UP クリーム']) assert.ok(!textHasBrand(other, toone), other);
 });
+
+test('238. A shop name with a keyword list after 「|」 (「ベース ルミネッセンス トーン | 化粧下地 プライマー … 美容液 … 保湿」) is shown and searched without that list; a bar after the brand alone, a short tail or a tail with no kind word is kept (live 2026-11-26)', async () => {
+  const { displayListingName, listingSearchName, withoutSearchTags } = await import('../src/lib/search/listing-name');
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const name = '【to/one】ベース ルミネッセンス トーン | 化粧下地 プライマー メイクアップベース 紫外線吸収剤フリー シリコンフリー 合成香料フリー 美容液 メイク下地 透明感 保湿 肌荒れ';
+  assert.strictEqual(listingCardLabels({ brand: 'to/one', name }).name, 'ベース ルミネッセンス トーン');
+  assert.strictEqual(listingSearchName(name), 'ベース ルミネッセンス トーン');
+  // 全角の「｜」・空白なしでも切る
+  assert.strictEqual(displayListingName('やさしい うるおい ミルク｜乳液 保湿 敏感肌 無香料'), 'やさしい うるおい ミルク');
+  // 前がブランドだけ（容量・かっこの語は数えない。英字とカナの二重書きも名前ではない）・後ろが2語・後ろに種類の語がないときは切らない
+  assert.strictEqual(displayListingName('ニベア | ボディミルク 無香料 保湿 乾燥肌'), 'ニベア | ボディミルク 無香料 保湿 乾燥肌');
+  assert.strictEqual(withoutSearchTags('ニベア 200ml | ボディミルク 保湿 乾燥肌'), 'ニベア 200ml | ボディミルク 保湿 乾燥肌');
+  assert.strictEqual(withoutSearchTags('ORBIS オルビス | アクアフォース ミスト 化粧水 保湿 敏感肌'), 'ORBIS オルビス | アクアフォース ミスト 化粧水 保湿 敏感肌');
+  assert.strictEqual(displayListingName('やさしい うるおい ミルク | 乳液 保湿'), 'やさしい うるおい ミルク | 乳液 保湿');
+  assert.strictEqual(displayListingName('やさしい うるおい ミルク | 01 ピンク 限定'), 'やさしい うるおい ミルク | 01 ピンク 限定');
+  // 容量・かっこの語は数えない
+  assert.strictEqual(withoutSearchTags('やさしい うるおい ミルク | 乳液 100ml (顔用) 保湿'), 'やさしい うるおい ミルク | 乳液 100ml (顔用) 保湿');
+  // 「/」の区切りは名前の一部（「肌ラボ / 極潤」）なので、このルールでは切らない
+  assert.strictEqual(withoutSearchTags('肌ラボ / 極潤 化粧水 保湿 乾燥 敏感'), '肌ラボ / 極潤 化粧水 保湿 乾燥 敏感');
+});
