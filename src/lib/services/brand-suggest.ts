@@ -85,7 +85,8 @@ function toField(text: string): BrandField {
   const nfkc = text.normalize('NFKC');
   return {
     key: searchKey(text),
-    words: text.split(/[\s\u3000,，、/／・]+/).map(searchKey).filter(Boolean),
+    // 【】も語の区切り（「【to/one】ベース …」の to/one を、後ろの「ベース」と1語にしない）
+    words: text.split(/[\s\u3000,，、/／・【】]+/).map(searchKey).filter(Boolean),
     kanaWords: nfkc.split(KANA_WORD_BREAK).map(searchKey).filter(Boolean),
     kanaRun: kanaRun(nfkc),
   };

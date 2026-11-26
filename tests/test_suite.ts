@@ -14880,3 +14880,24 @@ test('236. Shop alternatives: a listing shown with a caution (香料・精油・
     shops.restore();
   }
 });
+
+test('237. A 楽天 listing named 「【to/one】ベース …」 takes the brand to/one from the brand list (a 【】 tag is a word break when matching brands), not the first word 「ベース」; the brand\'s reading 「トーン」 is an ordinary word and matches nothing (live 2026-11-26)', async () => {
+  const { COSMETICS_DATABASE } = await import('../src/lib/data/cosmetics-db');
+  const { buildBrandIndex, textHasBrand } = await import('../src/lib/services/brand-suggest');
+  const { brandOf } = await import('../src/lib/services/shop-alternatives');
+  const { listingCardLabels } = await import('../src/lib/display-brand');
+  const brands = buildBrandIndex(COSMETICS_DATABASE);
+  const name = '【to/one】ベース ルミネッセンス トーン | 化粧下地 プライマー メイクアップベース 紫外線吸収剤フリー シリコンフリー 合成香料フリー 美容液 メイク下地 透明感 保湿 肌荒れ';
+  const item = { shopId: 'rakuten' as const, code: 't237', name, brands: [], url: 'https://item.rakuten.co.jp/x/t237/', taxIncluded: true };
+  const brand = brandOf(item, brands);
+  assert.strictEqual(brand, 'to/one');
+  const card = listingCardLabels({ brand, name });
+  assert.strictEqual(card.brand, 'to/one');
+  assert.ok(card.name.startsWith('ベース ルミネッセンス トーン'), card.name);
+  assert.ok(!card.name.includes('to/one'), card.name);
+  // ほかの英字のブランドも、【】のすぐ後に日本語が続く名前で見つかる（前は「shiroボディ」が1語になり、見つからなかった）
+  const shiro = brands.find((b) => b.entry.name === 'SHIRO')!;
+  assert.ok(textHasBrand('【SHIRO】ボディコロン サボン 100ml', shiro));
+  const toone = brands.find((b) => b.entry.name === 'to/one')!;
+  for (const other of ['ルミネッセンス トーン', 'ハトムギ化粧水 トーンアップ', 'TONE UP クリーム']) assert.ok(!textHasBrand(other, toone), other);
+});

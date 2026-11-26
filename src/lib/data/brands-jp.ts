@@ -124,6 +124,9 @@ export const BRANDS_JP: BrandEntry[] = [
   { name: 'MiMC', kana: 'エムアイエムシー' },
   { name: 'ナチュラグラッセ', aliases: ['naturaglacé', 'naturaglace'] },
   { name: 'オンリーミネラル', aliases: ['ONLY MINERALS'] },
+  // 楽天の名前は「【to/one】ベース ルミネッセンス トーン | …」（【】は飾りとして外れ、「ベース」がブランドの行になっていた）。
+  // 読みの「トーン」は「ルミネッセンス トーン」のような普通の語なので、別名にしない
+  { name: 'to/one' },
   { name: 'SHIRO', kana: 'シロ' },
   { name: 'アクセーヌ', aliases: ['ACSEINE'] },
   { name: 'プラチナレーベル', aliases: ['Platinum Label'] }, // ドウシシャ。楽天の名前は「CICA シカ … プラチナレーベル ドウシシャ」
