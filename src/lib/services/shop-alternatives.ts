@@ -748,9 +748,29 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
 
   const gateReason = alternativeGateReason(input.avoid, input.avoidWords);
   const excludeIds = new Set(input.exclude.map((p) => p.id));
+  /**
+   * 避ける成分のほかの決まり（種類・成分表示・化粧品基準・強い刺激成分・評価できた割合）だけで見た理由。
+   * kindWord の種類は AI の判定で決めるので見ない。成分を1つずつ見るので、商品ごとに1回だけ（CPU の時間）
+   */
+  const preGate = alternativeGateReason([]);
+  const preGateReasons = new WeakMap<Product, AlternativeGateReason>();
+  const preGateReason = (p: Product): AlternativeGateReason => {
+    let reason = preGateReasons.get(p);
+    if (reason === undefined) {
+      reason = preGate(p, { category: input.category, subKind: input.subKind, allowShopListing: true, minRatedShare: MIN_RATED_SHARE });
+      preGateReasons.set(p, reason);
+    }
+    return reason;
+  };
   /** 勧めてよければ null、だめなら理由 */
   const rejection = (p: Product): ShopDropReason | null => {
     if (excludeIds.has(p.id) || excludedJans.has(normalJan(p.barcode))) return 'excluded';
+    // kindWord の種類を AI に聞かなかった候補（ほかの決まりでもう外れる。worthJudging）は、その決まりで外す
+    // （判定が無いので「その種類と確かめられない」になり、本当の理由が隠れる）
+    if (input.kindWord) {
+      const before = preGateReason(p);
+      if (before !== 'ok') return GATE_DROP[before];
+    }
     const reason = gateReason(p, {
       category: input.category,
       subKind: input.subKind,
@@ -789,10 +809,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
    * AI の判定を聞く価値がある候補か。避ける成分のほかの決まり（種類・成分表示・化粧品基準・強い刺激成分・評価できた割合）で
    * もう外れる候補の名前に、聞く回数を使わない（避ける成分の確認は、外れる理由を足すだけ）。kindWord の種類は判定で決めるので見ない
    */
-  const preGate = alternativeGateReason([]);
-  const worthJudging = (p: Product) =>
-    !excludeIds.has(p.id) &&
-    preGate(p, { category: input.category, subKind: input.subKind, allowShopListing: true, minRatedShare: MIN_RATED_SHARE }) === 'ok';
+  const worthJudging = (p: Product) => !excludeIds.has(p.id) && preGateReason(p) === 'ok';
   // 確かめる前に input.prepareCheck を済ませておく
   const consider = (product: Product, item: ShopItem, listing?: ShopItem) => {
     const reason = rejection(product);

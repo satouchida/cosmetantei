@@ -14683,3 +14683,47 @@ test('233. With more than 300 saved candidates, products named with the kind wor
     clearGatewayEnv();
   }
 });
+
+test('234. For a kind the app doesn\'t know, a listing that another rule already drops (a strong irritant) is not asked about its kind and is counted under that rule, not as 「その種類と確かめられない」 (live check 2026-11-26)', async () => {
+  const { findAlternatives } = await import('../src/lib/services/alternatives-service');
+  const u = `${process.pid}${Date.now()}`;
+  const base = '水、グリセリン、BG、スクワラン、ヒアルロン酸Na、カルボマー、水酸化K、フェノキシエタノール';
+  const items = [
+    { itemName: `テスト234 しっとり化粧下地${u} 30g`, itemCode: 't234:1', itemCaption: shopCaption(base) },
+    { itemName: `テスト234 さらさら化粧下地${u} 30g`, itemCode: 't234:2', itemCaption: shopCaption(`${base}、メチルイソチアゾリノン`) },
+  ];
+  const shops = fakeShops(items);
+  const kindAsked: string[] = [];
+  const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+    if (!String(input).endsWith('/decisions')) return shops.fetchFn(input, init);
+    const answers: Record<string, unknown> = {};
+    for (const [id, q] of Object.entries<any>(JSON.parse(String(init?.body)).questions)) {
+      const text: string = q.instructions;
+      if (text.includes('productName: ')) {
+        const name: string = JSON.parse(text.split('productName: ')[1]);
+        kindAsked.push(name);
+        answers[id] = { type: 'noul', noul: name.includes('下地') ? 0.95 : 0.05 };
+      } else answers[id] = { type: 'noul', noul: 0.05 };
+    }
+    return Response.json({ answers, usage: { total_input_tokens: 100 } });
+  }) as typeof fetch;
+  const req = { avoid: [], known: [], kindWord: '下地', excludeIds: COSMETICS_DATABASE.map((p) => p.id), allowPaidLookups: false };
+  setGatewayEnv();
+  const logs: string[] = [];
+  const originalLog = console.log;
+  console.log = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  try {
+    const found = await withShopKeys(fetchFn, () => findAlternatives(req));
+    const ids = found.products.map((p) => p.id).filter((id) => id.startsWith('shoptext_'));
+    assert.deepStrictEqual(ids, ['shoptext_rakuten_t234:1'], JSON.stringify(found.products.map((p) => p.id)));
+    const line = JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+    assert.strictEqual(line.shop.dropped.irritant, 1, JSON.stringify(line.shop));
+    assert.strictEqual(line.shop.dropped.otherKind, 0, JSON.stringify(line.shop));
+    assert.strictEqual(line.shop.otherKindAfterRead, 0, JSON.stringify(line.shop));
+    assert.ok(kindAsked.some((name) => name.includes('しっとり')), JSON.stringify(kindAsked));
+    assert.ok(kindAsked.every((name) => !name.includes('さらさら')), JSON.stringify(kindAsked));
+  } finally {
+    console.log = originalLog;
+    clearGatewayEnv();
+  }
+});
