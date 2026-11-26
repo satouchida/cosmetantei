@@ -790,7 +790,7 @@ test('22. Bounded caches and in-memory rate limiting', async () => {
   assert.strictEqual(await isRateLimited('search', ip), false, 'Search bucket is counted separately');
 });
 
-test('23. Safe alternatives exclude culprits written in English INCI and other strong irritants', () => {
+test('23. Safe alternatives exclude culprits written in English INCI and other strong irritants', async () => {
   const culpritOnly: Product = {
     id: 'bad_fragrance_only',
     name: '香料入り化粧水',
@@ -832,6 +832,19 @@ test('23. Safe alternatives exclude culprits written in English INCI and other s
   assert.ok(found.slice(0, ids.indexOf(withEthanol.id)).every((p) => !p.cautionIngredients), 'Every clean product comes first');
   // 保存済みの製品は書き換えない（注意は写しに付ける）
   assert.strictEqual(withEthanol.cautionIngredients, undefined);
+
+  // 「無香料」「アルコールフリー」の印は、同じ種類の注意があれば写しから外す（もとの製品の印はそのまま）
+  const { withAlternativeCautions } = await import('../src/lib/analyzer/alternative-gate');
+  const flagged = (ingredients: string[]) => ({ ...verifiedProduct({ id: 'flags_23', ingredients }), fragranceFree: true, alcoholFree: true });
+  const oil = flagged(['水', 'オレンジ果皮油']);
+  assert.deepStrictEqual([withAlternativeCautions(oil).fragranceFree, withAlternativeCautions(oil).alcoholFree], [undefined, true]);
+  assert.strictEqual(oil.fragranceFree, true);
+  const alcohol = withAlternativeCautions(flagged(['水', '変性アルコール']));
+  assert.deepStrictEqual([alcohol.fragranceFree, alcohol.alcoholFree], [true, undefined]);
+  const both = withAlternativeCautions(flagged(['水', 'ラベンダー油', 'エタノール']));
+  assert.deepStrictEqual([both.fragranceFree, both.alcoholFree], [undefined, undefined]);
+  const plain = flagged(['水', 'グリセリン']);
+  assert.strictEqual(withAlternativeCautions(plain), plain);
 });
 
 test('24. No "safe" rating without enough evaluated ingredient data', () => {

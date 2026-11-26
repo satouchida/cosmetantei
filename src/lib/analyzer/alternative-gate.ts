@@ -49,9 +49,19 @@ export function alternativeCautions(product: Product): string[] {
   return [...names];
 }
 
-/** 注意を書く成分があれば、それを付けた写し（もとの製品は保存済みの製品と共有なので書き換えない） */
+/**
+ * 注意を書く成分があれば、それを付けた写し（もとの製品は保存済みの製品と共有なので書き換えない）。
+ * 「無香料」「アルコールフリー」の印（香料・エタノールの名前が無いことだけを見る。analyzer/free-of.ts）は、同じ種類の注意と
+ * 食い違うので外す（精油で香りを付けた「無香料」の商品に、無香料と精油の注意が並ばないように）
+ */
 export function withAlternativeCautions(product: Product, cautions = alternativeCautions(product)): Product {
-  if (cautions.length > 0) return { ...product, cautionIngredients: cautions };
+  if (cautions.length > 0) {
+    const groups = new Set(cautions.map((name) => CAUTION_GROUPS[ratingOf(name).category]));
+    const copy: Product = { ...product, cautionIngredients: cautions };
+    if (groups.has('scent')) delete copy.fragranceFree;
+    if (groups.has('alcohol')) delete copy.alcoholFree;
+    return copy;
+  }
   if (!product.cautionIngredients) return product;
   // 前に付けた注意（送り返された製品など）は、今の成分で無ければ外す
   const rest = { ...product };
