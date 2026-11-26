@@ -35,6 +35,7 @@ import {
   routineProducts,
   salicylicToner,
   shopProducts,
+  cautionedAlternative,
 } from '@/lib/dev/gallery-fixtures';
 
 export interface GalleryResults {
@@ -189,12 +190,12 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
     },
     {
       id: 'suggestions-alternatives',
-      title: '代わりの商品（お店の商品・PR・クレジット）',
+      title: '代わりの商品（お店の商品・PR・クレジット・香料/精油/アルコールの注意）',
       layout: 'chat',
       render: () => (
         <Bubble>
           <ProductSuggestionCard
-            products={shopProducts.slice(0, 4)}
+            products={[...shopProducts.slice(0, 3), cautionedAlternative]}
             isAlternatives
             credits={['rakuten', 'yahoo']}
             {...cardHandlers}
@@ -325,7 +326,11 @@ function screens(r: GalleryResults): { id: string; title: string; layout?: 'chat
       layout: 'chat',
       render: () => (
         <Bubble>
-          <AmazonAlternativeCard products={[curel, ihada, longJapanese]} avoidedIngredients={['香料', 'エタノール']} onPriceLookup={() => {}} />
+          <AmazonAlternativeCard
+            products={[curel, ihada, longJapanese, { ...cautionedAlternative, cautionIngredients: ['ラベンダー油'] }]}
+            avoidedIngredients={['メチルイソチアゾリノン']}
+            onPriceLookup={() => {}}
+          />
         </Bubble>
       ),
     },

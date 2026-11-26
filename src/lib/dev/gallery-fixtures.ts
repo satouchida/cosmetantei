@@ -221,6 +221,12 @@ export function shopProduct(i: number, opts: { longName?: boolean; sponsored?: b
 
 export const shopProducts: Product[] = Array.from({ length: 9 }, (_, i) => shopProduct(i + 1, { longName: i % 2 === 0 }));
 
+/** 代わりの商品のうち、香料・精油・アルコールを含む商品（カードに注意を出す。名前が多いと「ほか n つ」） */
+export const cautionedAlternative: Product = {
+  ...shopProduct(10, { longName: false }),
+  cautionIngredients: ['オレンジ果皮油', 'ベルガモット果実油', 'ローマカミツレ花油', 'チョウジ葉油', 'エタノール'],
+};
+
 export const routineProducts = {
   bad: [melano, longJapanese, longLatinName],
   safe: [curel, ihada],

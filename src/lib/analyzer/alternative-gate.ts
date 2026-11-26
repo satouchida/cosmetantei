@@ -10,7 +10,54 @@ import { FormProfile, formProfile, formSimilarity, hasFormProfile } from './prod
 import { mayContainAvoidedWord } from './avoided-word';
 import { fitsKindWord } from './kind-word';
 import { mayBeMineralOil } from './mineral-oil';
-import { AnalyzedIngredient, CulpritIngredient, IngredientRiskLevel, Product } from '../types';
+import { AnalyzedIngredient, CulpritIngredient, IngredientCategory, KnownIngredient, Product } from '../types';
+
+/**
+ * 強い刺激成分のうち、避けると言われていなければ代わりの商品から外さず、カードに注意を書いて出す種類（香り・アルコール）。
+ * 香料と精油は同じ「香り」として扱う（香料を避ける人には精油の香りも勧めない。その逆も）
+ */
+type CautionGroup = 'scent' | 'alcohol';
+const CAUTION_GROUPS: Partial<Record<IngredientCategory, CautionGroup>> = {
+  fragrance: 'scent',
+  essential_oil: 'scent',
+  drying_alcohol: 'alcohol',
+};
+
+function isStrongIrritant(rating: KnownIngredient): boolean {
+  return rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant';
+}
+
+/** 成分DBの評価、無ければルールの評価 */
+function ratingOf(raw: string): KnownIngredient {
+  return findMatchingKnownIngredient(raw) ?? getOrGenerateIngredientExplanation(raw);
+}
+
+/** 注意を書いて出す強い刺激成分か（香料・精油・乾燥性のアルコール） */
+function isCautionIrritant(rating: KnownIngredient): boolean {
+  return isStrongIrritant(rating) && CAUTION_GROUPS[rating.category] !== undefined;
+}
+
+/**
+ * 代わりの商品のカードに注意を書く成分（香料・精油・アルコールのうち強い刺激成分。表示の名前のまま、表示の順に）。
+ * 避けると言われた種類のものは、確認（alternativeGateReason）で外してあるので、ここには残らない
+ */
+export function alternativeCautions(product: Product): string[] {
+  const names = new Set<string>();
+  for (const { raw } of labelIngredients(product)) {
+    if (isCautionIrritant(ratingOf(raw))) names.add(raw);
+  }
+  return [...names];
+}
+
+/** 注意を書く成分があれば、それを付けた写し（もとの製品は保存済みの製品と共有なので書き換えない） */
+export function withAlternativeCautions(product: Product, cautions = alternativeCautions(product)): Product {
+  if (cautions.length > 0) return { ...product, cautionIngredients: cautions };
+  if (!product.cautionIngredients) return product;
+  // 前に付けた注意（送り返された製品など）は、今の成分で無ければ外す
+  const rest = { ...product };
+  delete rest.cautionIngredients;
+  return rest;
+}
 
 /**
  * おすすめ代替品として提示してよい製品か
@@ -74,7 +121,8 @@ export interface AlternativeGateOptions {
 export type AlternativeGateReason = 'ok' | 'kind' | 'unverified' | 'userLabel' | 'standard' | 'suspect' | 'irritant' | 'unrated';
 
 /**
- * 避ける成分から、代わりの商品の確認を作る。含まない・強い刺激成分を含まない・同じ種類・全成分が確かめられている
+ * 避ける成分から、代わりの商品の確認を作る。含まない・強い刺激成分を含まない（香料・精油・アルコールは避ける種類だけ）・
+ * 同じ種類・全成分が確かめられている
  */
 export function alternativeGate(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
@@ -107,19 +155,43 @@ export function avoidedIngredients(avoidCulprits: (CulpritIngredient | { nameJa:
   return { ids, names };
 }
 
+/** 避ける成分に入っている、注意を書いて出す種類（香り・アルコール）。その種類の強い刺激成分は、注意ではなく外す */
+function avoidedCautionGroups(avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[]): Set<CautionGroup> {
+  const groups = new Set<CautionGroup>();
+  for (const c of avoidCulprits) {
+    if ('riskLevel' in c && c.riskLevel === 'safe') continue;
+    for (const name of [c.nameJa, c.nameEn]) {
+      const group = name ? CAUTION_GROUPS[ratingOf(name).category] : undefined;
+      if (group) groups.add(group);
+    }
+  }
+  return groups;
+}
+
 /**
  * alternativeGate と同じ確認で、外れた理由を返す（決まりはここにだけ書く）。
  * avoidWords: 成分DBに無い、避けたいと書かれた語（「シリコン」）。AI の判定で「当たらない」名前だけ通す（analyzer/avoided-word.ts）
  */
 export function alternativeGateReason(
   avoidCulprits: (CulpritIngredient | { nameJa: string; nameEn?: string })[],
-  avoidWords: readonly string[] = []
+  avoidWords: readonly string[] = [],
+  /**
+   * 香料・精油・アルコールを外すかを決める避ける成分（既定は avoidCulprits）。避ける成分の確認を抜いた確認
+   * （お店の候補の、AI に聞く前の確認）でも、避けると言われた種類は外す
+   */
+  cautionAvoids: (CulpritIngredient | { nameJa: string; nameEn?: string })[] = avoidCulprits
 ): (product: Product, options?: AlternativeGateOptions) => AlternativeGateReason {
   const { ids: avoidIds, names: avoidNames } = avoidedIngredients(avoidCulprits);
   const words = avoidWords.map(normalizeIngredientName).filter(Boolean);
   // 鉱物油を避けるとき、名前で決まらない炭化水素（イソパラフィン等）は AI の判定で「鉱物油でない」ものだけ通す
   // （判定は確認の前に取ってくる。services/mineral-oil-judge.ts）
   const avoidsMineralOil = avoidIds.has('mineral_oil');
+  // 香料・精油・アルコールは、避けると言われた種類だけ外す（ほかは注意を書いて出す。alternativeCautions）
+  const blockedGroups = avoidedCautionGroups(cautionAvoids);
+  const blocks = (rating: KnownIngredient) => {
+    const group = CAUTION_GROUPS[rating.category];
+    return isStrongIrritant(rating) && (group === undefined || blockedGroups.has(group));
+  };
 
   return (product, options = {}) => {
     if (options.category && !fitsKind(product, options.category, options.subKind)) return 'kind';
@@ -143,9 +215,10 @@ export function alternativeGateReason(
       if (known && avoidIds.has(known.id)) return 'suspect';
       if (avoidsMineralOil && mayBeMineralOil(raw)) return 'suspect';
       if (words.some((word) => mayContainAvoidedWord(word, raw))) return 'suspect';
-      // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）
+      // 原因成分以外でも、強い刺激成分を含む製品は代替品として推奨しない（成分DBに無い精油などはルールの評価で見る）。
+      // 香料・精油・アルコールは、避けると言われていなければ外さない（カードに注意を書く）
       const rating = known ?? getOrGenerateIngredientExplanation(raw);
-      if (rating.riskLevel === 'high_irritant' || rating.riskLevel === 'moderate_irritant') return 'irritant';
+      if (blocks(rating)) return 'irritant';
       if (rating.riskLevel !== 'unknown') rated++;
 
       const names = [normalizeIngredientName(raw)];
@@ -189,7 +262,8 @@ function candidateSubKindOf(product: Pick<Product, 'name'>, category: Product['c
 }
 
 /**
- * 代わりの商品（成分確認済みの製品のうち、避ける成分・強い刺激成分を含まない同じ種類の製品）。
+ * 代わりの商品（成分確認済みの製品のうち、避ける成分・強い刺激成分を含まない同じ種類の製品。避けると言われていない香料・精油・
+ * アルコールは外さず、cautionIngredients を付けて後に並べる）。
  * excluded：勧めない製品。ID、または製品（ID・JAN コード・ブランドと名前で同じ製品を除く。比較リストに登録した製品は、
  * 別の表記で保存された同じ製品も勧めない）
  */
@@ -209,7 +283,7 @@ export function findSafeAlternatives(
   const excludedIds = new Set(excluded.filter((e): e is string => typeof e === 'string'));
   const isExcluded = registeredMatcher(excluded.filter((e): e is ProductIdentity => typeof e !== 'string'));
   const sheet = options.category === 'mask' && options.subKind === 'sheet';
-  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分を含まないものを探索。お店のページから保存した
+  // 成分確認済みの製品の中から、避けるべき成分・強い刺激成分（香料・精油・アルコールは避ける種類だけ）を含まないものを探索。お店のページから保存した
   // セット・まとめ売り（「6個セット」）は1個の商品ではないので勧めない（お店の候補と同じ決まり）
   const safeItems = (options.pool ?? COSMETICS_DATABASE).filter(
     (product) =>
@@ -222,24 +296,26 @@ export function findSafeAlternatives(
   // 同じ下位の種類を先に（名前で分からない候補は後に）。次に形・使う場所の近いもの、アクティブ成分（レチノール等）が
   // 少ないもの、「やや注意」の成分が少ないもの（植物エキス6つより、レチノール1つのほうが刺激になりやすい）。
   // 同じなら名前と ID の順（保存した順・新しく保存された製品で入れ替わらない）。
-  // 無香料・アルコールフリーは順位に使わない：香料・エタノールは強い刺激成分として上の確認で外してあり、製品の
-  // fragranceFree・alcoholFree の印は Open Beauty Facts の製品にしか無い（印のある製品だけが先に並んでいた）。
+  // 香料・精油・アルコールの強い刺激成分を含む製品（避けると言われていない種類。カードに注意を書く）は、含まない製品の後に。
+  // 無香料・アルコールフリーの印は順位に使わない：製品の fragranceFree・alcoholFree の印は Open Beauty Facts の製品にしか無い
+  // （印のある製品だけが先に並んでいた）。成分で見る注意の有無で並べる。
   // 医薬部外品であることは有効成分の効能が承認されていることを示すだけで、刺激の少なさとは関係しないため順位に使わない
   const { category, profile } = options;
   const sameSubKind = (p: Product) =>
     category && subKindFit(options.subKind, candidateSubKindOf(p, category, options.subKind), category) === 'same' ? 1 : 0;
   const similarity = (p: Product) =>
     hasFormProfile(profile) ? formSimilarity(profile, formProfile(p.name, category === 'other' ? undefined : category)) : 0;
-  const levels = new Map<string, IngredientRiskLevel>();
+  const ratings = new Map<string, KnownIngredient>();
   const ranked = safeItems.map((product) => ({
     product,
     subKind: sameSubKind(product),
     similarity: similarity(product),
-    ...cautionCounts(product, levels),
+    ...cautionCounts(product, ratings),
   }));
   return ranked
     .sort(
       (a, b) =>
+        Number(a.cautions.length > 0) - Number(b.cautions.length > 0) ||
         b.subKind - a.subKind ||
         b.similarity - a.similarity ||
         a.active - b.active ||
@@ -248,22 +324,27 @@ export function findSafeAlternatives(
         (a.product.id < b.product.id ? -1 : a.product.id > b.product.id ? 1 : 0)
     )
     .slice(0, limit)
-    .map((r) => r.product);
+    .map((r) => withAlternativeCautions(r.product, r.cautions));
 }
 
-/** 「アクティブ成分」の数と「やや注意」の成分の数（強い刺激成分を含む製品は確認で外してある） */
-function cautionCounts(product: Product, levels: Map<string, IngredientRiskLevel>): { active: number; caution: number } {
+/**
+ * 「アクティブ成分」の数・「やや注意」の成分の数と、カードに注意を書く成分（alternativeCautions と同じ。強い刺激成分の
+ * うち、香料・精油・アルコール以外を含む製品は確認で外してある）
+ */
+function cautionCounts(product: Product, ratings: Map<string, KnownIngredient>): { active: number; caution: number; cautions: string[] } {
   let active = 0;
   let caution = 0;
+  const cautions = new Set<string>();
   for (const { raw } of labelIngredients(product)) {
     // 同じ名前（水・BG・グリセリン等）は多くの製品にあるので、1回の呼び出しの中で評価を使い回す
-    let level = levels.get(raw);
-    if (level === undefined) {
-      level = (findMatchingKnownIngredient(raw) ?? getOrGenerateIngredientExplanation(raw)).riskLevel;
-      levels.set(raw, level);
+    let rating = ratings.get(raw);
+    if (rating === undefined) {
+      rating = ratingOf(raw);
+      ratings.set(raw, rating);
     }
-    if (level === 'active_caution') active++;
-    else if (level === 'low_caution') caution++;
+    if (rating.riskLevel === 'active_caution') active++;
+    else if (rating.riskLevel === 'low_caution') caution++;
+    else if (isCautionIrritant(rating)) cautions.add(raw);
   }
-  return { active, caution };
+  return { active, caution, cautions: [...cautions] };
 }

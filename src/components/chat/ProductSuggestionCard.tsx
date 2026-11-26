@@ -12,6 +12,7 @@ import { shopPriceVariantLabel } from '@/lib/search/listing-name';
 import { productSourceInfo } from '@/lib/product-source';
 import { quasiDrugActives } from '@/lib/quasi-drug';
 import { ProductSourceLink, WebSearchBadge } from './ProductSourceLink';
+import { CautionIngredientsNote } from './CautionIngredientsNote';
 import {
   activesLine,
   badge,
@@ -150,6 +151,8 @@ export const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
                     <span className={badge('neutral')}>アルコールフリー</span>
                   )}
                 </div>
+
+                {isAlternatives && <CautionIngredientsNote names={p.cautionIngredients} className="mt-2" />}
 
                 {actives.length > 0 && (
                   <div className={`mt-1.5 ${activesLine}`}>

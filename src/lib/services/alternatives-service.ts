@@ -424,11 +424,18 @@ function fillsRequest(product: Pick<Product, 'name'>, req: Pick<AlternativeReque
   return !subKind || !category || subKindFit(subKind, candidateSubKind(subKind, category, product.name), category) === 'same';
 }
 
-/** 合う物を先に（保存済み → お店）、次に埋めてよい合わない物（保存済み → お店）。limit 件まで */
+/** カードに注意を書く成分（香料・精油・アルコール。analyzer/alternative-gate.ts の alternativeCautions）の無い製品か */
+const withoutCautions = (p: Product) => !p.cautionIngredients?.length;
+
+/**
+ * 合う物を先に（保存済み → お店）、次に埋めてよい合わない物（保存済み → お店）。注意を書く製品は、注意の無い製品の後に
+ * （その中では同じ順）。limit 件まで
+ */
 function fittingFirst(saved: Product[], shop: Product[], req: AlternativeRequest, limit: number): Product[] {
   const fits = (p: Product) => fitsRequest(p, req);
   const fills = (p: Product) => !fits(p) && fillsRequest(p, req);
-  return [...saved.filter(fits), ...shop.filter(fits), ...saved.filter(fills), ...shop.filter(fills)].slice(0, limit);
+  const ordered = [...saved.filter(fits), ...shop.filter(fits), ...saved.filter(fills), ...shop.filter(fills)];
+  return [...ordered.filter(withoutCautions), ...ordered.filter((p) => !withoutCautions(p))].slice(0, limit);
 }
 
 /**
@@ -542,7 +549,8 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
   await judgeSaved();
   const local = check();
   saved = local.length;
-  fitting = local.filter((p) => fitsRequest(p, req)).length;
+  // 注意を書く製品（香料・精油・アルコール）は足りた数に数えない（お店・Web で注意の無い商品を探し、無ければ後ろに出す）
+  fitting = local.filter((p) => fitsRequest(p, req) && withoutCautions(p)).length;
   // 合う製品だけで足りれば、お店に聞かない（合わない製品は、お店で足りないときに埋める）
   if (fitting >= limit) return done({ products: fittingFirst(local, [], req, limit), researched: false, credits: [] }, 'saved');
 
@@ -566,7 +574,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
       limit: limit - fitting,
       // 保存済みの製品で埋めれば足りる（合わない物で）ときは、有料の JAN コードの調べものはしない（お店の検索は無料）。
       // 数えるのは出せる製品だけ（別の下位の種類の製品は埋めない。docs/plans/shop-paid-lookups-and-keyword-names.md「Step 1」）
-      allowPaidLookups: (req.allowPaidLookups ?? true) && shownSaved.length < limit,
+      allowPaidLookups: (req.allowPaidLookups ?? true) && shownSaved.filter(withoutCautions).length < limit,
       ...(judgeShop && { prepareCheck: judgeShop }),
     });
     // お店の商品は名前の系列と JAN コードで除いてあるが、登録した製品と同じ製品（ブランドと名前）もここで除く
@@ -577,7 +585,7 @@ export async function findAlternatives(req: AlternativeRequest, limit = DEFAULT_
     shopLog = { status: shop.status, ...shop.counts };
     // 合わない保存済みの製品で埋めて足りれば、Web では探さない（今までどおり、有料の調べものを増やさない）。
     // 埋めてよくない製品（頼まれた下位の種類でない）は出さないので、limit 件より少ないことがある
-    if (local.length + shopProducts.length >= limit) {
+    if (local.filter(withoutCautions).length + shopProducts.filter(withoutCautions).length >= limit) {
       const products = fittingFirst(local, shopProducts, req, limit);
       const shown = shopProducts.filter((p) => products.includes(p));
       return done({ products, researched: false, credits: shown.length > 0 ? credits : [] }, shown.length > 0 ? 'shop' : 'saved');
@@ -623,7 +631,7 @@ interface AlternativesLog {
   terms: string[];
   /** 保存済みの製品から見つかった数 */
   saved: number;
-  /** そのうち、頼まれた下位の種類・形に合う数（fitsRequest。これが足りないとお店に聞く） */
+  /** そのうち、頼まれた下位の種類・形に合い、注意を書く成分（香料・精油・アルコール）の無い数（fitsRequest。これが足りないとお店に聞く） */
   fitting: number;
   answeredBy: 'saved' | 'shop' | 'web' | 'none';
   shown: number;
@@ -808,7 +816,11 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
       : (req.kindWord ?? 'コスメ');
   // 頼まれた物の名前（からだ用のクリームは頼まれた形の名前）
   const asked = req.category && form ? requestedKindLabel(req.category, req.subKind, form) : kind;
-  const subject = names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : `刺激になりやすい成分を含まない${kind}`;
+  // 香料・精油・アルコールを含む商品（避けると言われていない種類）は、注意を付けて出す。そのときは「刺激になりやすい成分を
+  // 含まない」とは言わない
+  const anyCautions = products.some((p) => !withoutCautions(p));
+  const subject =
+    names.length > 0 ? `「${names.join('、')}」を含まない${kind}` : anyCautions ? kind : `刺激になりやすい成分を含まない${kind}`;
   const shortfall = explainsShortfall(products.length, shopCheck) ? shortfallParagraphs(shopCheck, kind) : [];
   // 鉱物油の、名前で決まらない炭化水素（docs/plans/mineral-oil-avoid-request.md）と、成分DBに無い語に当たる成分は AI の判定
   const unknown = req.unknownAvoid ?? [];
@@ -840,7 +852,9 @@ export function summarizeAlternatives(req: AlternativeRequest, products: Product
           ? [`${FORM_LABELS_JA[form]}タイプは見つからなかったため、ほかのタイプの${kind}を表示しています。`]
           : [];
   return [
-    `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
+    anyCautions
+      ? `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品を表示しています。ただし、香料・精油・アルコールを含む商品は外さず、カードに注意を書いて後に並べています（敏感肌には刺激になることがあります）。`
+      : `${subject}を${products.length}件見つけました。全成分を確認でき、${names.length > 0 ? 'これらの成分や' : ''}強い刺激になりやすい成分が入っていない商品だけを表示しています。`,
     ...aiJudged,
     ...otherForms,
     ...shortfall,

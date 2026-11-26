@@ -103,6 +103,11 @@ export interface Product {
   /** お店の商品検索の製品の商品ページ。アフィリエイト ID が設定されていればアフィリエイトリンク（sponsored） */
   shopLink?: { href: string; sponsored: boolean };
   /**
+   * 代わりの商品のうち、香料・精油・アルコールの強い刺激成分（避けると言われていない種類）を含む商品の、その成分の表示名。
+   * カードに注意として出す（analyzer/alternative-gate.ts の alternativeCautions）。表示だけに使う
+   */
+  cautionIngredients?: string[];
+  /**
    * shopLink が楽天の出品のとき、同じ商品の Yahoo!ショッピングの出品（JAN コードと名前で確かめたものだけ）。表示だけに使い、
    * 保存しない（docs/plans/alternatives-live-review-2026-11-23.md「Step 6」）
    */
@@ -206,7 +211,7 @@ export interface DifferentialAnalysisResult {
   sharedIngredients: string[];
   summaryJa: string;
   adviceJa: string[];
-  safeAlternatives: Product[]; // 原因候補の成分と強い刺激成分を含まない、同じ種類の商品
+  safeAlternatives: Product[]; // 原因候補の成分と強い刺激成分を含まない、同じ種類の商品（香料・精油・アルコールは避ける種類だけ外し、ほかは cautionIngredients で注意）
 }
 
 /** 販売ページで確認した価格（T4。楽天・Yahoo! の API だけ。保存しない。price-service.ts） */

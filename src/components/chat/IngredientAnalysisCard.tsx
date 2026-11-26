@@ -140,8 +140,12 @@ export const IngredientAnalysisCard: React.FC<IngredientAnalysisCardProps> = ({
       {safeAlternatives && safeAlternatives.length > 0 && (
         <AmazonAlternativeCard products={safeAlternatives} onPriceLookup={onPriceLookup} busy={busy} />
       )}
-      {/* 保存済みの製品だけでは3件に満たないとき、お店で同じ種類の商品を探す（種類が分かるときだけ） */}
-      {onFindAlternatives && safeAlternatives !== undefined && shownAlternatives.length < 3 && productCategory(product) && (
+      {/* 保存済みの製品だけでは3件に満たないとき、お店で同じ種類の商品を探す（種類が分かるときだけ）。香料・精油・アルコールの
+          注意を付けた製品は数えない（注意の無い商品をお店で探せるように） */}
+      {onFindAlternatives &&
+        safeAlternatives !== undefined &&
+        shownAlternatives.filter((p) => !p.cautionIngredients?.length).length < 3 &&
+        productCategory(product) && (
         <button
           type="button"
           onClick={onFindAlternatives}

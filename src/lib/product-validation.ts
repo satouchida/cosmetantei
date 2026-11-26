@@ -72,7 +72,11 @@ export function isValidProduct(p: unknown): p is Product {
     (product.amazonSearchUrl === undefined || isHttpsUrl(product.amazonSearchUrl, MAX_SEARCH_URL_LENGTH)) &&
     (product.imageUrl === undefined || isHttpsUrl(product.imageUrl)) &&
     (product.shopLink === undefined || isShopLink(product.shopLink)) &&
-    (product.yahooLink === undefined || isShopLink(product.yahooLink))
+    (product.yahooLink === undefined || isShopLink(product.yahooLink)) &&
+    (product.cautionIngredients === undefined ||
+      (Array.isArray(product.cautionIngredients) &&
+        product.cautionIngredients.length <= MAX_INGREDIENTS &&
+        product.cautionIngredients.every((i) => isShortString(i, MAX_INGREDIENT_LENGTH))))
   );
 }
 

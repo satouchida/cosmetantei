@@ -1,7 +1,7 @@
 import 'server-only';
 import { CulpritIngredient, PriceApiCredit, Product } from '../types';
 import { COSMETICS_DATABASE, isShareable } from '../data/cosmetics-db';
-import { AlternativeGateReason, alternativeGateReason } from '../analyzer/alternative-gate';
+import { AlternativeGateReason, alternativeCautions, alternativeGateReason, withAlternativeCautions } from '../analyzer/alternative-gate';
 import { AlternativeCategory, CATEGORY_LABELS_JA, candidateSubKind, categoryFromText, SubKind, subKindFit, subKindFromText } from '../analyzer/product-category';
 import { bestFormSimilarity, FORM_LABELS_JA, FormProfile, formFromText, formProfile, formSimilarity, hasFormProfile, ProductForm } from '../analyzer/product-form';
 import { CATEGORY_SYNONYMS, searchKey } from '../search/product-match';
@@ -117,6 +117,8 @@ export function shopFormWord(category: AlternativeCategory, subKind: SubKind | u
  * 1回の押下の仕事は今までどおり30件まで
  */
 const MAX_CANDIDATES = 30;
+/** 注意を書く成分（香料・精油・アルコール）の無い商品の順位の足し分（同じ下位の種類・形の近さの合計より大きく） */
+const CLEAN_RANK = 10_000;
 /** JAN コードで製品を調べる（有料のことがある）候補の数 */
 const MAX_BARCODE_LOOKUPS = 2;
 /**
@@ -749,10 +751,10 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   const gateReason = alternativeGateReason(input.avoid, input.avoidWords);
   const excludeIds = new Set(input.exclude.map((p) => p.id));
   /**
-   * 避ける成分のほかの決まり（種類・成分表示・化粧品基準・強い刺激成分・評価できた割合）だけで見た理由。
+   * 避ける成分のほかの決まり（種類・成分表示・化粧品基準・強い刺激成分（香料・精油・アルコールは避ける種類だけ）・評価できた割合）だけで見た理由。
    * kindWord の種類は AI の判定で決めるので見ない。成分を1つずつ見るので、商品ごとに1回だけ（CPU の時間）
    */
-  const preGate = alternativeGateReason([]);
+  const preGate = alternativeGateReason([], [], input.avoid);
   const preGateReasons = new WeakMap<Product, AlternativeGateReason>();
   const preGateReason = (p: Product): AlternativeGateReason => {
     let reason = preGateReasons.get(p);
@@ -781,7 +783,8 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     return reason === 'ok' ? null : GATE_DROP[reason];
   };
   // item: お店が返した候補（数・順位・関連順はこれで）。listing: 表示する別の出品（Yahoo! の商品を JAN コードで楽天に見つけたとき）
-  const found: { product: Product; item: ShopItem; listing?: ShopItem; listKey: string }[] = [];
+  // cautions: カードに注意を書く成分（香料・精油・アルコール。alternativeCautions）。無い商品を先に出す
+  const found: { product: Product; item: ShopItem; listing?: ShopItem; listKey: string; cautions: string[] }[] = [];
   // 同じ製品は1つだけ（別のお店・別の容量・先頭の 0 の違う JAN コード）。確かめた後で比べる
   // （確かめられない同じ製品の出品が先にあっても、確かめられる出品を落とさない）
   // 名前の後のお店の分類・管理の語（「ボディローション・ジェル」「ヴァセリン ヴアセリンアドバンスムコウ400」）も外して比べる
@@ -802,7 +805,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
         (jan !== '' && normalJan(f.item.janCode) === jan)
     );
     if (duplicate) drop('duplicate', item);
-    else found.push({ product, item, ...(listing && { listing }), listKey: list });
+    else found.push({ product, item, ...(listing && { listing }), listKey: list, cautions: alternativeCautions(product) });
   };
   const shownSaved = input.shownSaved ?? [];
   /**
@@ -819,20 +822,22 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     else if (shownSaved.some((saved) => isSameProduct(saved, product))) drop('duplicate', item);
     else add(product, item, listing);
   };
-  // 並べ替えの順位：同じ下位の種類が先（名前で分からない候補は後）、次に形・使う場所の近さ（product-form.ts）
+  // 並べ替えの順位：注意を書く成分（香料・精油・アルコール）の無い商品が先、次に同じ下位の種類（名前で分からない候補は後）、
+  // 次に形・使う場所の近さ（product-form.ts）
   const profile = hasFormProfile(input.profile) ? input.profile : undefined;
-  const rank = ({ item }: { item: ShopItem }) => {
-    if (!input.category) return 0;
+  const rank = ({ item, cautions }: { item: ShopItem; cautions: string[] }) => {
+    const clean = cautions.length === 0 ? CLEAN_RANK : 0;
+    if (!input.category) return clean;
     const name = withoutListingNoise(item.name);
     const sameSubKind = subKindFit(input.subKind, candidateSubKind(input.subKind, input.category, name), input.category) === 'same';
-    return (sameSubKind ? 1000 : 0) + (profile ? formSimilarity(profile, formProfile(name, input.category)) : 0);
+    return clean + (sameSubKind ? 1000 : 0) + (profile ? formSimilarity(profile, formProfile(name, input.category)) : 0);
   };
-  // 並べ替えるものが無ければ、今までどおり limit 件そろったら止める。あれば、いちばん近い候補が limit 件そろうまで、
-  // 無料の確かめ（保存済みの製品・楽天の説明）を MAX_CANDIDATES まで続ける（有料の調べものは増やさない）
-  const ranks = input.subKind !== undefined || profile !== undefined;
-  const best = (input.subKind ? 1000 : 0) + (profile ? bestFormSimilarity(profile) : 0);
-  const enough = () =>
-    found.length >= input.limit && (!ranks || found.filter((f) => rank(f) === best).length >= input.limit);
+  // いちばん近い（注意の無い）候補が limit 件そろうまで、無料の確かめ（保存済みの製品・楽天の説明）を MAX_CANDIDATES まで
+  // 続ける（有料の調べもの・楽天の JAN コードの検索は、今までどおり limit 件そろったら止める）
+  const best = CLEAN_RANK + (input.category && input.subKind ? 1000 : 0) + (input.category && profile ? bestFormSimilarity(profile) : 0);
+  const enough = () => found.filter((f) => rank(f) === best).length >= input.limit;
+  // 楽天の JAN コードの検索・有料の調べものの「足りた」も、注意の無い商品の数（注意を付ける商品で、探すのをやめない）
+  const cleanFound = () => found.filter((f) => f.cautions.length === 0).length;
   const position = new Map(items.map((item, i) => [item, i]));
   // 1. 保存済みの確かめた製品（JAN コード）。KV はまとめて、JAN コードのある商品の先頭 MAX_CANDIDATES 件だけ読む
   const withJan = items.filter((i) => i.janCode).slice(0, MAX_CANDIDATES);
@@ -907,7 +912,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     const interval = input.shopCallIntervalMs ?? API_INTERVAL_MS;
     const startedAt = Date.now();
     for (const item of lookable) {
-      if (found.length >= input.limit || counts.janToRakuten.tried >= MAX_RAKUTEN_JAN_LOOKUPS) break;
+      if (cleanFound() >= input.limit || counts.janToRakuten.tried >= MAX_RAKUTEN_JAN_LOOKUPS) break;
       // この手順全体の時間の上限（遅い応答が続いても、ボタンを押してからの待ち時間を延ばしすぎない）
       if (Date.now() - startedAt > JAN_STEP_BUDGET_MS) break;
       const jan = item.janCode ?? '';
@@ -935,7 +940,7 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
   //    もとの関連順で上から。全員で共有してよい製品（信頼するサイト等）で、名前がお店の商品と合うものだけ
   const payable = lookable.filter((item) => !viaRakuten.has(item));
   const toLookup = input.allowPaidLookups
-    ? payable.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - found.length)))
+    ? payable.slice(0, Math.max(0, Math.min(MAX_BARCODE_LOOKUPS, input.limit - cleanFound())))
     : [];
   counts.paidLookups = toLookup.length;
   // 調べない JAN コードの商品は、成分を確かめられなかった
@@ -960,9 +965,9 @@ export async function findShopAlternatives(input: ShopAlternativeInput): Promise
     else counts.yahooLink.why[c.why]++;
   }
   // 楽天で見つけた Yahoo! の商品は、楽天の出品の写真・価格・リンク（表示する価格・写真は楽天のデータだけ）
-  const products = shown.map(({ product, item, listing }, i) => {
+  const products = shown.map(({ product, item, listing, cautions }, i) => {
     const twin = twins[i];
-    return { ...withShopInfo(product, listing ?? item), ...(twin && { yahooLink: shopLink('yahoo', twin.url) }) };
+    return { ...withAlternativeCautions(withShopInfo(product, listing ?? item), cautions), ...(twin && { yahooLink: shopLink('yahoo', twin.url) }) };
   });
   // クレジットは使ったお店（Yahoo! のリンクを付けたら Yahoo! も）
   const used = [...shown.map(({ item, listing }) => (listing ?? item).shopId), ...(twins.some(Boolean) ? (['yahoo'] as const) : [])];

@@ -805,16 +805,33 @@ test('23. Safe alternatives exclude culprits written in English INCI and other s
   const withEthanol = addProductToDynamicCache(
     verifiedProduct({ id: 'obf_with_ethanol', name: 'エタノール入り クリーム', ingredients: ['水', 'エタノール'] })
   );
+  const withMit = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_with_mit', name: 'MIT入り クリーム', ingredients: ['水', 'メチルイソチアゾリノン'] })
+  );
+  const withLavender = addProductToDynamicCache(
+    verifiedProduct({ id: 'obf_with_lavender', name: 'ラベンダー油入り クリーム', ingredients: ['水', 'ラベンダー油'] })
+  );
   const clean = addProductToDynamicCache(
     verifiedProduct({ id: 'obf_clean_alt', name: '無香料 セラミド クリーム', ingredients: ['水', 'グリセリン', 'セラミドNP'] })
   );
 
   // 他のテストで追加された製品の影響を受けないよう、上限なしで候補全体を確認する
   const { culprits } = performDifferentialAnalysis([culpritOnly], []);
-  const ids = findSafeAlternatives(culprits, [culpritOnly.id], Number.MAX_SAFE_INTEGER).map((p) => p.id);
+  const found = findSafeAlternatives(culprits, [culpritOnly.id], Number.MAX_SAFE_INTEGER);
+  const ids = found.map((p) => p.id);
   assert.ok(!ids.includes(englishParfum.id), 'Product with "Parfum" must not be recommended against a 香料 culprit');
-  assert.ok(!ids.includes(withEthanol.id), 'Product containing another strong irritant must not be recommended');
+  assert.ok(!ids.includes(withMit.id), 'Product containing another strong irritant must not be recommended');
+  // 香料を避けるときは、精油も同じ「香り」として外す
+  assert.ok(!ids.includes(withLavender.id), 'Essential oil is avoided together with a 香料 culprit');
   assert.ok(ids.includes(clean.id), 'Clean verified product should be recommended');
+  // アルコールは避けていないので外さず、注意を付けて、注意の無い製品の後に
+  const ethanolAlt = found.find((p) => p.id === withEthanol.id);
+  assert.deepStrictEqual(ethanolAlt?.cautionIngredients, ['エタノール']);
+  assert.strictEqual(found.find((p) => p.id === clean.id)?.cautionIngredients, undefined);
+  assert.ok(ids.indexOf(clean.id) < ids.indexOf(withEthanol.id), 'Products with a caution come after clean ones');
+  assert.ok(found.slice(0, ids.indexOf(withEthanol.id)).every((p) => !p.cautionIngredients), 'Every clean product comes first');
+  // 保存済みの製品は書き換えない（注意は写しに付ける）
+  assert.strictEqual(withEthanol.cautionIngredients, undefined);
 });
 
 test('24. No "safe" rating without enough evaluated ingredient data', () => {
@@ -7146,6 +7163,7 @@ test('114. Screen gallery: every screen component is shown in /dev/gallery, whic
     'chat/MedicalNotice': 'inside the result cards',
     'chat/PairFindingList': 'inside DifferentialResultCard and CurrentUseResultCard',
     'chat/ProductSourceLink': 'inside the cards',
+    'chat/CautionIngredientsNote': 'inside the alternative cards (checked in /dev/gallery)',
     'chat/RegisteredProducts': 'context and hook, no layout of its own',
     'chat/IngredientDetailPanel': 'inside IngredientAnalysisCard (opens when an ingredient is tapped)',
     'chat/AnalysisCardHeader': 'part of IngredientAnalysisCard (checked in /dev/gallery)',
@@ -10166,9 +10184,17 @@ test('163. Alternative gate reasons: the first failing rule, in the gate\'s orde
   assert.strictEqual(reason(toner([...clean, '香料'])), 'suspect');
   // 成分DBに無い名前は、名前で避ける
   assert.strictEqual(reason(toner([...clean, 'ホゲホゲエキス'])), 'suspect');
-  assert.strictEqual(reason(toner([...clean, 'エタノール'])), 'irritant');
+  assert.strictEqual(reason(toner([...clean, 'メチルイソチアゾリノン'])), 'irritant');
+  // 香料・精油・アルコールは、避ける種類だけ外す。香料を避けると精油（香り）も外し、アルコールは注意を付けて出す
+  assert.strictEqual(reason(toner([...clean, 'エタノール'])), 'ok');
+  assert.strictEqual(reason(toner([...clean, 'ラベンダー油'])), 'irritant');
+  assert.strictEqual(reason(toner([...clean, 'ローマカミツレ花油'])), 'irritant', 'Essential oils rated by the rules are scent too');
+  assert.strictEqual(alternativeGateReason([{ nameJa: 'エタノール' }])(toner([...clean, '変性アルコール'])), 'suspect');
+  assert.strictEqual(alternativeGateReason([{ nameJa: 'イソプロパノール' }])(toner([...clean, 'エタノール'])), 'irritant', 'Avoiding one drying alcohol blocks the others');
+  assert.strictEqual(alternativeGateReason([{ nameJa: 'ラベンダー油' }])(toner([...clean, '香料'])), 'irritant', 'Avoiding an essential oil blocks 香料');
+  assert.strictEqual(alternativeGateReason([])(toner([...clean, 'オレンジ果皮油', '香料', 'エタノール'])), 'ok');
   // 成分の順：先に出てくる成分で決まる
-  assert.strictEqual(reason(toner(['水', 'エタノール', '香料'])), 'irritant');
+  assert.strictEqual(reason(toner(['水', 'メチルイソチアゾリノン', '香料'])), 'irritant');
   assert.strictEqual(reason(shopToner(['水', 'フガフガ', 'モゲモゲ', 'ピヨピヨ', 'BG'])), 'unverified', 'Shop text needs allowShopListing');
   assert.strictEqual(reason(shopToner(['水', 'フガフガ', 'モゲモゲ', 'ピヨピヨ', 'BG']), { allowShopListing: true, minRatedShare: 0.8 }), 'unrated');
   // 決まりの順：種類 → 確かめた全成分 → 利用者の成分表示 → 成分
@@ -10208,7 +10234,8 @@ test('164. Alternatives log line: one [alternatives] line per search, counts and
     { itemName: 'ログテスト うるおい リップクリーム', itemCode: 'lg:1', caption: caption(clean('セラミドNP')) },
     { itemName: '【公式】ジブンノ 潤い 化粧水 III 150ml', itemCode: 'lg:2', caption: caption(clean('セラミドNP')) },
     { itemName: 'カオリログ 化粧水 しっとり', itemCode: 'lg:3', caption: caption(`${clean('セラミドNP')}、香料`) },
-    { itemName: 'アルコログ 化粧水 さっぱり', itemCode: 'lg:4', caption: caption(`${clean('セラミドNP')}、エタノール`) },
+    // 強い刺激成分（香料・精油・アルコールは注意を付けて出すので、ほかの種類）
+    { itemName: 'シゲキログ 化粧水 さっぱり', itemCode: 'lg:4', caption: caption(`${clean('セラミドNP')}、メチルイソチアゾリノン`) },
     { itemName: 'ナゾログ 化粧水', itemCode: 'lg:5', caption: caption('水、ホゲホゲ、フガフガ、モゲモゲ、ピヨピヨ、ポヨポヨ、ニャンニャン、ワンワン、BG') },
     { itemName: 'ムジログ 化粧水', itemCode: 'lg:6', caption: 'しっとりします。' },
     { itemName: '【公式】ハダログ 化粧水 無香料 200ml', itemCode: 'lg:7', caption: caption(clean('セラミドNP')) },
@@ -11736,7 +11763,8 @@ test('177. Alternatives, fewer than 3 shown: the reply says how many shop listin
   assert.deepStrictEqual([explainsShortfall(2, check), explainsShortfall(3, check), explainsShortfall(0, null), explainsShortfall(0, undefined)], [true, false, false, false]);
   assert.strictEqual(getQuickReplyAction('📝 成分表示を入力する').kind, 'label_input');
 
-  // C. findAlternatives：shopCheck はお店の数（ログの shop）から作る。読めない2件・香料1件・エタノール1件・使える2件
+  // C. findAlternatives：shopCheck はお店の数（ログの shop）から作る。読めない2件・香料1件・強い刺激成分1件・使える2件
+  // （香料・精油・アルコールは注意を付けて出すので、強い刺激成分はほかの種類。テスト 235）
   const noList = '説明です。成分はパッケージをご覧ください。';
   const state: Parameters<typeof mockShops>[0] = {
     rakuten: [
@@ -11744,7 +11772,7 @@ test('177. Alternatives, fewer than 3 shown: the reply says how many shop listin
       { name: 'ラク177B号 化粧水', caption: readableCaption(1) },
       { name: 'ラク177C号 化粧水', caption: readableCaption(2, '香料') },
       { name: 'ラク177D号 化粧水', caption: noList },
-      { name: 'ラク177E号 化粧水', caption: readableCaption(4, 'エタノール') },
+      { name: 'ラク177E号 化粧水', caption: readableCaption(4, 'メチルイソチアゾリノン') },
       { name: 'ラク177F号 化粧水', caption: readableCaption(5) },
     ],
     yahoo: [],
@@ -14725,5 +14753,117 @@ test('234. For a kind the app doesn\'t know, a listing that another rule already
   } finally {
     console.log = originalLog;
     clearGatewayEnv();
+  }
+});
+
+test('235. Alternatives: essential oils, 香料 and drying alcohol the user did not avoid do not drop a product; it is shown after the clean ones with the ingredients to warn about, and the reply says so (live check 2026-11-26)', async () => {
+  const { findAlternatives, alternativeRequestFromText, summarizeAlternatives } = await import('../src/lib/services/alternatives-service');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const { isValidProduct } = await import('../src/lib/product-validation');
+  const fragrance = findMatchingKnownIngredient('香料')!;
+  const allSaved = COSMETICS_DATABASE.map((p) => p.id);
+  const toner = { avoid: [{ nameJa: '香料' }], known: [fragrance], category: 'toner' as const, excludeIds: allSaved };
+  // 関連順で先に、アルコールの商品（注意を付けて出す）と、香りの商品（香料を避けるので外す）
+  const state: Parameters<typeof mockShops>[0] = {
+    rakuten: [
+      { name: 'ラク235A号 化粧水', caption: readableCaption(1, 'エタノール') },
+      { name: 'ラク235B号 化粧水', caption: readableCaption(2, 'オレンジ果皮油') },
+      { name: 'ラク235C号 化粧水', caption: readableCaption(3) },
+      { name: 'ラク235D号 化粧水', caption: readableCaption(4) },
+      { name: 'ラク235E号 化粧水', caption: readableCaption(5, 'ローマカミツレ花油') },
+      { name: 'ラク235F号 化粧水', caption: readableCaption(6) },
+    ],
+    yahoo: [],
+  };
+  const shops = mockShops(state);
+  const originalLog = console.log;
+  const logs: string[] = [];
+  console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  const lastShopLog = () => JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length)).shop;
+  try {
+    resetSpendCap();
+    // 注意の無い商品が3件そろうまで確かめ、アルコールの商品は出さない（先に見つけても、注意の無い商品の後）
+    const full = await findAlternatives(toner);
+    assert.deepStrictEqual(full.products.map((p) => p.id), ['shoptext_rakuten_ms:2', 'shoptext_rakuten_ms:3', 'shoptext_rakuten_ms:5']);
+    assert.ok(full.products.every((p) => p.cautionIngredients === undefined));
+    const counts = lastShopLog();
+    // 精油（オレンジ果皮油・ルールで精油と分かるローマカミツレ花油）は、香料を避けるので強い刺激成分として外す
+    assert.deepStrictEqual([counts.dropped.irritant, counts.dropped.suspect, counts.shown, counts.notShown], [2, 0, 3, 1]);
+
+    // 注意の無い商品が足りなければ、アルコールの商品を注意を付けて後に出す
+    state.rakuten.splice(3);
+    const short = await findAlternatives(toner);
+    assert.deepStrictEqual(short.products.map((p) => p.id), ['shoptext_rakuten_ms:2', 'shoptext_rakuten_ms:0']);
+    assert.deepStrictEqual(short.products[1].cautionIngredients, ['エタノール']);
+    assert.strictEqual(short.products[0].cautionIngredients, undefined);
+    assert.ok(isValidProduct(short.products[1]), 'A product with cautions can be sent back to the server');
+    assert.ok(!isValidProduct({ ...short.products[1], cautionIngredients: 'エタノール' }));
+    // 返答：注意を付けて後に並べたと書く（「強い刺激になりやすい成分が入っていない商品だけ」とは言わない）
+    const req = { ...alternativeRequestFromText('香料が入っていない化粧水')!, ...toner };
+    const reply = summarizeAlternatives(req, short.products, short.shopCheck);
+    assert.ok(
+      reply.startsWith(
+        '「香料」を含まない化粧水を2件見つけました。全成分を確認でき、これらの成分や強い刺激になりやすい成分が入っていない商品を表示しています。ただし、香料・精油・アルコールを含む商品は外さず、カードに注意を書いて後に並べています（敏感肌には刺激になることがあります）。'
+      ),
+      reply
+    );
+    assert.ok(!reply.includes('入っていない商品だけ'), reply);
+    // 避ける成分の無い頼み：注意を付けた商品があれば、「刺激になりやすい成分を含まない」とは言わない
+    const plain = { ...req, avoid: [], known: [] };
+    assert.ok(summarizeAlternatives(plain, short.products).startsWith('化粧水を2件見つけました。'), summarizeAlternatives(plain, short.products));
+    assert.ok(summarizeAlternatives(plain, [short.products[0]]).startsWith('刺激になりやすい成分を含まない化粧水を1件見つけました。'));
+
+    // 保存済みの製品に注意を付ける製品しか無ければ、足りたことにせずお店に聞き、お店の注意の無い商品を先に出す
+    const savedWarned = addProductToDynamicCache(
+      verifiedProduct({ id: 'obf_t235_alcohol', name: 'T235 アルコール 化粧水', category: 'toner', ingredients: ['水', 'BG', 'グリセリン', 'エタノール'] })
+    );
+    try {
+      state.rakuten.splice(0, state.rakuten.length, { name: 'ラク235G号 化粧水', caption: readableCaption(7) }, { name: 'ラク235H号 化粧水', caption: readableCaption(8) });
+      const mixed = await findAlternatives({ ...toner, excludeIds: allSaved });
+      assert.deepStrictEqual(mixed.products.map((p) => p.id), ['shoptext_rakuten_ms:0', 'shoptext_rakuten_ms:1', savedWarned.id]);
+      assert.deepStrictEqual(mixed.products[2].cautionIngredients, ['エタノール']);
+      const line = JSON.parse(logs.filter((l) => l.startsWith('[alternatives] ')).at(-1)!.slice('[alternatives] '.length));
+      assert.deepStrictEqual([line.saved, line.fitting, line.answeredBy], [1, 0, 'shop']);
+    } finally {
+      const at = COSMETICS_DATABASE.findIndex((p) => p.id === savedWarned.id);
+      if (at >= 0) COSMETICS_DATABASE.splice(at, 1);
+    }
+  } finally {
+    console.log = originalLog;
+    shops.restore();
+  }
+});
+
+test('236. Shop alternatives: a listing shown with a caution (香料・精油・アルコール) does not end the search early — the JAN lookup on Rakuten still looks for a listing without one, and an avoided group is dropped before any AI judgement (live check 2026-11-26)', async () => {
+  const { findShopAlternatives } = await import('../src/lib/services/shop-alternatives');
+  const { resetSpendCap } = await import('../src/lib/server/spend-cap');
+  const jan = '4901700523500';
+  const state: Parameters<typeof mockShops>[0] = {
+    rakuten: [{ name: 'ラク236A号 化粧水', caption: readableCaption(1, 'エタノール') }],
+    yahoo: [{ name: 'ヤフ236B号 化粧水', jan }],
+    rakutenByJan: { [jan]: [{ name: 'ヤフ236B号 化粧水', caption: `${readableCaption(2)}<br>【JANコード】${jan}` }] },
+  };
+  const shops = mockShops(state);
+  try {
+    resetSpendCap();
+    const judged: string[] = [];
+    const search = (avoid: { nameJa: string }[]) =>
+      findShopAlternatives({
+        category: 'toner', avoid, terms: [], exclude: [], limit: 1, shopCallIntervalMs: 0,
+        prepareCheck: async (products) => { judged.push(...products.map((p) => p.id)); },
+      });
+    // アルコールの商品を先に見つけても、注意の無い商品を楽天の JAN コードの検索で探して出す
+    const result = await search([{ nameJa: '香料' }]);
+    assert.deepStrictEqual(result.products.map((p) => p.id), [`shoptext_rakuten_msj:${jan}-0`]);
+    assert.strictEqual(result.products[0].cautionIngredients, undefined);
+    assert.deepStrictEqual([result.counts.janToRakuten.tried, result.counts.janToRakuten.found, result.counts.notShown], [1, 1, 1]);
+    // アルコールを避けるときは、AI に聞く前に外す（判定の回数を使わない）
+    judged.length = 0;
+    const avoided = await search([{ nameJa: 'エタノール' }]);
+    assert.deepStrictEqual(avoided.products.map((p) => p.id), [`shoptext_rakuten_msj:${jan}-0`]);
+    assert.ok(!judged.includes('shoptext_rakuten_ms:0'), JSON.stringify(judged));
+    assert.strictEqual(avoided.counts.dropped.suspect, 1);
+  } finally {
+    shops.restore();
   }
 });

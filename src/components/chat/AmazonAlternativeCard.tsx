@@ -12,6 +12,7 @@ import { buildYahooAffiliateUrl } from '@/lib/services/yahoo-search-affiliate';
 import { isPersistable } from '@/lib/usable-products';
 import { listingCardLabels } from '@/lib/display-brand';
 import { useUnregisteredProducts } from './RegisteredProducts';
+import { CautionIngredientsNote } from './CautionIngredientsNote';
 
 interface AmazonAlternativeCardProps {
   products: Product[];
@@ -36,6 +37,8 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
   const subKinds = new Set(products.map((p) => productSubKind(p)));
   const subKind = subKinds.size === 1 ? [...subKinds][0] : undefined;
   const sameKind = category ? `同じ種類（${kindLabel(category, subKind)}）で、` : '';
+  // 香料・精油・アルコールを含む商品（避ける成分でない種類）は外さず、カードに注意を書いている
+  const anyCautions = products.some((p) => (p.cautionIngredients?.length ?? 0) > 0);
 
   return (
     <section className={`my-3 space-y-3 text-ink ${panel('safe', 'roomy')}`}>
@@ -50,7 +53,9 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
               <span className={badge('neutral')}>PR</span>
             </h3>
             <p className="text-xs text-ink-muted">
-              {sameKind}原因候補の成分と強い刺激成分を含まず、全成分を確認できた商品です
+              {anyCautions
+                ? `${sameKind}原因候補の成分と強い刺激成分を含まず、全成分を確認できた商品です（香料・精油・アルコールを含む商品は、注意を書いて後に並べています）`
+                : `${sameKind}原因候補の成分と強い刺激成分を含まず、全成分を確認できた商品です`}
             </p>
           </div>
         </div>
@@ -105,6 +110,7 @@ export const AmazonAlternativeCard: React.FC<AmazonAlternativeCardProps> = ({
                     <span className={badge('neutral')}>アルコールフリー</span>
                   )}
                 </div>
+                <CautionIngredientsNote names={p.cautionIngredients} className="mt-2" />
               </div>
 
               <div className="mt-3 pt-3 border-t border-sand-200">
